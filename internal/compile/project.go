@@ -83,6 +83,12 @@ type projectContext struct {
 	// State (concurrency-safe; reads memoized). The interface type lets tests
 	// inject a deterministic fake via stampProviderOverride.
 	stamps transformer.StampProvider
+
+	// sourceTraces maps each file the transformer sidecar reprinted back to the
+	// text on disk. Every position this pass produces is an index into the
+	// reprint, so a diagnostic is only reportable after it has been through
+	// these. Empty for a project with no transformer plugins.
+	sourceTraces diagnosticTraces
 }
 
 // newProjectProgram builds the tsgo Program for projectDir over the sanitized
@@ -131,10 +137,7 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 		return "", nil, diags, err
 	}
 	if len(opts.Overlays) > 0 {
-		if err := rejectOverlaysWithSidecar(program); err != nil {
-			return "", nil, []string{err.Error()}, err
-		}
-		matched, err := matchOverlaysToProgram(program, opts.Overlays)
+		matched, err := matchProgramOverlays(program, opts)
 		if err != nil {
 			return "", nil, []string{err.Error()}, err
 		}
@@ -145,23 +148,18 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	return dir, program, nil, nil
 }
 
-// rejectOverlaysWithSidecar refuses the combination of ProjectOptions.Overlays
-// and any project that routes through the transformer sidecar.
+// matchProgramOverlays checks the overlays against the program they were
+// applied to, and reports how many of them landed on a file it holds.
 //
-// The sidecar sends file NAMES to the Node worker, which reads the text off
-// DISK itself, and prepareTransformerProgram then rebuilds the program from the
-// worker's transformed output alone — discarding opts.Overlays entirely. The
-// compile would silently report disk text. Threading overlays through the
-// sidecar protocol is a separate change; until then this is an error, not a
-// silent wrong answer.
-func rejectOverlaysWithSidecar(program *compiler.Program) error {
-	switch {
-	case projectUsesTransformerPlugins(program.CommandLine()):
-		return errors.New("compile: source overlays are not supported on projects with transformer plugins (the plugin sidecar reads source from disk)")
-	case declarationUsesPathAliases(program):
-		return errors.New("compile: source overlays are not supported on projects that emit declarations with baseUrl/paths (the declaration sidecar reads source from disk)")
+// The rule — every overlay must match something — is scoped to one program when
+// there is only one, and to the whole solution when opts came from
+// CompileSolutionDiagnostics. See matchSolutionOverlaysToProgram for why it
+// cannot be applied per project under --build.
+func matchProgramOverlays(program *compiler.Program, opts ProjectOptions) (int, error) {
+	if opts.solutionOverlays != nil {
+		return matchSolutionOverlaysToProgram(program, opts.Overlays, opts.solutionOverlays)
 	}
-	return nil
+	return matchOverlaysToProgram(program, opts.Overlays)
 }
 
 // projectIsPackage ports the isPackage detection of createProjectData.ts
@@ -573,16 +571,27 @@ type ProjectOptions struct {
 	// is). Nothing is written back to disk. Empty (the default) leaves the
 	// filesystem wrapping byte-for-byte as it was before overlays existed.
 	//
-	// Three limits, all enforced rather than silently tolerated:
+	// Two limits, both enforced rather than silently tolerated:
 	//   - Overlays REPLACE files; they cannot ADD one. newOverlayFS overrides
 	//     FileExists and ReadFile, not directory enumeration, so a path the
 	//     tsconfig include never walks to is never asked for.
 	//   - A key naming no file in the resulting program is an error. See
 	//     matchOverlaysToProgram: a silently ignored overlay yields a clean
 	//     report on the UNMODIFIED tree, which a caller cannot detect.
-	//   - Projects that route through the transformer sidecar cannot be
-	//     overlaid at all. See rejectOverlaysWithSidecar.
+	//
+	// Projects with transformer plugins are not a limit. changedFilesFor ships
+	// every overlay to the Node worker, whose overrides map backs the
+	// LanguageService the plugins and the declaration emit both run against.
 	Overlays map[string]string
+
+	// solutionOverlays is set only by CompileSolutionDiagnostics, and only on
+	// the per-project options it derives. Its presence is what tells
+	// matchProgramOverlays that this program holds one project's share of a
+	// solution's files rather than all of them, so the "every overlay must
+	// match" rule is answered against the union of every project instead of
+	// this one. Nil — every other caller — is the single-project rule,
+	// unchanged.
+	solutionOverlays *solutionOverlayMatches
 
 	forceFullBuild bool
 }
@@ -662,7 +671,7 @@ func CompileProjectWithOptions(projectDir string, opts ProjectOptions) (map[stri
 
 func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOptions) (map[string]string, []DiagnosticInfo, error) {
 	sourceFiles := projectSourceFiles(program)
-	program, sourceFiles, diags, err := prepareProjectProgramForCompile(dir, program, sourceFiles)
+	program, sourceFiles, traces, diags, err := prepareProjectProgramForCompile(dir, program, sourceFiles, opts.Overlays)
 	if err != nil {
 		return nil, stringDiagnostics(diags), err
 	}
@@ -670,6 +679,7 @@ func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOp
 	if err != nil {
 		return nil, stringDiagnostics(pctxDiags), err
 	}
+	pctx.sourceTraces = traces
 	outputs, _, infos, err := compileProjectSourceFiles(dir, program, pctx, sourceFiles, opts)
 	return outputs, infos, err
 }
@@ -716,15 +726,18 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 
 	// A non-nil collector is what turns census mode on; nil is stock.
 	census := opts.census
+	if census != nil {
+		census.traces = pctx.sourceTraces
+	}
 
 	// Gate 1 of 4. Program-level option diagnostics fail the compile before any
 	// file is transformed, mirroring CompileFile. Census mode records them as
 	// project-level diagnostics and carries on.
 	if tsDiags := program.GetProgramDiagnostics(); len(tsDiags) > 0 {
 		if census == nil {
-			return nil, nil, tsDiagnosticInfos(tsDiags), errors.New("compile: TypeScript diagnostics")
+			return nil, nil, tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 		}
-		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags))
+		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags, pctx.sourceTraces))
 	}
 
 	// compileFiles.ts L102 — note the TWO dots.
@@ -762,7 +775,7 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	if census == nil {
 		for _, precheck := range prechecks {
 			if len(precheck.tsDiags) > 0 {
-				return nil, nil, tsDiagnosticInfos(precheck.tsDiags), errors.New("compile: TypeScript diagnostics")
+				return nil, nil, tsDiagnosticInfos(precheck.tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 			}
 			if len(precheck.commentDiags) > 0 {
 				return nil, nil, stringDiagnostics(precheck.commentDiags), errors.New("compile: comment directive diagnostics")
@@ -774,9 +787,9 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	// and releases the checker mutex without defer.
 	if tsDiags := program.GetGlobalDiagnostics(ctx); len(tsDiags) > 0 {
 		if census == nil {
-			return nil, nil, tsDiagnosticInfos(tsDiags), errors.New("compile: TypeScript diagnostics")
+			return nil, nil, tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 		}
-		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags))
+		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags, pctx.sourceTraces))
 	}
 
 	wg = core.NewWorkGroup(program.SingleThreaded() || len(groups) <= 1)
@@ -906,7 +919,9 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 		}
 		result.transformed = true
 		if len(diags) > 0 {
-			result.diags = diags
+			// Node-located diagnostics index the reprinted text the same way
+			// TypeScript's do, so they need the same trip back through the trace.
+			result.diags = pctx.sourceTraces.remapAll(diags, sourceFile.Text())
 			result.err = errors.New("compile: transformer diagnostics")
 			return
 		}

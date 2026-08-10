@@ -215,7 +215,7 @@ class SidecarProjectSession {
           .filter((node) => this.ts.isSourceFile(node) && !sourceFiles.includes(node))
           .map((sourceFile) => ({
             fileName: sourceFile.fileName,
-            ...printSourceFileWithTraceMap(this.ts, printer, sourceFile, program.getCompilerOptions()),
+            ...printSourceFileWithTraceMap(this.ts, printer, sourceFile),
           })),
       };
     } finally {
@@ -233,7 +233,11 @@ class SidecarProjectSession {
     const declarations = [];
     const afterDeclarations = [
       ...wrapTransformersWithParentFix(this.ts, transforms.afterDeclarations),
-      ...createDeclarationTransformers(this.ts, program),
+      // The service host is the module-resolution host too: every member
+      // ts.resolveModuleName asks for is on it, answered from this session's
+      // overrides. ts.sys would answer from disk, so an overlay that adds an
+      // import would resolve against a tree that does not have it.
+      ...createDeclarationTransformers(this.ts, program, createServiceHost(this, this.ts)),
     ];
     const customTransformers = { afterDeclarations };
     const diagnostics = [];
@@ -269,7 +273,7 @@ class SidecarProjectSession {
         };
       }
 
-      const pluginConfigs = getPluginConfigs(this.ts, this.tsConfigPath);
+      const pluginConfigs = getPluginConfigs(this.parsed.options);
       const { transforms, diagnostics: pluginDiagnostics } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
@@ -304,11 +308,12 @@ class SidecarProjectSession {
   }
 }
 
-function printSourceFileWithTraceMap(ts, printer, sourceFile, compilerOptions) {
-  if (!compilerOptions.sourceMap) {
-    return { text: printer.printFile(sourceFile) };
-  }
-
+// The trace map is not an emit artifact — rotor needs it to put every position
+// this reprint produces (diagnostics included) back into the coordinates of the
+// file on disk. So it is generated whether or not the project emits source
+// maps; a project that turned sourceMap off would otherwise report every
+// diagnostic at an offset into text nobody can see.
+function printSourceFileWithTraceMap(ts, printer, sourceFile) {
   const writer = ts.createTextWriter("\n");
   const generator = ts.createSourceMapGenerator(
     {

@@ -19,9 +19,11 @@ import (
 	"rotor/tsgo/scanner"
 )
 
-// DiagnosticInfo carries the structured form of a compile diagnostic. Rotor
-// transformer diagnostics include a stable upstream-style Code (for example
-// "noAny"); TypeScript diagnostics leave Code empty and only populate Message.
+// DiagnosticInfo carries the structured form of a compile diagnostic. Every
+// diagnostic carries a stable Code: the upstream-style factory name for a rotor
+// transformer diagnostic (for example "noAny"), and "TS####" for a TypeScript
+// one (see TypeScriptDiagnosticCode). Code is empty only where there was never
+// one to carry — a project-setup failure reported as a bare message.
 // FileName, Offset, and Len locate the diagnostic span within the source file
 // for code-frame rendering; FileName is empty when no source location is
 // available, and Len is 0 when no usable span was found.
@@ -86,7 +88,7 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	if sourceFile == nil {
 		return "", nil, fmt.Errorf("compile: source file not in program: %s", filePath)
 	}
-	program, preparedFiles, diags, err := prepareProjectProgramForCompile(dir, program, []*ast.SourceFile{sourceFile})
+	program, preparedFiles, traces, diags, err := prepareProjectProgramForCompile(dir, program, []*ast.SourceFile{sourceFile}, opts.Overlays)
 	if err != nil {
 		return "", stringDiagnostics(diags), err
 	}
@@ -96,6 +98,7 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	if err != nil {
 		return "", stringDiagnostics(diags), err
 	}
+	pctx.sourceTraces = traces
 	ctx := context.Background()
 
 	// Program-level option diagnostics (e.g. removed-option checks) plus this
@@ -105,7 +108,7 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	tsDiags := program.GetProgramDiagnostics()
 	tsDiags = append(tsDiags, preEmitDiagnostics(ctx, program, sourceFile)...)
 	if len(tsDiags) > 0 {
-		return "", tsDiagnosticInfos(tsDiags), errors.New("compile: TypeScript diagnostics")
+		return "", tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 	}
 	if !opts.AllowCommentDirectives {
 		if diags := commentDirectiveDiagnostics(sourceFile); len(diags) > 0 {
@@ -262,10 +265,10 @@ func stringDiagnostics(diags []string) []DiagnosticInfo {
 	return out
 }
 
-func tsDiagnosticInfos(diags []*ast.Diagnostic) []DiagnosticInfo {
+func tsDiagnosticInfos(diags []*ast.Diagnostic, traces diagnosticTraces) []DiagnosticInfo {
 	out := make([]DiagnosticInfo, len(diags))
 	for i, d := range diags {
-		out[i] = infoFromTSDiag(d)
+		out[i] = infoFromTSDiag(d, traces)
 	}
 	return out
 }
@@ -289,13 +292,23 @@ func infoFromNodeDiag(d transformer.Diagnostic) DiagnosticInfo {
 	return info
 }
 
-func infoFromTSDiag(d *ast.Diagnostic) DiagnosticInfo {
-	info := DiagnosticInfo{Code: "TS" + strconv.FormatInt(int64(d.Code()), 10), Message: d.String()}
+// TypeScriptDiagnosticCode renders a TypeScript diagnostic number the way every
+// consumer of DiagnosticInfo.Code sees it. `sloptor check` builds its --json
+// entries straight from ast.Diagnostic and never goes through DiagnosticInfo,
+// so it needs this too — and a second `"TS" + itoa` there is a second place for
+// the format to drift.
+func TypeScriptDiagnosticCode(code int32) string {
+	return "TS" + strconv.FormatInt(int64(code), 10)
+}
+
+func infoFromTSDiag(d *ast.Diagnostic, traces diagnosticTraces) DiagnosticInfo {
+	info := DiagnosticInfo{Code: TypeScriptDiagnosticCode(d.Code()), Message: d.String()}
 	if f := d.File(); f != nil {
 		info.FileName = f.FileName()
 		info.Offset = d.Pos()
 		info.Len = d.Len()
 		info.Line, info.Col = lineColIn(f.Text(), d.Pos())
+		info = traces.remap(info, f.Text())
 	}
 	return info
 }

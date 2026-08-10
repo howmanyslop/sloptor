@@ -96,7 +96,7 @@ func transformStateForFile(t *testing.T, dir, relPath string) *transformer.State
 	if sourceFile == nil {
 		t.Fatalf("source file not in program: %s", filePath)
 	}
-	program, prepared, diags, err := prepareProjectProgramForCompile(absDir, program, []*ast.SourceFile{sourceFile})
+	program, prepared, traces, diags, err := prepareProjectProgramForCompile(absDir, program, []*ast.SourceFile{sourceFile}, nil)
 	if err != nil {
 		t.Fatalf("prepareProjectProgramForCompile: %v (diags: %v)", err, diags)
 	}
@@ -105,6 +105,7 @@ func transformStateForFile(t *testing.T, dir, relPath string) *transformer.State
 	if err != nil {
 		t.Fatalf("newProjectContext: %v (diags: %v)", err, diags)
 	}
+	pctx.sourceTraces = traces
 	chk, release := program.GetTypeCheckerForFile(context.Background(), sourceFile)
 	t.Cleanup(release)
 
@@ -236,6 +237,59 @@ func TestCompileProjectDiagnosticsTransformsPastTypeErrors(t *testing.T) {
 	}
 	if noany.Outcome != FileOutcomeTransformerDiagnostic {
 		t.Errorf("noany.ts outcome = %q (diags %+v), want %q", noany.Outcome, noany.Diagnostics, FileOutcomeTransformerDiagnostic)
+	}
+}
+
+func TestCompileProjectDiagnosticsCodesNameTheDiagnosticClass(t *testing.T) {
+	// Given one file TypeScript rejects and one the transformer rejects
+	dir := writeCensusProject(t, map[string]string{
+		"typebad.ts": censusFiles["typebad.ts"],
+		"noany.ts":   censusFiles["noany.ts"],
+	})
+
+	// When they are censused
+	census, err := CompileProjectDiagnostics(dir, ProjectOptions{})
+	if err != nil {
+		t.Fatalf("CompileProjectDiagnostics: %v", err)
+	}
+
+	// Then every diagnostic carries a code naming its class. A file's Outcome
+	// reports only the most severe of its failures, so it cannot tell a
+	// consumer which family an individual diagnostic belongs to.
+	byName := censusByFile(census)
+	for _, tc := range []struct {
+		name     string
+		wantCode string
+	}{
+		{"typebad.ts", "TS2322"},
+		{"noany.ts", "noAny"},
+	} {
+		file, ok := byName[tc.name]
+		if !ok || len(file.Diagnostics) == 0 {
+			t.Errorf("%s carries no diagnostics: %+v", tc.name, file)
+			continue
+		}
+		if got := file.Diagnostics[0].Code; got != tc.wantCode {
+			t.Errorf("%s code = %q, want %q (message %q)", tc.name, got, tc.wantCode, file.Diagnostics[0].Message)
+		}
+	}
+}
+
+func TestTypeScriptDiagnosticCode(t *testing.T) {
+	// Given the diagnostic numbers a checker reports
+	// When they are rendered for DiagnosticInfo.Code and for `check --json`
+	// Then both read as the upstream "TS####" form, from one implementation, so
+	// the two paths cannot drift apart
+	for _, tc := range []struct {
+		code int32
+		want string
+	}{
+		{2322, "TS2322"},
+		{0, "TS0"},
+	} {
+		if got := TypeScriptDiagnosticCode(tc.code); got != tc.want {
+			t.Errorf("TypeScriptDiagnosticCode(%d) = %q, want %q", tc.code, got, tc.want)
+		}
 	}
 }
 
@@ -437,25 +491,29 @@ func addTransformerPlugin(t *testing.T, dir string) {
 	}
 }
 
-func TestCompileProjectOverlaysWithTransformerPluginsAreRejected(t *testing.T) {
-	// Given a project with a transformer plugin, and an overlay
+func TestCompileProjectOverlaysWithTransformerPluginsAreAccepted(t *testing.T) {
+	// Given a project with a transformer plugin, and an overlay for a file it
+	// holds
 	dir := writeCensusProject(t, map[string]string{"clean.ts": censusFiles["clean.ts"]})
 	addTransformerPlugin(t, dir)
 	cleanPath := filepath.Join(dir, "src", "clean.ts")
 
-	// When a census is asked for
-	_, err := CompileProjectDiagnostics(dir, ProjectOptions{
+	// When the overlays are matched against the program
+	_, program, _, err := newProjectProgramWithOptions(dir, "", ProjectOptions{})
+	if err != nil {
+		t.Fatalf("newProjectProgramWithOptions: %v", err)
+	}
+	matched, err := matchProgramOverlays(program, ProjectOptions{
 		Overlays: map[string]string{cleanPath: censusFiles["noany.ts"]},
 	})
 
-	// Then it refuses. The sidecar sends file NAMES and reads disk itself, then
-	// rebuilds the program on its own overlays alone — so the overlays would be
-	// discarded and the census would report disk text as `ok`.
-	if err == nil {
-		t.Fatal("overlays combined with transformer plugins were accepted")
+	// Then the plugin does not disqualify them. The worker holds the overlay
+	// text, so the census reports on what the caller sent.
+	if err != nil {
+		t.Fatalf("overlays on a transformer-plugin project were refused: %v", err)
 	}
-	if !strings.Contains(err.Error(), "transformer plugin") {
-		t.Errorf("error = %v, want it to name the transformer-plugin limitation", err)
+	if matched != 1 {
+		t.Errorf("matched = %d, want 1", matched)
 	}
 }
 
@@ -536,7 +594,7 @@ func censusCompileOutputs(t *testing.T, dir string) map[string]string {
 		t.Fatalf("newProjectProgramWithOptions: %v (diags: %v)", err, diags)
 	}
 	sourceFiles := projectSourceFiles(program)
-	program, sourceFiles, prepDiags, err := prepareProjectProgramForCompile(absDir, program, sourceFiles)
+	program, sourceFiles, prepTraces, prepDiags, err := prepareProjectProgramForCompile(absDir, program, sourceFiles, nil)
 	if err != nil {
 		t.Fatalf("prepareProjectProgramForCompile: %v (diags: %v)", err, prepDiags)
 	}
@@ -544,6 +602,7 @@ func censusCompileOutputs(t *testing.T, dir string) map[string]string {
 	if err != nil {
 		t.Fatalf("newProjectContext: %v (diags: %v)", err, ctxDiags)
 	}
+	pctx.sourceTraces = prepTraces
 	outputs, _, _, err := compileProjectSourceFiles(absDir, program, pctx, sourceFiles, opts)
 	if err != nil {
 		t.Fatalf("compileProjectSourceFiles: %v", err)

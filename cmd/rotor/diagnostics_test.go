@@ -88,7 +88,7 @@ func TestCmdDiagnosticsJSONClassifiesEveryFile(t *testing.T) {
 		"panicking.ts": "export const x = neverDeclared;\n",
 	})
 
-	// When `rotor diagnostics --json` runs over it
+	// When `sloptor diagnostics --json` runs over it
 	output, code := captureStdout(t, func() int {
 		return withStdin(t, "", func() int {
 			return cmdDiagnostics([]string{"--project", dir, "--json"})
@@ -442,7 +442,7 @@ func TestCmdDiagnosticsWritesNothingToDisk(t *testing.T) {
 	}
 
 	// Then nothing was written: no outDir, no include folder, and none of
-	// `rotor check`'s rotor.d.ts
+	// `sloptor check`'s rotor.d.ts
 	after := treeEntries(t, dir)
 	if strings.Join(after, "\n") != strings.Join(before, "\n") {
 		t.Errorf("tree changed:\nbefore:\n%s\nafter:\n%s", strings.Join(before, "\n"), strings.Join(after, "\n"))
@@ -513,6 +513,81 @@ func TestCmdDiagnosticsNeverAllowsCommentDirectives(t *testing.T) {
 	}
 }
 
+func TestCmdDiagnosticsJSONCarriesDiagnosticCodes(t *testing.T) {
+	// Given one file TypeScript rejects and one the transformer rejects
+	dir := writeDiagnosticsProject(t, map[string]string{
+		"typebad.ts": "export const s: string = 5;\n",
+		"noany.ts":   "declare const loose: any;\nexport const taken = loose.field;\n",
+	})
+
+	// When the census runs
+	output, code := captureStdout(t, func() int {
+		return withStdin(t, "", func() int {
+			return cmdDiagnostics([]string{"--project", dir, "--json"})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; output:\n%s", code, output)
+	}
+
+	// Then each diagnostic names its own class. A file's outcome cannot answer
+	// this: a file can carry a type error AND a transformer diagnostic at once,
+	// and outcome reports only the most severe. Without the code the message is
+	// the only thing a consumer can group or route on.
+	byName := diagnosticsByFile(decodeDiagnosticsResult(t, output))
+	for _, tc := range []struct {
+		name     string
+		wantCode string
+	}{
+		{"typebad.ts", "TS2322"},
+		{"noany.ts", "noAny"},
+	} {
+		file, ok := byName[tc.name]
+		if !ok || len(file.Diagnostics) == 0 {
+			t.Errorf("%s carries no diagnostics: %+v", tc.name, file)
+			continue
+		}
+		if got := file.Diagnostics[0].Code; got != tc.wantCode {
+			t.Errorf("%s code = %q, want %q (message %q)", tc.name, got, tc.wantCode, file.Diagnostics[0].Message)
+		}
+	}
+}
+
+func TestCmdDiagnosticsOmitsTheCodeKeyWhenThereIsNone(t *testing.T) {
+	// Given a run that fails as a whole rather than at a diagnostic — an
+	// overlay matching no file — so the reported failure is a bare message that
+	// never had a code to carry
+	dir := writeDiagnosticsProject(t, map[string]string{"main.ts": "export const clean = 1;\n"})
+	request, err := json.Marshal(map[string]any{
+		"overlays": map[string]string{
+			filepath.Join(dir, "src", "typo.ts"): "export const nothing = 1;\n",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When the census runs
+	output, code := captureStdout(t, func() int {
+		return withStdin(t, string(request), func() int {
+			return cmdDiagnostics([]string{"--project", dir, "--json"})
+		})
+	})
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; output:\n%s", code, output)
+	}
+
+	// Then the key is absent rather than present-and-empty, so an entry that
+	// never had a code reads exactly as it did before the field existed
+	if strings.Contains(output, `"code"`) {
+		t.Errorf("output carries a code key for a codeless diagnostic:\n%s", output)
+	}
+	res := decodeDiagnosticsResult(t, output)
+	if len(res.Diagnostics) == 0 {
+		t.Fatal("setup failure reported no diagnostic at all")
+	}
+}
+
 func TestCmdDiagnosticsSetupFailureExitsNonZero(t *testing.T) {
 	// Given a directory with no project in it
 	dir := t.TempDir()
@@ -538,45 +613,14 @@ func TestParseDiagnosticsArgs(t *testing.T) {
 		args         []string
 		wantProject  string
 		wantJSON     bool
-		wantHelp     bool
 		wantCheckers *int
-		wantErr      string
 	}{
 		{name: "omitted", args: nil, wantProject: "."},
 		{name: "json only", args: []string{"--json"}, wantProject: ".", wantJSON: true},
 		{name: "positional", args: []string{"project"}, wantProject: "project"},
-		{
-			name:        "duplicate positional",
-			args:        []string{"project", "other"},
-			wantErr:     `unexpected extra argument "other"`,
-			wantProject: "project",
-		},
 		{name: "project separated", args: []string{"--project", "proj"}, wantProject: "proj"},
 		{name: "project equals", args: []string{"--project=proj"}, wantProject: "proj"},
 		{name: "project short", args: []string{"-p", "proj"}, wantProject: "proj"},
-		{
-			name:    "project missing value at end",
-			args:    []string{"--project"},
-			wantErr: `flag "--project" needs a value`,
-		},
-		{
-			// The bug this pins: consuming the next token unconditionally set
-			// the project to "--json", then walked up to the cwd and censused
-			// a different project with no error and no JSON.
-			name:    "project followed by a flag",
-			args:    []string{"--project", "--json"},
-			wantErr: `flag "--project" needs a value`,
-		},
-		{
-			name:    "project empty equals",
-			args:    []string{"--project="},
-			wantErr: `flag "--project=" needs a value`,
-		},
-		{
-			name:    "triple dashed project",
-			args:    []string{"---project", "proj"},
-			wantErr: `unknown flag "---project"`,
-		},
 		{
 			name:         "checkers separated",
 			args:         []string{"--checkers", "3", "project"},
@@ -589,41 +633,16 @@ func TestParseDiagnosticsArgs(t *testing.T) {
 			wantProject:  ".",
 			wantCheckers: intPtr(3),
 		},
-		{
-			name:    "checkers missing value",
-			args:    []string{"--checkers"},
-			wantErr: `invalid --checkers value "" (must be a positive integer)`,
-		},
-		{
-			name:    "checkers non integer",
-			args:    []string{"--checkers=many"},
-			wantErr: `invalid --checkers value "many" (must be a positive integer)`,
-		},
-		{name: "help short", args: []string{"-h"}, wantProject: ".", wantHelp: true},
-		{name: "help long", args: []string{"--help", "--nope"}, wantProject: ".", wantHelp: true},
-		{name: "unknown flag", args: []string{"--builders", "2"}, wantErr: `unknown flag "--builders"`},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseDiagnosticsArgs(tt.args)
-			if tt.wantErr != "" {
-				if err == nil || err.Error() != tt.wantErr {
-					t.Fatalf("parseDiagnosticsArgs(%v) error = %v, want %q", tt.args, err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
+			got := parseDiagnosticsArgsForTest(t, tt.args)
 			if got.project != tt.wantProject {
 				t.Errorf("project = %q, want %q", got.project, tt.wantProject)
 			}
 			if got.jsonOut != tt.wantJSON {
 				t.Errorf("jsonOut = %t, want %t", got.jsonOut, tt.wantJSON)
-			}
-			if got.help != tt.wantHelp {
-				t.Errorf("help = %t, want %t", got.help, tt.wantHelp)
 			}
 			if (got.checkers == nil) != (tt.wantCheckers == nil) {
 				t.Fatalf("checkers = %v, want %v", got.checkers, tt.wantCheckers)
@@ -632,6 +651,49 @@ func TestParseDiagnosticsArgs(t *testing.T) {
 				t.Errorf("checkers = %d, want %d", *got.checkers, *tt.wantCheckers)
 			}
 		})
+	}
+
+	// Usage errors surface through the command runner (help is Cobra's own
+	// exit-0 path).
+	errorCases := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{name: "duplicate positional", args: []string{"project", "other"}, wantErr: "accepts at most 1 arg"},
+		{name: "project missing value", args: []string{"--project"}, wantErr: `flag "--project" needs a value`},
+		{
+			// The bug this pins: consuming the next token unconditionally set
+			// the project to "--json", then walked up to the cwd and censused
+			// a different project with no error and no JSON.
+			name:    "project followed by a flag",
+			args:    []string{"--project", "--json"},
+			wantErr: `flag "--project" needs a value`,
+		},
+		{name: "project empty equals", args: []string{"--project="}, wantErr: `flag "--project" needs a value`},
+		{name: "triple dashed project", args: []string{"---project", "proj"}, wantErr: "bad flag syntax"},
+		{name: "checkers missing value", args: []string{"--checkers"}, wantErr: "flag needs an argument: --checkers"},
+		{name: "checkers non integer", args: []string{"--checkers=many"}, wantErr: "must be a positive integer"},
+		// --builders is no longer unknown; see
+		// TestParseDiagnosticsArgsRejectsBuildersWithoutBuild for what it does
+		// on its own now. --watch is a build flag this command has no meaning
+		// for.
+		{name: "unknown flag", args: []string{"--watch"}, wantErr: "unknown flag: --watch"},
+	}
+	for _, tt := range errorCases {
+		t.Run(tt.name, func(t *testing.T) {
+			stderr, code := captureStderr(t, func() int { return cmdDiagnostics(tt.args) })
+			if code != 1 {
+				t.Fatalf("cmdDiagnostics(%v) exit = %d, want 1; stderr:\n%s", tt.args, code, stderr)
+			}
+			if !strings.Contains(stderr, tt.wantErr) {
+				t.Fatalf("cmdDiagnostics(%v) stderr = %q, want substring %q", tt.args, stderr, tt.wantErr)
+			}
+		})
+	}
+
+	if code := cmdDiagnostics([]string{"-h"}); code != 0 {
+		t.Errorf("help exit = %d, want 0", code)
 	}
 }
 
@@ -659,19 +721,20 @@ func TestWriteDiagnosticsTextRendersEveryFailingFile(t *testing.T) {
 
 	// When it is rendered as text
 	var out, errOut strings.Builder
-	writeDiagnosticsText(&out, &errOut, census, nil, 7*time.Millisecond)
+	writeDiagnosticsText(&out, &errOut, []*compile.ProjectDiagnostics{census}, nil, 7*time.Millisecond, false)
 
 	// Then every failing file is named with its outcome, the clean one is not,
 	// multi-line diagnostics are flattened, and the summary counts them
 	text := out.String()
 	for _, want := range []string{
-		"transformerDiagnostic ",
+		"transformerDiagnostic —",
 		"noany.ts",
 		"not supported Suggestion: do something else",
-		"internalCompilerError ",
+		"internalCompilerError —",
 		"panicking.ts",
 		"internal compiler error: identifier has no symbol",
-		"project                a project-level problem",
+		"(project)",
+		"a project-level problem",
 		"3 files, 2 transformed in 7 ms — ok 1, typeError 0, transformerDiagnostic 1, internalCompilerError 1",
 	} {
 		if !strings.Contains(text, want) {
@@ -694,7 +757,7 @@ func TestWriteDiagnosticsTextRoutesFailureToStderr(t *testing.T) {
 
 	// When it is rendered as text
 	var out, errOut strings.Builder
-	writeDiagnosticsText(&out, &errOut, census, errors.New("setup failed"), time.Millisecond)
+	writeDiagnosticsText(&out, &errOut, []*compile.ProjectDiagnostics{census}, errors.New("setup failed"), time.Millisecond, false)
 
 	// Then nothing lands in the stdout census stream, and the failure carries
 	// the command prefix every other failure of this command uses
@@ -787,10 +850,12 @@ func TestDiagnosticsRoutedFromMain(t *testing.T) {
 }
 
 func TestUsageMentionsDiagnostics(t *testing.T) {
-	var sb strings.Builder
-	usage(&sb)
-	if !strings.Contains(sb.String(), "diagnostics") {
-		t.Error("usage does not mention the diagnostics subcommand")
+	var out, errOut strings.Builder
+	if code := execute([]string{"--help"}, cliStreams{in: strings.NewReader(""), out: &out, err: &errOut}); code != 0 {
+		t.Fatalf("root --help exit = %d, stderr: %s", code, errOut.String())
+	}
+	if !strings.Contains(out.String(), "diagnostics") {
+		t.Error("root help does not mention the diagnostics subcommand")
 	}
 }
 
