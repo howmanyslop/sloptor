@@ -1,0 +1,132 @@
+# Equivalent to pnpm-workspace.yaml `packages:`
+packages:
+  - scripts
+
+# Block exotic sub-dependencies (e.g. git, file: deps)
+blockExoticSubdeps: true
+strictSsl: true
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 10080
+trustPolicyExclude:
+  - skills
+
+# Only allow specific packages to run install scripts
+allowBuilds:
+  "@openrouter/sdk": true
+  "@swc/core": true
+  esbuild: true
+  msgpackr-extract: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+
+strictDepBuilds: true
+strictPeerDependencies: true
+
+peerDependencyRules:
+  allowedVersions:
+    "@emnapi/core": ">=1.0.0"
+    "@emnapi/runtime": ">=1.0.0"
+
+# Global virtual store (pnpm's node_modules/.pnpm equivalent)
+enableGlobalVirtualStore: true
+
+minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - "@biomejs/biome"
+  - "@biomejs/cli-darwin-arm64"
+  - "@biomejs/cli-darwin-x64"
+  - "@biomejs/cli-linux-arm"
+  - "@biomejs/cli-linux-arm64"
+  - "@biomejs/cli-linux-arm64-musl"
+  - "@biomejs/cli-linux-x64"
+  - "@biomejs/cli-linux-x64-musl"
+  - "@biomejs/cli-win32-arm64"
+  - "@biomejs/cli-win32-x64"
+  - "@oxfmt/binding-android-arm-eabi"
+  - "@oxfmt/binding-android-arm64"
+  - "@oxfmt/binding-darwin-arm64"
+  - "@oxfmt/binding-darwin-x64"
+  - "@oxfmt/binding-freebsd-x64"
+  - "@oxfmt/binding-linux-arm-gnueabihf"
+  - "@oxfmt/binding-linux-arm-musleabihf"
+  - "@oxfmt/binding-linux-arm64-gnu"
+  - "@oxfmt/binding-linux-arm64-musl"
+  - "@oxfmt/binding-linux-ppc64-gnu"
+  - "@oxfmt/binding-linux-riscv64-gnu"
+  - "@oxfmt/binding-linux-riscv64-musl"
+  - "@oxfmt/binding-linux-s390x-gnu"
+  - "@oxfmt/binding-linux-x64-gnu"
+  - "@oxfmt/binding-linux-x64-musl"
+  - "@oxfmt/binding-openharmony-arm64"
+  - "@oxfmt/binding-win32-arm64-msvc"
+  - "@oxfmt/binding-win32-ia32-msvc"
+  - "@oxfmt/binding-win32-x64-msvc"
+  - "@oxlint/binding-android-arm-eabi"
+  - "@oxlint/binding-android-arm64"
+  - "@oxlint/binding-darwin-arm64"
+  - "@oxlint/binding-darwin-x64"
+  - "@oxlint/binding-freebsd-x64"
+  - "@oxlint/binding-linux-arm-gnueabihf"
+  - "@oxlint/binding-linux-arm-musleabihf"
+  - "@oxlint/binding-linux-arm64-gnu"
+  - "@oxlint/binding-linux-arm64-musl"
+  - "@oxlint/binding-linux-ppc64-gnu"
+  - "@oxlint/binding-linux-riscv64-gnu"
+  - "@oxlint/binding-linux-riscv64-musl"
+  - "@oxlint/binding-linux-s390x-gnu"
+  - "@oxlint/binding-linux-x64-gnu"
+  - "@oxlint/binding-linux-x64-musl"
+  - "@oxlint/binding-openharmony-arm64"
+  - "@oxlint/binding-win32-arm64-msvc"
+  - "@oxlint/binding-win32-ia32-msvc"
+  - "@oxlint/binding-win32-x64-msvc"
+  - "@typescript/native-preview"
+  - "@typescript/native-preview-darwin-arm64"
+  - "@typescript/native-preview-darwin-x64"
+  - "@typescript/native-preview-linux-arm"
+  - "@typescript/native-preview-linux-arm64"
+  - "@typescript/native-preview-linux-x64"
+  - "@typescript/native-preview-win32-arm64"
+  - "@typescript/native-preview-win32-x64"
+  - oxfmt
+  - oxlint
+  - oxlint-plugin-utilities
+  - skills
+
+minimumReleaseAgeStrict: true
+
+# Use time-based resolution for reproducible installs
+resolutionMode: time-based
+
+fetchRetries: 5
+fetchRetryMintimeout: 1000
+fetchRetryMaxtimeout: 30000
+fetchTimeout: 60000
+
+strictStorePkgContentCheck: true
+verifyStoreIntegrity: true
+catalogs:
+  dev:
+    "@cliffy/command": npm:@jsr/cliffy__command@1.2.1
+    "@typescript/native-preview": 7.0.0-dev.20260707.2
+    "arktype": 2.2.3
+    "picocolors": 1.1.1
+    "pncat": 0.13.0
+    "skills": 1.5.21
+    "type-fest": 5.8.0
+    "typescript": 5.9.3
+    "zx": 8.8.5
+  lint:
+    "@biomejs/biome": 2.5.7
+    "eslint-plugin-antfu": 3.2.3
+    "eslint-plugin-regexp": 3.1.1
+    "eslint-plugin-sonarjs": 4.2.0
+    "eslint-plugin-unused-imports": 4.4.1
+    "knip": 6.31.0
+    "oxfmt": 0.62.0
+    "oxlint": 1.77.0
+    "oxlint-tsgolint": 7.0.2001
+  types:
+    "@total-typescript/ts-reset": 0.6.1
+    "@types/node": ^26.1.2
