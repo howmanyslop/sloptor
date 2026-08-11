@@ -1,6 +1,7 @@
 package flamework
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -33,6 +34,11 @@ func commitArtifact(entry *stagedArtifact) error {
 	committed, err := artifactRegularIdentity(entry.transaction.root, entry.artifact.Path)
 	if err != nil || !os.SameFile(entry.temp.info, committed.info) {
 		return errors.New("committed artifact identity changed")
+	}
+	committed.digest = sha256.Sum256(entry.artifact.Data)
+	committed.hasDigest = true
+	if err := committed.revalidateRegular(); err != nil {
+		return fmt.Errorf("committed artifact contents changed: %w", err)
 	}
 	entry.committedIdentity = committed
 	entry.tempPath = ""
@@ -84,7 +90,7 @@ func restoreArtifact(entry stagedArtifact) error {
 		_ = temp.Close()
 		return err
 	}
-	identity := artifactIdentity{root: entry.transaction.root, path: tempPath, info: tempInfo}
+	identity := artifactIdentity{root: entry.transaction.root, path: tempPath, info: tempInfo, digest: sha256.Sum256(entry.prior), hasDigest: true}
 	defer func() { _ = removeOwnedArtifact(identity) }()
 	if _, err := temp.Write(entry.prior); err != nil {
 		_ = temp.Close()

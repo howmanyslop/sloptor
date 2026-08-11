@@ -1,6 +1,7 @@
 package flamework
 
 import (
+	"crypto/sha256"
 	"errors"
 	"io"
 	"io/fs"
@@ -8,9 +9,11 @@ import (
 )
 
 type artifactIdentity struct {
-	root *os.Root
-	path string
-	info fs.FileInfo
+	root      *os.Root
+	path      string
+	info      fs.FileInfo
+	digest    [sha256.Size]byte
+	hasDigest bool
 }
 
 func artifactRegularIdentity(root *os.Root, path string) (artifactIdentity, error) {
@@ -40,6 +43,16 @@ func (identity artifactIdentity) revalidateRegular() error {
 	if err != nil || !os.SameFile(identity.info, current.info) {
 		return errors.New("artifact identity changed")
 	}
+	if !identity.hasDigest {
+		return nil
+	}
+	contents, err := readArtifactBytes(current)
+	if err != nil {
+		return err
+	}
+	if sha256.Sum256(contents) != identity.digest {
+		return errors.New("artifact contents changed")
+	}
 	return nil
 }
 
@@ -52,21 +65,20 @@ func (identity artifactIdentity) revalidateDirectory() error {
 }
 
 func readArtifactIdentity(identity artifactIdentity) ([]byte, error) {
-	if err := identity.revalidateRegular(); err != nil {
-		return nil, err
-	}
+	return readArtifactBytes(identity)
+}
+
+func readArtifactBytes(identity artifactIdentity) (contents []byte, err error) {
 	file, err := identity.root.Open(identity.path)
 	if err != nil {
 		return nil, err
 	}
+	defer func() { err = errors.Join(err, file.Close()) }()
 	info, statErr := file.Stat()
 	if statErr != nil || !info.Mode().IsRegular() || !os.SameFile(identity.info, info) {
-		_ = file.Close()
 		return nil, errors.New("opened artifact identity changed")
 	}
-	contents, readErr := io.ReadAll(file)
-	closeErr := file.Close()
-	return contents, errors.Join(readErr, closeErr)
+	return io.ReadAll(file)
 }
 
 func requireArtifactMissing(root *os.Root, path string) error {

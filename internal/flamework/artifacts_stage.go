@@ -1,6 +1,7 @@
 package flamework
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,6 +21,8 @@ func stageArtifact(transaction *artifactTransaction, artifact Artifact) (stagedA
 		if err != nil {
 			return stagedArtifact{}, fmt.Errorf("flamework: read prior artifact %q: %w", artifact.Path, err)
 		}
+		entry.destination.digest = sha256.Sum256(entry.prior)
+		entry.destination.hasDigest = true
 		entry.existed = true
 		entry.mode = info.Mode().Perm()
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -85,6 +88,8 @@ func stageArtifactData(entry stagedArtifact) (stagedArtifact, error) {
 		removeEmptyArtifactDirectories(entry.transaction.root, entry.createdDirectories)
 		return stagedArtifact{}, fmt.Errorf("flamework: close staged artifact %q: %w", entry.artifact.Path, err)
 	}
+	entry.temp.digest = sha256.Sum256(entry.artifact.Data)
+	entry.temp.hasDigest = true
 	return entry, nil
 }
 
