@@ -58,7 +58,7 @@ func TestMigrateRoundTrip(t *testing.T) {
 		t.Fatalf("LoadLegacyTS (pre-migrate): %v", err)
 	}
 
-	code, out, errOut := runMigrate(t, []string{dir})
+	code, out, errOut := runMigrate(t, []string{"config", dir})
 	if code != 0 {
 		t.Fatalf("migrate exit %d\nstdout:\n%s\nstderr:\n%s", code, out, errOut)
 	}
@@ -97,7 +97,7 @@ func TestMigrateRoundTrip(t *testing.T) {
 
 func TestMigrateNoLegacyConfig(t *testing.T) {
 	dir := t.TempDir()
-	code, _, errOut := runMigrate(t, []string{dir})
+	code, _, errOut := runMigrate(t, []string{"config", dir})
 	if code != 1 {
 		t.Fatalf("migrate with no legacy config: exit %d, want 1", code)
 	}
@@ -116,7 +116,7 @@ func TestMigrateRefusesExistingToml(t *testing.T) {
 	}
 
 	// Without --force: refuse, leave everything alone.
-	code, _, errOut := runMigrate(t, []string{dir})
+	code, _, errOut := runMigrate(t, []string{"config", dir})
 	if code != 1 {
 		t.Fatalf("migrate over existing rotor.toml: exit %d, want 1", code)
 	}
@@ -128,7 +128,7 @@ func TestMigrateRefusesExistingToml(t *testing.T) {
 	}
 
 	// With --force: overwrite and migrate.
-	code, _, errOut = runMigrate(t, []string{dir, "--force"})
+	code, _, errOut = runMigrate(t, []string{"config", dir, "--force"})
 	if code != 0 {
 		t.Fatalf("migrate --force: exit %d\n%s", code, errOut)
 	}
@@ -142,7 +142,59 @@ func TestMigrateHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("migrate -h: exit %d", code)
 	}
-	if !strings.Contains(out, "sloptor migrate") {
+	if !strings.Contains(out, "config") || !strings.Contains(out, "flamework") {
 		t.Errorf("help missing usage:\n%s", out)
+	}
+}
+
+func TestMigrateRejectsRemovedDirectSyntax(t *testing.T) {
+	// Given: a directory that would have been accepted by the old command.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rotor.config.ts"), []byte(legacyConfigTS), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: migrate is invoked without a subcommand.
+	code, _, _ := runMigrate(t, []string{dir})
+
+	// Then: Cobra rejects the removed syntax without changing the project.
+	if code != 1 {
+		t.Fatalf("migrate direct syntax exit %d, want usage exit 1", code)
+	}
+	if !fileExists(filepath.Join(dir, "rotor.config.ts")) || fileExists(filepath.Join(dir, "rotor.toml")) {
+		t.Fatal("removed direct syntax mutated the project")
+	}
+}
+
+func TestMigrateFlameworkUsesExplicitTSConfigFile(t *testing.T) {
+	// Given: a non-default tsconfig containing the legacy transformer.
+	dir := t.TempDir()
+	tsconfigPath := filepath.Join(dir, "tsconfig.base.json")
+	data := "{\n  \"compilerOptions\": {\n    \"plugins\": [{ \"transform\": \"rbxts-transformer-flamework\" }]\n  }\n}\n"
+	if err := os.WriteFile(tsconfigPath, []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"game","packageManager":"npm@11.0.0"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "package-lock.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: the explicit file is passed to the new subcommand.
+	code, _, errOut := runMigrate(t, []string{"flamework", tsconfigPath})
+
+	// Then: it is used as a file, not treated as a directory.
+	if code != 0 {
+		t.Fatalf("migrate flamework explicit file exit %d: %s", code, errOut)
+	}
+	if strings.Contains(errOut, "not a directory") {
+		t.Fatalf("explicit tsconfig was treated as a directory: %s", errOut)
+	}
+	if got := mustReadFile(t, tsconfigPath); strings.Contains(got, "rbxts-transformer-flamework") {
+		t.Fatalf("legacy plugin remains after migration:\n%s", got)
+	}
+	if !fileExists(filepath.Join(dir, "rotor.toml")) {
+		t.Fatal("rotor.toml not created")
 	}
 }
