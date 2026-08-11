@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"rotor/internal/config"
 	"rotor/internal/logservice"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/bundled"
@@ -42,6 +43,8 @@ type sidecarRequest struct {
 	ProjectDir       string               `json:"projectDir"`
 	CompileFileNames []string             `json:"compileFileNames"`
 	ChangedFiles     []sidecarChangedFile `json:"changedFiles"`
+	Plugins          []json.RawMessage    `json:"plugins,omitempty"`
+	EmitDeclarations bool                 `json:"emitDeclarations"`
 }
 
 type sidecarChangedFile struct {
@@ -73,6 +76,7 @@ type sidecarOutputFile struct {
 type preparedTransformerProgram struct {
 	program                  *compiler.Program
 	sourceFiles              []*ast.SourceFile
+	flamework                *config.FlameworkConfig
 	declarations             []sidecarOutputFile
 	sourceTraces             diagnosticTraces
 	sidecarRoundTripDuration time.Duration
@@ -90,11 +94,15 @@ func prepareProjectProgramForCompile(dir string, program *compiler.Program, sour
 }
 
 func prepareTransformerProgram(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
+	flamework, diags, err := prepareFlameworkConfig(dir, program.CommandLine())
+	if err != nil {
+		return nil, diags, err
+	}
 	if len(sourceFiles) == 0 {
-		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles}, nil, nil
+		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 	if !projectUsesTransformerPlugins(program.CommandLine()) && !declarationUsesPathAliases(program) {
-		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles}, nil, nil
+		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
 	transformed, diags, err := applyTransformerSidecar(dir, program, sourceFiles, overlays)
@@ -105,6 +113,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 		return &preparedTransformerProgram{
 			program:                  program,
 			sourceFiles:              sourceFiles,
+			flamework:                flamework,
 			declarations:             transformed.declarations,
 			sourceTraces:             transformed.sourceTraces,
 			sidecarRoundTripDuration: transformed.sidecarRoundTripDuration,
@@ -121,6 +130,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 	return &preparedTransformerProgram{
 		program:                  transformed.program,
 		sourceFiles:              remapped,
+		flamework:                flamework,
 		declarations:             transformed.declarations,
 		sourceTraces:             transformed.sourceTraces,
 		sidecarRoundTripDuration: transformed.sidecarRoundTripDuration,
@@ -136,6 +146,10 @@ func declarationUsesPathAliases(program *compiler.Program) bool {
 }
 
 func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
+	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, true)
+}
+
+func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, emitDeclarations bool) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
@@ -143,7 +157,7 @@ func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles 
 
 	sidecarStarted := time.Now()
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays)
+	response, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, emitDeclarations)
 	sidecarRegion.End()
 	sidecarDuration := time.Since(sidecarStarted)
 	if err != nil {
@@ -507,7 +521,7 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string) (*sidecarResponse, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, emitDeclarations bool) (*sidecarResponse, error) {
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, err
@@ -529,7 +543,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			}
 			session, err = spawnSidecarSession(dir, sidecarDir)
 			if err != nil {
-				return nil, err
+				return nil, nodeRequirementError(err, configPath, plugins)
 			}
 			sidecarSessions[key] = session
 		}
@@ -538,7 +552,18 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		for _, sourceFile := range stampFiles {
 			stampNames = append(stampNames, sourceFile.FileName())
 		}
-		changedFiles, err := session.changedFilesFor(stampNames, overlays)
+		sidecarOverlays := maps.Clone(overlays)
+		for _, sourceFile := range compileFiles {
+			onDisk, readErr := os.ReadFile(sourceFile.FileName())
+			if readErr != nil || sourceFile.Text() == string(onDisk) {
+				continue
+			}
+			if sidecarOverlays == nil {
+				sidecarOverlays = map[string]string{}
+			}
+			sidecarOverlays[sourceFile.FileName()] = sourceFile.Text()
+		}
+		changedFiles, err := session.changedFilesFor(stampNames, sidecarOverlays)
 		if err != nil {
 			return nil, err
 		}
@@ -549,6 +574,8 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			ProjectDir:       filepath.FromSlash(dir),
 			CompileFileNames: make([]string, 0, len(compileFiles)),
 			ChangedFiles:     changedFiles,
+			Plugins:          plugins,
+			EmitDeclarations: emitDeclarations,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
@@ -571,6 +598,28 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 		return response, nil
 	}
+}
+
+func nodeRequirementError(err error, configPath string, plugins []json.RawMessage) error {
+	if !strings.Contains(err.Error(), "node executable not found") {
+		return err
+	}
+	names := make([]string, 0, len(plugins))
+	for _, plugin := range plugins {
+		var config struct {
+			Transform string `json:"transform"`
+		}
+		if json.Unmarshal(plugin, &config) == nil && config.Transform != "" {
+			names = append(names, config.Transform)
+		}
+	}
+	if plugins == nil {
+		names, _ = configFileTransformerPlugins(normalizeSourceFilePath(configPath))
+	}
+	if len(names) == 1 {
+		return fmt.Errorf("node executable not found; external transformer %q requires Node.js on PATH", names[0])
+	}
+	return err
 }
 
 func closeSidecarSessions() {
@@ -769,31 +818,37 @@ func projectUsesTransformerPlugins(parsed *tsoptions.ParsedCommandLine) bool {
 // but not an array is left undeclared so the caller falls back to the chain;
 // tsgo reports the malformed value as a config error of its own.
 func configFilePluginsDeclaration(configPath string) (declaresTransform bool, declared bool) {
+	plugins, declared := configFileTransformerPlugins(configPath)
+	return len(plugins) > 0, declared
+}
+
+func configFileTransformerPlugins(configPath string) ([]string, bool) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return false, false
+		return nil, false
 	}
 
 	var root map[string]any
 	if json.Unmarshal([]byte(stripJSONC(string(data))), &root) != nil {
-		return false, false
+		return nil, false
 	}
 	compilerOptions, ok := root["compilerOptions"].(map[string]any)
 	if !ok {
-		return false, false
+		return nil, false
 	}
 	plugins, ok := compilerOptions["plugins"].([]any)
 	if !ok {
-		return false, false
+		return nil, false
 	}
+	transforms := make([]string, 0, len(plugins))
 	for _, plugin := range plugins {
 		if pluginConfig, ok := plugin.(map[string]any); ok {
 			if transform, ok := pluginConfig["transform"].(string); ok && transform != "" {
-				return true, true
+				transforms = append(transforms, transform)
 			}
 		}
 	}
-	return false, true
+	return transforms, true
 }
 
 func formatSidecarDiagnostic(diag sidecarDiagnostic) string {

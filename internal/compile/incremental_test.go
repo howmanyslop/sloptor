@@ -157,6 +157,48 @@ func TestBuildProjectIncrementalRecreatesMissingOutputs(t *testing.T) {
 	}
 }
 
+func TestBuildProjectIncrementalRepairsExternallyCorruptedRegularOutput(t *testing.T) {
+	// Given: a warm incremental project with a known-good emitted Luau file.
+	dir := writeProject(t, "@scope/incremental-corrupt-output-fixture", "")
+	enableIncrementalBuilds(t, dir)
+	outputPath := filepath.Join(dir, "out", "main.luau")
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+		t.Fatalf("seed build: %v (diags: %v)", err, diags)
+	}
+	want, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read seed output: %v", err)
+	}
+	if err := os.WriteFile(outputPath, append(want, []byte("\nSTALE-MARKER\n")...), 0o644); err != nil {
+		t.Fatalf("corrupt output: %v", err)
+	}
+
+	// When: the unchanged project is built again.
+	timings := NewBuildTimings()
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings})
+	if err != nil {
+		t.Fatalf("repair build: %v (diags: %v)", err, diags)
+	}
+
+	// Then: the external corruption is overwritten instead of being reported as a warm build.
+	got, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read repaired output: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("repaired output differs from seed output:\n%s", got)
+	}
+	if timings.Counts.ActualWrites == 0 {
+		t.Fatalf("actual writes = %d, want nonzero", timings.Counts.ActualWrites)
+	}
+	if len(result.Outputs) == 0 {
+		t.Fatal("compiled outputs = none, want selected repaired output")
+	}
+	if len(result.EmittedFiles) == 0 {
+		t.Fatal("emitted files = none, want repaired output")
+	}
+}
+
 func TestBuildProjectIncrementalNoChangeKeepsManifestAndOutputs(t *testing.T) {
 	dir := writeProject(t, "@scope/incremental-nochange-fixture", "")
 	enableIncrementalBuilds(t, dir)

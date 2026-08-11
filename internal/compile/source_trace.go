@@ -200,105 +200,25 @@ func (t *sourceTraceMap) OriginalPosition(position transformer.SourcePosition) *
 	return &transformer.SourcePosition{Line: int(mapping.sourceLine), Column: int(mapping.sourceColumn)}
 }
 
-func rewriteSourceMapWithTrace(raw string, trace *sourceTraceMap) (string, error) {
-	var sourceMap rawSourceMap
-	if err := json.Unmarshal([]byte(raw), &sourceMap); err != nil {
-		return "", fmt.Errorf("parse Luau source map: %w", err)
+func composeSourceTraceMaps(outer, inner *sourceTraceMap) *sourceTraceMap {
+	if outer == nil {
+		return inner
 	}
-	if sourceMap.Version != 3 {
-		return "", fmt.Errorf("parse Luau source map: version = %d, want 3", sourceMap.Version)
+	if inner == nil {
+		return outer
 	}
-
-	mappings := []emittedMapping{}
-	decoder := sourcemap.DecodeMappings(sourceMap.Mappings)
-	for mapping := range decoder.Values() {
-		emitted := emittedMapping{
-			generatedLine:   mapping.GeneratedLine,
-			generatedColumn: int(mapping.GeneratedCharacter),
+	composed := &sourceTraceMap{fileName: inner.fileName, text: inner.text, mappings: make([]traceMapping, 0, len(outer.mappings))}
+	for _, mapping := range outer.mappings {
+		original := inner.OriginalPosition(transformer.SourcePosition{Line: int(mapping.sourceLine), Column: int(mapping.sourceColumn)})
+		if original == nil {
+			continue
 		}
-		if mapping.IsSourceMapping() {
-			original := trace.OriginalPosition(transformer.SourcePosition{
-				Line:   mapping.SourceLine,
-				Column: int(mapping.SourceCharacter),
-			})
-			if original != nil {
-				emitted.sourceLine = original.Line
-				emitted.sourceColumn = original.Column
-				emitted.hasSource = true
-			}
-		}
-		mappings = append(mappings, emitted)
+		composed.mappings = append(composed.mappings, traceMapping{
+			generatedLine:   mapping.generatedLine,
+			generatedColumn: mapping.generatedColumn,
+			sourceLine:      int32(original.Line),
+			sourceColumn:    int32(original.Column),
+		})
 	}
-	if err := decoder.Error(); err != nil {
-		return "", fmt.Errorf("parse Luau source map mappings: %w", err)
-	}
-
-	sourceMap.Sources = []string{trace.OriginalSourceFileName()}
-	sourceMap.SourcesContent = []string{trace.OriginalSourceText()}
-	sourceMap.Mappings = encodeEmittedMappings(mappings)
-	encoded, err := json.Marshal(sourceMap)
-	if err != nil {
-		return "", fmt.Errorf("encode Luau source map: %w", err)
-	}
-	return string(encoded), nil
-}
-
-type emittedMapping struct {
-	generatedLine   int
-	generatedColumn int
-	sourceLine      int
-	sourceColumn    int
-	hasSource       bool
-}
-
-func encodeEmittedMappings(mappings []emittedMapping) string {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-	var builder strings.Builder
-	lastGeneratedLine := 0
-	lastGeneratedColumn := 0
-	lastSourceLine := 0
-	lastSourceColumn := 0
-	firstMappingOnLine := true
-
-	for _, mapping := range mappings {
-		for lastGeneratedLine < mapping.generatedLine {
-			builder.WriteByte(';')
-			lastGeneratedLine++
-			lastGeneratedColumn = 0
-			firstMappingOnLine = true
-		}
-		if !firstMappingOnLine {
-			builder.WriteByte(',')
-		}
-		appendVLQ(&builder, mapping.generatedColumn-lastGeneratedColumn, alphabet)
-		lastGeneratedColumn = mapping.generatedColumn
-		if mapping.hasSource {
-			appendVLQ(&builder, 0, alphabet)
-			appendVLQ(&builder, mapping.sourceLine-lastSourceLine, alphabet)
-			appendVLQ(&builder, mapping.sourceColumn-lastSourceColumn, alphabet)
-			lastSourceLine = mapping.sourceLine
-			lastSourceColumn = mapping.sourceColumn
-		}
-		firstMappingOnLine = false
-	}
-	return builder.String()
-}
-
-func appendVLQ(builder *strings.Builder, value int, alphabet string) {
-	if value < 0 {
-		value = (-value << 1) | 1
-	} else {
-		value <<= 1
-	}
-	for {
-		digit := value & 31
-		value >>= 5
-		if value > 0 {
-			digit |= 32
-		}
-		builder.WriteByte(alphabet[digit])
-		if value == 0 {
-			return
-		}
-	}
+	return composed
 }

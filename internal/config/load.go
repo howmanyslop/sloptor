@@ -64,6 +64,10 @@ func Load(projectDir string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: %s: %w", ConfigFileName, err)
 	}
+	if err := validateFlameworkTOMLKeys(meta.Undecoded()); err != nil {
+		return nil, fmt.Errorf("config: %s: %w", ConfigFileName, err)
+	}
+	cfg.applyFlameworkDefaults()
 
 	// Unknown keys are forward-compatible: collect them as sorted warnings,
 	// skipping the taplo schema directive that lives as a leading comment (it
@@ -183,7 +187,8 @@ func bundleConfig(projectDir, configPath string) (string, error) {
 					}
 					return api.OnResolveResult{}, fmt.Errorf(
 						"npm imports are not supported in rotor.config.ts (cannot import %q); only relative imports of project files and the virtual \"@rotor-rbx/rotor\" module are allowed",
-						args.Path)
+						args.Path,
+					)
 				})
 		},
 	}
@@ -289,8 +294,9 @@ func evalError(err error) error {
 // knownTopLevelKeys are the config sections rotor understands today.
 // Anything else warns (forward compatibility) instead of failing.
 var knownTopLevelKeys = map[string]bool{
-	"assets": true,
-	"deploy": true,
+	"assets":    true,
+	"deploy":    true,
+	"flamework": true,
 }
 
 // decodeConfig converts the raw exported object into the typed Config via an
@@ -319,6 +325,7 @@ func decodeConfig(configPath string, raw map[string]any) (*Config, error) {
 	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("config: %s: config does not match the expected shape: %w", configBase, err)
 	}
+	cfg.applyFlameworkDefaults()
 	cfg.Warnings = warnings
 	return cfg, nil
 }

@@ -3,6 +3,7 @@ package compile
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -139,6 +140,122 @@ func TestBuildProjectWithoutPluginsDoesNotRequireNode(t *testing.T) {
 	}
 }
 
+func TestBuildProjectNativeFlameworkDoesNotRequireNodeOrSidecar(t *testing.T) {
+	// Given: an enabled native Flamework project with no usable Node or sidecar.
+	dir := writeProject(t, "@scope/native-flamework-no-node", "")
+	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"), []byte("[flamework]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROTOR_NODE_PATH", filepath.Join(dir, "missing-node"))
+	t.Setenv("ROTOR_SIDECAR_PATH", filepath.Join(dir, "must-not-be-read"))
+	closeSidecarSessions()
+	t.Cleanup(closeSidecarSessions)
+
+	// When: the real compiler builds the project.
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+	// Then: Luau is emitted and no Node sidecar session exists.
+	if err != nil {
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	if result == nil || result.Outputs["out/main.luau"] == "" {
+		t.Fatalf("BuildProjectWithOptions result = %#v, want emitted Luau", result)
+	}
+	sidecarMu.Lock()
+	sessions := len(sidecarSessions)
+	sidecarMu.Unlock()
+	if sessions != 0 {
+		t.Fatalf("native Flamework build spawned %d sidecar session(s)", sessions)
+	}
+}
+
+func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T) {
+	// Given: a project with two external transforms and its own TypeScript runtime.
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/filtered-sidecar", "")
+	t.Cleanup(closeSidecarSessions)
+	symlinkFixtureTypeScript(t, dir)
+	writeSidecarPluginFixture(t, dir, "", sidecarSubsetConfig())
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const phase = \"start\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	prefix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"prefix"}`)}
+	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
+
+	// When: the prefix runs without declaration emit, then the suffix emits once.
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, false)
+	if err != nil {
+		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
+	}
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, true)
+	// Then: each subset is applied in order and declarations arrive only on suffix.
+	if err != nil {
+		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
+	}
+	if len(first.declarations) != 0 {
+		t.Fatalf("prefix declarations = %d, want 0", len(first.declarations))
+	}
+	if len(second.declarations) == 0 {
+		t.Fatal("suffix declaration emit produced no files")
+	}
+	source := second.program.GetSourceFile(filepath.Join(dir, "src", "main.ts"))
+	if source == nil || !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
+		t.Fatalf("filtered transforms produced %q, want suffix:prefix:start", source.Text())
+	}
+}
+
+func sidecarSubsetConfig() string {
+	return `{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"declaration": true,
+		"module": "CommonJS",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"moduleDetection": "force",
+		"strict": true,
+		"target": "ESNext",
+		"types": [],
+		"typeRoots": ["node_modules/@rbxts"],
+		"rootDir": "src",
+		"outDir": "out",
+		"plugins": [
+			{ "transform": "./plugins/prefix-string.js", "prefix": "prefix" },
+			{ "transform": "./plugins/prefix-string.js", "prefix": "suffix", "after": true }
+		]
+	},
+	"include": ["src"]
+}`
+}
+
+func symlinkFixtureTypeScript(t *testing.T, dir string) {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixture := filepath.Join(filepath.Dir(file), "..", "..", "testdata", "transformers", "project", "node_modules", "typescript")
+	if _, err := os.Stat(filepath.Join(fixture, "package.json")); err != nil {
+		t.Fatalf("fixture TypeScript missing at %s", fixture)
+	}
+	target := filepath.Join(dir, "node_modules", "typescript")
+	if _, err := os.Lstat(target); err == nil {
+		return
+	} else if !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(fixture, target); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSidecarRoundTripTimesOut(t *testing.T) {
 	// Given
 	t.Setenv(sidecarResponseTimeoutEnv, "10ms")
@@ -214,6 +331,9 @@ func TestBuildProjectTransformerPluginRequiresNode(t *testing.T) {
 	}
 	if len(diags) != 1 || !strings.Contains(diags[0], "node executable not found") {
 		t.Fatalf("diags = %v, want missing-node diagnostic", diags)
+	}
+	if !strings.Contains(diags[0], "./plugins/prefix-string.js") {
+		t.Fatalf("diags = %v, want the remaining external transformer", diags)
 	}
 }
 
@@ -292,6 +412,7 @@ func TestTransformerWarmSession(t *testing.T) {
 
 	dir := writeProject(t, "@scope/plugin-warm-fixture", "")
 	t.Cleanup(closeSidecarSessions)
+	symlinkFixtureTypeScript(t, dir)
 	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +471,7 @@ func TestTransformerWarmSession(t *testing.T) {
 
 func writeSidecarPluginFixture(t *testing.T, dir, baseTSConfig, rootTSConfig string) {
 	t.Helper()
+	symlinkFixtureTypeScript(t, dir)
 	if err := os.MkdirAll(filepath.Join(dir, "plugins"), 0o755); err != nil {
 		t.Fatal(err)
 	}

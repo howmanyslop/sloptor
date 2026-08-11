@@ -287,6 +287,21 @@ func TestReportBuildPassPersistentErrorBanner(t *testing.T) {
 // TestClearForRebuild covers the three branches of the clear-on-rebuild gate.
 func TestClearForRebuild(t *testing.T) {
 	t.Run("clears when enabled and interactive", func(t *testing.T) {
+		previousNoColor, hadNoColor := os.LookupEnv("NO_COLOR")
+		if err := os.Unsetenv("NO_COLOR"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if hadNoColor {
+				if err := os.Setenv("NO_COLOR", previousNoColor); err != nil {
+					t.Errorf("restore NO_COLOR: %v", err)
+				}
+				return
+			}
+			if err := os.Unsetenv("NO_COLOR"); err != nil {
+				t.Errorf("clear NO_COLOR: %v", err)
+			}
+		})
 		t.Setenv("FORCE_COLOR", "1")
 		var buf bytes.Buffer
 		clearForRebuild(&buf, &watchStats{clearScreen: true})

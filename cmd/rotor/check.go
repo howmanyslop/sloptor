@@ -89,7 +89,8 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 		if _, statErr := os.Stat(filepath.Join(dir, "node_modules")); statErr != nil {
 			newUI(streams.err).warn(fmt.Sprintf(
 				"%s has a package.json but no node_modules — type packages (e.g. @rbxts/*) cannot be resolved; install dependencies first",
-				dir))
+				dir,
+			))
 		}
 	}
 
@@ -276,7 +277,7 @@ func runCheckCollect(dir string, checkers *int) checkResult {
 func jsonDiagnostics(diags []*ast.Diagnostic, formatOpts *diagnosticwriter.FormattingOptions) []jsonDiagnostic {
 	out := make([]jsonDiagnostic, 0, len(diags))
 	for _, d := range diags {
-		jd := jsonDiagnostic{Code: compile.TypeScriptDiagnosticCode(d.Code()), Severity: severityName(d), Message: d.String()}
+		jd := jsonDiagnostic{Code: compile.DiagnosticCode(d), Severity: severityName(d), Message: d.String()}
 		if file := d.File(); file != nil {
 			line, character := scanner.GetECMALineAndUTF16CharacterOfPosition(file, d.Pos())
 			jd.Line = line + 1
