@@ -1,39 +1,73 @@
 {
-  "name": "@rotor-rbx/rotor",
-  "version": "2.2.1-fork.10",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
-  "description": "All-in-one Roblox toolchain: native roblox-ts compiler, Luau bundler, minifier, dev loop, and packer. This package downloads the prebuilt rotor binary from GitHub Releases.",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/howmanysmall/rotor.git"
-  },
-  "homepage": "https://github.com/howmanysmall/rotor#readme",
-  "bugs": {
-    "url": "https://github.com/howmanysmall/rotor/issues"
-  },
-  "keywords": [
-    "roblox",
-    "roblox-ts",
-    "luau",
-    "typescript",
-    "compiler",
-    "bundler"
-  ],
-  "bin": {
-    "rotor": "bin/rotor.js"
-  },
-  "scripts": {
-    "postinstall": "node scripts/install.js"
-  },
-  "files": [
-    "bin/",
-    "scripts/install.js"
-  ],
-  "engines": {
-    "node": ">=18"
-  }
+	"name": "@rotor-rbx/rotor",
+	"version": "2.2.1-fork.10",
+	"description": "All-in-one Roblox toolchain: native roblox-ts compiler, Luau bundler, minifier, dev loop, and packer. This package downloads the prebuilt rotor binary from GitHub Releases.",
+	"keywords": [
+		"bundler",
+		"compiler",
+		"luau",
+		"roblox",
+		"roblox-ts",
+		"typescript"
+	],
+	"homepage": "https://github.com/howmanyslop/sloptor#readme",
+	"bugs": {
+		"url": "https://github.com/howmanyslop/sloptor/issues"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/howmanyslop/sloptor.git"
+	},
+	"bin": {
+		"rotor": "bin/rotor.js"
+	},
+	"files": [
+		"bin/",
+		"scripts/install.js"
+	],
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"biome": "biome",
+		"format": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --fix $a && node --run oxfmt -- $a' _",
+		"format:check": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched $a && node --run oxfmt -- --no-error-on-unmatched-pattern --check $a' _",
+		"format:safe": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched --fix $a && node --run oxfmt -- --no-error-on-unmatched-pattern $a' _",
+		"lint": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run oxlint -- --no-error-on-unmatched-pattern $a && node --run biome -- check --no-errors-on-unmatched $a' _",
+		"lint:agent": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run oxlint -- --no-error-on-unmatched-pattern --format agent $a && node --run biome -- check --no-errors-on-unmatched --reporter concise $a' _",
+		"oxfmt": "oxfmt",
+		"oxlint": "oxlint",
+		"skills": "skills",
+		"tsgo": "tsgo",
+		"type-check": "tsgo --noEmit",
+		"type-check:agent": "tsgo --noEmit --pretty false"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "catalog:lint",
+		"@cliffy/command": "catalog:dev",
+		"@total-typescript/ts-reset": "catalog:types",
+		"@types/node": "catalog:types",
+		"@typescript/native-preview": "catalog:dev",
+		"arktype": "catalog:dev",
+		"eslint-plugin-antfu": "catalog:lint",
+		"eslint-plugin-regexp": "catalog:lint",
+		"eslint-plugin-sonarjs": "catalog:lint",
+		"eslint-plugin-unused-imports": "catalog:lint",
+		"knip": "catalog:lint",
+		"oxfmt": "catalog:lint",
+		"oxlint": "catalog:lint",
+		"oxlint-tsgolint": "catalog:lint",
+		"picocolors": "catalog:dev",
+		"pncat": "catalog:dev",
+		"skills": "catalog:dev",
+		"type-fest": "catalog:dev",
+		"typescript": "catalog:dev",
+		"zx": "catalog:dev"
+	},
+	"engines": {
+		"node": ">=18"
+	},
+	"packageManager": "pnpm@11.21.0"
 }

@@ -209,6 +209,42 @@ func TestPlanFlameworkTSConfig_resolves_monorepo_and_package_extends(t *testing.
 	}
 }
 
+func TestPlanFlameworkTSConfigTree_migrates_referenced_configs_without_editing_base(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "tsconfig.base.json")
+	rootPath := filepath.Join(dir, "tsconfig.json")
+	libPath := filepath.Join(dir, "tsconfig.lib.json")
+	testPath := filepath.Join(dir, "tsconfig.test.json")
+	base := `{"compilerOptions":{"plugins":[{"transform":"before"},{"transform":"rbxts-transformer-flamework"}]}}`
+	writeMigrationFixture(t, basePath, base)
+	writeMigrationFixture(t, rootPath, `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"},{"path":"./tsconfig.test.json"}]}`)
+	writeMigrationFixture(t, libPath, `{"extends":"./tsconfig.base.json","compilerOptions":{"rootDir":"src"}}`)
+	writeMigrationFixture(t, testPath, `{"extends":"./tsconfig.base.json","compilerOptions":{"rootDir":"test"}}`)
+
+	changes, err := PlanFlameworkTSConfigTree(rootPath)
+	if err != nil {
+		t.Fatalf("PlanFlameworkTSConfigTree() error = %v", err)
+	}
+	if len(changes) != 3 {
+		t.Fatalf("planned changes = %d, want root and two referenced configs", len(changes))
+	}
+	for _, change := range changes {
+		if strings.Contains(string(change.Updated), "rbxts-transformer-flamework") {
+			t.Fatalf("planned %s still contains the legacy plugin:\n%s", change.Path, change.Updated)
+		}
+		if !strings.Contains(string(change.Updated), `"transform":"before"`) && !strings.Contains(string(change.Updated), `"transform": "before"`) {
+			t.Fatalf("planned %s lost the inherited transformer:\n%s", change.Path, change.Updated)
+		}
+	}
+	baseBytes, readErr := os.ReadFile(basePath)
+	if readErr != nil {
+		t.Fatalf("read shared base: %v", readErr)
+	}
+	if got := string(baseBytes); got != base {
+		t.Fatalf("shared base changed during planning: %q", got)
+	}
+}
+
 func TestPlanFlameworkTSConfig_reports_unchanged_after_migration(t *testing.T) {
 	// Given
 	dir := t.TempDir()

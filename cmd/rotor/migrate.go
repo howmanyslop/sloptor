@@ -69,67 +69,120 @@ func newMigrateFlameworkCommand(streams cliStreams) *cobra.Command {
 }
 
 func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath string, removePackage bool) error {
-	tsconfigChange, tsconfigErr := migrate.PlanFlameworkTSConfig(tsconfigPath)
+	tsconfigChanges, tsconfigErr := migrate.PlanFlameworkTSConfigTree(tsconfigPath)
 	pluginAbsent := errors.Is(tsconfigErr, migrate.ErrNoFlameworkPlugin)
 	if tsconfigErr != nil && !pluginAbsent {
 		return runtimeFailure(tsconfigErr)
 	}
 
-	tomlPath := filepath.Join(filepath.Dir(tsconfigPath), config.ConfigFileName)
-	if absolute, err := filepath.Abs(tomlPath); err == nil {
-		tomlPath = absolute
-	}
-	options := migrate.FlameworkOptions{}
-	if tsconfigErr == nil {
-		options = tsconfigChange.Options
-	}
-	tomlChange, tomlStatus, tomlErr := migrate.MergeFlameworkTOML(tomlPath, options)
-	alreadyMigrated := tomlStatus == migrate.MergeAlreadyMigrated
-	if tomlErr != nil && !alreadyMigrated {
-		return runtimeFailure(tomlErr)
-	}
-	if alreadyMigrated && !pluginAbsent {
-		return runtimeFailure(errors.New("migration conflict: rotor.toml already has [flamework] while tsconfig still has rbxts-transformer-flamework"))
-	}
-	if pluginAbsent && !alreadyMigrated {
-		return runtimeFailure(errors.New("nothing to migrate: no rbxts-transformer-flamework plugin or [flamework] table was found"))
+	fileChanges := make([]migrate.FileChange, 0, len(tsconfigChanges)+1)
+	cleanupTargets := []string{tsconfigPath}
+	tomlPlans := make(map[string]migrate.FlameworkOptions)
+	for _, tsconfigChange := range tsconfigChanges {
+		fileChanges = append(fileChanges, migrate.FileChange{
+			Path: tsconfigChange.Path, Original: tsconfigChange.Original, Updated: tsconfigChange.Updated, Existed: true,
+		})
+		cleanupTargets = append(cleanupTargets, tsconfigChange.Path)
+		tomlPath := filepath.Join(filepath.Dir(tsconfigChange.Path), config.ConfigFileName)
+		if absolute, err := filepath.Abs(tomlPath); err == nil {
+			tomlPath = absolute
+		}
+		if existing, ok := tomlPlans[tomlPath]; ok {
+			if !sameFlameworkOptions(existing, tsconfigChange.Options) {
+				return runtimeFailure(fmt.Errorf("migration conflict: referenced tsconfigs in %s require incompatible [flamework] options", filepath.Dir(tomlPath)))
+			}
+			continue
+		}
+		tomlPlans[tomlPath] = tsconfigChange.Options
+		tomlChange, tomlStatus, tomlErr := migrate.MergeFlameworkTOML(tomlPath, tsconfigChange.Options)
+		alreadyMigrated := tomlStatus == migrate.MergeAlreadyMigrated
+		if tomlErr != nil && !alreadyMigrated {
+			return runtimeFailure(tomlErr)
+		}
+		if alreadyMigrated {
+			return runtimeFailure(errors.New("migration conflict: rotor.toml already has [flamework] while tsconfig still has rbxts-transformer-flamework"))
+		}
+		fileChanges = append(fileChanges, tomlChange)
 	}
 
-	cleanup, err := migrate.PlanPackageCleanup(tsconfigPath)
-	if err != nil {
-		return runtimeFailure(fmt.Errorf("preflight package cleanup: %w", err))
+	alreadyMigrated := false
+	if pluginAbsent {
+		tomlPath := filepath.Join(filepath.Dir(tsconfigPath), config.ConfigFileName)
+		if absolute, err := filepath.Abs(tomlPath); err == nil {
+			tomlPath = absolute
+		}
+		_, tomlStatus, tomlErr := migrate.MergeFlameworkTOML(tomlPath, migrate.FlameworkOptions{})
+		alreadyMigrated = tomlStatus == migrate.MergeAlreadyMigrated
+		if tomlErr != nil && !alreadyMigrated {
+			return runtimeFailure(tomlErr)
+		}
+		if !alreadyMigrated {
+			return runtimeFailure(errors.New("nothing to migrate: no rbxts-transformer-flamework plugin or [flamework] table was found"))
+		}
+	}
+
+	cleanups := make([]migrate.PackageCleanup, 0, len(cleanupTargets))
+	cleanupCommands := make(map[string]struct{})
+	for _, target := range cleanupTargets {
+		cleanup, err := migrate.PlanPackageCleanup(target)
+		if err != nil {
+			return runtimeFailure(fmt.Errorf("preflight package cleanup: %w", err))
+		}
+		if _, exists := cleanupCommands[cleanup.DisplayCommand]; exists {
+			continue
+		}
+		cleanupCommands[cleanup.DisplayCommand] = struct{}{}
+		cleanups = append(cleanups, cleanup)
 	}
 
 	receipt := migrate.Receipt{}
+	var err error
 	if !alreadyMigrated {
-		receipt, err = migrate.Commit(filepath.Dir(tsconfigPath), []migrate.FileChange{
-			{Path: tsconfigChange.Path, Original: tsconfigChange.Original, Updated: tsconfigChange.Updated, Existed: true},
-			tomlChange,
-		})
+		receipt, err = migrate.Commit(filepath.Dir(tsconfigPath), fileChanges)
 		if err != nil {
 			return runtimeFailure(err)
 		}
 	}
 
 	if !removePackage {
-		fmt.Fprintf(streams.out, "Migration complete. Optional package cleanup:\n  %s\n", cleanup.DisplayCommand)
+		if len(tsconfigChanges) > 1 {
+			fmt.Fprintf(streams.out, "Migrated %d tsconfig files.\n", len(tsconfigChanges))
+		}
+		fmt.Fprintln(streams.out, "Migration complete. Optional package cleanup:")
+		for _, cleanup := range cleanups {
+			fmt.Fprintf(streams.out, "  %s\n", cleanup.DisplayCommand)
+		}
 		for _, backup := range receipt.Backups {
 			fmt.Fprintf(streams.out, "Backup: %s\n", backup)
 		}
 		return nil
 	}
-	if err := cleanup.Execute(cmd.Context()); err != nil {
-		backupText := "none"
-		if len(receipt.Backups) > 0 {
-			backupText = strings.Join(receipt.Backups, ", ")
+	for _, cleanup := range cleanups {
+		if err := cleanup.Execute(cmd.Context()); err != nil {
+			backupText := "none"
+			if len(receipt.Backups) > 0 {
+				backupText = strings.Join(receipt.Backups, ", ")
+			}
+			return runtimeFailure(fmt.Errorf("%w; backups: %s", err, backupText))
 		}
-		return runtimeFailure(fmt.Errorf("%w; backups: %s", err, backupText))
 	}
 	fmt.Fprintln(streams.out, "Migration complete; removed rbxts-transformer-flamework from the owning workspace.")
 	for _, backup := range receipt.Backups {
 		fmt.Fprintf(streams.out, "Backup: %s\n", backup)
 	}
 	return nil
+}
+
+func sameFlameworkOptions(left, right migrate.FlameworkOptions) bool {
+	leftLimit, rightLimit := left.Optimizations.GuardGenerationDedupLimit, right.Optimizations.GuardGenerationDedupLimit
+	return left.After == right.After &&
+		left.IDGenerationMode == right.IDGenerationMode &&
+		left.HashPrefix == right.HashPrefix &&
+		left.Salt == right.Salt &&
+		left.NoSemanticDiagnostics == right.NoSemanticDiagnostics &&
+		left.Obfuscation == right.Obfuscation &&
+		left.PreloadIDs == right.PreloadIDs &&
+		(leftLimit == nil && rightLimit == nil || leftLimit != nil && rightLimit != nil && *leftLimit == *rightLimit)
 }
 
 func runMigrateCommand(streams cliStreams, dir string, force bool) error {

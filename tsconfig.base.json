@@ -1,0 +1,31 @@
+{
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"allowJs": false,
+		"esModuleInterop": true,
+		"exactOptionalPropertyTypes": true,
+		"experimentalDecorators": true,
+		"incremental": true,
+		"jsx": "react-jsx",
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"module": "preserve",
+		"moduleDetection": "force",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitOverride": true,
+		"noImplicitReturns": true,
+		"noPropertyAccessFromIndexSignature": false,
+		"noUncheckedIndexedAccess": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"strict": true,
+		"target": "ESNext",
+		"tsBuildInfoFile": "./node_modules/.tsbuildinfo",
+		"types": ["node"],
+		"verbatimModuleSyntax": true
+	},
+	"exclude": ["dist", "**/node_modules/**", "**/do-not-sync-ever/**"]
+}
