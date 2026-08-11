@@ -594,6 +594,8 @@ type ProjectOptions struct {
 	solutionOverlays *solutionOverlayMatches
 
 	forceFullBuild bool
+
+	pendingSolutionDependencyPersists *[]func() error
 }
 
 func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string, inheritEntryTypeAndRojo bool) (ProjectOptions, error) {
@@ -671,15 +673,17 @@ func CompileProjectWithOptions(projectDir string, opts ProjectOptions) (map[stri
 
 func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOptions) (map[string]string, []DiagnosticInfo, error) {
 	sourceFiles := projectSourceFiles(program)
-	program, sourceFiles, traces, diags, err := prepareProjectProgramForCompile(dir, program, sourceFiles, opts.Overlays)
+	pipeline, diags, err := prepareCompilePipeline(dir, program, sourceFiles, opts.Overlays, opts)
 	if err != nil {
 		return nil, stringDiagnostics(diags), err
 	}
+	program = pipeline.prepared.program
+	sourceFiles = pipeline.prepared.sourceFiles
 	pctx, pctxDiags, err := newProjectContext(dir, program, opts)
 	if err != nil {
 		return nil, stringDiagnostics(pctxDiags), err
 	}
-	pctx.sourceTraces = traces
+	pctx.sourceTraces = pipeline.prepared.sourceTraces
 	outputs, _, infos, err := compileProjectSourceFiles(dir, program, pctx, sourceFiles, opts)
 	return outputs, infos, err
 }

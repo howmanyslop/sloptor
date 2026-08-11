@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -236,4 +238,208 @@ func TestRunDoctorNodeModulesMissingFails(t *testing.T) {
 	if !found {
 		t.Fatalf("no node_modules check in %+v", checks)
 	}
+}
+
+func TestDoctorNativeFlameworkWithoutNodeDoesNotScheduleSidecar(t *testing.T) {
+	// Given: a native Flamework project and no Node executable on PATH.
+	dir := doctorProjectFixture(t, "[flamework]\n", "")
+	t.Setenv("PATH", "")
+	t.Setenv("ROTOR_SIDECAR_PATH", filepath.Join(dir, "must-not-be-read"))
+
+	// When: the real doctor CLI examines the project.
+	code, out, errOut := runCLI(t, "doctor", "--project", dir)
+
+	// Then: native Flamework is ready without a sidecar or npm transformer.
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, stderr: %s\nstdout:\n%s", code, errOut, out)
+	}
+	for _, want := range []string{"native Flamework", "enabled", "Node.js", "not on PATH"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	for _, absent := range []string{"transformer sidecar", "typescript", "rbxts-transformer-flamework"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("native doctor unexpectedly mentioned %q:\n%s", absent, out)
+		}
+	}
+}
+
+func TestDoctorMixedNativeFlameworkAndExternalPluginRequiresNode(t *testing.T) {
+	// Given: native Flamework plus a remaining external transformer, without Node.
+	dir := doctorProjectFixture(t, "[flamework]\n", `[{"transform":"example-transformer"}]`)
+	t.Setenv("PATH", "")
+
+	// When: the real doctor CLI examines the project.
+	code, out, _ := runCLI(t, "doctor", "--project", dir)
+
+	// Then: only the external transformer path requires Node.
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
+	}
+	for _, want := range []string{"native Flamework", "Node.js", "example-transformer", "external transformer plugins require Node.js"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDoctorMixedNativeFlameworkRetainsExternalNodePath(t *testing.T) {
+	// Given: a native Flamework project with an installed external transformer
+	// and a controlled executable that behaves as Node for version discovery.
+	dir := doctorProjectFixture(t, "[flamework]\n", `[{"transform":"example-transformer"}]`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "typescript", "package.json"), `{"version":"5.8.0"}`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "example-transformer", "package.json"), `{"version":"1.2.3"}`)
+	shimDir := t.TempDir()
+	shimPath := filepath.Join(shimDir, "node")
+	writeTestFile(t, shimPath, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \""+filepath.Join(dir, "node-invocations")+"\"\nprintf 'v99.0.0\\n'\n")
+	if err := os.Chmod(shimPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir)
+	t.Setenv("ROTOR_SIDECAR_PATH", repoSidecarPath(t))
+
+	// When: doctor runs through its real executable lookup and version process.
+	code, out, errOut := runCLI(t, "doctor", "--project", dir)
+
+	// Then: Node remains required for the external transformer and the shim ran.
+	if code != 0 {
+		t.Fatalf("doctor exit = %d, stderr: %s\nstdout:\n%s", code, errOut, out)
+	}
+	for _, want := range []string{"native Flamework", "Node.js", "v99.0.0", "transformer example-transformer", "transformer sidecar"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	invocations, err := os.ReadFile(filepath.Join(dir, "node-invocations"))
+	if err != nil {
+		t.Fatalf("node shim did not run: %v", err)
+	}
+	if strings.TrimSpace(string(invocations)) != "--version" {
+		t.Errorf("node shim arguments = %q, want --version", invocations)
+	}
+}
+
+func TestDoctorRejectsInvalidAnchorAndEffectivePluginConfigurations(t *testing.T) {
+	tests := []struct {
+		name       string
+		baseConfig string
+		rootConfig string
+		want       string
+	}{
+		{
+			name:       "anchor plugins is not an array",
+			rootConfig: `{"compilerOptions":{"plugins":{}}}`,
+			want:       "compilerOptions.plugins must be an array",
+		},
+		{
+			name:       "effective inherited plugins is not an array",
+			baseConfig: `{"compilerOptions":{"plugins":{}}}`,
+			rootConfig: `{"extends":"./tsconfig.base.json","compilerOptions":{}}`,
+			want:       "tsconfig.base.json",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given: malformed plugin configuration at the anchor or its effective base.
+			dir := doctorProjectFixtureWithConfigs(t, "", tc.baseConfig, tc.rootConfig)
+			t.Setenv("PATH", "")
+
+			// When: the CLI diagnoses the project.
+			code, out, _ := runCLI(t, "doctor", "--project", dir)
+
+			// Then: it fails with a configuration diagnostic, not a Node fallback.
+			if code != 1 {
+				t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
+			}
+			for _, want := range []string{tc.want, "compilerOptions.plugins"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("doctor output missing %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, "transformer sidecar") {
+				t.Errorf("invalid plugin configuration should not reach the sidecar:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestDoctorResolvesEffectivePluginsFromPackageExtends(t *testing.T) {
+	dir := doctorProjectFixtureWithConfigs(t, "[flamework]\n", "", `{"extends":"@fixture/tsconfig.json","compilerOptions":{}}`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "@fixture", "tsconfig.json"), `{"compilerOptions":{"plugins":[{"transform":"example-transformer"}]}}`)
+	t.Setenv("PATH", "")
+
+	code, out, _ := runCLI(t, "doctor", "--project", dir)
+
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
+	}
+	for _, want := range []string{"example-transformer", "external transformer plugins require Node.js"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestDoctorRejectsLegacyFlameworkWithoutNodeFallback(t *testing.T) {
+	// Given: the removed legacy transformer is the only configured plugin.
+	dir := doctorProjectFixture(t, "", `[{"transform":"rbxts-transformer-flamework"}]`)
+	t.Setenv("PATH", "")
+
+	// When: doctor examines the obsolete configuration.
+	code, out, _ := runCLI(t, "doctor", "--project", dir)
+
+	// Then: it names the migration rather than scheduling Node or the sidecar.
+	if code != 1 {
+		t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
+	}
+	for _, want := range []string{"rbxts-transformer-flamework", "sloptor migrate flamework"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	for _, absent := range []string{"transformer sidecar", "transformer plugins are configured"} {
+		if strings.Contains(out, absent) {
+			t.Errorf("legacy plugin unexpectedly fell back to %q:\n%s", absent, out)
+		}
+	}
+}
+
+func doctorProjectFixture(t *testing.T, rotorConfig, plugins string) string {
+	t.Helper()
+	rootConfig := `{"compilerOptions":{` + baseDoctorCompilerOptions() + `}}`
+	if plugins != "" {
+		rootConfig = `{"compilerOptions":{` + baseDoctorCompilerOptions() + `,"plugins":` + plugins + `}}`
+	}
+	return doctorProjectFixtureWithConfigs(t, rotorConfig, "", rootConfig)
+}
+
+func doctorProjectFixtureWithConfigs(t *testing.T, rotorConfig, baseConfig, rootConfig string) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "tsconfig.json"), rootConfig)
+	if baseConfig != "" {
+		writeTestFile(t, filepath.Join(dir, "tsconfig.base.json"), baseConfig)
+	}
+	writeTestFile(t, filepath.Join(dir, "package.json"), `{"name":"fixture"}`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "@rbxts", "compiler-types", "package.json"), `{"version":"3.0.0"}`)
+	writeTestFile(t, filepath.Join(dir, "node_modules", "@rbxts", "types", "package.json"), `{"version":"1.0.0"}`)
+	writeTestFile(t, filepath.Join(dir, "default.project.json"), `{"name":"fixture","tree":{}}`)
+	if rotorConfig != "" {
+		writeTestFile(t, filepath.Join(dir, "rotor.toml"), rotorConfig)
+	}
+	return dir
+}
+
+func baseDoctorCompilerOptions() string {
+	return `"module":"CommonJS","moduleResolution":"Node","noLib":true,"moduleDetection":"force","strict":true,"target":"ESNext","types":[],"typeRoots":["node_modules/@rbxts"],"rootDir":"src","outDir":"out"`
+}
+
+func repoSidecarPath(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "tools", "sidecar"))
 }

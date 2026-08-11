@@ -13,7 +13,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"rotor/internal/compile"
 	"rotor/internal/config"
 )
 
@@ -23,19 +22,22 @@ import (
 // Rows are ok/warn/fail with actionable hints, rendered as aligned event
 // rows; only hard failures exit 1.
 func newDoctorCommand(streams cliStreams) *cobra.Command {
+	project := "."
 	cmd := &cobra.Command{
 		Use:                   "doctor [path]",
 		Short:                 "diagnose the project setup (tsconfig, @rbxts, plugins, Rojo)",
 		Args:                  cobra.MaximumNArgs(1),
 		DisableFlagsInUseLine: true,
 		RunE: func(cmd *cobra.Command, argv []string) error {
-			path := "."
+			path := project
 			if len(argv) > 0 {
 				path = argv[0]
 			}
 			return runDoctorCommand(streams, path)
 		},
 	}
+	cmd.Flags().StringVarP(&project, "project", "p", ".", "project path (default \".\")")
+	setFlagPlaceholder(cmd, "project", "<path>")
 	cmd.Flags().SortFlags = false
 	return cmd
 }
@@ -159,50 +161,23 @@ func runDoctor(path string) ([]doctorCheck, string) {
 			"npm install -D @rbxts/types"))
 	}
 
-	transforms := tsconfigTransformerPlugins(tsConfigPath)
-	nodeStatus := doctorInfo
-	nodeHint := ""
-	if len(transforms) > 0 {
-		// Transformer plugins hard-require Node (the sidecar host).
-		nodeStatus = doctorFail
-		nodeHint = "transformer plugins are configured; install Node.js (https://nodejs.org)"
-	}
-	nodeVersion, nodeOK := toolVersion("node", "--version")
-	if nodeOK {
-		checks = append(checks, doctorCheck{status: doctorOK, label: "Node.js", detail: nodeVersion})
-	} else {
-		checks = append(checks, doctorCheck{status: nodeStatus, label: "Node.js", detail: "not on PATH", hint: nodeHint})
+	nativeCheck, nativeEnabled := nativeFlameworkCheck(dir)
+	if nativeEnabled {
+		checks = append(checks, nativeCheck)
 	}
 
-	if len(transforms) > 0 {
-		if hasNodeModules {
-			checks = append(checks, packageCheck(nodeModules, "typescript", doctorFail,
-				"transformer plugins resolve the project's own typescript package; npm install -D typescript"))
-		}
-		for _, name := range transforms {
-			if dirExists(filepath.Join(nodeModules, filepath.FromSlash(name))) {
-				checks = append(checks, doctorCheck{status: doctorOK, label: "transformer " + name, detail: "installed"})
-			} else {
-				// Builds log transformer-not-found as a warning and continue,
-				// so doctor matches that severity.
-				checks = append(checks, doctorCheck{
-					status: doctorWarn,
-					label:  "transformer " + name,
-					detail: "not found in node_modules",
-					hint:   "npm install -D " + name,
-				})
-			}
-		}
-		if sidecarDir, err := compile.ResolveSidecarDir(); err == nil {
-			checks = append(checks, doctorCheck{status: doctorOK, label: "transformer sidecar", detail: sidecarDir})
-		} else {
-			checks = append(checks, doctorCheck{
-				status: doctorFail,
-				label:  "transformer sidecar",
-				detail: err.Error(),
-				hint:   "the embedded worker could not be extracted to the user cache dir",
-			})
-		}
+	plugins, pluginErr := inspectTransformerPlugins(tsConfigPath)
+	if pluginErr != nil {
+		checks = append(checks, doctorCheck{
+			status: doctorFail,
+			label:  "transformer plugins",
+			detail: pluginErr.Error(),
+			hint:   "correct compilerOptions.plugins before running rotor build",
+		})
+	} else if legacyFlameworkPluginConfigured(plugins.transforms) {
+		checks = append(checks, legacyFlameworkDoctorCheck(nativeEnabled))
+	} else {
+		checks = appendTransformerDoctorChecks(checks, nodeModules, hasNodeModules, plugins.transforms)
 	}
 
 	if projects, _ := filepath.Glob(filepath.Join(dir, "*.project.json")); len(projects) > 0 {
@@ -314,35 +289,6 @@ func readPackageVersion(nodeModules, pkg string) (string, bool) {
 		return "", false
 	}
 	return manifest.Version, true
-}
-
-// tsconfigTransformerPlugins lists compilerOptions.plugins[].transform names
-// declared by this tsconfig file (raw single-file read). A config that declares
-// `plugins` resolves to exactly this list, because `extends` replaces the
-// option rather than merging it; one that declares none inherits its parent's,
-// which this does not follow, so doctor can under-report there.
-func tsconfigTransformerPlugins(tsConfigPath string) []string {
-	data, err := os.ReadFile(tsConfigPath)
-	if err != nil {
-		return nil
-	}
-	var root struct {
-		CompilerOptions struct {
-			Plugins []struct {
-				Transform string `json:"transform"`
-			} `json:"plugins"`
-		} `json:"compilerOptions"`
-	}
-	if json.Unmarshal([]byte(compile.StripJSONC(string(data))), &root) != nil {
-		return nil
-	}
-	var transforms []string
-	for _, p := range root.CompilerOptions.Plugins {
-		if p.Transform != "" {
-			transforms = append(transforms, p.Transform)
-		}
-	}
-	return transforms
 }
 
 // toolVersion runs `<tool> <arg>` with a short timeout and returns the first

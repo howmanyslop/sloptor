@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-func TestOutputHashMatchUsesLstatWithoutOpening(t *testing.T) {
+func TestOutputHashMatchUsesValidatedContents(t *testing.T) {
 	projectDir := t.TempDir()
 	path := filepath.Join(projectDir, "out", "main.luau")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -30,7 +30,7 @@ func TestOutputHashMatchUsesLstatWithoutOpening(t *testing.T) {
 	writer := newOutputWriterWithOperations(outputWriterOperations{
 		readFile: func(string) ([]byte, error) {
 			reads.Add(1)
-			return nil, errors.New("unexpected read")
+			return contents, nil
 		},
 		mkdirAll: os.MkdirAll,
 		writeFile: func(string, []byte, fs.FileMode) error {
@@ -43,17 +43,54 @@ func TestOutputHashMatchUsesLstatWithoutOpening(t *testing.T) {
 		},
 	}, true)
 	current := map[string]string{}
-	writer.useHashes(projectDir, map[string]string{"out/main.luau": hash}, current)
+	if err := writer.useHashes(projectDir, map[string]string{"out/main.luau": hash}, current); err != nil {
+		t.Fatal(err)
+	}
 
 	wrote, err := writer.write(path, string(contents), true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wrote || reads.Load() != 0 || writes.Load() != 0 || lstats.Load() != 1 {
+	if wrote || reads.Load() != 1 || writes.Load() != 0 || lstats.Load() != 2 {
 		t.Fatalf("wrote=%v reads=%d writes=%d lstats=%d", wrote, reads.Load(), writes.Load(), lstats.Load())
 	}
 	if current["out/main.luau"] != hash || writer.hashSkipCount() != 1 {
 		t.Fatalf("current hashes = %v, skips = %d", current, writer.hashSkipCount())
+	}
+}
+
+func TestOutputHashMismatchDoesNotSkipWrite(t *testing.T) {
+	// Given: a regular output whose manifest hash describes different content.
+	projectDir := t.TempDir()
+	path := filepath.Join(projectDir, "out", "main.luau")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("STALE-MARKER"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := []byte("expected output")
+	sum := sha256.Sum256(want)
+	hash := hex.EncodeToString(sum[:])
+	writer := newOutputWriter()
+	if err := writer.useHashes(projectDir, map[string]string{"out/main.luau": hash}, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writer.close() })
+
+	// When: the compiler writes the manifest's expected content.
+	wrote, err := writer.write(path, string(want), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: the stale regular file is replaced instead of hash-skipped.
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote || string(got) != string(want) || writer.hashSkipCount() != 0 {
+		t.Fatalf("wrote=%v output=%q skips=%d", wrote, got, writer.hashSkipCount())
 	}
 }
 
@@ -66,7 +103,9 @@ func TestOutputWriterPrepareRejectsPathOutsideProject(t *testing.T) {
 			return nil
 		},
 	}, true)
-	writer.useHashes(projectDir, map[string]string{}, map[string]string{})
+	if err := writer.useHashes(projectDir, map[string]string{}, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
 
 	err := writer.prepare([]string{filepath.Join(projectDir, "..", "outside", "main.luau")})
 	if err == nil {
@@ -86,7 +125,9 @@ func TestOutputWriterLstatRejectsPathOutsideProject(t *testing.T) {
 			return nil, os.ErrNotExist
 		},
 	}, true)
-	writer.useHashes(projectDir, map[string]string{}, map[string]string{})
+	if err := writer.useHashes(projectDir, map[string]string{}, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := writer.lstat(filepath.Join(projectDir, "..", "outside.luau")); err == nil {
 		t.Fatal("lstat accepted an output outside the project")

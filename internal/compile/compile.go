@@ -16,6 +16,7 @@ import (
 	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
+	"rotor/tsgo/diagnostics"
 	"rotor/tsgo/scanner"
 )
 
@@ -88,17 +89,18 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	if sourceFile == nil {
 		return "", nil, fmt.Errorf("compile: source file not in program: %s", filePath)
 	}
-	program, preparedFiles, traces, diags, err := prepareProjectProgramForCompile(dir, program, []*ast.SourceFile{sourceFile}, opts.Overlays)
+	pipeline, diags, err := prepareCompilePipeline(dir, program, []*ast.SourceFile{sourceFile}, opts.Overlays, opts)
 	if err != nil {
 		return "", stringDiagnostics(diags), err
 	}
-	sourceFile = preparedFiles[0]
+	program = pipeline.prepared.program
+	sourceFile = pipeline.prepared.sourceFiles[0]
 
 	pctx, diags, err := newProjectContext(dir, program, opts)
 	if err != nil {
 		return "", stringDiagnostics(diags), err
 	}
-	pctx.sourceTraces = traces
+	pctx.sourceTraces = pipeline.prepared.sourceTraces
 	ctx := context.Background()
 
 	// Program-level option diagnostics (e.g. removed-option checks) plus this
@@ -301,8 +303,15 @@ func TypeScriptDiagnosticCode(code int32) string {
 	return "TS" + strconv.FormatInt(int64(code), 10)
 }
 
+func DiagnosticCode(d *ast.Diagnostic) string {
+	if code, ok := d.StringCode(); ok {
+		return code
+	}
+	return TypeScriptDiagnosticCode(d.Code())
+}
+
 func infoFromTSDiag(d *ast.Diagnostic, traces diagnosticTraces) DiagnosticInfo {
-	info := DiagnosticInfo{Code: TypeScriptDiagnosticCode(d.Code()), Message: d.String()}
+	info := DiagnosticInfo{Code: DiagnosticCode(d), Message: d.String(), Warning: d.Category() != diagnostics.CategoryError}
 	if f := d.File(); f != nil {
 		info.FileName = f.FileName()
 		info.Offset = d.Pos()
