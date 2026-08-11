@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"downlevelIteration": true,
+		"module": "commonjs",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"resolveJsonModule": true,
+		"forceConsistentCasingInFileNames": true,
+		"moduleDetection": "force",
+		"strict": true,
+		"target": "ESNext",
+		"experimentalDecorators": true,
+		"typeRoots": ["node_modules/@rbxts", "node_modules/@flamework"],
+		"rootDir": "src",
+		"outDir": "out",
+		"incremental": true,
+		"tsBuildInfoFile": "out/tsconfig.tsbuildinfo"
+	},
+	"include": ["src"]
+}
