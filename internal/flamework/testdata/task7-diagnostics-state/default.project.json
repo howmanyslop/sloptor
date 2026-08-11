@@ -1,0 +1,18 @@
+{
+	"name": "task7-diagnostics-state-fixture",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"TS": { "$path": "out" },
+			"rbxts_include": {
+				"$path": "include",
+				"node_modules": {
+					"$className": "Folder",
+					"@flamework": { "$path": "node_modules/@flamework" },
+					"@rbxts": { "$path": "node_modules/@rbxts" }
+				}
+			}
+		}
+	}
+}

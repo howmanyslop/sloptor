@@ -45,6 +45,9 @@ type Diagnostic struct {
 	reportsDeprecated  bool
 	skippedOnNoEmit    bool
 	repopulateInfo     *RepopulateDiagnosticInfo
+	stringCode         string
+	rawMessage         string
+	hasStringCode      bool
 }
 
 func (d *Diagnostic) File() *SourceFile                         { return d.file }
@@ -62,6 +65,7 @@ func (d *Diagnostic) ReportsUnnecessary() bool                  { return d.repor
 func (d *Diagnostic) ReportsDeprecated() bool                   { return d.reportsDeprecated }
 func (d *Diagnostic) SkippedOnNoEmit() bool                     { return d.skippedOnNoEmit }
 func (d *Diagnostic) RepopulateInfo() *RepopulateDiagnosticInfo { return d.repopulateInfo }
+func (d *Diagnostic) StringCode() (string, bool)                { return d.stringCode, d.hasStringCode }
 
 func (d *Diagnostic) SetFile(file *SourceFile)                         { d.file = file }
 func (d *Diagnostic) SetLocation(loc core.TextRange)                   { d.loc = loc }
@@ -99,12 +103,29 @@ func (d *Diagnostic) Clone() *Diagnostic {
 }
 
 func (d *Diagnostic) Localize(locale locale.Locale) string {
+	if d.hasStringCode {
+		return d.rawMessage
+	}
 	return diagnostics.Localize(locale, d.message, d.messageKey, d.messageArgs...)
 }
 
 // For debugging only.
 func (d *Diagnostic) String() string {
+	if d.hasStringCode {
+		return d.rawMessage
+	}
 	return diagnostics.Localize(locale.Default, d.message, d.messageKey, d.messageArgs...)
+}
+
+func NewDiagnosticWithStringCode(file *SourceFile, loc core.TextRange, code string, category diagnostics.Category, text string) *Diagnostic {
+	return &Diagnostic{
+		file:          file,
+		loc:           loc,
+		category:      category,
+		stringCode:    code,
+		rawMessage:    text,
+		hasStringCode: true,
+	}
 }
 
 func NewDiagnosticFromSerialized(
@@ -269,8 +290,15 @@ func EqualDiagnosticsNoRelatedInfo(d1, d2 *Diagnostic) bool {
 	return getDiagnosticPath(d1) == getDiagnosticPath(d2) &&
 		d1.Loc() == d2.Loc() &&
 		d1.Code() == d2.Code() &&
+		d1.Category() == d2.Category() &&
+		equalDiagnosticRepresentation(d1, d2) &&
 		slices.Equal(d1.MessageArgs(), d2.MessageArgs()) &&
 		slices.EqualFunc(d1.MessageChain(), d2.MessageChain(), equalMessageChain)
+}
+
+func equalDiagnosticRepresentation(d1, d2 *Diagnostic) bool {
+	return d1.hasStringCode == d2.hasStringCode &&
+		(!d1.hasStringCode || d1.stringCode == d2.stringCode && d1.rawMessage == d2.rawMessage)
 }
 
 func equalMessageChain(c1, c2 *Diagnostic) bool {
@@ -278,8 +306,26 @@ func equalMessageChain(c1, c2 *Diagnostic) bool {
 		return true
 	}
 	return c1.Code() == c2.Code() &&
+		c1.Category() == c2.Category() &&
+		equalDiagnosticRepresentation(c1, c2) &&
 		slices.Equal(c1.MessageArgs(), c2.MessageArgs()) &&
 		slices.EqualFunc(c1.MessageChain(), c2.MessageChain(), equalMessageChain)
+}
+
+func compareDiagnosticRepresentation(d1, d2 *Diagnostic) int {
+	if d1.hasStringCode != d2.hasStringCode {
+		if d1.hasStringCode {
+			return 1
+		}
+		return -1
+	}
+	if !d1.hasStringCode {
+		return 0
+	}
+	if c := strings.Compare(d1.stringCode, d2.stringCode); c != 0 {
+		return c
+	}
+	return strings.Compare(d1.rawMessage, d2.rawMessage)
 }
 
 func compareMessageChainSize(c1, c2 []*Diagnostic) int {
@@ -298,7 +344,19 @@ func compareMessageChainSize(c1, c2 []*Diagnostic) int {
 
 func compareMessageChainContent(c1, c2 []*Diagnostic) int {
 	for i := range c1 {
-		c := slices.Compare(c1[i].MessageArgs(), c2[i].MessageArgs())
+		c := int(c1[i].Code()) - int(c2[i].Code())
+		if c != 0 {
+			return c
+		}
+		c = int(c1[i].Category()) - int(c2[i].Category())
+		if c != 0 {
+			return c
+		}
+		c = compareDiagnosticRepresentation(c1[i], c2[i])
+		if c != 0 {
+			return c
+		}
+		c = slices.Compare(c1[i].MessageArgs(), c2[i].MessageArgs())
 		if c != 0 {
 			return c
 		}
@@ -343,6 +401,14 @@ func CompareDiagnostics(d1, d2 *Diagnostic) int {
 		return c
 	}
 	c = int(d1.Code()) - int(d2.Code())
+	if c != 0 {
+		return c
+	}
+	c = int(d1.Category()) - int(d2.Category())
+	if c != 0 {
+		return c
+	}
+	c = compareDiagnosticRepresentation(d1, d2)
 	if c != 0 {
 		return c
 	}

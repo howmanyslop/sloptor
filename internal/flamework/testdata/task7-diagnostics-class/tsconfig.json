@@ -1,0 +1,18 @@
+{
+	"compilerOptions": {
+		"baseUrl": ".",
+		"experimentalDecorators": true,
+		"moduleResolution": "Node",
+		"noLib": true,
+		"paths": {
+			"@flamework/*": ["../../../../testdata/transformers/project/node_modules/@flamework/*"]
+		},
+		"strict": true,
+		"target": "ESNext",
+		"typeRoots": [
+			"../../../../testdata/transformers/project/node_modules/@rbxts",
+			"../../../../testdata/transformers/project/node_modules/@flamework"
+		]
+	},
+	"files": ["constraint.ts", "circular.ts", "uid-symbol.ts", "uid-type.ts"]
+}

@@ -1,0 +1,22 @@
+case	families	options	observable
+defaults	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	empty hashPrefix,salt,optimizations; default idGenerationMode=full,noSemanticDiagnostics=false,preloadIds=false,obfuscation=false	final-luau,ordered-diagnostics,artifacts
+no-semantic-diagnostics	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	noSemanticDiagnostics=true	final-luau,ordered-diagnostics,artifacts
+full	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	salt,hashPrefix,idGenerationMode=full,guardGenerationDedupLimit=2	final-luau,ordered-diagnostics,artifacts
+short	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	salt,hashPrefix,idGenerationMode=short,preloadIds=false,guardGenerationDedupLimit=0	final-luau,ordered-diagnostics,artifacts
+short-preload	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	salt,hashPrefix,idGenerationMode=short,preloadIds=true,guardGenerationDedupLimit=0	final-luau,ordered-diagnostics,artifacts
+tiny	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	salt,hashPrefix,idGenerationMode=tiny,guardGenerationDedupLimit=2	final-luau,ordered-diagnostics,artifacts
+obfuscated	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	salt,hashPrefix,idGenerationMode=obfuscated,obfuscation=true,guardGenerationDedupLimit=2	final-luau,ordered-diagnostics,artifacts
+implicit-obfuscated-mode-and-persisted-salt	class-decorator-di,component-attributes,guards,macro-groups,macro-paths,networking,package-metadata-options	obfuscation=true,idGenerationMode omitted,persisted default salt,empty hashPrefix,guardGenerationDedupLimit omitted	final-luau,ordered-diagnostics,artifacts
+invalid-path	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-missing-rojo	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-template	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-type-parameter-guard	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-class-guard	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-non-tuple-guard	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-declaration-uid-placement	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-const-parameter	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-const-parameter-spread	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+invalid-network-middleware	invalid-diagnostics	salt,hashPrefix,idGenerationMode=full	ordered-diagnostics
+semantic-default-gate	invalid-diagnostics	noSemanticDiagnostics=false	ordered-typescript-diagnostic,no-output
+semantic-skipped-gate	class-decorator-di	noSemanticDiagnostics=true	transformed-build-artifact
+scoped-package-default-prefix	class-decorator-di,component-attributes,macro-groups,networking,package-metadata-options	hashPrefix omitted for scoped package	identifierPrefix,identifiers,classes

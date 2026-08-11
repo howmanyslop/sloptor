@@ -1,0 +1,22 @@
+{
+	"name": "rotor-flamework-task4-oracle",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"TS": { "$path": "out/shared" },
+			"rbxts_include": {
+				"$path": "include",
+				"node_modules": {
+					"$className": "Folder",
+					"@flamework": { "$path": "node_modules/@flamework" },
+					"@rbxts": { "$path": "node_modules/@rbxts" }
+				}
+			}
+		},
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"TS": { "$path": "out/server" }
+		}
+	}
+}
