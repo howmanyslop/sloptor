@@ -28,6 +28,9 @@ func TestTreeWatcherSnapshotWatchesFlameworkInputsExactlyOnce(t *testing.T) {
 	}
 
 	writeTestFile(t, filepath.Join(root, "rotor.toml"), "[flamework]\nidGenerationMode = \"tiny\"\n")
+	if len("[flamework]\nidGenerationMode = \"full\"\n") != len("[flamework]\nidGenerationMode = \"tiny\"\n") {
+		t.Fatal("test configuration edits must have equal size")
+	}
 	writeTestFile(t, filepath.Join(root, "package.json"), "{\"name\":\"fixture\",\"version\":\"2\"}\n")
 	writeTestFile(t, filepath.Join(root, "flamework.build.backup"), "changed input\n")
 	writeTestFile(t, filepath.Join(root, "flamework.build"), "{\"version\":2}\n")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -31,10 +32,14 @@ const watchHistoryLen = 12
 
 // fileStamp captures enough of a file's state to detect edits via polling.
 type fileStamp struct {
-	exists  bool
-	modTime time.Time
-	size    int64
+	exists    bool
+	modTime   time.Time
+	size      int64
+	digest    [sha256.Size]byte
+	hasDigest bool
 }
+
+const watchContentHashLimit = 1 << 20
 
 // watchStats accumulates per-session build counts, durations, and the last
 // build's outcome for the watch idle line. The trailing fields are watch
@@ -134,7 +139,7 @@ func (w *treeWatcher) walk(dir string, stamps map[string]fileStamp) {
 		if err != nil {
 			continue
 		}
-		stamps[path] = fileStamp{exists: true, modTime: info.ModTime(), size: info.Size()}
+		stamps[path] = watchStamp(path, info)
 	}
 }
 
@@ -415,5 +420,28 @@ func stat(path string) fileStamp {
 	if err != nil {
 		return fileStamp{}
 	}
-	return fileStamp{exists: true, modTime: info.ModTime(), size: info.Size()}
+	return watchStamp(path, info)
+}
+
+func watchStamp(path string, info os.FileInfo) fileStamp {
+	stamp := fileStamp{exists: true, modTime: info.ModTime(), size: info.Size()}
+	if !watchContentSensitive(path) || info.Size() > watchContentHashLimit {
+		return stamp
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return stamp
+	}
+	stamp.digest = sha256.Sum256(contents)
+	stamp.hasDigest = true
+	return stamp
+}
+
+func watchContentSensitive(path string) bool {
+	switch strings.ToLower(filepath.Base(path)) {
+	case "rotor.toml", "tsconfig.json", "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb", "flamework.json", "flamework.build.backup":
+		return true
+	default:
+		return false
+	}
 }
