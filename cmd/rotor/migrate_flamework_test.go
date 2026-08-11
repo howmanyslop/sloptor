@@ -35,6 +35,23 @@ func TestMigrateFlameworkUsesDefaultTSConfig(t *testing.T) {
 	}
 }
 
+func TestMigrateFlameworkRetainsCompilerPluginMetadata(t *testing.T) {
+	dir := t.TempDir()
+	writeFlameworkMigrationFixture(t, dir, `{"compilerOptions":{"plugins":[{"name":"ts-plugin-sort-import-suggestions","moveDownPatterns":["@rbxts","typescript"]},{"transform":"rbxts-transformer-flamework"}]}}`, "")
+
+	code, _, errOut := runMigrate(t, []string{"flamework", filepath.Join(dir, "tsconfig.json")})
+	if code != 0 {
+		t.Fatalf("migrate flamework exit %d: %s", code, errOut)
+	}
+	updated := mustReadFile(t, filepath.Join(dir, "tsconfig.json"))
+	if !strings.Contains(updated, `"name":"ts-plugin-sort-import-suggestions"`) {
+		t.Fatalf("compiler plugin metadata was removed: %s", updated)
+	}
+	if strings.Contains(updated, "rbxts-transformer-flamework") {
+		t.Fatalf("legacy Flamework plugin remains: %s", updated)
+	}
+}
+
 func TestMigrateFlameworkStateMatrixDoesNotWriteOnFailure(t *testing.T) {
 	tests := []struct {
 		name      string

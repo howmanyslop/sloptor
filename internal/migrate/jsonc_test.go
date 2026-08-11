@@ -62,6 +62,33 @@ func TestPlanFlameworkTSConfig_materializes_effective_plugins_and_preserves_targ
 	}
 }
 
+func TestPlanFlameworkTSConfig_acceptsCompilerPluginEntriesWithoutTransform(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "tsconfig.json")
+	original := `{
+	"compilerOptions": {
+		"plugins": [
+			{"name": "ts-plugin-sort-import-suggestions", "moveDownPatterns": ["@rbxts", "typescript"]},
+			{"transform": "rbxts-transformer-flamework", "noSemanticDiagnostics": true}
+		]
+	}
+}
+`
+	writeMigrationFixture(t, target, original)
+
+	change, err := PlanFlameworkTSConfig(target)
+	if err != nil {
+		t.Fatalf("PlanFlameworkTSConfig() error = %v", err)
+	}
+	updated := string(change.Updated)
+	if !strings.Contains(updated, `"name": "ts-plugin-sort-import-suggestions"`) {
+		t.Fatalf("updated JSONC removed compiler plugin metadata:\n%s", updated)
+	}
+	if strings.Contains(updated, "rbxts-transformer-flamework") {
+		t.Fatalf("updated JSONC retains Flamework plugin:\n%s", updated)
+	}
+}
+
 func TestPlanFlameworkTSConfig_removes_local_plugin_without_reformatting_file(t *testing.T) {
 	// Given
 	dir := t.TempDir()

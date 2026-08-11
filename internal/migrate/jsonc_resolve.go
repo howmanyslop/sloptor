@@ -125,7 +125,10 @@ func documentPlugins(document *jsoncDocument) (effectivePlugins, error) {
 			return effectivePlugins{}, &JSONCMigrationError{Path: document.path, Reason: "each compilerOptions.plugins entry must be an object"}
 		}
 		transformProperty := findProperty(element, "transform")
-		if transformProperty == nil || transformProperty.value.kind != jsoncString {
+		if transformProperty == nil {
+			continue
+		}
+		if transformProperty.value.kind != jsoncString {
 			return effectivePlugins{}, &JSONCMigrationError{Path: document.path, Reason: "each compilerOptions.plugins entry must have a string transform"}
 		}
 		transform, err := decodeString(document, transformProperty.value)
