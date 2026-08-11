@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -421,12 +420,10 @@ func TestCommitRejectsDanglingSymlinkTargetWithoutCreatingBackupOrTemp(t *testin
 	assertNoMigrationTemps(t, project)
 }
 
-func TestCommitRejectsFIFOTargetWithoutCreatingBackupOrTemp(t *testing.T) {
+func TestCommitRejectsNonRegularTargetWithoutCreatingBackupOrTemp(t *testing.T) {
 	project := t.TempDir()
 	target := filepath.Join(project, "tsconfig.json")
-	if err := syscall.Mkfifo(target, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	createNonRegularTarget(t, target)
 
 	_, err := Commit(project, []FileChange{{
 		Path: target, Original: []byte("original"), Updated: []byte("updated"), Existed: true,
@@ -435,8 +432,8 @@ func TestCommitRejectsFIFOTargetWithoutCreatingBackupOrTemp(t *testing.T) {
 		t.Fatalf("Commit error = %v, want transaction conflict", err)
 	}
 	info, statErr := os.Lstat(target)
-	if statErr != nil || info.Mode()&os.ModeNamedPipe == 0 {
-		t.Fatalf("target mode = (%v, %v), want unchanged FIFO", info, statErr)
+	if statErr != nil || !isNonRegularTarget(info) {
+		t.Fatalf("target mode = (%v, %v), want unchanged non-regular target", info, statErr)
 	}
 	if fileExists(target + ".bak") {
 		t.Fatal("backup created for rejected FIFO")

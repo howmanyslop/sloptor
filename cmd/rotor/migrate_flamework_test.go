@@ -103,7 +103,7 @@ func TestMigrateFlameworkRemovePackageExecutesManagerAfterConfigCommit(t *testin
 	if code != 0 {
 		t.Fatalf("migrate --remove-package exit %d: %s", code, errOut)
 	}
-	if got := mustReadFile(t, argvPath); got != "uninstall\nrbxts-transformer-flamework\n" {
+	if got := strings.ReplaceAll(mustReadFile(t, argvPath), "\r\n", "\n"); got != "uninstall\nrbxts-transformer-flamework\n" {
 		t.Fatalf("manager argv = %q", got)
 	}
 	if got := mustReadFile(t, filepath.Join(dir, "package.json")); strings.Contains(got, "rbxts-transformer-flamework") {

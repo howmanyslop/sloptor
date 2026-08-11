@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"syscall"
 	"testing"
 )
 
@@ -231,24 +230,22 @@ func TestPersistArtifacts_whenDestinationIsDanglingSymlink(t *testing.T) {
 	}
 }
 
-func TestPersistArtifacts_whenDestinationIsFIFO(t *testing.T) {
-	// Given: an artifact leaf is a FIFO.
+func TestPersistArtifacts_whenDestinationIsNonRegular(t *testing.T) {
+	// Given: an artifact leaf is a non-regular filesystem object.
 	root := t.TempDir()
 	path := filepath.Join(root, "artifact.fifo")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	createNonRegularTarget(t, path)
 
 	// When: persistence attempts to stage the artifact.
 	err := PersistArtifacts(root, []Artifact{{Path: filepath.Base(path), Data: []byte("replacement")}})
 
-	// Then: the FIFO remains a FIFO without being opened.
+	// Then: the non-regular target remains untouched without being opened.
 	if err == nil {
 		t.Fatal("PersistArtifacts succeeded")
 	}
 	info, statErr := os.Lstat(path)
-	if statErr != nil || info.Mode()&os.ModeNamedPipe == 0 {
-		t.Fatalf("FIFO changed: mode=%v err=%v", info.Mode(), statErr)
+	if statErr != nil || !isNonRegularTarget(info) {
+		t.Fatalf("non-regular target changed: mode=%v err=%v", info.Mode(), statErr)
 	}
 }
 
