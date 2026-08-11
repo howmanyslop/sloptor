@@ -3,8 +3,10 @@ package migrate
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func PlanFlameworkTSConfigTree(path string) ([]TSConfigChange, error) {
@@ -36,6 +38,10 @@ func PlanFlameworkTSConfigTree(path string) ([]TSConfigChange, error) {
 func solutionTSConfigPaths(root string) ([]string, error) {
 	paths := make([]string, 0, 1)
 	seen := make(map[string]struct{})
+	candidates, err := discoverTSConfigCandidates(filepath.Dir(root))
+	if err != nil {
+		return nil, err
+	}
 	var visit func(string) error
 	visit = func(path string) error {
 		path, err := filepath.Abs(filepath.Clean(path))
@@ -69,7 +75,87 @@ func solutionTSConfigPaths(root string) ([]string, error) {
 	if err := visit(root); err != nil {
 		return nil, err
 	}
+	for {
+		added := false
+		for _, candidate := range candidates {
+			if _, ok := seen[candidate]; ok {
+				continue
+			}
+			for selected := range seen {
+				if !extendsConfig(candidate, selected, make(map[string]bool)) {
+					continue
+				}
+				if err := visit(candidate); err != nil {
+					return nil, err
+				}
+				added = true
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
 	return paths, nil
+}
+
+func discoverTSConfigCandidates(root string) ([]string, error) {
+	candidates := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "node_modules", "dist", "build", "out", "out-tsc", "out-test":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := entry.Name()
+		if !strings.HasPrefix(name, "tsconfig") || (filepath.Ext(name) != ".json" && filepath.Ext(name) != ".jsonc") {
+			return nil
+		}
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return err
+		}
+		candidates = append(candidates, filepath.Clean(absolute))
+		return nil
+	})
+	if err != nil {
+		return nil, &JSONCMigrationError{Path: root, Reason: fmt.Sprintf("scan solution configs: %v", err)}
+	}
+	return candidates, nil
+}
+
+func extendsConfig(path, target string, active map[string]bool) bool {
+	path = filepath.Clean(path)
+	target = filepath.Clean(target)
+	if active[path] {
+		return false
+	}
+	active[path] = true
+	defer delete(active, path)
+	document, err := readJSONCDocument(path)
+	if err != nil {
+		return false
+	}
+	extends, err := documentExtends(document)
+	if err != nil {
+		return false
+	}
+	for _, reference := range extends {
+		resolved, err := resolveExtendsPath(path, reference)
+		if err != nil {
+			continue
+		}
+		resolved = filepath.Clean(resolved)
+		if resolved == target || extendsConfig(resolved, target, active) {
+			return true
+		}
+	}
+	return false
 }
 
 func documentReferences(document *jsoncDocument) ([]string, error) {

@@ -77,7 +77,7 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 
 	fileChanges := make([]migrate.FileChange, 0, len(tsconfigChanges)+1)
 	cleanupTargets := []string{tsconfigPath}
-	tomlPlans := make(map[string]migrate.FlameworkOptions)
+	tomlPlans := make(map[string]flameworkTOMLPlan)
 	for _, tsconfigChange := range tsconfigChanges {
 		fileChanges = append(fileChanges, migrate.FileChange{
 			Path: tsconfigChange.Path, Original: tsconfigChange.Original, Updated: tsconfigChange.Updated, Existed: true,
@@ -88,19 +88,35 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 			tomlPath = absolute
 		}
 		if existing, ok := tomlPlans[tomlPath]; ok {
-			if !sameFlameworkOptions(existing, tsconfigChange.Options) {
-				return runtimeFailure(fmt.Errorf("migration conflict: referenced tsconfigs in %s require incompatible [flamework] options", filepath.Dir(tomlPath)))
+			if !sameFlameworkOptions(existing.Options, tsconfigChange.Options) {
+				return runtimeFailure(fmt.Errorf(
+					"migration conflict: %s requires [flamework] %s but %s requires %s; one rotor.toml cannot represent both",
+					filepath.Base(existing.Path), describeFlameworkOptions(existing.Options), filepath.Base(tsconfigChange.Path), describeFlameworkOptions(tsconfigChange.Options),
+				))
 			}
 			continue
 		}
-		tomlPlans[tomlPath] = tsconfigChange.Options
+		tomlPlans[tomlPath] = flameworkTOMLPlan{Path: tsconfigChange.Path, Options: tsconfigChange.Options}
 		tomlChange, tomlStatus, tomlErr := migrate.MergeFlameworkTOML(tomlPath, tsconfigChange.Options)
 		alreadyMigrated := tomlStatus == migrate.MergeAlreadyMigrated
 		if tomlErr != nil && !alreadyMigrated {
 			return runtimeFailure(tomlErr)
 		}
 		if alreadyMigrated {
-			return runtimeFailure(errors.New("migration conflict: rotor.toml already has [flamework] while tsconfig still has rbxts-transformer-flamework"))
+			if len(tsconfigChanges) == 1 {
+				return runtimeFailure(errors.New("migration conflict: rotor.toml already has [flamework] while tsconfig still has rbxts-transformer-flamework"))
+			}
+			existing, exists, readErr := migrate.ExistingFlameworkOptions(tomlPath)
+			if readErr != nil {
+				return runtimeFailure(fmt.Errorf("read existing [flamework] configuration: %w", readErr))
+			}
+			if !exists || !sameFlameworkOptions(existing, tsconfigChange.Options) {
+				return runtimeFailure(fmt.Errorf(
+					"migration conflict: rotor.toml has [flamework] %s, but %s requires %s",
+					describeFlameworkOptions(existing), filepath.Base(tsconfigChange.Path), describeFlameworkOptions(tsconfigChange.Options),
+				))
+			}
+			continue
 		}
 		fileChanges = append(fileChanges, tomlChange)
 	}
@@ -173,8 +189,19 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 	return nil
 }
 
+type flameworkTOMLPlan struct {
+	Path    string
+	Options migrate.FlameworkOptions
+}
+
 func sameFlameworkOptions(left, right migrate.FlameworkOptions) bool {
 	leftLimit, rightLimit := left.Optimizations.GuardGenerationDedupLimit, right.Optimizations.GuardGenerationDedupLimit
+	if left.IDGenerationMode == "" {
+		left.IDGenerationMode = "full"
+	}
+	if right.IDGenerationMode == "" {
+		right.IDGenerationMode = "full"
+	}
 	return left.After == right.After &&
 		left.IDGenerationMode == right.IDGenerationMode &&
 		left.HashPrefix == right.HashPrefix &&
@@ -183,6 +210,10 @@ func sameFlameworkOptions(left, right migrate.FlameworkOptions) bool {
 		left.Obfuscation == right.Obfuscation &&
 		left.PreloadIDs == right.PreloadIDs &&
 		(leftLimit == nil && rightLimit == nil || leftLimit != nil && rightLimit != nil && *leftLimit == *rightLimit)
+}
+
+func describeFlameworkOptions(options migrate.FlameworkOptions) string {
+	return fmt.Sprintf("after=%q, idGenerationMode=%q, hashPrefix=%q, salt=%q", options.After, options.IDGenerationMode, options.HashPrefix, options.Salt)
 }
 
 func runMigrateCommand(streams cliStreams, dir string, force bool) error {

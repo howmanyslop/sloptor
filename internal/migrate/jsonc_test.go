@@ -245,6 +245,29 @@ func TestPlanFlameworkTSConfigTree_migrates_referenced_configs_without_editing_b
 	}
 }
 
+func TestPlanFlameworkTSConfigTree_discovers_configs_extending_selected_base(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "tsconfig.base.json")
+	libPath := filepath.Join(dir, "tsconfig.lib.json")
+	testPath := filepath.Join(dir, "tsconfig.test.json")
+	writeMigrationFixture(t, basePath, `{"compilerOptions":{"plugins":[{"transform":"rbxts-transformer-flamework"}]}}`)
+	writeMigrationFixture(t, libPath, `{"extends":"./tsconfig.base.json","compilerOptions":{"plugins":[{"transform":"before"},{"transform":"rbxts-transformer-flamework"}]}}`)
+	writeMigrationFixture(t, testPath, `{"extends":"./tsconfig.base.json","compilerOptions":{"plugins":[{"transform":"before"},{"transform":"rbxts-transformer-flamework"}]}}`)
+
+	changes, err := PlanFlameworkTSConfigTree(basePath)
+	if err != nil {
+		t.Fatalf("PlanFlameworkTSConfigTree() error = %v", err)
+	}
+	if len(changes) != 3 {
+		t.Fatalf("planned changes = %d, want selected base and two dependents", len(changes))
+	}
+	for _, change := range changes {
+		if strings.Contains(string(change.Updated), "rbxts-transformer-flamework") {
+			t.Fatalf("planned %s still contains Flamework: %s", change.Path, change.Updated)
+		}
+	}
+}
+
 func TestPlanFlameworkTSConfig_reports_unchanged_after_migration(t *testing.T) {
 	// Given
 	dir := t.TempDir()

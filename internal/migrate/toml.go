@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -69,6 +70,31 @@ func MergeFlameworkTOML(path string, options FlameworkOptions) (FileChange, Merg
 	}
 	updated := appendFlameworkTable(original, renderFlamework(options))
 	return FileChange{Path: path, Original: original, Updated: updated, Existed: true}, MergeReady, nil
+}
+
+func ExistingFlameworkOptions(path string) (FlameworkOptions, bool, error) {
+	project, err := config.Load(filepath.Dir(path))
+	if errors.Is(err, config.ErrNotFound) {
+		return FlameworkOptions{}, false, nil
+	}
+	if err != nil {
+		return FlameworkOptions{}, false, err
+	}
+	if project.Flamework == nil {
+		return FlameworkOptions{}, false, nil
+	}
+	return FlameworkOptions{
+		After:                 project.Flamework.After,
+		NoSemanticDiagnostics: project.Flamework.NoSemanticDiagnostics,
+		Obfuscation:           project.Flamework.Obfuscation,
+		IDGenerationMode:      project.Flamework.IDGenerationMode,
+		HashPrefix:            project.Flamework.HashPrefix,
+		Salt:                  project.Flamework.Salt,
+		PreloadIDs:            project.Flamework.PreloadIDs,
+		Optimizations: FlameworkOptimizations{
+			GuardGenerationDedupLimit: project.Flamework.Optimizations.GuardGenerationDedupLimit,
+		},
+	}, true, nil
 }
 
 func renderFlamework(options FlameworkOptions) string {
