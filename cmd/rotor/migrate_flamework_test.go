@@ -91,10 +91,9 @@ func TestMigrateFlameworkRemovePackageExecutesManagerAfterConfigCommit(t *testin
 	}
 	shimDir := t.TempDir()
 	argvPath := filepath.Join(dir, "manager.argv")
-	shim := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"" + argvPath + "\"\nprintf '%s\\n' '{\"name\":\"game\",\"packageManager\":\"npm@11.0.0\",\"devDependencies\":{}}' > package.json\n"
-	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte(shim), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writePlatformShim(t, shimDir, "npm",
+		"#!/bin/sh\nprintf '%s\\n' \"$@\" > \""+argvPath+"\"\nprintf '%s\\n' '{\"name\":\"game\",\"packageManager\":\"npm@11.0.0\",\"devDependencies\":{}}' > package.json\n",
+		">\""+argvPath+"\" echo uninstall\r\n>>\""+argvPath+"\" echo rbxts-transformer-flamework\r\n>package.json echo {\"name\":\"game\",\"packageManager\":\"npm@11.0.0\",\"devDependencies\":{}}\r\n")
 	t.Setenv("PATH", shimDir)
 
 	// When
@@ -120,9 +119,7 @@ func TestMigrateFlameworkManagerFailureKeepsCommittedConfigsAndReportsRecovery(t
 	dir := t.TempDir()
 	writeFlameworkMigrationFixture(t, dir, `{"compilerOptions":{"plugins":[{"transform":"rbxts-transformer-flamework"}]}}`, "")
 	shimDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(shimDir, "npm"), []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writePlatformShim(t, shimDir, "npm", "#!/bin/sh\nexit 17\n", "exit /b 17\r\n")
 	t.Setenv("PATH", shimDir)
 
 	// When

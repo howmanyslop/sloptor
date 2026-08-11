@@ -240,7 +240,11 @@ func task7DiagnosticTuple(dir string, diagnostics []string, err error) string {
 	if err != nil {
 		parts = append(parts, "error: "+err.Error())
 	}
-	return strings.ReplaceAll(strings.Join(parts, "\n"), filepath.ToSlash(dir), "<ROOT>")
+	value := strings.Join(parts, "\n")
+	for _, root := range []string{dir, filepath.Clean(dir), filepath.ToSlash(dir)} {
+		value = strings.ReplaceAll(value, root, "<ROOT>")
+	}
+	return strings.ReplaceAll(value, "<ROOT>\\", "<ROOT>/")
 }
 
 func task7Write(t *testing.T, path, contents string) {

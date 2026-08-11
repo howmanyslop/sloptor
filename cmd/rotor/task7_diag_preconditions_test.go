@@ -59,7 +59,7 @@ func TestTask7DiagnosticPreconditionsMatchPinnedCompilerCLIs(t *testing.T) {
 		t.Fatalf("rbxts-transformer-flamework version = %q, want 1.3.2", manifest.Version)
 	}
 	rbxtsc := filepath.Join(modules, ".bin", "rbxtsc")
-	sloptor := filepath.Join(t.TempDir(), "sloptor")
+	sloptor := platformExecutablePath(filepath.Join(t.TempDir(), "sloptor"))
 	build := task7CLIRunCommand(t, filepath.Join(repo, "cmd", "rotor"), "go", "build", "-p=1", "-o", sloptor, ".")
 	if build.exitCode != 0 {
 		t.Fatalf("build sloptor exit = %d\nstdout=%s\nstderr=%s", build.exitCode, build.stdout, build.stderr)

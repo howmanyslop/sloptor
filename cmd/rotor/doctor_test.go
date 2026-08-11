@@ -291,11 +291,9 @@ func TestDoctorMixedNativeFlameworkRetainsExternalNodePath(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "node_modules", "typescript", "package.json"), `{"version":"5.8.0"}`)
 	writeTestFile(t, filepath.Join(dir, "node_modules", "example-transformer", "package.json"), `{"version":"1.2.3"}`)
 	shimDir := t.TempDir()
-	shimPath := filepath.Join(shimDir, "node")
-	writeTestFile(t, shimPath, "#!/bin/sh\nprintf '%s\\n' \"$@\" >> \""+filepath.Join(dir, "node-invocations")+"\"\nprintf 'v99.0.0\\n'\n")
-	if err := os.Chmod(shimPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	writePlatformShim(t, shimDir, "node",
+		"#!/bin/sh\nprintf '%s\\n' \"$@\" >> \""+filepath.Join(dir, "node-invocations")+"\"\nprintf 'v99.0.0\\n'\n",
+		">>\""+filepath.Join(dir, "node-invocations")+"\" echo %*\necho v99.0.0\r\n")
 	t.Setenv("PATH", shimDir)
 	t.Setenv("ROTOR_SIDECAR_PATH", repoSidecarPath(t))
 
