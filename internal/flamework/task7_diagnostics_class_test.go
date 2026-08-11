@@ -325,7 +325,7 @@ func task7ClassOracleCLITuples(t *testing.T, root, output string) []task7ClassDi
 		if category == "message" {
 			category = "warning"
 		}
-		tuples = append(tuples, task7ClassDiagnosticTuple{Category: category, Code: fields[5], File: fileName, Start: start, Length: underlineLength, Message: fields[6]})
+		tuples = append(tuples, task7ClassDiagnosticTuple{Category: category, Code: fields[5], File: fileName, Start: start, Length: underlineLength, Message: strings.TrimSuffix(fields[6], "\r")})
 	}
 	return tuples
 }

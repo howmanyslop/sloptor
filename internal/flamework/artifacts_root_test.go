@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -83,6 +84,9 @@ func TestPersistArtifacts_rejectsPathsOutsideProjectRoot(t *testing.T) {
 }
 
 func TestArtifactTransaction_remainsBoundWhenTrustedRootMovesAndIsReplacedBySymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps an os.Root directory handle open, so the trusted root cannot be renamed")
+	}
 	// Given: an opened trusted root is moved and its former path becomes an external symlink.
 	parent := t.TempDir()
 	projectRoot := filepath.Join(parent, "project")

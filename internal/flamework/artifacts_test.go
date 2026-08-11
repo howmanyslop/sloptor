@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 )
 
@@ -43,6 +44,10 @@ func TestPersistArtifacts_whenLateCommitFails(t *testing.T) {
 		if err := os.WriteFile(path, prior, 0o640); err != nil {
 			t.Fatal(err)
 		}
+	}
+	priorInfo, statErr := os.Stat(firstPath)
+	if statErr != nil {
+		t.Fatal(statErr)
 	}
 	originalRename := renameArtifact
 	renameCount := 0
@@ -84,8 +89,8 @@ func TestPersistArtifacts_whenLateCommitFails(t *testing.T) {
 	if statErr != nil {
 		t.Fatal(statErr)
 	}
-	if info.Mode().Perm() != 0o640 {
-		t.Fatalf("first artifact mode = %o, want 640", info.Mode().Perm())
+	if runtime.GOOS != "windows" && info.Mode().Perm() != priorInfo.Mode().Perm() {
+		t.Fatalf("first artifact mode = %o, want %o", info.Mode().Perm(), priorInfo.Mode().Perm())
 	}
 }
 

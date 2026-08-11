@@ -243,7 +243,7 @@ func TestTask7Differential_matchesRealUpstreamOrderedDiagnostics(t *testing.T) {
 			matches := task7OracleDiagnostic.FindAllStringSubmatch(task7ANSI.ReplaceAllString(oracleOutput, ""), -1)
 			orderedOracle := make([]string, 0, len(matches))
 			for _, match := range matches {
-				orderedOracle = append(orderedOracle, match[1])
+				orderedOracle = append(orderedOracle, strings.TrimSuffix(match[1], "\r"))
 			}
 
 			// Then: the exact ordered diagnostic messages match.
@@ -282,7 +282,7 @@ func TestTask7Differential_noSemanticDiagnosticsControlsTheSemanticGate(t *testi
 	if len(matches) != 1 || len(nativeDiagnostics) != 1 {
 		t.Fatalf("semantic diagnostics oracle=%v native=%v\n%s", matches, nativeDiagnostics, oracleOutput)
 	}
-	wantTuple := matches[0][1] + ":" + matches[0][2]
+	wantTuple := matches[0][1] + ":" + strings.TrimSuffix(matches[0][2], "\r")
 	gotTuple := fmt.Sprintf("%d:%s", nativeDiagnostics[0].Code(), nativeDiagnostics[0].String())
 	if gotTuple != wantTuple {
 		t.Fatalf("semantic diagnostic tuple native=%q oracle=%q", gotTuple, wantTuple)
@@ -657,6 +657,12 @@ func normalizeTask7JSON(value any, sortStringArrays, sortNestedArrays bool) {
 	switch typed := value.(type) {
 	case map[string]any:
 		for key, child := range typed {
+			if key == "filePath" {
+				if pathValue, ok := child.(string); ok {
+					typed[key] = strings.ReplaceAll(pathValue, "\\", "/")
+					child = typed[key]
+				}
+			}
 			normalizeTask7JSON(child, sortStringArrays || key == "paths" || key == "origins", sortNestedArrays)
 		}
 	case []any:

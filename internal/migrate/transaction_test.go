@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -251,6 +252,9 @@ func TestCommitAcceptsTrustedRootSymlinkWhileConfiningChangesToItsReferent(t *te
 }
 
 func TestCommitRollbackUsesOpenedRootAfterTrustedRootIsMoved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows keeps an os.Root directory handle open, so the trusted root cannot be renamed")
+	}
 	container := t.TempDir()
 	project := filepath.Join(container, "project")
 	moved := filepath.Join(container, "project-moved")
