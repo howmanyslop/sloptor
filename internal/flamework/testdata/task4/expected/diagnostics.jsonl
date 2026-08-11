@@ -1,0 +1,2 @@
+{"case":"non-constant-path","file":"invalid/non-constant-path.ts","line":5,"column":1,"category":"error","source":"@flamework/core","message":"Path is invalid, expected string literal and got: string","exitCode":1}
+{"case":"template-literal-guard","file":"invalid/template-literal-guard.ts","line":5,"column":29,"category":"error","source":"@flamework/core","message":"Flamework encountered a template literal which is unsupported: `prefix-${string}`","exitCode":1}
