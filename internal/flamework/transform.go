@@ -101,6 +101,7 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 		return nil, fmt.Errorf("transform Flamework expressions: %w", err)
 	}
 	ast.SetParentInChildren(expressionTransformed.AsNode())
+	defer ast.SetParentInChildren(sourceFile.AsNode())
 	classTransformed := false
 	var classErr error
 	var visitor *ast.NodeVisitor
@@ -133,7 +134,8 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 	if classTransformed {
 		visited = prependFlameworkReflectImport(state.factory, visited)
 	}
-	return deduplicateSourceImports(state.factory, sourceFile, visited), nil
+	transformed := deduplicateSourceImports(state.factory, sourceFile, visited)
+	return state.factory.DeepCloneReparse(transformed.AsNode()).AsSourceFile(), nil
 }
 
 func mergeTransformAnalyses(explicit, discovered []FileAnalysis) ([]FileAnalysis, error) {

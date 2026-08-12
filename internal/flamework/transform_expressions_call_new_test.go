@@ -41,6 +41,63 @@ consume(counter.attributes.count = next());
 	t.Logf("transformed TypeScript:\n%s", printed)
 }
 
+func TestTransformSourceFile_preservesCheckerParents_whenSourceFileIsReused(t *testing.T) {
+	// Given
+	state, sourceFile := newExpressionTransformFixture(t, `
+import { BaseComponent } from "./base";
+interface Attributes { count: number }
+class Counter extends BaseComponent<Attributes> {}
+declare function next(): number;
+declare function consume<T>(value: T): void;
+const counter = new Counter();
+class Host<T> {
+	accept(value: T): void {}
+	method(value: T): void {
+		consume(counter.attributes.count = next());
+		this.accept(value);
+	}
+}
+`)
+	var acceptCall *ast.Node
+	for _, call := range collectCallExpressions(sourceFile) {
+		if ast.IsPropertyAccessExpression(call.Expression()) && call.Expression().Name().Text() == "accept" {
+			acceptCall = call
+			break
+		}
+	}
+	if acceptCall == nil {
+		t.Fatal("accept call not found")
+	}
+	state.EmitContext().AddSyntheticLeadingComment(acceptCall.Parent, ast.KindSingleLineCommentTrivia, " (Flamework) Host metadata", true)
+	firstTransformed, firstErr := transformSourceFile(state, sourceFile)
+	if firstErr != nil {
+		t.Fatalf("first transform error = %v", firstErr)
+	}
+	firstPrinted := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, state.EmitContext()).EmitSourceFile(firstTransformed)
+	if !strings.Contains(firstPrinted, "// (Flamework) Host metadata") {
+		t.Fatalf("first transform lost generated Flamework comment:\n%s", firstPrinted)
+	}
+	containingClass := ast.FindAncestor(acceptCall, ast.IsClassLike)
+	if containingClass == nil {
+		t.Fatal("accept call has no containing class")
+	}
+	if ast.NodeIsSynthesized(containingClass) || containingClass.Symbol() == nil {
+		t.Fatalf("containing class = synthesized:%v symbol:%p, want bound parse-tree declaration", ast.NodeIsSynthesized(containingClass), containingClass.Symbol())
+	}
+	state.checker, _ = checker.NewChecker(state.program, nil)
+
+	// When
+	transformed, err := transformFlameworkExpressionsInSourceFile(state, sourceFile)
+	// Then
+	if err != nil {
+		t.Fatalf("second transform error = %v", err)
+	}
+	printed := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(transformed)
+	if !strings.Contains(printed, `consume(counter[SYMBOL_ATTRIBUTE_SETTER]("count", next()));`) {
+		t.Fatalf("second transform did not preserve Flamework attribute transform:\n%s", printed)
+	}
+}
+
 func TestTransformFlameworkExpressionsInSourceFile_expandsCallAndNewMacroArguments(t *testing.T) {
 	// Given
 	state, sourceFile := newExpressionTransformFixture(t, `
