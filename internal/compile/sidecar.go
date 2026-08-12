@@ -225,11 +225,17 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	}
 	overlayStarted := time.Now()
 	overlayRegion := trace.StartRegion(context.Background(), "overlay program creation and parse/load")
-	transformedProgram, _, err := newProjectProgramWithOverlay(dir, configPath, programOverlays, program.Options().Checkers)
+	transformedProgram, _, err := updateProgramWithTextOverlays(program, programOverlays)
 	overlayRegion.End()
 	overlayDuration := time.Since(overlayStarted)
 	if err != nil {
-		return nil, nil, err
+		transformedProgram, _, err = newProjectProgramWithOverlay(dir, configPath, programOverlays, program.Options().Checkers)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if transformedProgram == nil {
+		return nil, nil, errors.New("compile: overlay Program update returned nil")
 	}
 	return &preparedTransformerProgram{
 		program:                  transformedProgram,

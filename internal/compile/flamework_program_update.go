@@ -32,6 +32,42 @@ type nativeProgramUpdate struct {
 	overlays    []nativeSourceOverlay
 }
 
+func updateProgramWithTextOverlays(program *compiler.Program, overlays map[string]string) (*compiler.Program, bool, error) {
+	if len(overlays) == 0 {
+		return program, true, nil
+	}
+
+	caseSensitive := program.Host().FS().UseCaseSensitiveFileNames()
+	order := make(map[string]int, len(program.SourceFiles()))
+	for index, sourceFile := range program.SourceFiles() {
+		order[normalizeOverlayPath(sourceFile.FileName(), caseSensitive)] = index
+	}
+	paths := make([]string, 0, len(overlays))
+	for path := range overlays {
+		paths = append(paths, path)
+	}
+	slices.SortStableFunc(paths, func(left, right string) int {
+		return order[normalizeOverlayPath(left, caseSensitive)] - order[normalizeOverlayPath(right, caseSensitive)]
+	})
+
+	host := newNativeOverlayHost(program.Host(), overlays)
+	for _, path := range paths {
+		original := program.GetSourceFile(path)
+		if original == nil {
+			return nil, false, fmt.Errorf("compile: overlay source missing from Program: %s", path)
+		}
+		if original.Text() == overlays[path] {
+			continue
+		}
+		updated, reused := program.UpdateProgram(original.Path(), host, nil)
+		program = updated
+		if !reused {
+			return program, false, nil
+		}
+	}
+	return program, true, nil
+}
+
 func updateNativeFlameworkProgram(input nativeProgramUpdate) (*compiler.Program, []*ast.SourceFile, diagnosticTraces, error) {
 	if len(input.overlays) == 0 {
 		return input.program, input.sourceFiles, input.traces, nil
