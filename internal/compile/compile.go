@@ -236,6 +236,11 @@ func preEmitProjectFileDiagnostics(ctx context.Context, program *compiler.Progra
 func preEmitProjectFileDiagnosticsWithOptions(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile, opts ProjectOptions) []*ast.Diagnostic {
 	tsDiags := program.GetSyntacticDiagnostics(ctx, sourceFile)
 	if opts.SkipSemanticDiagnostics {
+		// Do not call checkSourceFile / GetSemanticDiagnostics here to "warm"
+		// types. GetType already uses CheckModeTypeOnly on the nodes emit
+		// actually queries; a full file check is a superset that put the 2.2s
+		// precheck walk back on the clock. The extra GetType samples vs
+		// baseline are that TypeOnly work, not a second unpaid check.
 		return tsDiags
 	}
 	tsDiags = append(tsDiags, program.GetSemanticDiagnostics(ctx, sourceFile)...)

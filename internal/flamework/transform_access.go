@@ -7,6 +7,9 @@ import (
 )
 
 func transformFlameworkAccessExpression(state *TransformState, node *ast.Node) (*ast.Node, error) {
+	if !sourceMayNeedFlameworkAccessRewrite(state, ast.GetSourceFileOfNode(node)) {
+		return transformFlameworkExpressionChildren(state, node)
+	}
 	typeOfReceiver := state.checker.GetTypeAtLocation(node.Expression())
 	hashType := state.checker.GetTypeOfPropertyOfType(typeOfReceiver, "_flamework_key_obfuscation")
 	if hashType == nil || !hashType.IsStringLiteral() {

@@ -118,6 +118,9 @@ class Host<T> {
 func TestTransformSourceFile_returnsOriginalSourceFile_whenNoStructuralChangeOccurs(t *testing.T) {
 	// Given
 	state, sourceFile := newExpressionTransformFixture(t, "export const stable = true;\n")
+	if sourceNeedsFlameworkExpressionTransform(state, sourceFile) {
+		t.Fatal("no-call fixture unexpectedly entered the expression walk")
+	}
 
 	// When
 	transformed, err := transformSourceFile(state, sourceFile)
@@ -127,6 +130,46 @@ func TestTransformSourceFile_returnsOriginalSourceFile_whenNoStructuralChangeOcc
 	}
 	if transformed != sourceFile {
 		t.Fatalf("transformSourceFile() = %p, want original source file %p", transformed, sourceFile)
+	}
+}
+
+func TestCallMayBeFlameworkMacro_admitsTypeArgsKnownNamesAndSurface(t *testing.T) {
+	// Given: ordinary calls, type-argument macros, and same-file Flamework surface.
+	ordinary, ordinaryFile := newExpressionTransformFixture(t, `
+export function add(left: number, right: number) { return left + right; }
+export const value = add(1, 2);
+`)
+	typed, typedFile := newExpressionTransformFixture(t, `
+declare function inspect<T>(value?: T): T;
+inspect<string>();
+`)
+	surface, surfaceFile := newExpressionTransformFixture(t, `
+type DeclarationUid = { readonly _flamework_intrinsic: ["declaration-uid"] };
+/** @metadata macro */
+declare function declarationUid(value?: DeclarationUid): unknown;
+declarationUid();
+`)
+	middleware, middlewareFile := newExpressionTransformFixture(t, `
+interface Configuration { readonly middleware: number; }
+/** @metadata macro {@link config intrinsic-middleware} */
+declare function createServer(config: Configuration): void;
+createServer({ middleware: 1 });
+`)
+
+	// When / Then: only Flamework-capable calls pay GetResolvedSignature.
+	for _, call := range collectCallExpressions(ordinaryFile) {
+		if callMayBeFlameworkMacro(ordinary, call) {
+			t.Fatal("ordinary add() was treated as a Flamework macro")
+		}
+	}
+	if !callMayBeFlameworkMacro(typed, collectCallExpressions(typedFile)[0]) {
+		t.Fatal("inspect<string>() should admit type-argument macros")
+	}
+	if !callMayBeFlameworkMacro(surface, collectCallExpressions(surfaceFile)[0]) {
+		t.Fatal("declarationUid() should admit same-file Flamework surface")
+	}
+	if !callMayBeFlameworkMacro(middleware, collectCallExpressions(middlewareFile)[0]) {
+		t.Fatal("createServer() should admit known Flamework callee names")
 	}
 }
 

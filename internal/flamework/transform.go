@@ -19,6 +19,21 @@ const (
 	flameworkMetadataTag = "@metadata"
 )
 
+// Distinctive Flamework API / macro names. Generic names like id() stay
+// out; those still resolve when the file declares or imports surface.
+var flameworkMacroCalleeNames = map[string]bool{
+	"Flamework":      true,
+	"Modding":        true,
+	"Reflect":        true,
+	"Networking":     true,
+	"createGuard":    true,
+	"createEvent":    true,
+	"createServer":   true,
+	"createClient":   true,
+	"inspect":        true,
+	"declarationUid": true,
+}
+
 // Transform performs serial project analysis before visiting source files in caller order.
 func Transform(input TransformInput) (TransformResult, error) {
 	state, err := newTransformState(input, nil)
@@ -197,10 +212,79 @@ func sourceNeedsFlameworkExpressionTransform(state *TransformState, sourceFile *
 		strings.Contains(text, ".attributes") {
 		return true
 	}
+	for name := range flameworkMacroCalleeNames {
+		if strings.Contains(text, name) {
+			return true
+		}
+	}
 	// Macro, intrinsic, and key-obfuscation markers are type-level, so a call
 	// site carries no textual evidence when the declaration it resolves to lives
 	// in another module. Admit files that directly import such a module.
 	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+}
+
+// callMayBeFlameworkMacro is a cheap filter before GetResolvedSignature.
+// False negatives drop macros and their diagnostics; prefer over-inclusion.
+func callMayBeFlameworkMacro(state *TransformState, node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	if len(node.TypeArguments()) > 0 {
+		return true
+	}
+	if calleeMayBeFlameworkMacro(node.Expression()) {
+		return true
+	}
+	sourceFile := ast.GetSourceFileOfNode(node)
+	if sourceFile == nil {
+		return false
+	}
+	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+		return true
+	}
+	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+}
+
+// sourceMayNeedFlameworkAccessRewrite is the access/assignment counterpart of
+// callMayBeFlameworkMacro. Ordinary `.foo` / `obj[key]` must not pay
+// GetTypeAtLocation just because the file was admitted for a macro call.
+func sourceMayNeedFlameworkAccessRewrite(state *TransformState, sourceFile *ast.SourceFile) bool {
+	if sourceFile == nil {
+		return false
+	}
+	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+		return true
+	}
+	text := sourceFile.Text()
+	if strings.Contains(text, "Flamework") ||
+		strings.Contains(text, "Modding") ||
+		strings.Contains(text, "Reflect.") ||
+		strings.Contains(text, ".attributes") {
+		return true
+	}
+	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+}
+
+func calleeMayBeFlameworkMacro(expression *ast.Node) bool {
+	current := ast.SkipParentheses(expression)
+	for current != nil {
+		switch {
+		case ast.IsIdentifier(current):
+			return flameworkMacroCalleeNames[current.Text()]
+		case ast.IsPropertyAccessExpression(current):
+			if name := current.Name(); name != nil && flameworkMacroCalleeNames[name.Text()] {
+				return true
+			}
+			current = ast.SkipParentheses(current.Expression())
+		case ast.IsElementAccessExpression(current):
+			// Dynamic callees (obj[key]()) can still resolve to a Flamework
+			// intrinsic; signature resolution is the only safe check.
+			return true
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // sourceDeclaresFlameworkSurface reports whether the file itself declares

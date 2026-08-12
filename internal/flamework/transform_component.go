@@ -13,6 +13,9 @@ func isFlameworkAttributesAccess(state *TransformState, node *ast.Node) bool {
 	if !ast.IsPropertyAccessExpression(node) && !ast.IsElementAccessExpression(node) {
 		return false
 	}
+	if !sourceMayNeedFlameworkAccessRewrite(state, ast.GetSourceFileOfNode(node)) {
+		return false
+	}
 	symbol := state.checker.GetSymbolAtLocation(node.Expression())
 	if symbol == nil {
 		return false

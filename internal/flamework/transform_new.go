@@ -3,7 +3,7 @@ package flamework
 import "rotor/tsgo/ast"
 
 func transformFlameworkNewExpression(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
-	if state.checker.GetResolvedSignature(node) == nil {
+	if !callMayBeFlameworkMacro(state, node) || state.checker.GetResolvedSignature(node) == nil {
 		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
 	result, err := transformFlameworkCall(state, node, runtime)
