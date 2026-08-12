@@ -62,6 +62,43 @@ func TestPrepareTransformerProgramActivatesEmptyFlameworkConfig(t *testing.T) {
 	}
 }
 
+func TestPrepareTransformerProgramSelectsFlameworkProfileForActiveTSConfig(t *testing.T) {
+	// Given: two configs whose legacy transformers required different anchors.
+	dir := writeProject(t, "flamework-profiles", "")
+	baseConfig := filepath.Join(dir, "tsconfig.json")
+	libConfig := filepath.Join(dir, "tsconfig.lib.json")
+	base, err := os.ReadFile(baseConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(libConfig, base, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rotor := `[flamework.profiles."tsconfig.json"]
+after = "redacted-react-compiler"
+
+[flamework.profiles."./tsconfig.lib.json"]
+after = "jest"
+`
+	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"), []byte(rotor), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, program, diags, err := newProjectProgram(dir, libConfig)
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+
+	// When: native configuration is prepared for tsconfig.lib.json.
+	selected, diags, err := prepareFlameworkConfig(dir, program.CommandLine())
+	// Then: the lib profile is selected, not the root profile.
+	if err != nil {
+		t.Fatalf("prepareFlameworkConfig: %v (diags: %v)", err, diags)
+	}
+	if selected == nil || selected.After != "jest" {
+		t.Fatalf("selected Flamework config = %+v, want lib profile after jest", selected)
+	}
+}
+
 func TestPrepareTransformerProgramRejectsLegacyFlameworkPlugin(t *testing.T) {
 	dir := writeProject(t, "flamework-legacy", "")
 	tsconfigPath := filepath.Join(dir, "tsconfig.json")

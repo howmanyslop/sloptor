@@ -92,6 +92,38 @@ const Schema = `{
       "description": "Enables Rotor's native Flamework transformer.",
       "additionalProperties": false,
       "properties": {
+        "profiles": {
+          "type": "object",
+          "description": "Per-tsconfig native Flamework settings, keyed by normalized path relative to rotor.toml.",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "after": { "type": "string" },
+              "noSemanticDiagnostics": { "type": "boolean" },
+              "obfuscation": { "type": "boolean" },
+              "idGenerationMode": {
+                "type": "string",
+                "enum": ["full", "obfuscated", "short", "tiny"],
+                "default": "full"
+              },
+              "hashPrefix": { "type": "string", "pattern": "^(?:[^$]|$)" },
+              "salt": { "type": "string" },
+              "preloadIds": { "type": "boolean" },
+              "optimizations": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "guardGenerationDedupLimit": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
         "after": {
           "type": "string",
           "description": "Run native Flamework after this remaining TypeScript transformer."

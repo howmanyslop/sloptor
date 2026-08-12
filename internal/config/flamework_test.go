@@ -99,6 +99,11 @@ func TestFlameworkSchema(t *testing.T) {
 	if optimizations["additionalProperties"] != false {
 		t.Fatalf("flamework.optimizations.additionalProperties = %v, want false", optimizations["additionalProperties"])
 	}
+	profiles := flameworkProperties["profiles"].(map[string]any)
+	profile := profiles["additionalProperties"].(map[string]any)
+	if profile["additionalProperties"] != false {
+		t.Fatalf("flamework profile additionalProperties = %v, want false", profile["additionalProperties"])
+	}
 }
 
 func TestFlameworkSchemaRejectsReservedHashPrefix(t *testing.T) {
@@ -147,6 +152,25 @@ func TestLoadEmptyFlameworkConfigIsPresentWithFullDefault(t *testing.T) {
 	}
 }
 
+func TestLoadFlameworkProfilesAppliesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, ConfigFileName, `[flamework.profiles."tsconfig.lib.json"]
+after = "jest"
+`)
+
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, exists := cfg.Flamework.Profiles["tsconfig.lib.json"]
+	if !exists {
+		t.Fatal("tsconfig.lib.json profile missing")
+	}
+	if profile.After != "jest" || profile.IDGenerationMode != "full" {
+		t.Fatalf("profile = %+v, want after jest with full ID mode", profile)
+	}
+}
+
 func TestValidateFlameworkConfig(t *testing.T) {
 	negative := -1
 	zero := 0
@@ -180,6 +204,7 @@ func TestLoadFlameworkRejectsUnknownKeys(t *testing.T) {
 	for _, content := range []string{
 		"[flamework]\nenabled = true\n",
 		"[flamework.optimizations]\nunknown = 1\n",
+		"[flamework.profiles.\"tsconfig.lib.json\"]\nunknown = 1\n",
 	} {
 		dir := t.TempDir()
 		if err := os.WriteFile(dir+"/"+ConfigFileName, []byte(content), 0o644); err != nil {

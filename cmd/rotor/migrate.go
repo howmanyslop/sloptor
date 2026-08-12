@@ -77,7 +77,7 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 
 	fileChanges := make([]migrate.FileChange, 0, len(tsconfigChanges)+1)
 	cleanupTargets := []string{tsconfigPath}
-	tomlPlans := make(map[string]flameworkTOMLPlan)
+	tomlPlans := make(map[string][]migrate.TSConfigChange)
 	for _, tsconfigChange := range tsconfigChanges {
 		fileChanges = append(fileChanges, migrate.FileChange{
 			Path: tsconfigChange.Path, Original: tsconfigChange.Original, Updated: tsconfigChange.Updated, Existed: true,
@@ -87,33 +87,48 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 		if absolute, err := filepath.Abs(tomlPath); err == nil {
 			tomlPath = absolute
 		}
-		if existing, ok := tomlPlans[tomlPath]; ok {
-			if !sameFlameworkOptions(existing.Options, tsconfigChange.Options) {
-				return runtimeFailure(fmt.Errorf(
-					"migration conflict: %s requires [flamework] %s but %s requires %s; one rotor.toml cannot represent both",
-					filepath.Base(existing.Path), describeFlameworkOptions(existing.Options), filepath.Base(tsconfigChange.Path), describeFlameworkOptions(tsconfigChange.Options),
-				))
+		tomlPlans[tomlPath] = append(tomlPlans[tomlPath], tsconfigChange)
+	}
+	for tomlPath, plans := range tomlPlans {
+		uniform := true
+		for _, plan := range plans[1:] {
+			if !sameFlameworkOptions(plans[0].Options, plan.Options) {
+				uniform = false
+				break
 			}
-			continue
 		}
-		tomlPlans[tomlPath] = flameworkTOMLPlan{Path: tsconfigChange.Path, Options: tsconfigChange.Options}
-		tomlChange, tomlStatus, tomlErr := migrate.MergeFlameworkTOML(tomlPath, tsconfigChange.Options)
+		var tomlChange migrate.FileChange
+		var tomlStatus migrate.MergeStatus
+		var tomlErr error
+		if uniform {
+			tomlChange, tomlStatus, tomlErr = migrate.MergeFlameworkTOML(tomlPath, plans[0].Options)
+		} else {
+			profiles := make(map[string]migrate.FlameworkOptions, len(plans))
+			for _, plan := range plans {
+				relative, err := filepath.Rel(filepath.Dir(tomlPath), plan.Path)
+				if err != nil {
+					return runtimeFailure(fmt.Errorf("resolve Flamework profile path for %s: %w", plan.Path, err))
+				}
+				profiles[filepath.ToSlash(relative)] = plan.Options
+			}
+			tomlChange, tomlStatus, tomlErr = migrate.MergeFlameworkProfilesTOML(tomlPath, profiles)
+		}
 		alreadyMigrated := tomlStatus == migrate.MergeAlreadyMigrated
 		if tomlErr != nil && !alreadyMigrated {
 			return runtimeFailure(tomlErr)
 		}
 		if alreadyMigrated {
-			if len(tsconfigChanges) == 1 {
+			if len(tsconfigChanges) == 1 || !uniform {
 				return runtimeFailure(errors.New("migration conflict: rotor.toml already has [flamework] while tsconfig still has rbxts-transformer-flamework"))
 			}
 			existing, exists, readErr := migrate.ExistingFlameworkOptions(tomlPath)
 			if readErr != nil {
 				return runtimeFailure(fmt.Errorf("read existing [flamework] configuration: %w", readErr))
 			}
-			if !exists || !sameFlameworkOptions(existing, tsconfigChange.Options) {
+			if !exists || !sameFlameworkOptions(existing, plans[0].Options) {
 				return runtimeFailure(fmt.Errorf(
 					"migration conflict: rotor.toml has [flamework] %s, but %s requires %s",
-					describeFlameworkOptions(existing), filepath.Base(tsconfigChange.Path), describeFlameworkOptions(tsconfigChange.Options),
+					describeFlameworkOptions(existing), filepath.Base(plans[0].Path), describeFlameworkOptions(plans[0].Options),
 				))
 			}
 			continue
@@ -135,6 +150,10 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 		if !alreadyMigrated {
 			return runtimeFailure(errors.New("nothing to migrate: no rbxts-transformer-flamework plugin or [flamework] table was found"))
 		}
+	}
+	if alreadyMigrated && !removePackage {
+		fmt.Fprintln(streams.out, "Already migrated; no changes.")
+		return nil
 	}
 
 	cleanups := make([]migrate.PackageCleanup, 0, len(cleanupTargets))
@@ -187,11 +206,6 @@ func runMigrateFlamework(cmd *cobra.Command, streams cliStreams, tsconfigPath st
 		fmt.Fprintf(streams.out, "Backup: %s\n", backup)
 	}
 	return nil
-}
-
-type flameworkTOMLPlan struct {
-	Path    string
-	Options migrate.FlameworkOptions
 }
 
 func sameFlameworkOptions(left, right migrate.FlameworkOptions) bool {

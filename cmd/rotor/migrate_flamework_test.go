@@ -149,20 +149,15 @@ func TestMigrateFlameworkSelectedBaseFinishesWhenRotorAlreadyExists(t *testing.T
 	}
 }
 
-func TestMigrateFlameworkRejectsIncompatibleReferencedOrderingWithoutWrites(t *testing.T) {
+func TestMigrateFlameworkWritesProfilesForIncompatibleReferencedOrdering(t *testing.T) {
 	dir := t.TempDir()
 	base := `{"compilerOptions":{"plugins":[{"transform":"rbxts-transformer-flamework"}]}}`
-	root := `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"}]}`
-	child := `{"extends":"./tsconfig.base.json","compilerOptions":{"plugins":[{"transform":"other-transformer"},{"transform":"rbxts-transformer-flamework"}]}}`
-	originals := map[string]string{
-		"tsconfig.base.json": base,
-		"tsconfig.json":      root,
-		"tsconfig.lib.json":  child,
-	}
+	lib := `{"extends":"./tsconfig.base.json","compilerOptions":{"plugins":[{"transform":"redacted-react-compiler"},{"transform":"rbxts-transformer-flamework"}]}}`
+	test := `{"extends":"./tsconfig.base.json","compilerOptions":{"plugins":[{"transform":"jest"},{"transform":"rbxts-transformer-flamework"}]}}`
 	for name, contents := range map[string]string{
 		"tsconfig.base.json": base,
-		"tsconfig.json":      root,
-		"tsconfig.lib.json":  child,
+		"tsconfig.lib.json":  lib,
+		"tsconfig.test.json": test,
 		"package.json":       `{"name":"game","packageManager":"npm@11.0.0"}`,
 		"package-lock.json":  "{}\n",
 	} {
@@ -171,16 +166,25 @@ func TestMigrateFlameworkRejectsIncompatibleReferencedOrderingWithoutWrites(t *t
 		}
 	}
 
-	code, _, errOut := runMigrate(t, []string{"flamework", filepath.Join(dir, "tsconfig.json")})
-	if code != 1 || !strings.Contains(errOut, "one rotor.toml cannot represent both") {
+	code, _, errOut := runMigrate(t, []string{"flamework", filepath.Join(dir, "tsconfig.base.json")})
+	if code != 0 {
 		t.Fatalf("migrate incompatible solution = (%d, %q)", code, errOut)
 	}
-	if fileExists(filepath.Join(dir, "rotor.toml")) {
-		t.Fatal("incompatible solution created rotor.toml")
+	rotor := mustReadFile(t, filepath.Join(dir, "rotor.toml"))
+	for _, want := range []string{
+		`[flamework.profiles."tsconfig.base.json"]`,
+		`[flamework.profiles."tsconfig.lib.json"]`,
+		`after = "redacted-react-compiler"`,
+		`[flamework.profiles."tsconfig.test.json"]`,
+		`after = "jest"`,
+	} {
+		if !strings.Contains(rotor, want) {
+			t.Fatalf("rotor.toml missing %q:\n%s", want, rotor)
+		}
 	}
-	for name, want := range originals {
-		if got := mustReadFile(t, filepath.Join(dir, name)); got != want {
-			t.Fatalf("%s changed during rejected migration: %s", name, got)
+	for _, name := range []string{"tsconfig.base.json", "tsconfig.lib.json", "tsconfig.test.json"} {
+		if got := mustReadFile(t, filepath.Join(dir, name)); strings.Contains(got, "rbxts-transformer-flamework") {
+			t.Fatalf("%s retained legacy Flamework plugin: %s", name, got)
 		}
 	}
 }
@@ -207,7 +211,7 @@ func TestMigrateFlameworkStateMatrixDoesNotWriteOnFailure(t *testing.T) {
 			beforeRotor := test.rotor
 
 			// When
-			code, _, errOut := runMigrate(t, []string{"flamework", tsconfigPath})
+			code, out, errOut := runMigrate(t, []string{"flamework", tsconfigPath})
 
 			// Then
 			if code != test.wantCode {
@@ -215,6 +219,16 @@ func TestMigrateFlameworkStateMatrixDoesNotWriteOnFailure(t *testing.T) {
 			}
 			if test.wantError != "" && !strings.Contains(errOut, test.wantError) {
 				t.Fatalf("stderr %q does not contain %q", errOut, test.wantError)
+			}
+			if test.name == "already migrated is idempotent" {
+				if !strings.Contains(out, "no changes") {
+					t.Fatalf("idempotent stdout %q does not report no changes", out)
+				}
+				for _, unexpected := range []string{"Migration complete", "Optional package cleanup"} {
+					if strings.Contains(out, unexpected) {
+						t.Fatalf("idempotent stdout contains %q: %s", unexpected, out)
+					}
+				}
 			}
 			if got := mustReadFile(t, tsconfigPath); got != beforeTSConfig {
 				t.Fatalf("tsconfig changed: %q", got)

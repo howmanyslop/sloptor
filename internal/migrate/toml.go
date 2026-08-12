@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -51,9 +52,17 @@ func (e *MergeError) Unwrap() error { return e.Err }
 
 // MergeFlameworkTOML appends native configuration without reserializing existing TOML.
 func MergeFlameworkTOML(path string, options FlameworkOptions) (FileChange, MergeStatus, error) {
+	return mergeFlameworkTOML(path, renderFlamework(options))
+}
+
+func MergeFlameworkProfilesTOML(path string, profiles map[string]FlameworkOptions) (FileChange, MergeStatus, error) {
+	return mergeFlameworkTOML(path, renderFlameworkProfiles(profiles))
+}
+
+func mergeFlameworkTOML(path, rendered string) (FileChange, MergeStatus, error) {
 	original, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		updated := []byte(config.SchemaDirective + "\n\n" + renderFlamework(options))
+		updated := []byte(config.SchemaDirective + "\n\n" + rendered)
 		return FileChange{Path: path, Updated: updated}, MergeReady, nil
 	}
 	if err != nil {
@@ -68,8 +77,25 @@ func MergeFlameworkTOML(path string, options FlameworkOptions) (FileChange, Merg
 			Path: path, Kind: MergeErrorAlreadyMigrated, Err: errors.New("[flamework] already exists"),
 		}
 	}
-	updated := appendFlameworkTable(original, renderFlamework(options))
+	updated := appendFlameworkTable(original, rendered)
 	return FileChange{Path: path, Original: original, Updated: updated, Existed: true}, MergeReady, nil
+}
+
+func renderFlameworkProfiles(profiles map[string]FlameworkOptions) string {
+	names := make([]string, 0, len(profiles))
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var rendered strings.Builder
+	for index, name := range names {
+		if index > 0 {
+			rendered.WriteByte('\n')
+		}
+		prefix := "flamework.profiles." + quoteTOML(filepath.ToSlash(name))
+		rendered.WriteString(renderFlameworkTables("["+prefix+"]", "["+prefix+".optimizations]", profiles[name]))
+	}
+	return rendered.String()
 }
 
 func ExistingFlameworkOptions(path string) (FlameworkOptions, bool, error) {
@@ -80,7 +106,7 @@ func ExistingFlameworkOptions(path string) (FlameworkOptions, bool, error) {
 	if err != nil {
 		return FlameworkOptions{}, false, err
 	}
-	if project.Flamework == nil {
+	if project.Flamework == nil || len(project.Flamework.Profiles) > 0 {
 		return FlameworkOptions{}, false, nil
 	}
 	return FlameworkOptions{
@@ -98,7 +124,11 @@ func ExistingFlameworkOptions(path string) (FlameworkOptions, bool, error) {
 }
 
 func renderFlamework(options FlameworkOptions) string {
-	lines := []string{"[flamework]"}
+	return renderFlameworkTables("[flamework]", "[flamework.optimizations]", options)
+}
+
+func renderFlameworkTables(header, optimizationsHeader string, options FlameworkOptions) string {
+	lines := []string{header}
 	for _, option := range []struct{ key, value string }{
 		{"after", options.After},
 		{"idGenerationMode", options.IDGenerationMode},
@@ -121,7 +151,7 @@ func renderFlamework(options FlameworkOptions) string {
 	}
 	text := strings.Join(lines, "\n") + "\n"
 	if limit := options.Optimizations.GuardGenerationDedupLimit; limit != nil {
-		text += "\n[flamework.optimizations]\nguardGenerationDedupLimit = " + strconv.Itoa(*limit) + "\n"
+		text += "\n" + optimizationsHeader + "\nguardGenerationDedupLimit = " + strconv.Itoa(*limit) + "\n"
 	}
 	return text
 }
