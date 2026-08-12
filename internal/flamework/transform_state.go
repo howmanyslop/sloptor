@@ -74,6 +74,9 @@ type TransformState struct {
 	diagnostics    []*ast.Diagnostic
 	generatedNames map[string]map[string]int
 	guardLibrary   string
+	// surfaces caches the Flamework surface scan per file so the expression
+	// prefilter reads an imported module's text at most once per transform.
+	surfaces map[string]bool
 }
 
 func newTransformState(input TransformInput, plans []FilePlan) (*TransformState, error) {
@@ -131,6 +134,24 @@ func (s *TransformState) nextGeneratedName(fileName, preferred string) string {
 		return preferred
 	}
 	return fmt.Sprintf("%s_%d", preferred, suffix)
+}
+
+func (s *TransformState) flameworkSurface(sourceFile *ast.SourceFile) (bool, bool) {
+	if s == nil || s.surfaces == nil {
+		return false, false
+	}
+	declares, found := s.surfaces[sourceFile.FileName()]
+	return declares, found
+}
+
+func (s *TransformState) setFlameworkSurface(sourceFile *ast.SourceFile, declares bool) {
+	if s == nil {
+		return
+	}
+	if s.surfaces == nil {
+		s.surfaces = make(map[string]bool)
+	}
+	s.surfaces[sourceFile.FileName()] = declares
 }
 
 func (s *TransformState) Program() *compiler.Program { return s.program }

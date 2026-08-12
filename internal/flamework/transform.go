@@ -7,6 +7,18 @@ import (
 	"rotor/tsgo/ast"
 )
 
+const (
+	// flameworkModulePrefix matches every published Flamework package.
+	flameworkModulePrefix = "@flamework/"
+	// flameworkMarkerPrefix is shared by every marker property the transforms
+	// key on: _flamework_macro_*, _flamework_intrinsic, _flamework_Decorator,
+	// and _flamework_key_obfuscation.
+	flameworkMarkerPrefix = "_flamework"
+	// flameworkMetadataTag marks macro and intrinsic declarations that carry no
+	// marker property, such as `/** @metadata macro {@link config intrinsic } */`.
+	flameworkMetadataTag = "@metadata"
+)
+
 // Transform performs serial project analysis before visiting source files in caller order.
 func Transform(input TransformInput) (TransformResult, error) {
 	state, err := newTransformState(input, nil)
@@ -99,7 +111,7 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 	// Most project sources have no Flamework classes, macros, or APIs. Walking
 	// every call expression through the type checker on those files dominated
 	// clean full-build time; skip the expression visitor when no surface exists.
-	needsExpressions := planned || sourceNeedsFlameworkExpressionTransform(sourceFile)
+	needsExpressions := planned || sourceNeedsFlameworkExpressionTransform(state, sourceFile)
 	if !planned && !needsExpressions {
 		return sourceFile, nil
 	}
@@ -162,20 +174,15 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 }
 
 // sourceNeedsFlameworkExpressionTransform is a cheap prefilter for the full
-// expression visitor. False negatives must be avoided for files that use
-// Flamework macros/APIs without a planned class; prefer over-inclusion.
-func sourceNeedsFlameworkExpressionTransform(sourceFile *ast.SourceFile) bool {
+// expression visitor. Upstream visits every file, so a false negative silently
+// drops macros, key obfuscation, and the diagnostics they raise; prefer
+// over-inclusion.
+func sourceNeedsFlameworkExpressionTransform(state *TransformState, sourceFile *ast.SourceFile) bool {
 	if sourceFile == nil {
 		return false
 	}
-	for _, imp := range sourceFile.Imports() {
-		if imp == nil {
-			continue
-		}
-		moduleName := imp.Text()
-		if strings.HasPrefix(moduleName, "@flamework/") || moduleName == flameworkCoreModule {
-			return true
-		}
+	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+		return true
 	}
 	text := sourceFile.Text()
 	if text == "" {
@@ -184,10 +191,68 @@ func sourceNeedsFlameworkExpressionTransform(sourceFile *ast.SourceFile) bool {
 	// Identifier/API surface used by expression rewrites and macros. Planned
 	// Flamework classes already force a walk. `.attributes` covers component
 	// attribute get/set rewrites that do not always import @flamework by name.
-	return strings.Contains(text, "Flamework") ||
+	if strings.Contains(text, "Flamework") ||
 		strings.Contains(text, "Modding") ||
 		strings.Contains(text, "Reflect.") ||
-		strings.Contains(text, ".attributes")
+		strings.Contains(text, ".attributes") {
+		return true
+	}
+	// Macro, intrinsic, and key-obfuscation markers are type-level, so a call
+	// site carries no textual evidence when the declaration it resolves to lives
+	// in another module. Admit files that directly import such a module.
+	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+}
+
+// sourceDeclaresFlameworkSurface reports whether the file itself declares
+// Flamework surface: an `@flamework/*` import, one of the `_flamework_*` marker
+// properties (macro, intrinsic, key obfuscation, decorator), or a `@metadata`
+// JSDoc tag marking a macro or intrinsic declaration.
+func sourceDeclaresFlameworkSurface(state *TransformState, sourceFile *ast.SourceFile) bool {
+	if sourceFile == nil {
+		return false
+	}
+	if cached, found := state.flameworkSurface(sourceFile); found {
+		return cached
+	}
+	declares := false
+	for _, imp := range sourceFile.Imports() {
+		if imp == nil {
+			continue
+		}
+		if strings.HasPrefix(imp.Text(), flameworkModulePrefix) {
+			declares = true
+			break
+		}
+	}
+	if !declares {
+		text := sourceFile.Text()
+		declares = strings.Contains(text, flameworkMarkerPrefix) || strings.Contains(text, flameworkMetadataTag)
+	}
+	state.setFlameworkSurface(sourceFile, declares)
+	return declares
+}
+
+func importsFlameworkSurfaceDeclaration(state *TransformState, sourceFile *ast.SourceFile) bool {
+	if state == nil || state.program == nil {
+		return false
+	}
+	for _, imp := range sourceFile.Imports() {
+		if imp == nil {
+			continue
+		}
+		resolved := state.program.GetResolvedModuleFromModuleSpecifier(sourceFile, imp)
+		if !resolved.IsResolved() {
+			continue
+		}
+		imported := state.program.GetSourceFileForResolvedModule(resolved.ResolvedFileName)
+		if imported == nil || imported == sourceFile {
+			continue
+		}
+		if sourceDeclaresFlameworkSurface(state, imported) {
+			return true
+		}
+	}
+	return false
 }
 
 func mergeTransformAnalyses(explicit, discovered []FileAnalysis) ([]FileAnalysis, error) {

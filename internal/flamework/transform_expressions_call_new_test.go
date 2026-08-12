@@ -138,7 +138,7 @@ export function run() {
 	return add(add(1, 2), add(3, 4));
 }
 `)
-	if sourceNeedsFlameworkExpressionTransform(sourceFile) {
+	if sourceNeedsFlameworkExpressionTransform(state, sourceFile) {
 		t.Fatal("fixture unexpectedly matched Flamework expression surface")
 	}
 
@@ -152,6 +152,51 @@ export function run() {
 		t.Fatalf("transformSourceFile() = %p, want original %p", transformed, sourceFile)
 	}
 	t.Log("observable expression_walk_skipped=true source_pointer_reused=true")
+}
+
+func TestTransformSourceFile_walksExpressions_whenMacroIsDeclaredInAnImportedModule(t *testing.T) {
+	// Given: a call site whose only Flamework evidence lives in the imported module.
+	directory := t.TempDir()
+	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"strict":true,"rootDir":"src","outDir":"out"},"include":["src/**/*.ts"]}`)
+	writeTransformFixture(t, directory, "src/macros.ts", strings.Join([]string{
+		`type Caller<M extends string> = { _flamework_macro_caller: M };`,
+		`export declare function callerText(value?: Caller<"text">): string;`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/main.ts", strings.Join([]string{
+		`import { callerText } from "./macros";`,
+		`export const label = callerText();`,
+	}, "\n"))
+	program := newTransformProgram(t, directory)
+	typeChecker, release := program.GetTypeChecker(context.Background())
+	t.Cleanup(release)
+	sourceFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/main.ts")))
+	if sourceFile == nil {
+		t.Fatal("call site source file was not loaded")
+	}
+	project, err := OpenProject(ProjectOptions{ProjectDir: directory, RootDir: "src", OutDir: "out", Config: config.FlameworkConfig{}})
+	if err != nil {
+		t.Fatalf("OpenProject() error = %v", err)
+	}
+	state, err := newTransformState(TransformInput{Program: program, Checker: typeChecker, Files: []*ast.SourceFile{sourceFile}, Project: project}, nil)
+	if err != nil {
+		t.Fatalf("newTransformState() error = %v", err)
+	}
+	if !sourceNeedsFlameworkExpressionTransform(state, sourceFile) {
+		t.Fatal("call site importing a macro declaration was rejected by the expression prefilter")
+	}
+
+	// When: transformSourceFile runs.
+	transformed, err := transformSourceFile(state, sourceFile)
+	// Then: the caller macro argument is substituted instead of silently skipped.
+	if err != nil {
+		t.Fatalf("transformSourceFile() error = %v", err)
+	}
+	printed := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(transformed)
+	if !strings.Contains(printed, `callerText("callerText()" as never)`) {
+		t.Fatalf("imported caller macro was not expanded:\n%s", printed)
+	}
+	t.Logf("cross-module macro TypeScript:\n%s", printed)
 }
 
 func TestTransform_preservesUnchangedSourceMetadata_whenNoStructuralChangeOccurs(t *testing.T) {
