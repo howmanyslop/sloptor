@@ -186,25 +186,58 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	prefix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"prefix"}`)}
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
 
-	// When: the prefix runs without declaration emit, then the suffix emits once.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, false)
+	// When: the prefix and suffix run as source-only stages.
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, sidecarEmitSources)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, true)
-	// Then: each subset is applied in order and declarations arrive only on suffix.
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, sidecarEmitSources)
+	// Then: each subset is applied in order without declaration emission.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
 	}
 	if len(first.declarations) != 0 {
 		t.Fatalf("prefix declarations = %d, want 0", len(first.declarations))
 	}
-	if len(second.declarations) == 0 {
-		t.Fatal("suffix declaration emit produced no files")
+	if len(second.declarations) != 0 {
+		t.Fatalf("suffix declarations = %d, want 0", len(second.declarations))
 	}
 	source := second.program.GetSourceFile(filepath.Join(dir, "src", "main.ts"))
 	if source == nil || !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
 		t.Fatalf("filtered transforms produced %q, want suffix:prefix:start", source.Text())
+	}
+}
+
+func TestApplyTransformerSidecarPreservesCombinedSourceAndDeclarationOutput(t *testing.T) {
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/combined-sidecar", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", sidecarSubsetConfig())
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const phase = \"start\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+
+	combined, diags, err := applyTransformerSidecar(dir, program, projectSourceFiles(program), nil)
+	if err != nil {
+		t.Fatalf("applyTransformerSidecar: %v (diags: %v)", err, diags)
+	}
+	source := combined.program.GetSourceFile(filepath.Join(dir, "src", "main.ts"))
+	if source == nil {
+		t.Fatal("combined source missing")
+	}
+	if !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
+		t.Fatalf("combined source = %q, want suffix:prefix:start", source.Text())
+	}
+	if len(combined.declarations) != 1 {
+		t.Fatalf("combined declarations = %d, want 1", len(combined.declarations))
+	}
+	if got, want := combined.declarations[0].Text, "export declare const phase = \"start\";\n"; got != want {
+		t.Fatalf("combined declaration = %q, want %q", got, want)
 	}
 }
 

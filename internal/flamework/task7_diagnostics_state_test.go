@@ -50,6 +50,7 @@ type task7StateSidecarRequest struct {
 	ProjectDir       string     `json:"projectDir"`
 	CompileFileNames []string   `json:"compileFileNames"`
 	ChangedFiles     []struct{} `json:"changedFiles"`
+	TransformSources bool       `json:"transformSources"`
 	EmitDeclarations bool       `json:"emitDeclarations"`
 }
 
@@ -214,7 +215,7 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 	if err != nil {
 		t.Fatalf("resolve sidecar: %v", err)
 	}
-	request := task7StateSidecarRequest{Protocol: 1, TSConfigPath: filepath.Join(root, project), ProjectDir: root, CompileFileNames: []string{filepath.Join(root, "src", "index.ts")}, ChangedFiles: []struct{}{}, EmitDeclarations: false}
+	request := task7StateSidecarRequest{Protocol: 1, TSConfigPath: filepath.Join(root, project), ProjectDir: root, CompileFileNames: []string{filepath.Join(root, "src", "index.ts")}, ChangedFiles: []struct{}{}, TransformSources: true, EmitDeclarations: false}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)

@@ -73,6 +73,23 @@ class Host<T> {
 	if firstErr != nil {
 		t.Fatalf("first transform error = %v", firstErr)
 	}
+	if firstTransformed == sourceFile {
+		t.Fatal("first transform reused source file after a structural change")
+	}
+	if firstTransformed.AsNode().Flags&ast.NodeFlagsReparsed == 0 {
+		t.Fatal("first transform did not DeepCloneReparse the changed source file")
+	}
+	var verifyParents func(*ast.Node)
+	verifyParents = func(node *ast.Node) {
+		node.ForEachChild(func(child *ast.Node) bool {
+			if child.Parent != node {
+				t.Fatalf("child %v parent = %p, want %p", child.Kind, child.Parent, node)
+			}
+			verifyParents(child)
+			return false
+		})
+	}
+	verifyParents(firstTransformed.AsNode())
 	firstPrinted := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, state.EmitContext()).EmitSourceFile(firstTransformed)
 	if !strings.Contains(firstPrinted, "// (Flamework) Host metadata") {
 		t.Fatalf("first transform lost generated Flamework comment:\n%s", firstPrinted)
@@ -95,6 +112,44 @@ class Host<T> {
 	printed := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(transformed)
 	if !strings.Contains(printed, `consume(counter[SYMBOL_ATTRIBUTE_SETTER]("count", next()));`) {
 		t.Fatalf("second transform did not preserve Flamework attribute transform:\n%s", printed)
+	}
+}
+
+func TestTransformSourceFile_returnsOriginalSourceFile_whenNoStructuralChangeOccurs(t *testing.T) {
+	// Given
+	state, sourceFile := newExpressionTransformFixture(t, "export const stable = true;\n")
+
+	// When
+	transformed, err := transformSourceFile(state, sourceFile)
+	// Then
+	if err != nil {
+		t.Fatalf("transformSourceFile() error = %v", err)
+	}
+	if transformed != sourceFile {
+		t.Fatalf("transformSourceFile() = %p, want original source file %p", transformed, sourceFile)
+	}
+}
+
+func TestTransform_preservesUnchangedSourceMetadata_whenNoStructuralChangeOccurs(t *testing.T) {
+	// Given
+	base, sourceFile := newExpressionTransformFixture(t, "export const stable = true;\n")
+
+	// When
+	result, err := Transform(TransformInput{
+		Program: base.program,
+		Checker: base.checker,
+		Files:   []*ast.SourceFile{sourceFile},
+		Project: base.project,
+	})
+	// Then
+	if err != nil {
+		t.Fatalf("Transform() error = %v", err)
+	}
+	if len(result.Files) != 1 || result.Files[0] != sourceFile {
+		t.Fatalf("Transform() files = %#v, want original source file %p", result.Files, sourceFile)
+	}
+	if len(result.Sources) != 1 || result.Sources[0].Original() != sourceFile || result.Sources[0].Transformed() != sourceFile || result.Sources[0].Changed() {
+		t.Fatalf("Transform() source metadata = %#v, want unchanged original source", result.Sources)
 	}
 }
 

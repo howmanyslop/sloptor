@@ -135,6 +135,9 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 		visited = prependFlameworkReflectImport(state.factory, visited)
 	}
 	transformed := deduplicateSourceImports(state.factory, sourceFile, visited)
+	if transformed == sourceFile {
+		return sourceFile, nil
+	}
 	return state.factory.DeepCloneReparse(transformed.AsNode()).AsSourceFile(), nil
 }
 

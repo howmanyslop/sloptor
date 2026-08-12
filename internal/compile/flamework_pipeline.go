@@ -12,9 +12,6 @@ import (
 	"rotor/internal/flamework"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
-	"rotor/tsgo/printer"
-	"rotor/tsgo/sourcemap"
-	"rotor/tsgo/tspath"
 )
 
 type compilePipelineResult struct {
@@ -138,7 +135,7 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 }
 
 func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), false)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitSources)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -165,7 +162,7 @@ func runDeclarationTransformerStage(dir string, program *compiler.Program, sourc
 	if len(plugins) == 0 && !declarationUsesPathAliases(program) {
 		return nil, nil, nil
 	}
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), true)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitDeclarations)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -196,27 +193,20 @@ func applyNativeFlameworkTransform(dir string, program *compiler.Program, source
 		return nil, tsDiagnosticInfos(result.Diagnostics, traces), errors.New("compile: native Flamework diagnostics")
 	}
 
-	programOverlays := normalizeOverlays(overlays)
-	composed := make(diagnosticTraces, len(sourceFiles))
-	for key, trace := range traces {
-		composed[key] = trace
-	}
-	caseSensitive := program.Host().FS().UseCaseSensitiveFileNames()
+	changed := make([]nativeSourceOverlay, 0, len(result.Sources))
 	for index, metadata := range result.Sources {
+		if !metadata.Changed() {
+			continue
+		}
 		text, trace, err := printFlameworkSource(result.Files[index], metadata)
 		if err != nil {
 			return nil, nil, err
 		}
-		key := normalizeSourceFilePath(metadata.FileName())
-		programOverlays[normalizeOverlayPath(metadata.FileName(), caseSensitive)] = text
-		composed[key] = composeSourceTraceMaps(trace, traces[key])
+		changed = append(changed, nativeSourceOverlay{fileName: metadata.FileName(), text: text, trace: trace})
 	}
-
-	transformedProgram, diags, err := newProjectProgramWithOverlay(dir, program.Options().ConfigFilePath, programOverlays, program.Options().Checkers)
-	if err != nil {
-		return nil, stringDiagnostics(diags), err
-	}
-	remapped, err := remapProgramSourceFiles(transformedProgram, sourceFiles)
+	transformedProgram, remapped, composed, err := updateNativeFlameworkProgram(nativeProgramUpdate{
+		program: program, sourceFiles: sourceFiles, traces: traces, overlays: changed,
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,28 +216,4 @@ func applyNativeFlameworkTransform(dir string, program *compiler.Program, source
 		flamework:    nil,
 		sourceTraces: composed,
 	}, nil, nil
-}
-
-func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceMetadata) (string, *sourceTraceMap, error) {
-	writer := printer.NewTextWriter("\n", 0)
-	generator := sourcemap.NewGenerator(
-		filepath.Base(sourceFile.FileName()),
-		"",
-		filepath.Dir(sourceFile.FileName()),
-		tspath.ComparePathsOptions{UseCaseSensitiveFileNames: true, CurrentDirectory: filepath.Dir(sourceFile.FileName())},
-	)
-	printer.NewPrinter(printer.PrinterOptions{SourceMap: true, InlineSources: true}, printer.PrintHandlers{}, metadata.EmitContext()).Write(sourceFile.AsNode(), metadata.Original(), writer, generator)
-	textWriter, ok := writer.(interface{ String() string })
-	if !ok {
-		return "", nil, errors.New("compile: TypeScript printer writer does not expose text")
-	}
-	raw, err := json.Marshal(generator.RawSourceMap())
-	if err != nil {
-		return "", nil, fmt.Errorf("compile: encode native Flamework trace: %w", err)
-	}
-	trace, err := newSourceTraceMap(string(raw), metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
-	if err != nil {
-		return "", nil, err
-	}
-	return textWriter.String(), trace, nil
 }

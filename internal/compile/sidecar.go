@@ -44,8 +44,20 @@ type sidecarRequest struct {
 	CompileFileNames []string             `json:"compileFileNames"`
 	ChangedFiles     []sidecarChangedFile `json:"changedFiles"`
 	Plugins          []json.RawMessage    `json:"plugins,omitempty"`
+	TransformSources bool                 `json:"transformSources"`
 	EmitDeclarations bool                 `json:"emitDeclarations"`
 }
+
+type sidecarEmitMode struct {
+	transformSources bool
+	emitDeclarations bool
+}
+
+var (
+	sidecarEmitSources      = sidecarEmitMode{transformSources: true}
+	sidecarEmitDeclarations = sidecarEmitMode{emitDeclarations: true}
+	sidecarEmitBoth         = sidecarEmitMode{transformSources: true, emitDeclarations: true}
+)
 
 type sidecarChangedFile struct {
 	FileName string `json:"fileName"`
@@ -146,10 +158,10 @@ func declarationUsesPathAliases(program *compiler.Program) bool {
 }
 
 func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
-	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, true)
+	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, sidecarEmitBoth)
 }
 
-func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, emitDeclarations bool) (*preparedTransformerProgram, []string, error) {
+func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
@@ -157,7 +169,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 
 	sidecarStarted := time.Now()
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, emitDeclarations)
+	response, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode)
 	sidecarRegion.End()
 	sidecarDuration := time.Since(sidecarStarted)
 	if err != nil {
@@ -521,7 +533,7 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, emitDeclarations bool) (*sidecarResponse, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*sidecarResponse, error) {
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, err
@@ -575,7 +587,8 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			CompileFileNames: make([]string, 0, len(compileFiles)),
 			ChangedFiles:     changedFiles,
 			Plugins:          plugins,
-			EmitDeclarations: emitDeclarations,
+			TransformSources: mode.transformSources,
+			EmitDeclarations: mode.emitDeclarations,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))

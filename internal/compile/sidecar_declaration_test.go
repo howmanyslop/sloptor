@@ -32,6 +32,26 @@ module.exports = function () {
 };
 `
 
+const countedDeclarationPlugin = `const ts = require("typescript");
+
+let sourceTransformCalls = 0;
+
+module.exports = function () {
+	return {
+		before: () => (sourceFile) => {
+			sourceTransformCalls += 1;
+			return sourceFile;
+		},
+		afterDeclarations: (context) => (sourceFile) => {
+			const marker = context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
+				context.factory.createVariableDeclaration("__SOURCE_TRANSFORM_CALLS__", undefined, undefined, context.factory.createNumericLiteral(sourceTransformCalls)),
+			], ts.NodeFlags.Const));
+			return context.factory.updateSourceFile(sourceFile, sourceFile.statements.concat([marker]));
+		},
+	};
+};
+`
+
 func TestAfterDeclarationsOnly(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
@@ -55,6 +75,43 @@ func TestAfterDeclarationsOnly(t *testing.T) {
 	}
 	if strings.Contains(result.Outputs["out/main.luau"], "__DECLARATION_MARKER__") {
 		t.Fatalf("declaration marker leaked into Luau:\n%s", result.Outputs["out/main.luau"])
+	}
+}
+
+func TestDeclarationTransformerStageSkipsOrdinarySourceTransforms(t *testing.T) {
+	// Given: one plugin that counts ordinary source transforms in a declaration marker.
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/declaration-only-transform-count", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[]`))
+	if err := os.WriteFile(filepath.Join(dir, "plugins", "counted-declaration.js"), []byte(countedDeclarationPlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	plugins := []transformerPluginConfig{{
+		Transform: "./plugins/counted-declaration.js",
+		raw:       json.RawMessage(`{"transform":"./plugins/counted-declaration.js"}`),
+	}}
+
+	// When: the declaration-only stage emits declarations for the project.
+	declarations, diags, err := runDeclarationTransformerStage(dir, program, projectSourceFiles(program), nil, plugins)
+	if err != nil {
+		t.Fatalf("runDeclarationTransformerStage: %v (diags: %v)", err, diags)
+	}
+
+	// Then: the declaration marker proves source transforms did not run.
+	if len(declarations) != 1 {
+		t.Fatalf("declarations = %d, want 1", len(declarations))
+	}
+	if got, want := declarations[0].Text, "export declare const value = 1;\nconst __SOURCE_TRANSFORM_CALLS__ = 0;\n"; got != want {
+		t.Fatalf("declaration-only output = %q, want %q", got, want)
 	}
 }
 

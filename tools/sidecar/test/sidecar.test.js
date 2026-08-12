@@ -123,6 +123,8 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
     tsConfigPath: configPath,
     compileFileNames: [sourcePath],
     changedFiles: [],
+    transformSources: true,
+    emitDeclarations: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -237,6 +239,8 @@ module.exports = () => context => sourceFile => {
     tsConfigPath: path.join(declarationProjectDir, "tsconfig.json"),
     compileFileNames: [mainFile],
     changedFiles: [],
+    transformSources: true,
+    emitDeclarations: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -244,6 +248,81 @@ module.exports = () => context => sourceFile => {
   assert.equal(response.declarations.length, 1);
   assert.match(response.declarations[0].text, /__DECLARATION_MARKER__/);
   assert.match(response.declarations[0].text, /from "\.\/value"/);
+});
+
+test("declaration-only requests skip ordinary source transforms", () => {
+  const declarationProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-declaration-only-"));
+  const sourceDir = path.join(declarationProjectDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(declarationProjectDir, "counted-declaration.js"),
+    `const ts = require(${JSON.stringify(require.resolve("typescript"))});
+let sourceTransformCalls = 0;
+module.exports = () => ({
+  before: () => sourceFile => {
+    sourceTransformCalls += 1;
+    return sourceFile;
+  },
+  afterDeclarations: context => sourceFile => {
+    const marker = context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
+      context.factory.createVariableDeclaration("__SOURCE_TRANSFORM_CALLS__", undefined, undefined, context.factory.createNumericLiteral(sourceTransformCalls)),
+    ], ts.NodeFlags.Const));
+    return context.factory.updateSourceFile(sourceFile, sourceFile.statements.concat([marker]));
+  },
+});
+`,
+  );
+  fs.writeFileSync(
+    path.join(declarationProjectDir, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        declaration: true,
+        module: "CommonJS",
+        moduleResolution: "Node",
+        noLib: true,
+        strict: true,
+        target: "ESNext",
+        rootDir: "src",
+        outDir: "out",
+        plugins: [{ transform: "./counted-declaration.js" }],
+      },
+      include: ["src"],
+    }),
+  );
+  const mainFile = path.join(sourceDir, "main.ts");
+  fs.writeFileSync(mainFile, "export const value = 1;\n");
+
+  const session = new sidecar.SidecarProjectSession(ts, declarationProjectDir, path.join(declarationProjectDir, "tsconfig.json"));
+  const response = session.handleRequest({
+    protocol: 1,
+    projectDir: declarationProjectDir,
+    tsConfigPath: path.join(declarationProjectDir, "tsconfig.json"),
+    compileFileNames: [mainFile],
+    changedFiles: [],
+    transformSources: false,
+    emitDeclarations: true,
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.equal(response.declarations.length, 1);
+  assert.equal(response.declarations[0].text, "export declare const value = 1;\nconst __SOURCE_TRANSFORM_CALLS__ = 0;\n");
+});
+
+test("sidecar protocol requires explicit output modes", () => {
+  const server = new sidecar.SidecarServer(ts);
+  const response = server.handleRequest({
+    protocol: 1,
+    projectDir,
+    tsConfigPath,
+    compileFileNames: [sourcePath],
+    changedFiles: [],
+    emitDeclarations: true,
+  });
+
+  assert.deepEqual(response.transformed, []);
+  assert.equal(response.diagnostics.length, 1);
+  assert.equal(response.diagnostics[0].code, "invalid-request");
+  assert.equal(response.diagnostics[0].message, "transformSources must be a boolean");
 });
 
 test("declaration path resolution reuses host probes within one declaration request", () => {
@@ -374,6 +453,8 @@ test("declaration path resolution observes filesystem mutations on the next requ
       tsConfigPath: path.join(resolutionProjectDir, "tsconfig.json"),
       compileFileNames: [mainPath],
       changedFiles: [],
+      transformSources: true,
+      emitDeclarations: true,
     });
     assert.deepEqual(response.diagnostics, []);
     assert.equal(response.declarations.length, 1);
@@ -484,6 +565,8 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
       tsConfigPath,
       compileFileNames: [sourcePath],
       changedFiles: [],
+      transformSources: true,
+      emitDeclarations: true,
     })}\n`);
 
     const firstResponse = await firstResponsePromise;
@@ -503,6 +586,8 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
           text: 'export const phase = "memory";\n',
         },
       ],
+      transformSources: true,
+      emitDeclarations: true,
     })}\n`);
 
     const secondResponse = await secondResponsePromise;
@@ -589,6 +674,8 @@ module.exports.shouldTransformSourceFile = true;
       tsConfigPath: path.join(hookProjectDir, "tsconfig.json"),
       compileFileNames: [selectedPath, skippedPath],
       changedFiles: [],
+      transformSources: true,
+      emitDeclarations: true,
     })}\n`,
     encoding: "utf8",
     cwd: hookProjectDir,
@@ -639,6 +726,8 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
     projectDir: noisyProjectDir,
     compileFileNames: [noisyMainFile],
     changedFiles: [],
+    transformSources: true,
+    emitDeclarations: true,
   });
 
   const result = spawnSync(process.execPath, [mainPath], {

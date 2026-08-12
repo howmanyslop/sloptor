@@ -291,10 +291,12 @@ class SidecarProjectSession {
         return { diagnostics, transformed: [] };
       }
 
-      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms);
-      const declarationResult = request.emitDeclarations === false
-        ? { diagnostics: [], declarations: [] }
-        : this.emitDeclarationFiles(program, sourceFiles, transforms);
+      const transformResult = request.transformSources
+        ? this.transformSourceFiles(program, sourceFiles, transforms)
+        : { diagnostics: [], transformed: [] };
+      const declarationResult = request.emitDeclarations
+        ? this.emitDeclarationFiles(program, sourceFiles, transforms)
+        : { diagnostics: [], declarations: [] };
       return {
         diagnostics: [...diagnostics, ...transformResult.diagnostics, ...declarationResult.diagnostics],
         transformed: transformResult.transformed,
@@ -354,6 +356,12 @@ function validateRequest(request) {
     if (!changedFile || typeof changedFile.fileName !== "string" || typeof changedFile.text !== "string") {
       return createRequestDiagnostic("each changedFiles item must include string fileName and text");
     }
+  }
+  if (typeof request.transformSources !== "boolean") {
+    return createRequestDiagnostic("transformSources must be a boolean");
+  }
+  if (typeof request.emitDeclarations !== "boolean") {
+    return createRequestDiagnostic("emitDeclarations must be a boolean");
   }
   return undefined;
 }
