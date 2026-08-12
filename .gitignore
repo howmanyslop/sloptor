@@ -30,3 +30,4 @@ internal/compile/testdata/**/include/
 .agents/skills/golang-error-handling/
 .agents/skills/golang-testing/
 /rotor
+bin/

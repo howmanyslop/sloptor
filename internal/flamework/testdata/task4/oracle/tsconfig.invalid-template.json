@@ -1,0 +1,10 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"incremental": false,
+		"outDir": "invalid-out/template",
+		"rootDir": "invalid"
+	},
+	"files": ["invalid/template-literal-guard.ts"],
+	"include": []
+}

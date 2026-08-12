@@ -87,6 +87,87 @@ const Schema = `{
         }
       }
     },
+    "flamework": {
+      "type": "object",
+      "description": "Enables Rotor's native Flamework transformer.",
+      "additionalProperties": false,
+      "properties": {
+        "profiles": {
+          "type": "object",
+          "description": "Per-tsconfig native Flamework settings, keyed by normalized path relative to rotor.toml.",
+          "propertyNames": {
+            "type": "string",
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "after": { "type": "string" },
+              "noSemanticDiagnostics": { "type": "boolean" },
+              "obfuscation": { "type": "boolean" },
+              "idGenerationMode": {
+                "type": "string",
+                "enum": ["full", "obfuscated", "short", "tiny"],
+                "default": "full"
+              },
+              "hashPrefix": { "type": "string", "pattern": "^(?:[^$]|$)" },
+              "salt": { "type": "string" },
+              "preloadIds": { "type": "boolean" },
+              "optimizations": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "guardGenerationDedupLimit": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
+        "after": {
+          "type": "string",
+          "description": "Run native Flamework after this remaining TypeScript transformer."
+        },
+        "noSemanticDiagnostics": {
+          "type": "boolean",
+          "description": "Disable TypeScript semantic diagnostics during Flamework transformation."
+        },
+        "obfuscation": {
+          "type": "boolean",
+          "description": "Enable Flamework identifier and event-name obfuscation."
+        },
+        "idGenerationMode": {
+          "type": "string",
+          "description": "Identifier generation mode. Defaults to full, or obfuscated when obfuscation is enabled.",
+          "enum": ["full", "obfuscated", "short", "tiny"],
+          "default": "full"
+        },
+        "hashPrefix": {
+          "type": "string",
+          "pattern": "^(?:[^$]|$)",
+          "description": "Optional identifier hash prefix; values beginning with $ are reserved."
+        },
+        "salt": {
+          "type": "string",
+          "description": "Salt used for Flamework hashes."
+        },
+        "preloadIds": {
+          "type": "boolean",
+          "description": "Generate identifiers for exports."
+        },
+        "optimizations": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "guardGenerationDedupLimit": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum guard-generation deduplication work."
+            }
+          }
+        }
+      }
+    },
     "deploy": {
       "type": "object",
       "description": "Configures rotor deploy.",

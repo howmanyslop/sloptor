@@ -523,6 +523,12 @@ type ProjectOptions struct {
 	// behavior already matches allowCommentDirectives=true).
 	AllowCommentDirectives bool
 
+	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: when
+	// true, per-file pre-emit skips GetSemanticDiagnostics (syntactic checks
+	// and transform-time type queries still run). Matches upstream Flamework's
+	// documented "disables TypeScript's own semantic diagnostics" flag.
+	SkipSemanticDiagnostics bool
+
 	// NoOptimizedLoops is the INVERSE of upstream optimizedLoops (default
 	// true, DEFAULT_PROJECT_OPTIONS), inverted so this struct's zero value
 	// keeps the upstream-default (optimized) behavior for all existing
@@ -594,6 +600,8 @@ type ProjectOptions struct {
 	solutionOverlays *solutionOverlayMatches
 
 	forceFullBuild bool
+
+	pendingSolutionDependencyPersists *[]func() error
 }
 
 func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string, inheritEntryTypeAndRojo bool) (ProjectOptions, error) {
@@ -671,15 +679,17 @@ func CompileProjectWithOptions(projectDir string, opts ProjectOptions) (map[stri
 
 func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOptions) (map[string]string, []DiagnosticInfo, error) {
 	sourceFiles := projectSourceFiles(program)
-	program, sourceFiles, traces, diags, err := prepareProjectProgramForCompile(dir, program, sourceFiles, opts.Overlays)
+	pipeline, diags, err := prepareCompilePipeline(dir, program, sourceFiles, opts.Overlays, opts)
 	if err != nil {
 		return nil, stringDiagnostics(diags), err
 	}
+	program = pipeline.prepared.program
+	sourceFiles = pipeline.prepared.sourceFiles
 	pctx, pctxDiags, err := newProjectContext(dir, program, opts)
 	if err != nil {
 		return nil, stringDiagnostics(pctxDiags), err
 	}
-	pctx.sourceTraces = traces
+	pctx.sourceTraces = pipeline.prepared.sourceTraces
 	outputs, _, infos, err := compileProjectSourceFiles(dir, program, pctx, sourceFiles, opts)
 	return outputs, infos, err
 }
@@ -873,7 +883,7 @@ func groupSourceFilesByChecker(ctx context.Context, program *compiler.Program, s
 
 func precheckProjectSourceFile(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile, opts ProjectOptions) precheckedProjectSourceFile {
 	result := precheckedProjectSourceFile{}
-	result.tsDiags = preEmitProjectFileDiagnostics(ctx, program, sourceFile)
+	result.tsDiags = preEmitProjectFileDiagnosticsWithOptions(ctx, program, sourceFile, opts)
 	if len(result.tsDiags) == 0 && !opts.AllowCommentDirectives {
 		result.commentDiags = commentDirectiveDiagnostics(sourceFile)
 	}

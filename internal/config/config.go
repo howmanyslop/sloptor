@@ -22,19 +22,6 @@ import (
 	"strings"
 )
 
-// Config is the typed shape of rotor.toml (and, via the legacy path, the
-// object default-exported from rotor.config.ts). All sections are optional.
-type Config struct {
-	Assets *AssetsConfig `json:"assets,omitempty" toml:"assets,omitempty"`
-	Deploy *DeployConfig `json:"deploy,omitempty" toml:"deploy,omitempty"`
-
-	// Warnings collects non-fatal issues discovered while loading the config
-	// (for example unknown top-level keys, which are tolerated for forward
-	// compatibility). It is populated by Load and is not part of the config
-	// shape itself.
-	Warnings []string `json:"-" toml:"-"`
-}
-
 // AssetsConfig configures `rotor asset sync` and the `$asset` macro.
 type AssetsConfig struct {
 	// Mode selects how assets reach Luau: "module" (generate assets.luau +
@@ -150,22 +137,26 @@ func SocialLinkTypeValid(t string) bool { return socialLinkTypes[t] }
 // be validated on machines that don't have the built assets.
 func (c *Config) Validate() []error {
 	var errs []error
+	errs = append(errs, c.ValidateFlamework()...)
 	if c.Assets != nil {
 		switch c.Assets.Mode {
 		case "", "module", "macro":
 		default:
 			errs = append(errs, fmt.Errorf(
 				"assets.mode must be %q or %q, got %q",
-				"module", "macro", c.Assets.Mode))
+				"module", "macro", c.Assets.Mode,
+			))
 		}
 		if base := c.Assets.Base; base != "" {
 			slash := strings.ReplaceAll(base, "\\", "/")
 			if path.IsAbs(slash) || strings.Contains(slash, ":") {
 				errs = append(errs, fmt.Errorf(
-					"assets.base must be a project-relative directory, got absolute path %q", base))
+					"assets.base must be a project-relative directory, got absolute path %q", base,
+				))
 			} else if clean := path.Clean(slash); clean == ".." || strings.HasPrefix(clean, "../") {
 				errs = append(errs, fmt.Errorf(
-					"assets.base must stay inside the project, got %q", base))
+					"assets.base must stay inside the project, got %q", base,
+				))
 			}
 		}
 		switch c.Assets.Creator.Type {
@@ -173,7 +164,8 @@ func (c *Config) Validate() []error {
 		default:
 			errs = append(errs, fmt.Errorf(
 				"assets.creator.type must be %q or %q, got %q",
-				"user", "group", c.Assets.Creator.Type))
+				"user", "group", c.Assets.Creator.Type,
+			))
 		}
 	}
 	if c.Deploy != nil {
@@ -182,24 +174,28 @@ func (c *Config) Validate() []error {
 				if place.File == "" {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.places.%s: file is required",
-						envName, placeName))
+						envName, placeName,
+					))
 				}
 				if place.PlaceID == 0 {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.places.%s: placeId is required",
-						envName, placeName))
+						envName, placeName,
+					))
 				}
 				switch place.VersionType {
 				case "", "saved", "published":
 				default:
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.places.%s.versionType must be %q or %q, got %q",
-						envName, placeName, "saved", "published", place.VersionType))
+						envName, placeName, "saved", "published", place.VersionType,
+					))
 				}
 				if place.MaxPlayers < 0 {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.places.%s.maxPlayers must be >= 0, got %d",
-						envName, placeName, place.MaxPlayers))
+						envName, placeName, place.MaxPlayers,
+					))
 				}
 			}
 			if env.Experience != nil {
@@ -209,44 +205,51 @@ func (c *Config) Validate() []error {
 					default:
 						errs = append(errs, fmt.Errorf(
 							"deploy.environments.%s.experience.playability must be one of %q, %q, %q, got %q",
-							envName, "public", "private", "friends", env.Experience.Playability))
+							envName, "public", "private", "friends", env.Experience.Playability,
+						))
 					}
 				}
 				if ps := env.Experience.PrivateServers; ps != nil && ps.Price != nil && *ps.Price < 0 {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.experience.privateServers.price must be >= 0, got %d",
-						envName, *ps.Price))
+						envName, *ps.Price,
+					))
 				}
 			}
 			for passName, pass := range env.GamePasses {
 				if pass.Price != nil && *pass.Price < 0 {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.gamepasses.%s.price must be >= 0, got %d",
-						envName, passName, *pass.Price))
+						envName, passName, *pass.Price,
+					))
 				}
 			}
 			if len(env.Thumbnails) > 10 {
 				errs = append(errs, fmt.Errorf(
 					"deploy.environments.%s.thumbnails: at most 10 thumbnails are allowed, got %d",
-					envName, len(env.Thumbnails)))
+					envName, len(env.Thumbnails),
+				))
 			}
 			for productName, product := range env.Products {
 				if product.Price < 0 {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.products.%s.price must be >= 0, got %d",
-						envName, productName, product.Price))
+						envName, productName, product.Price,
+					))
 				}
 			}
 			for linkName, link := range env.SocialLinks {
 				if !SocialLinkTypeValid(link.Type) {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.socials.%s.type must be one of facebook, twitter, youtube, twitch, discord, github, guilded; got %q",
-						envName, linkName, link.Type))
+						envName, linkName, link.Type,
+					))
 				}
 				if link.URL == "" {
 					errs = append(errs, fmt.Errorf(
 						"deploy.environments.%s.socials.%s: url is required",
-						envName, linkName))
+						envName, linkName,
+					))
 				}
 			}
 		}

@@ -21,6 +21,19 @@ func collectExternalModuleReferences(file *ast.SourceFile) {
 	}
 }
 
+// RefreshExternalModuleReferences rebuilds Imports/ModuleAugmentations/AmbientModuleNames
+// from the current statement list. Used when a SourceFile AST is rewritten without a full reparse.
+func RefreshExternalModuleReferences(file *ast.SourceFile) {
+	if file == nil {
+		return
+	}
+	ast.SetImportsOfSourceFile(file, nil)
+	file.ModuleAugmentations = nil
+	file.AmbientModuleNames = nil
+	file.UsesUriStyleNodeCoreModules = core.TSUnknown
+	collectExternalModuleReferences(file)
+}
+
 func collectModuleReferences(file *ast.SourceFile, node *ast.Statement, inAmbientModule bool) {
 	if ast.IsAnyImportOrReExport(node) {
 		moduleNameExpr := ast.GetExternalModuleName(node)

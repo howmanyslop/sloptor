@@ -1,0 +1,27 @@
+{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"downlevelIteration": true,
+		"experimentalDecorators": true,
+		"forceConsistentCasingInFileNames": true,
+		"module": "commonjs",
+		"moduleDetection": "force",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"outDir": "out",
+		"plugins": [
+			{
+				"transform": "rbxts-transformer-flamework",
+				"salt": "rotor-task4-oracle-v1.3.2",
+				"hashPrefix": "task4",
+				"idGenerationMode": "full",
+				"optimizations": { "guardGenerationDedupLimit": 2 }
+			}
+		],
+		"rootDir": "src",
+		"strict": true,
+		"target": "ESNext",
+		"typeRoots": ["node_modules/@rbxts", "node_modules/@flamework"]
+	},
+	"include": ["src"]
+}

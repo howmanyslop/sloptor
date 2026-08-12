@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"downlevelIteration": true,
+		"experimentalDecorators": true,
+		"forceConsistentCasingInFileNames": true,
+		"incremental": true,
+		"module": "commonjs",
+		"moduleDetection": "force",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"outDir": "out",
+		"rootDir": "src",
+		"strict": true,
+		"target": "ESNext",
+		"tsBuildInfoFile": "out/task7.tsbuildinfo",
+		"typeRoots": ["node_modules/@rbxts", "node_modules/@flamework"],
+		"plugins": [{ "transform": "rbxts-transformer-flamework", "idGenerationMode": "short", "salt": "task7-diag-dirty" }]
+	},
+	"include": ["src"]
+}

@@ -1,0 +1,117 @@
+{
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "#root",
+	"type": "object",
+	"properties": {
+		"config": {
+			"$id": "config",
+			"type": "object",
+			"properties": {
+				"logLevel": {
+					"enum": ["none", "verbose"]
+				},
+				"profiling": {
+					"type": "boolean"
+				},
+				"disableDependencyWarnings": {
+					"type": "boolean"
+				}
+			}
+		},
+		"globs": {
+			"$id": "globs",
+			"type": "object",
+			"properties": {
+				"paths": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				},
+				"origins": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						}
+					}
+				}
+			}
+		},
+		"buildInfo": {
+			"$id": "buildInfo",
+			"required": ["version", "flameworkVersion", "identifiers"],
+			"type": "object",
+			"properties": {
+				"version": {
+					"type": "number"
+				},
+				"flameworkVersion": {
+					"type": "string"
+				},
+				"identifierPrefix": {
+					"type": "string"
+				},
+				"identifiers": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
+				},
+				"salt": {
+					"type": "string"
+				},
+				"stringHashes": {
+					"type": "object",
+					"additionalProperties": {
+						"type": "string"
+					}
+				},
+				"metadata": {
+					"type": "object",
+					"properties": {
+						"config": {
+							"$ref": "config"
+						},
+						"globs": {
+							"$ref": "globs"
+						}
+					}
+				},
+				"classes": {
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"filePath": {
+								"type": "string"
+							},
+							"internalId": {
+								"type": "string"
+							},
+							"decorators": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"properties": {
+										"name": {
+											"type": "string"
+										},
+										"internalId": {
+											"type": "string"
+										}
+									}
+								}
+							}
+
+						}
+					}
+				}
+			}
+		}
+	}
+}

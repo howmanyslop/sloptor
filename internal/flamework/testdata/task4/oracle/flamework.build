@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"flameworkVersion": "1.3.2",
+	"identifiers": {},
+	"metadata": {
+		"config": {
+			"logLevel": "none",
+			"profiling": false,
+			"disableDependencyWarnings": false
+		}
+	},
+	"identifierPrefix": "task4"
+}

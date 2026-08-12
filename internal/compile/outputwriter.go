@@ -27,6 +27,7 @@ type outputWriter struct {
 	secureRoot    bool
 	root          *os.Root
 	prepared      sync.Map
+	dirRoots      sync.Map
 	projectDir    string
 	previous      map[string]string
 	current       map[string]string
@@ -47,7 +48,6 @@ func newOutputWriter() *outputWriter {
 
 func (writer *outputWriter) useHashes(projectDir string, previous, current map[string]string) error {
 	writer.projectDir = filepath.Clean(projectDir)
-	writer.previous = previous
 	writer.current = current
 	if writer.secureRoot {
 		root, err := os.OpenRoot(writer.projectDir)
@@ -56,6 +56,7 @@ func (writer *outputWriter) useHashes(projectDir string, previous, current map[s
 		}
 		writer.root = root
 	}
+	writer.previous = writer.validatedOutputHashes(previous)
 	return nil
 }
 
@@ -85,7 +86,8 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 		var existing []byte
 		var err error
 		if writer.root != nil {
-			existing, err = writer.root.ReadFile(key)
+			root, name := writer.rootForKey(key)
+			existing, err = root.ReadFile(name)
 		} else {
 			existing, err = writer.operations.readFile(path)
 		}
@@ -96,7 +98,8 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 	}
 	var err error
 	if writer.root != nil {
-		err = writer.root.WriteFile(key, contents, 0o644)
+		root, name := writer.rootForKey(key)
+		err = root.WriteFile(name, contents, 0o644)
 	} else {
 		err = writer.operations.writeFile(path, contents, 0o644)
 	}
@@ -113,109 +116,40 @@ func (writer *outputWriter) lstat(path string) (fs.FileInfo, error) {
 		return nil, fmt.Errorf("compile: refusing to inspect output outside the project directory: %q", path)
 	}
 	if writer.root != nil {
-		return writer.root.Lstat(filepath.FromSlash(key))
+		root, name := writer.rootForKey(key)
+		return root.Lstat(name)
 	}
 	return writer.operations.lstat(path)
 }
 
-// outputPresenceIndex is a confined snapshot of which manifest output paths
-// exist as regular files. It groups the requested paths by parent directory,
-// opening and reading each parent exactly once instead of lstatting every
-// output individually (the warm incremental path probes thousands of outputs
-// in missing-output recovery and pruning).
-type outputPresenceIndex struct {
-	caseSensitive bool
-	regular       map[string]struct{}
+func (writer *outputWriter) rootForKey(key string) (*os.Root, string) {
+	key = filepath.FromSlash(key)
+	parent, name := filepath.Split(key)
+	parent = filepath.Clean(parent)
+	if parent == "." {
+		return writer.root, name
+	}
+	root, err := writer.dirRoot(parent)
+	if err == nil {
+		return root, name
+	}
+	return writer.root, key
 }
 
-// normalizeOutputPresenceKey cleans and slash-normalizes a manifest output
-// key, rejects non-local results, and lowercases the result only when the
-// writer is case-insensitive.
-func normalizeOutputPresenceKey(outputPath string, caseSensitive bool) (string, bool) {
-	key := filepath.ToSlash(filepath.Clean(filepath.FromSlash(outputPath)))
-	if !filepath.IsLocal(key) {
-		return "", false
+func (writer *outputWriter) dirRoot(relative string) (*os.Root, error) {
+	relative = filepath.Clean(relative)
+	if relative == "." {
+		return writer.root, nil
 	}
-	if !caseSensitive {
-		key = strings.ToLower(key)
+	cacheKey := relative
+	if !writer.caseSensitive {
+		cacheKey = strings.ToLower(cacheKey)
 	}
-	return key, true
-}
-
-// newOutputPresenceIndex indexes which of the given manifest output paths
-// exist as regular files right now. Missing or unreadable parents, rejected
-// non-local keys, directories, and final-segment symlinks are absent from the
-// index; os.Root-accepted internal symlinks behave exactly as they do for
-// outputWriter.lstat. When the writer has no os.Root (injected operations),
-// every key is probed through the injected lstat to preserve test behavior.
-func (writer *outputWriter) newOutputPresenceIndex(outputs map[string]string) *outputPresenceIndex {
-	index := &outputPresenceIndex{
-		caseSensitive: writer.caseSensitive,
-		regular:       make(map[string]struct{}, len(outputs)),
-	}
-	if writer.root == nil {
-		for path := range outputs {
-			key, ok := normalizeOutputPresenceKey(path, writer.caseSensitive)
-			if !ok {
-				continue
-			}
-			info, err := writer.lstat(filepath.Join(writer.projectDir, filepath.FromSlash(key)))
-			if err == nil && info.Mode().IsRegular() {
-				index.regular[key] = struct{}{}
-			}
-		}
-		return index
-	}
-	keysByParent := make(map[string][]string)
-	for path := range outputs {
-		key, ok := normalizeOutputPresenceKey(path, writer.caseSensitive)
-		if !ok {
-			continue
-		}
-		parent := filepath.Dir(key)
-		keysByParent[parent] = append(keysByParent[parent], key)
-	}
-	for parent, keys := range keysByParent {
-		dir, err := writer.root.Open(parent)
-		if err != nil {
-			continue
-		}
-		entries, readErr := dir.ReadDir(-1)
-		dir.Close()
-		if readErr != nil {
-			continue
-		}
-		regular := make(map[string]struct{}, len(entries))
-		for _, entry := range entries {
-			if !entry.Type().IsRegular() {
-				continue
-			}
-			name := entry.Name()
-			if !writer.caseSensitive {
-				name = strings.ToLower(name)
-			}
-			regular[name] = struct{}{}
-		}
-		for _, key := range keys {
-			base := filepath.Base(key)
-			if !writer.caseSensitive {
-				base = strings.ToLower(base)
-			}
-			if _, ok := regular[base]; ok {
-				index.regular[key] = struct{}{}
-			}
-		}
-	}
-	return index
-}
-
-func (index *outputPresenceIndex) hasRegular(outputPath string) bool {
-	key, ok := normalizeOutputPresenceKey(outputPath, index.caseSensitive)
-	if !ok {
-		return false
-	}
-	_, ok = index.regular[key]
-	return ok
+	open := sync.OnceValues(func() (*os.Root, error) {
+		return writer.root.OpenRoot(relative)
+	})
+	actual, _ := writer.dirRoots.LoadOrStore(cacheKey, open)
+	return actual.(func() (*os.Root, error))()
 }
 
 func (writer *outputWriter) prepare(paths []string) error {
@@ -275,7 +209,11 @@ func (writer *outputWriter) prepareParent(path string) error {
 			if err != nil {
 				return err
 			}
-			return writer.root.MkdirAll(relative, 0o755)
+			if err := writer.root.MkdirAll(relative, 0o755); err != nil {
+				return err
+			}
+			writer.cacheDirRoot(relative)
+			return nil
 		}
 		return writer.operations.mkdirAll(parent, 0o755)
 	})
@@ -283,11 +221,30 @@ func (writer *outputWriter) prepareParent(path string) error {
 	return actual.(func() error)()
 }
 
+func (writer *outputWriter) cacheDirRoot(relative string) {
+	_, _ = writer.dirRoot(relative)
+}
+
 func (writer *outputWriter) close() error {
+	var first error
+	writer.dirRoots.Range(func(_, value any) bool {
+		root, err := value.(func() (*os.Root, error))()
+		if err == nil {
+			err = root.Close()
+		}
+		if first == nil {
+			first = err
+		}
+		return true
+	})
+	writer.dirRoots.Clear()
 	if writer.root == nil {
-		return nil
+		return first
 	}
 	err := writer.root.Close()
 	writer.root = nil
+	if first != nil {
+		return first
+	}
 	return err
 }

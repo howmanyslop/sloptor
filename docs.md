@@ -31,11 +31,15 @@ Compatibility isn't a hope — it's enforced by construction:
 - **Faithful porting**: the reference sources are vendored in-repo (`reference/`), and ports are reviewed line-by-line against them — down to quirks like ECMAScript `Number::toString` formatting and temp-identifier collision naming.
 - **Same runtime**: `RuntimeLib.lua` and `Promise.lua` match the targeted roblox-ts compiler runtime.
 
-Your existing project — `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, transformer plugins like Flamework — is the compatibility target, unchanged. The compatibility oracle depends on the surface: use the fork archive for the changed surfaces above and upstream parity elsewhere.
+Your existing project — `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins — is the compatibility target, unchanged. Native Flamework is opt-in through `[flamework]` in `rotor.toml`; the legacy tsconfig plugin is not. The compatibility oracle depends on the surface: use the fork archive for the changed surfaces above and upstream parity elsewhere.
 
 ## What works today
 
 rotor **compiles multi-file TypeScript projects with upstream or fork-authoritative parity** across the language surface: imports with Rojo-aware require chains, JSX (`@rbxts/react`), classes and decorators, async/generators, try/catch, enums and namespaces, spread, functions, closures, destructuring, the full macro tables (`Array.map`, `string.format`, `Map.get`, ...), optional chaining, Map/Set/string/generator iteration, switch, and `new`. It also **natively typechecks and watches real rbxts projects**.
+
+Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests. It runs in the native pipeline.
+
+The Node sidecar remains for other tsconfig transformer plugins.
 
 Anything not yet ported fails loudly with a clear "not yet supported" diagnostic — rotor **never silently emits wrong output**. On unaffected surfaces, compiled output remains byte-identical to `rbxtsc` 3.0.0; fork-changed surfaces follow the verified fork behavior instead.
 
@@ -66,7 +70,7 @@ sloptor diagnostics [options] [path]
                               overlays read as JSON on stdin; writes nothing.
                               --build [path] censuses a whole solution
 sloptor doctor [path]           diagnose the setup: tsconfig, @rbxts packages,
-                              Node.js + transformer plugins, Rojo wiring
+                              native Flamework or external plugins, Rojo wiring
 sloptor minify <file> [-o out] [--no-index-field]
                               minify a Luau file (strips comments + whitespace,
                               collapses t["x"] to t.x, keeps --! directives)
@@ -91,8 +95,10 @@ sloptor schema [--rbxts]         print the rotor.toml schema, or the separate
 sloptor clean [path] [--types] [--dry-run]
                               remove build outputs and generated editor types
 sloptor add [--dev] <pkg>...     add dependencies to package.json
-sloptor migrate [path] [--force]
+sloptor migrate config [path] [--force]
                               convert legacy rotor.config.ts to rotor.toml
+sloptor migrate flamework [tsconfig-file] [--remove-package]
+                              migrate the Flamework transformer to native Rotor config
 sloptor deploy <plan|apply> [path] -e <env> [--yes] [--allow-deletes]
                               declarative Open Cloud deployment with state +
                               plan/apply diffing (mantle-style); manages place
@@ -106,7 +112,17 @@ sloptor completion <bash|zsh|fish|powershell>
                               one-line install per shell)
 ```
 
-`asset` and `deploy` are configured by **`rotor.toml`** at the project root and authenticate with an Open Cloud key in `ROBLOX_API_KEY`. `sloptor init` writes the hosted `rotor.schema.json` directive; use `sloptor migrate` for a legacy `rotor.config.ts`. See the [cloud toolchain spec](docs/superpowers/specs/2026-06-12-rotor-cloud-toolchain-design.md) for the full config shape.
+`asset` and `deploy` are configured by **`rotor.toml`** at the project root and authenticate with an Open Cloud key in `ROBLOX_API_KEY`. `sloptor init` writes the hosted `rotor.schema.json` directive; use `sloptor migrate config [path] [--force]` for a legacy `rotor.config.ts`. See the [cloud toolchain spec](docs/superpowers/specs/2026-06-12-rotor-cloud-toolchain-design.md) for the full config shape.
+
+### Native Flamework migration
+
+`sloptor migrate flamework [tsconfig-file] [--remove-package]` is the hard-cut migration from the legacy `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
+
+Rotor rejects a tsconfig whose effective plugin list still contains `rbxts-transformer-flamework`; the legacy plugin is not supported. Run the migration before building. Keep `flamework.json`: it remains the runtime configuration and the migration does not remove it.
+
+Package cleanup is optional. With `--remove-package`, Rotor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Flamework-only builds and `sloptor doctor` do not require Node.js.
+
+External tsconfig transformer plugins still require Node.js, the bundled sidecar, and the project's `typescript` package.
 
 **Asset delivery modes** (`[assets] mode`): a project picks one way assets reach Luau, both sharing the same scan/hash/upload pipeline and `rotor-lock.json` cache.
 
@@ -116,7 +132,7 @@ sloptor completion <bash|zsh|fish|powershell>
 - `path` is a project directory containing a `tsconfig.json` (defaults to the current directory).
 - Your project needs `node_modules` installed (rotor reads the same `@rbxts` types).
 - Exit codes: `0` = success, `1` = any failure (diagnostics, config, or usage) — matching upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports rather than gates: see below.
-- Plugin-backed builds need Node.js at runtime for the transformer sidecar.
+- Builds with external tsconfig transformer plugins need Node.js at runtime for the transformer sidecar.
 
 `sloptor build` compiles every file in the project, writes the `.luau` outputs to your tsconfig's `outDir` exactly where `rbxtsc` would put them, runs the cleanup/copy pipeline, emits `.d.ts` files when `compilerOptions.declaration` is enabled, and copies `include/` (RuntimeLib.lua, Promise.lua — verbatim from roblox-ts). Try it on sloptor's own test fixture project:
 
@@ -204,11 +220,13 @@ cannot carry a project's worth of source, which is why this is stdin.
 - Unknown top-level fields in the request are rejected, so a typo'd wrapper key
   fails instead of parsing to an empty overlay set.
 - Overlays work on projects with **transformer plugins**, so you can census
-  your real build tsconfig rather than authoring a plugin-free copy of it. The
-  text ships to the Node sidecar as a changed file, the worker's plugins run
-  against it, and the program rotor rebuilds from the worker's output keeps
-  your overlay on every file the worker was not asked to transform. Declaration
-  emit through `baseUrl`/`paths` resolves module names against the same view.
+  your real build tsconfig rather than authoring a plugin-free copy of it. For
+  external plugins, the text ships to the Node sidecar as a changed file, the
+  worker's plugins run against it, and the program rotor rebuilds from the
+  worker's output keeps your overlay on every file the worker was not asked to
+  transform. Native `[flamework]` projects use the native pipeline instead.
+  Declaration emit through `baseUrl`/`paths` resolves module names against the
+  same view.
 
 #### Solutions (`--build`)
 
@@ -285,7 +303,9 @@ Use `"$schema": "./rbxts-tsconfig.schema.json"` in `tsconfig.json`. The `rbxts` 
 
 With `compilerOptions.sourceMap: true`, Rotor writes an adjacent `.luau.map` for each Luau output. The map's `sourcesContent` is the original pre-transformer TypeScript, and source-map files are not counted as emitted Luau files. Declaration maps are kept while their corresponding source exists.
 
-Transformer plugins remain compatible with the fork's `compilerOptions.plugins` shape and run through Rotor's Node sidecar. `before` transformers run before `after` transformers; `afterDeclarations` runs only during declaration emit. A plugin's `shouldTransformSourceFile` hook can skip a file, and plugin loading failures are build diagnostics. Plugin-configured builds require Node.js and the project's own `typescript` package.
+External transformer plugins remain compatible with the fork's `compilerOptions.plugins` shape and run through Rotor's Node sidecar. `before` transformers run before `after` transformers; `afterDeclarations` runs only during declaration emit. A plugin's `shouldTransformSourceFile` hook can skip a file, and plugin loading failures are build diagnostics. Builds that resolve external plugins require Node.js and the project's own `typescript` package.
+
+Native `[flamework]` builds do not require Node.js.
 
 Successful builds may leave these generated or cached files. They are build state, not source files:
 
@@ -309,7 +329,7 @@ The two flags multiply: `--builders 4 --checkers 4` can run up to 16 checker wor
 
 **Result guarantees.** Varying `--builders` never changes build results: dependencies always build first, and output, diagnostics, and caching stay deterministic. TypeScript 7 notes that in rare cases varying `--checkers` can surface order-dependent results. Teams that need perfectly stable diagnostics across environments may want to pin `--checkers` to a fixed value.
 
-**Real-world limits.** Even with high concurrency, some work stays serialized. Transformer-plugin sidecars run through Node and may bottleneck a project. Projects whose output or include directories overlap are serialized for safety. And the dependency graph itself bounds how many projects can build in parallel — leaf projects run first, and dependents wait.
+**Real-world limits.** Even with high concurrency, some work stays serialized. External transformer-plugin sidecars run through Node and may bottleneck a project. Projects whose output or include directories overlap are serialized for safety. And the dependency graph itself bounds how many projects can build in parallel — leaf projects run first, and dependents wait.
 
 These flags control checker and builder parallelism. They are separate from the write-worker environment variables below, which only tune disk-write parallelism.
 
@@ -325,13 +345,16 @@ Rotor uses `GOGC=400` when `GOGC` is unset. When `GOMEMLIMIT` is unset, Rotor us
 
 ## Production readiness
 
-rotor is ready for production rbxts projects that want native-speed `check`, `check -w`, `build`, and `build -w`, including declaration emit, incremental rebuild selection, and transformer-plugin support through the bundled Node sidecar. Plugin-configured builds require Node.js on `PATH` so rotor can launch that sidecar.
+rotor is ready for production rbxts projects that want native-speed `check`, `check -w`, `build`, and `build -w`, including declaration emit, incremental rebuild selection, and native Flamework. Flamework-only builds do not require Node.js.
+
+External transformer-plugin support uses the bundled Node sidecar. Builds that resolve external plugins require Node.js on `PATH` so rotor can launch that sidecar.
 
 Notes and current caveats (see the [roadmap](roadmap.md)):
 
 - `build -w` reuses rotor's manifest-backed changed-file selection and runs a debounced, pruned polling watcher: `node_modules`, dot-directories, and the build-written `out`/`include` trees are never walked, editor write bursts ("save all") settle into one rebuild, edits made *during* a build are not lost, and editor junk files never trigger rebuilds. The poll adapts to the walk cost (100 ms floor), so idle watch CPU stays near zero even on big projects. Native FS events remain a possible future refinement.
 - Declaration emit is available for declaration-enabled builds, but declaration-path alias rewriting still follows the current Phase 4 limitation called out in the roadmap.
-- Transformer plugins run through the Node sidecar that ships **embedded in the rotor binary** (extracted on first plugin build). The worker uses your project's own `typescript` install — the same instance plugins `require` — and stays warm across builds and watch rebuilds. Validated against real `rbxts-transformer-flamework` and `rbxts-transform-env` packages.
+- Native Flamework follows the v1.3.2 transformer reference through native parity tests.
+- External transformer plugins run through the Node sidecar that ships **embedded in the rotor binary** (extracted on first plugin build); the worker uses your project's own `typescript` install — the same instance plugins `require` — and stays warm across builds and watch rebuilds.
 - The conformance harnesses are in repo and green today. The external-project acceptance proof is environment-gated because it needs a local `randomness` checkout plus Rojo/Lune on the machine running it.
 
 ## Architecture

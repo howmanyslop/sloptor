@@ -11,11 +11,12 @@ import (
 func redirectUserCacheDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		t.Setenv("LocalAppData", dir)
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		t.Setenv("HOME", dir)
-	} else {
+	default:
 		t.Setenv("XDG_CACHE_HOME", dir)
 	}
 	return dir

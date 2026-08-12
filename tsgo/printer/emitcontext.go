@@ -547,6 +547,8 @@ func (e *emitNode) copyFrom(source *emitNode) {
 	e.tokenSourceMapRanges = maps.Clone(source.tokenSourceMapRanges)
 	e.helpers = slices.Clone(source.helpers)
 	e.externalHelpersModuleName = source.externalHelpersModuleName
+	e.leadingComments = slices.Clone(source.leadingComments)
+	e.trailingComments = slices.Clone(source.trailingComments)
 }
 
 func (c *EmitContext) EmitFlags(node *ast.Node) EmitFlags {

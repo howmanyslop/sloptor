@@ -30,7 +30,11 @@ sloptor doctor                 # diagnose tsconfig, @rbxts packages, plugins, Ro
 
 Both `build` and `check` accept `--checkers <n>` to tune type-checker workers per project (default 4). Solution builds (`--build`) also accept `--builders <n>` for project concurrency (default 4). `sloptor build --build --builders 2 --checkers 4` is a typical tuned command.
 
-Same `tsconfig.json`, same `@rbxts/*` packages, same transformer plugins (Flamework etc.), same CLI flags — plus built-in compile-time macros rbxtsc doesn't have (no plugins, no Node sidecar, fully typed):
+Same `tsconfig.json`, same `@rbxts/*` packages, and external transformer plugins through the bundled Node sidecar — plus built-in compile-time macros rbxtsc doesn't have:
+
+Native Flamework is opt-in when `[flamework]` is enabled.
+
+Flamework-only builds and `sloptor doctor` do not require Node.js; external tsconfig transformer plugins do.
 
 | Macro | Inlines |
 |-------|---------|
@@ -78,7 +82,7 @@ sloptor deploy apply -e prod   # publish places, settings, badges — only what 
 
 ## Configuration — `rotor.toml`
 
-One typed TOML config drives the cloud tools. `sloptor init` writes it with a `#:schema` directive that points at the schema **hosted in this repo** (served via raw GitHub), so taplo / Even Better TOML give validation + autocomplete with no per-project `rotor.schema.json` to generate or commit. Need a local copy for offline editing? `sloptor schema > rotor.schema.json`. (Upgrading from a 1.x `rotor.config.ts`? Run `sloptor migrate`.)
+One typed TOML config drives the cloud tools. `sloptor init` writes it with a `#:schema` directive that points at the schema **hosted in this repo** (served via raw GitHub), so taplo / Even Better TOML give validation + autocomplete with no per-project `rotor.schema.json` to generate or commit. Need a local copy for offline editing? `sloptor schema > rotor.schema.json`. (Upgrading from a 1.x `rotor.config.ts`? Run `sloptor migrate config [path] [--force]`.)
 
 ```toml
 #:schema https://raw.githubusercontent.com/uproot/rotor/master/rotor.schema.json

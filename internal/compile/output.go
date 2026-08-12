@@ -74,6 +74,14 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	if err != nil {
 		return nil, diags, err
 	}
+	nativePipeline, pipelineDiags, err := prepareFlameworkPipeline(dir, program, opts)
+	if err != nil {
+		return nil, pipelineDiags, err
+	}
+	flameworkInputs, err := flameworkIncrementalInputs(nativePipeline)
+	if err != nil {
+		return nil, nil, fmt.Errorf("compile: collect native Flamework incremental inputs: %w", err)
+	}
 	pathTranslator := createPathTranslator(program, !opts.LuaExtension)
 	sourceFiles := projectSourceFiles(program)
 	timings.setSourceCounts(len(sourceFiles), len(sourceFiles))
@@ -87,7 +95,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		stopManifest()
 		return nil, nil, err
 	}
-	salt, err := incrementalSalt(program, opts, manifestPath)
+	salt, err := incrementalSaltWithFlamework(program, opts, manifestPath, flameworkInputs)
 	if err != nil {
 		stopManifest()
 		return nil, nil, err
@@ -122,7 +130,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 	stopManifest()
 	defer writer.close()
-	previousPresence := writer.newOutputPresenceIndex(previousOutputs)
+	previousPresence := writer.newOutputPresenceIndex(writer.previous)
 	if opts.EmitDeclarationOnly {
 		if !program.Options().GetEmitDeclarations() {
 			msg := "Option 'emitDeclarationOnly' cannot be specified without specifying option 'declaration' or option 'composite'."
@@ -241,13 +249,30 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 
-	prepared, diags, err := prepareTransformerProgram(dir, program, selectedFiles, opts.Overlays)
+	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
 	if err != nil {
 		return nil, diags, err
 	}
+	prepared := pipeline.prepared
 	timings.recordPreparedTransformerProgram(prepared)
 	program = prepared.program
 	selectedFiles = prepared.sourceFiles
+	if prepared.flamework != nil && prepared.flamework.NoSemanticDiagnostics {
+		opts.SkipSemanticDiagnostics = true
+	}
+	if nativePipeline != nil {
+		if nativePipeline.config != nil && nativePipeline.config.NoSemanticDiagnostics {
+			opts.SkipSemanticDiagnostics = true
+		}
+		finalFlameworkInputs, err := flameworkIncrementalInputs(nativePipeline)
+		if err != nil {
+			return nil, nil, fmt.Errorf("compile: refresh native Flamework incremental inputs: %w", err)
+		}
+		currentManifest.Salt, err = incrementalSaltWithFlamework(program, opts, manifestPath, finalFlameworkInputs)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	timings.setSourceCounts(len(sourceFiles), len(selectedFiles))
 
 	stopProjectContext := timings.startStage(projectContextStage)
@@ -364,6 +389,14 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	timings.setHashSkips(writer.hashSkipCount())
 
 	stopPersistence := timings.startStage(persistenceStage)
+	if pipeline.flameworkProject != nil {
+		if opts.pendingSolutionDependencyPersists != nil {
+			*opts.pendingSolutionDependencyPersists = append(*opts.pendingSolutionDependencyPersists, pipeline.flameworkProject.Persist)
+		} else if err := pipeline.flameworkProject.Persist(); err != nil {
+			stopPersistence()
+			return nil, nil, fmt.Errorf("compile: persist native Flamework artifacts: %w", err)
+		}
+	}
 	if copyFilesGate.SkipCleanup {
 		// No cleanup ran and nothing was selected, so the output tree is
 		// exactly the pre-build tree: the previous-output index is still valid.

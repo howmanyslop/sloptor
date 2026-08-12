@@ -15,8 +15,9 @@ copies or substantial portions of the Software.
 Third-party components vendored in this repository retain their own licenses:
 - tsgo/ — mirror of microsoft/typescript-go, Apache License 2.0 (see tsgo/LICENSE,
   tsgo/NOTICE, and tsgo/MIRROR.md for the statement of changes)
-- reference/ — roblox-ts and @roblox-ts/luau-ast sources, MIT License (see the
-  LICENSE files within each directory)
+- reference/ — roblox-ts, @roblox-ts/luau-ast, @roblox-ts/rojo-resolver,
+  @roblox-ts/path-translator, and rbxts-transformer-flamework sources, MIT
+  License (see the LICENSE files within each directory)
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
