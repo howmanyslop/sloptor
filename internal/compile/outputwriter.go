@@ -27,6 +27,7 @@ type outputWriter struct {
 	secureRoot    bool
 	root          *os.Root
 	prepared      sync.Map
+	dirRoots      sync.Map
 	projectDir    string
 	previous      map[string]string
 	current       map[string]string
@@ -85,7 +86,8 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 		var existing []byte
 		var err error
 		if writer.root != nil {
-			existing, err = writer.root.ReadFile(key)
+			root, name := writer.rootForKey(key)
+			existing, err = root.ReadFile(name)
 		} else {
 			existing, err = writer.operations.readFile(path)
 		}
@@ -96,7 +98,8 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 	}
 	var err error
 	if writer.root != nil {
-		err = writer.root.WriteFile(key, contents, 0o644)
+		root, name := writer.rootForKey(key)
+		err = root.WriteFile(name, contents, 0o644)
 	} else {
 		err = writer.operations.writeFile(path, contents, 0o644)
 	}
@@ -113,9 +116,40 @@ func (writer *outputWriter) lstat(path string) (fs.FileInfo, error) {
 		return nil, fmt.Errorf("compile: refusing to inspect output outside the project directory: %q", path)
 	}
 	if writer.root != nil {
-		return writer.root.Lstat(filepath.FromSlash(key))
+		root, name := writer.rootForKey(key)
+		return root.Lstat(name)
 	}
 	return writer.operations.lstat(path)
+}
+
+func (writer *outputWriter) rootForKey(key string) (*os.Root, string) {
+	key = filepath.FromSlash(key)
+	parent, name := filepath.Split(key)
+	parent = filepath.Clean(parent)
+	if parent == "." {
+		return writer.root, name
+	}
+	root, err := writer.dirRoot(parent)
+	if err == nil {
+		return root, name
+	}
+	return writer.root, key
+}
+
+func (writer *outputWriter) dirRoot(relative string) (*os.Root, error) {
+	relative = filepath.Clean(relative)
+	if relative == "." {
+		return writer.root, nil
+	}
+	cacheKey := relative
+	if !writer.caseSensitive {
+		cacheKey = strings.ToLower(cacheKey)
+	}
+	open := sync.OnceValues(func() (*os.Root, error) {
+		return writer.root.OpenRoot(relative)
+	})
+	actual, _ := writer.dirRoots.LoadOrStore(cacheKey, open)
+	return actual.(func() (*os.Root, error))()
 }
 
 func (writer *outputWriter) prepare(paths []string) error {
@@ -175,7 +209,11 @@ func (writer *outputWriter) prepareParent(path string) error {
 			if err != nil {
 				return err
 			}
-			return writer.root.MkdirAll(relative, 0o755)
+			if err := writer.root.MkdirAll(relative, 0o755); err != nil {
+				return err
+			}
+			writer.cacheDirRoot(relative)
+			return nil
 		}
 		return writer.operations.mkdirAll(parent, 0o755)
 	})
@@ -183,11 +221,30 @@ func (writer *outputWriter) prepareParent(path string) error {
 	return actual.(func() error)()
 }
 
+func (writer *outputWriter) cacheDirRoot(relative string) {
+	_, _ = writer.dirRoot(relative)
+}
+
 func (writer *outputWriter) close() error {
+	var first error
+	writer.dirRoots.Range(func(_, value any) bool {
+		root, err := value.(func() (*os.Root, error))()
+		if err == nil {
+			err = root.Close()
+		}
+		if first == nil {
+			first = err
+		}
+		return true
+	})
+	writer.dirRoots.Clear()
 	if writer.root == nil {
-		return nil
+		return first
 	}
 	err := writer.root.Close()
 	writer.root = nil
+	if first != nil {
+		return first
+	}
 	return err
 }

@@ -5,33 +5,44 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 func (writer *outputWriter) validatedOutputHashes(outputs map[string]string) map[string]string {
 	validated := make(map[string]string, len(outputs))
+	var mu sync.Mutex
+	jobs := make([]func() error, 0, len(outputs))
 	for path, hash := range outputs {
 		key, ok := normalizeOutputPresenceKey(path, writer.caseSensitive)
 		if !ok {
 			continue
 		}
-		info, err := writer.lstat(filepath.Join(writer.projectDir, filepath.FromSlash(key)))
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		var contents []byte
-		if writer.root != nil {
-			contents, err = writer.root.ReadFile(filepath.FromSlash(key))
-		} else {
-			contents, err = writer.operations.readFile(filepath.Join(writer.projectDir, filepath.FromSlash(key)))
-		}
-		if err != nil {
-			continue
-		}
-		sum := sha256.Sum256(contents)
-		if hex.EncodeToString(sum[:]) == hash {
-			validated[path] = hash
-		}
+		jobs = append(jobs, func() error {
+			absolute := filepath.Join(writer.projectDir, filepath.FromSlash(key))
+			info, err := writer.lstat(absolute)
+			if err != nil || !info.Mode().IsRegular() {
+				return nil
+			}
+			var contents []byte
+			if writer.root != nil {
+				root, name := writer.rootForKey(key)
+				contents, err = root.ReadFile(name)
+			} else {
+				contents, err = writer.operations.readFile(absolute)
+			}
+			if err != nil {
+				return nil
+			}
+			sum := sha256.Sum256(contents)
+			if hex.EncodeToString(sum[:]) == hash {
+				mu.Lock()
+				validated[path] = hash
+				mu.Unlock()
+			}
+			return nil
+		})
 	}
+	_ = parallelize(writeWorkers(), jobs)
 	return validated
 }
 
