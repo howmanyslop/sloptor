@@ -108,7 +108,8 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	// of them fails the compile before transforming, mirroring upstream's
 	// pre-emit bail (compileFiles.ts:151-158).
 	tsDiags := program.GetProgramDiagnostics()
-	tsDiags = append(tsDiags, preEmitDiagnostics(ctx, program, sourceFile)...)
+	tsDiags = append(tsDiags, preEmitProjectFileDiagnosticsWithOptions(ctx, program, sourceFile, opts)...)
+	tsDiags = append(tsDiags, program.GetGlobalDiagnostics(ctx)...)
 	if len(tsDiags) > 0 {
 		return "", tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 	}
@@ -229,7 +230,14 @@ func preEmitDiagnostics(ctx context.Context, program *compiler.Program, sourceFi
 }
 
 func preEmitProjectFileDiagnostics(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile) []*ast.Diagnostic {
+	return preEmitProjectFileDiagnosticsWithOptions(ctx, program, sourceFile, ProjectOptions{})
+}
+
+func preEmitProjectFileDiagnosticsWithOptions(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile, opts ProjectOptions) []*ast.Diagnostic {
 	tsDiags := program.GetSyntacticDiagnostics(ctx, sourceFile)
+	if opts.SkipSemanticDiagnostics {
+		return tsDiags
+	}
 	tsDiags = append(tsDiags, program.GetSemanticDiagnostics(ctx, sourceFile)...)
 	return tsDiags
 }

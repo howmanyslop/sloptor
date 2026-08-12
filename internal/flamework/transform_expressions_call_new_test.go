@@ -130,6 +130,30 @@ func TestTransformSourceFile_returnsOriginalSourceFile_whenNoStructuralChangeOcc
 	}
 }
 
+func TestTransformSourceFile_skipsExpressionWalk_whenFileHasNoFlameworkSurface(t *testing.T) {
+	// Given: call-heavy source with no Flamework imports, APIs, or planned classes.
+	state, sourceFile := newExpressionTransformFixture(t, `
+export function add(left: number, right: number) { return left + right; }
+export function run() {
+	return add(add(1, 2), add(3, 4));
+}
+`)
+	if sourceNeedsFlameworkExpressionTransform(sourceFile) {
+		t.Fatal("fixture unexpectedly matched Flamework expression surface")
+	}
+
+	// When: transformSourceFile runs.
+	transformed, err := transformSourceFile(state, sourceFile)
+	// Then: original pointer is reused without expression rewrite.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transformed != sourceFile {
+		t.Fatalf("transformSourceFile() = %p, want original %p", transformed, sourceFile)
+	}
+	t.Log("observable expression_walk_skipped=true source_pointer_reused=true")
+}
+
 func TestTransform_preservesUnchangedSourceMetadata_whenNoStructuralChangeOccurs(t *testing.T) {
 	// Given
 	base, sourceFile := newExpressionTransformFixture(t, "export const stable = true;\n")

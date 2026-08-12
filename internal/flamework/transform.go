@@ -96,18 +96,38 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 	if err != nil {
 		return nil, err
 	}
-	expressionTransformed, err := transformFlameworkExpressionsInSourceFileWithRuntime(state, sourceFile, state.MacroRuntime())
-	if err != nil {
-		return nil, fmt.Errorf("transform Flamework expressions: %w", err)
+	// Most project sources have no Flamework classes, macros, or APIs. Walking
+	// every call expression through the type checker on those files dominated
+	// clean full-build time; skip the expression visitor when no surface exists.
+	needsExpressions := planned || sourceNeedsFlameworkExpressionTransform(sourceFile)
+	if !planned && !needsExpressions {
+		return sourceFile, nil
+	}
+	expressionTransformed := sourceFile
+	if needsExpressions {
+		expressionTransformed, err = transformFlameworkExpressionsInSourceFileWithRuntime(state, sourceFile, state.MacroRuntime())
+		if err != nil {
+			return nil, fmt.Errorf("transform Flamework expressions: %w", err)
+		}
 	}
 	ast.SetParentInChildren(expressionTransformed.AsNode())
 	defer ast.SetParentInChildren(sourceFile.AsNode())
+	if !planned {
+		if expressionTransformed == sourceFile {
+			return sourceFile, nil
+		}
+		transformed := deduplicateSourceImports(state.factory, sourceFile, expressionTransformed)
+		if transformed == sourceFile {
+			return sourceFile, nil
+		}
+		return state.factory.DeepCloneReparse(transformed.AsNode()).AsSourceFile(), nil
+	}
 	classTransformed := false
 	var classErr error
 	var visitor *ast.NodeVisitor
 	visitor = ast.NewNodeVisitor(func(node *ast.Node) *ast.Node {
 		visited := visitor.VisitEachChild(node)
-		if classErr != nil || !planned || !ast.IsClassDeclaration(visited) || visited.Name() == nil {
+		if classErr != nil || !ast.IsClassDeclaration(visited) || visited.Name() == nil {
 			return visited
 		}
 		classPlan, found, resolveErr := plannedClassForNode(state, plan, visited)
@@ -139,6 +159,35 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 		return sourceFile, nil
 	}
 	return state.factory.DeepCloneReparse(transformed.AsNode()).AsSourceFile(), nil
+}
+
+// sourceNeedsFlameworkExpressionTransform is a cheap prefilter for the full
+// expression visitor. False negatives must be avoided for files that use
+// Flamework macros/APIs without a planned class; prefer over-inclusion.
+func sourceNeedsFlameworkExpressionTransform(sourceFile *ast.SourceFile) bool {
+	if sourceFile == nil {
+		return false
+	}
+	for _, imp := range sourceFile.Imports() {
+		if imp == nil {
+			continue
+		}
+		moduleName := imp.Text()
+		if strings.HasPrefix(moduleName, "@flamework/") || moduleName == flameworkCoreModule {
+			return true
+		}
+	}
+	text := sourceFile.Text()
+	if text == "" {
+		return false
+	}
+	// Identifier/API surface used by expression rewrites and macros. Planned
+	// Flamework classes already force a walk. `.attributes` covers component
+	// attribute get/set rewrites that do not always import @flamework by name.
+	return strings.Contains(text, "Flamework") ||
+		strings.Contains(text, "Modding") ||
+		strings.Contains(text, "Reflect.") ||
+		strings.Contains(text, ".attributes")
 }
 
 func mergeTransformAnalyses(explicit, discovered []FileAnalysis) ([]FileAnalysis, error) {

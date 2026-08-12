@@ -70,7 +70,19 @@ url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86
 url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186105"
 provenance = "github-attestations"
 
+[tools.communique."platforms.linux-x64-baseline"]
+checksum = "sha256:180f970282986f27f7fa9ee216e4971e8dec3624869d4222f22f3e2535fccc58"
+url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186105"
+provenance = "github-attestations"
+
 [tools.communique."platforms.linux-x64-musl"]
+checksum = "sha256:23010d19c9dc0bb09fefc43916b03b7b16f0d07761980bb54166170ce85d9112"
+url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186277"
+provenance = "github-attestations"
+
+[tools.communique."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:23010d19c9dc0bb09fefc43916b03b7b16f0d07761980bb54166170ce85d9112"
 url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-musl.tar.gz"
 url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186277"
@@ -84,6 +96,12 @@ provenance = "github-attestations"
 provenance_verified = true
 
 [tools.communique."platforms.windows-x64"]
+checksum = "sha256:63f2370f9c6ff97b31f9be266d8860dd65dce0aafb269c492de7cdbb9d29d782"
+url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186666"
+provenance = "github-attestations"
+
+[tools.communique."platforms.windows-x64-baseline"]
 checksum = "sha256:63f2370f9c6ff97b31f9be266d8860dd65dce0aafb269c492de7cdbb9d29d782"
 url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186666"
@@ -108,7 +126,17 @@ checksum = "sha256:27d69f79ba74a1d60cb9324250c0360afef541307610acf20b5e25d309678
 url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-linux-x86_64.zip"
 url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466250"
 
+[tools."github:lune-org/lune"."platforms.linux-x64-baseline"]
+checksum = "sha256:27d69f79ba74a1d60cb9324250c0360afef541307610acf20b5e25d309678709"
+url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466250"
+
 [tools."github:lune-org/lune"."platforms.linux-x64-musl"]
+checksum = "sha256:27d69f79ba74a1d60cb9324250c0360afef541307610acf20b5e25d309678709"
+url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466250"
+
+[tools."github:lune-org/lune"."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:27d69f79ba74a1d60cb9324250c0360afef541307610acf20b5e25d309678709"
 url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-linux-x86_64.zip"
 url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466250"
@@ -123,7 +151,17 @@ checksum = "sha256:9f5a16a54a0c833e0644e2c8af153e91f9133fb512e8277379474bb1a8a7c
 url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-macos-x86_64.zip"
 url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466249"
 
+[tools."github:lune-org/lune"."platforms.macos-x64-baseline"]
+checksum = "sha256:9f5a16a54a0c833e0644e2c8af153e91f9133fb512e8277379474bb1a8a7c7ad"
+url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-macos-x86_64.zip"
+url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466249"
+
 [tools."github:lune-org/lune"."platforms.windows-x64"]
+checksum = "sha256:06659d284f9d5d25a565047697358204d1abc31bf1c6e5485326785205ba8b93"
+url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-windows-x86_64.zip"
+url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466248"
+
+[tools."github:lune-org/lune"."platforms.windows-x64-baseline"]
 checksum = "sha256:06659d284f9d5d25a565047697358204d1abc31bf1c6e5485326785205ba8b93"
 url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-windows-x86_64.zip"
 url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466248"
@@ -150,7 +188,19 @@ url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-linu
 url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313571919"
 provenance = "github-attestations"
 
+[tools."github:rojo-rbx/rojo"."platforms.linux-x64-baseline"]
+checksum = "sha256:a9542a713036897fdbd0173e7a105ea409658333133c949025fcb6f1a7ca909d"
+url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313571919"
+provenance = "github-attestations"
+
 [tools."github:rojo-rbx/rojo"."platforms.linux-x64-musl"]
+checksum = "sha256:a9542a713036897fdbd0173e7a105ea409658333133c949025fcb6f1a7ca909d"
+url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313571919"
+provenance = "github-attestations"
+
+[tools."github:rojo-rbx/rojo"."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:a9542a713036897fdbd0173e7a105ea409658333133c949025fcb6f1a7ca909d"
 url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-linux-x86_64.zip"
 url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313571919"
@@ -169,7 +219,19 @@ url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-maco
 url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313572038"
 provenance = "github-attestations"
 
+[tools."github:rojo-rbx/rojo"."platforms.macos-x64-baseline"]
+checksum = "sha256:31270fa738e8ae41f16bbdf5a853e6ba0c6de32f8e050f2e7be37b3382fe5e64"
+url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-macos-x86_64.zip"
+url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313572038"
+provenance = "github-attestations"
+
 [tools."github:rojo-rbx/rojo"."platforms.windows-x64"]
+checksum = "sha256:e1c9a78193c609720f3afb38057d3909ed483ecbf5e9e3541313ba0dcbc4f1f8"
+url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-windows-x86_64.zip"
+url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313572385"
+provenance = "github-attestations"
+
+[tools."github:rojo-rbx/rojo"."platforms.windows-x64-baseline"]
 checksum = "sha256:e1c9a78193c609720f3afb38057d3909ed483ecbf5e9e3541313ba0dcbc4f1f8"
 url = "https://github.com/rojo-rbx/rojo/releases/download/v7.6.1/rojo-7.6.1-windows-x86_64.zip"
 url_api = "https://api.github.com/repos/rojo-rbx/rojo/releases/assets/313572385"
@@ -191,7 +253,15 @@ url = "https://dl.google.com/go/go1.26.5.linux-arm64.tar.gz"
 checksum = "sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
 url = "https://dl.google.com/go/go1.26.5.linux-amd64.tar.gz"
 
+[tools.go."platforms.linux-x64-baseline"]
+checksum = "sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+url = "https://dl.google.com/go/go1.26.5.linux-amd64.tar.gz"
+
 [tools.go."platforms.linux-x64-musl"]
+checksum = "sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+url = "https://dl.google.com/go/go1.26.5.linux-amd64.tar.gz"
+
+[tools.go."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
 url = "https://dl.google.com/go/go1.26.5.linux-amd64.tar.gz"
 
@@ -203,9 +273,87 @@ url = "https://dl.google.com/go/go1.26.5.darwin-arm64.tar.gz"
 checksum = "sha256:6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725"
 url = "https://dl.google.com/go/go1.26.5.darwin-amd64.tar.gz"
 
+[tools.go."platforms.macos-x64-baseline"]
+checksum = "sha256:6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725"
+url = "https://dl.google.com/go/go1.26.5.darwin-amd64.tar.gz"
+
 [tools.go."platforms.windows-x64"]
 checksum = "sha256:97e6b2a833b6d89f9ff17d25419ac0a7e3b482a044e9ab18cdef834bd834fd38"
 url = "https://dl.google.com/go/go1.26.5.windows-amd64.zip"
+
+[tools.go."platforms.windows-x64-baseline"]
+checksum = "sha256:97e6b2a833b6d89f9ff17d25419ac0a7e3b482a044e9ab18cdef834bd834fd38"
+url = "https://dl.google.com/go/go1.26.5.windows-amd64.zip"
+
+[[tools.golangci-lint]]
+version = "2.12.2"
+backend = "aqua:golangci/golangci-lint"
+
+[tools.golangci-lint."platforms.linux-arm64"]
+checksum = "sha256:44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413470996"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-arm64-musl"]
+checksum = "sha256:44cd40a8c76c86755375adfeea52cfd3533cb43d7bd647771e0ae065e166df3a"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413470996"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64"]
+checksum = "sha256:8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471054"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64-baseline"]
+checksum = "sha256:8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471054"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64-musl"]
+checksum = "sha256:8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471054"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:8df580d2670fed8fa984aac0507099af8df275e665215f5c7a2ae3943893a553"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471054"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.macos-arm64"]
+checksum = "sha256:a9c54498731b3128f79e090be6110f3e5fffccc617b08142ed244d4126c73f29"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413470950"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.macos-x64"]
+checksum = "sha256:f6f06d94b6241521c53d15450c5209b028270bf966f842afb11c030c79f5bc16"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413470980"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.macos-x64-baseline"]
+checksum = "sha256:f6f06d94b6241521c53d15450c5209b028270bf966f842afb11c030c79f5bc16"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413470980"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.windows-x64"]
+checksum = "sha256:bd42e3ebc8cb4ececb86941983baaf1dc221bbb04d838e94ce63b49cc91e02bb"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-windows-amd64.zip"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471017"
+provenance = "github-attestations"
+
+[tools.golangci-lint."platforms.windows-x64-baseline"]
+checksum = "sha256:bd42e3ebc8cb4ececb86941983baaf1dc221bbb04d838e94ce63b49cc91e02bb"
+url = "https://github.com/golangci/golangci-lint/releases/download/v2.12.2/golangci-lint-2.12.2-windows-amd64.zip"
+url_api = "https://api.github.com/repos/golangci/golangci-lint/releases/assets/413471017"
+provenance = "github-attestations"
 
 [[tools.goreleaser]]
 version = "2.17.1"
@@ -229,7 +377,19 @@ url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/gorele
 url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565870"
 provenance = "github-attestations"
 
+[tools.goreleaser."platforms.linux-x64-baseline"]
+checksum = "sha256:a99bbc7ae0d8d897b07c4c497a9b62f222558804715ef219d1af05a7e417bc80"
+url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Linux_x86_64.tar.gz"
+url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565870"
+provenance = "github-attestations"
+
 [tools.goreleaser."platforms.linux-x64-musl"]
+checksum = "sha256:a99bbc7ae0d8d897b07c4c497a9b62f222558804715ef219d1af05a7e417bc80"
+url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Linux_x86_64.tar.gz"
+url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565870"
+provenance = "github-attestations"
+
+[tools.goreleaser."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:a99bbc7ae0d8d897b07c4c497a9b62f222558804715ef219d1af05a7e417bc80"
 url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Linux_x86_64.tar.gz"
 url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565870"
@@ -247,7 +407,19 @@ url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/gorele
 url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565848"
 provenance = "github-attestations"
 
+[tools.goreleaser."platforms.macos-x64-baseline"]
+checksum = "sha256:f49d4fe67d283b5b5130c380c983087dca0a4d4ec15b6637b18fe1ab096780d8"
+url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Darwin_all.tar.gz"
+url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565848"
+provenance = "github-attestations"
+
 [tools.goreleaser."platforms.windows-x64"]
+checksum = "sha256:53314ce7cc16c3229f2d3b98a932c1618c427964eb2170a1efafbdfa862a556f"
+url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Windows_x86_64.zip"
+url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565847"
+provenance = "github-attestations"
+
+[tools.goreleaser."platforms.windows-x64-baseline"]
 checksum = "sha256:53314ce7cc16c3229f2d3b98a932c1618c427964eb2170a1efafbdfa862a556f"
 url = "https://github.com/goreleaser/goreleaser/releases/download/v2.17.1/goreleaser_Windows_x86_64.zip"
 url_api = "https://api.github.com/repos/goreleaser/goreleaser/releases/assets/490565847"
@@ -267,7 +439,17 @@ checksum = "sha256:3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz"
 url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832008"
 
+[tools.hyperfine."platforms.linux-x64-baseline"]
+checksum = "sha256:3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03c2b"
+url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832008"
+
 [tools.hyperfine."platforms.linux-x64-musl"]
+checksum = "sha256:3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03c2b"
+url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832008"
+
+[tools.hyperfine."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03c2b"
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz"
 url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832008"
@@ -282,7 +464,17 @@ checksum = "sha256:f58d0b90993fadfa122a351428c469ce24afef3865f027f0e6e86f0830d08
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832526"
 
+[tools.hyperfine."platforms.macos-x64-baseline"]
+checksum = "sha256:f58d0b90993fadfa122a351428c469ce24afef3865f027f0e6e86f0830d088f1"
+url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832526"
+
 [tools.hyperfine."platforms.windows-x64"]
+checksum = "sha256:2508c549b049b1d4342d08edc1cb42bfac169082b6e3069431b5bab9822dbb32"
+url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832313"
+
+[tools.hyperfine."platforms.windows-x64-baseline"]
 checksum = "sha256:2508c549b049b1d4342d08edc1cb42bfac169082b6e3069431b5bab9822dbb32"
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832313"
@@ -313,7 +505,19 @@ url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-linux-x64.ta
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585503"
 provenance = "github-attestations"
 
+[tools.pnpm."platforms.linux-x64-baseline"]
+checksum = "sha256:aadc489ce4473c2af0fec06a5c19e113b5793d404eac49853c8153bf4b0d8263"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-linux-x64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585503"
+provenance = "github-attestations"
+
 [tools.pnpm."platforms.linux-x64-musl"]
+checksum = "sha256:8cad0a4d20318c0445d992630ace51edc0853fd259573f50ee5d0216dce9b420"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-linux-x64-musl.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585524"
+provenance = "github-attestations"
+
+[tools.pnpm."platforms.linux-x64-musl-baseline"]
 checksum = "sha256:8cad0a4d20318c0445d992630ace51edc0853fd259573f50ee5d0216dce9b420"
 url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-linux-x64-musl.tar.gz"
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585524"
@@ -326,6 +530,12 @@ url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585526"
 provenance = "github-attestations"
 
 [tools.pnpm."platforms.windows-x64"]
+checksum = "sha256:6643043caa3b01c65c431039926a2af954326d5cefbdb4da7baceceb17f5051f"
+url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-win32-x64.zip"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585516"
+provenance = "github-attestations"
+
+[tools.pnpm."platforms.windows-x64-baseline"]
 checksum = "sha256:6643043caa3b01c65c431039926a2af954326d5cefbdb4da7baceceb17f5051f"
 url = "https://github.com/pnpm/pnpm/releases/download/v11.21.0/pnpm-win32-x64.zip"
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/507585516"

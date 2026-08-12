@@ -19,8 +19,15 @@ type discoveredClassState struct {
 }
 
 func discoverSourceClasses(state *TransformState, file *ast.SourceFile) ([]discoveredClassState, error) {
+	// Cheap reject: Flamework classes require a class declaration in the source text.
+	if file == nil || !strings.Contains(file.Text(), "class") {
+		return nil, nil
+	}
 	nodes := make([]*ast.Node, 0)
 	collectClassDeclarations(file.AsNode(), &nodes)
+	if len(nodes) == 0 {
+		return nil, nil
+	}
 	classes := make([]discoveredClassState, 0, len(nodes))
 	for _, node := range nodes {
 		class, found, err := discoverClass(state, node)

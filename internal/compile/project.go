@@ -523,6 +523,12 @@ type ProjectOptions struct {
 	// behavior already matches allowCommentDirectives=true).
 	AllowCommentDirectives bool
 
+	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: when
+	// true, per-file pre-emit skips GetSemanticDiagnostics (syntactic checks
+	// and transform-time type queries still run). Matches upstream Flamework's
+	// documented "disables TypeScript's own semantic diagnostics" flag.
+	SkipSemanticDiagnostics bool
+
 	// NoOptimizedLoops is the INVERSE of upstream optimizedLoops (default
 	// true, DEFAULT_PROJECT_OPTIONS), inverted so this struct's zero value
 	// keeps the upstream-default (optimized) behavior for all existing
@@ -877,7 +883,7 @@ func groupSourceFilesByChecker(ctx context.Context, program *compiler.Program, s
 
 func precheckProjectSourceFile(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile, opts ProjectOptions) precheckedProjectSourceFile {
 	result := precheckedProjectSourceFile{}
-	result.tsDiags = preEmitProjectFileDiagnostics(ctx, program, sourceFile)
+	result.tsDiags = preEmitProjectFileDiagnosticsWithOptions(ctx, program, sourceFile, opts)
 	if len(result.tsDiags) == 0 && !opts.AllowCommentDirectives {
 		result.commentDiags = commentDirectiveDiagnostics(sourceFile)
 	}

@@ -257,7 +257,13 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	timings.recordPreparedTransformerProgram(prepared)
 	program = prepared.program
 	selectedFiles = prepared.sourceFiles
+	if prepared.flamework != nil && prepared.flamework.NoSemanticDiagnostics {
+		opts.SkipSemanticDiagnostics = true
+	}
 	if nativePipeline != nil {
+		if nativePipeline.config != nil && nativePipeline.config.NoSemanticDiagnostics {
+			opts.SkipSemanticDiagnostics = true
+		}
 		finalFlameworkInputs, err := flameworkIncrementalInputs(nativePipeline)
 		if err != nil {
 			return nil, nil, fmt.Errorf("compile: refresh native Flamework incremental inputs: %w", err)

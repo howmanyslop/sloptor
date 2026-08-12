@@ -50,22 +50,26 @@ func updateProgramWithTextOverlays(program *compiler.Program, overlays map[strin
 		return order[normalizeOverlayPath(left, caseSensitive)] - order[normalizeOverlayPath(right, caseSensitive)]
 	})
 
-	host := newNativeOverlayHost(program.Host(), overlays)
+	changed := make([]tspath.Path, 0, len(paths))
+	hostOverlays := make(map[string]string, len(overlays))
 	for _, path := range paths {
 		original := program.GetSourceFile(path)
 		if original == nil {
 			return nil, false, fmt.Errorf("compile: overlay source missing from Program: %s", path)
 		}
+		hostOverlays[normalizeOverlayPath(path, caseSensitive)] = overlays[path]
 		if original.Text() == overlays[path] {
 			continue
 		}
-		updated, reused := program.UpdateProgram(original.Path(), host, nil)
-		program = updated
-		if !reused {
-			return program, false, nil
-		}
+		changed = append(changed, original.Path())
 	}
-	return program, true, nil
+	if len(changed) == 0 {
+		return program, true, nil
+	}
+
+	host := newNativeOverlayHost(program.Host(), hostOverlays)
+	updated, reused := program.UpdateProgramFiles(changed, host, nil)
+	return updated, reused, nil
 }
 
 func updateNativeFlameworkProgram(input nativeProgramUpdate) (*compiler.Program, []*ast.SourceFile, diagnosticTraces, error) {
@@ -88,25 +92,20 @@ func updateNativeFlameworkProgram(input nativeProgramUpdate) (*compiler.Program,
 	for key, trace := range input.traces {
 		composed[key] = trace
 	}
+	changed := make([]tspath.Path, 0, len(overlays))
 	for _, overlay := range overlays {
 		texts[normalizeOverlayPath(overlay.fileName, caseSensitive)] = overlay.text
 		key := normalizeSourceFilePath(overlay.fileName)
 		composed[key] = composeSourceTraceMaps(overlay.trace, input.traces[key])
-	}
-
-	host := newNativeOverlayHost(input.program.Host(), texts)
-	program := input.program
-	for _, overlay := range overlays {
-		original := program.GetSourceFile(overlay.fileName)
+		original := input.program.GetSourceFile(overlay.fileName)
 		if original == nil {
 			return nil, nil, nil, fmt.Errorf("compile: native Flamework source missing from Program: %s", overlay.fileName)
 		}
-		updated, reused := program.UpdateProgram(original.Path(), host, nil)
-		program = updated
-		if !reused {
-			break
-		}
+		changed = append(changed, original.Path())
 	}
+
+	host := newNativeOverlayHost(input.program.Host(), texts)
+	program, _ := input.program.UpdateProgramFiles(changed, host, nil)
 
 	remapped, err := remapProgramSourceFiles(program, input.sourceFiles)
 	if err != nil {

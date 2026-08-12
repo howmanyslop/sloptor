@@ -99,10 +99,59 @@ func TestNativeFlameworkSparseUpdate_updatesOnlyChangedSourcesInStableSourceOrde
 	t.Log("observable changed_overlays=2 unchanged_parse_tree_reused=true unchanged_trace_reused=true composed_authored_line=4")
 }
 
-func TestNativeFlameworkSparseUpdate_fallsBackOnceWithEveryOverlay_whenModuleShapeChanges(t *testing.T) {
-	// Given: the first source changes its import boundary and a later source also has native output.
+func TestNativeFlameworkSparseUpdate_batchesCompatibleOverlaysIntoOneProgramReconstruction(t *testing.T) {
+	// Given: three shape-compatible text overlays that would previously each rebuild a Program.
 	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
-		"a.ts":   "import { value } from \"./dep\"; export const a = value;\n",
+		"a.ts": "export const a = 1;\n",
+		"b.ts": "export const b = 1;\n",
+		"c.ts": "export const c = 1;\n",
+	})
+	programCreations := 0
+	program = compiler.NewProgram(compiler.ProgramOptions{
+		Host:   program.Host(),
+		Config: program.CommandLine(),
+		CreateCheckerPool: func(*compiler.Program) compiler.CheckerPool {
+			programCreations++
+			return nil
+		},
+	})
+	programCreations = 0
+	sourceFiles = projectSourceFiles(program)
+	a := program.GetSourceFile(filepath.Join(dir, "src", "a.ts"))
+	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
+	c := program.GetSourceFile(filepath.Join(dir, "src", "c.ts"))
+
+	// When: three reverse-ordered compatible overlays apply together.
+	updated, _, _, err := updateNativeFlameworkProgram(nativeProgramUpdate{
+		program: program, sourceFiles: sourceFiles,
+		overlays: []nativeSourceOverlay{
+			{fileName: c.FileName(), text: "export const c = 2;\n"},
+			{fileName: b.FileName(), text: "export const b = 2;\n"},
+			{fileName: a.FileName(), text: "export const a = 2;\n"},
+		},
+	})
+	// Then: one Program reconstruction covers every overlay.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if programCreations != 1 {
+		t.Fatalf("compatible multi-overlay update created %d Programs, want one batched reconstruction", programCreations)
+	}
+	if updated.GetSourceFile(a.FileName()) == a || updated.GetSourceFile(b.FileName()) == b || updated.GetSourceFile(c.FileName()) == c {
+		t.Fatal("batched compatible update retained an incoming changed parse tree")
+	}
+	if !strings.Contains(updated.GetSourceFile(a.FileName()).Text(), "a = 2") ||
+		!strings.Contains(updated.GetSourceFile(b.FileName()).Text(), "b = 2") ||
+		!strings.Contains(updated.GetSourceFile(c.FileName()).Text(), "c = 2") {
+		t.Fatal("batched compatible update did not expose every native overlay")
+	}
+	t.Logf("observable program_reconstructions=%d changed_overlays=3", programCreations)
+}
+
+func TestNativeFlameworkSparseUpdate_reusesUnchangedFiles_whenImportTargetsAlreadyLoaded(t *testing.T) {
+	// Given: Flamework-like output that adds an import of a module already in the Program.
+	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
+		"a.ts":   "export const a = 1;\n",
 		"b.ts":   "export const b = 1;\n",
 		"dep.ts": "export const value = 1;\n",
 	})
@@ -121,28 +170,85 @@ func TestNativeFlameworkSparseUpdate_fallsBackOnceWithEveryOverlay_whenModuleSha
 	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
 	dep := program.GetSourceFile(filepath.Join(dir, "src", "dep.ts"))
 
-	// When: reverse-ordered input is normalized to source order and the incompatible update rebuilds.
+	// When: a.ts gains an import of already-loaded dep and b.ts only changes text.
 	updated, _, _, err := updateNativeFlameworkProgram(nativeProgramUpdate{
 		program: program, sourceFiles: sourceFiles,
 		overlays: []nativeSourceOverlay{
 			{fileName: b.FileName(), text: "export const b = 2;\n"},
-			{fileName: a.FileName(), text: "export const a = 2;\n"},
+			{fileName: a.FileName(), text: "import { value } from \"./dep\"; export const a = value;\n"},
 		},
 	})
-	// Then: the one full rebuild contains all overlays and retains no old parse tree.
+	// Then: one sparse reconstruction reuses untouched parse trees instead of full rebuild.
 	if err != nil {
 		t.Fatal(err)
 	}
 	if programCreations != 1 {
-		t.Fatalf("module-boundary update created %d Programs, want one full fallback", programCreations)
+		t.Fatalf("already-loaded import update created %d Programs, want one sparse reconstruction", programCreations)
 	}
-	if updated.GetSourceFile(a.FileName()) == a || updated.GetSourceFile(b.FileName()) == b || updated.GetSourceFile(dep.FileName()) == dep {
-		t.Fatal("module-boundary fallback retained an incoming parse tree")
+	if updated.GetSourceFile(dep.FileName()) != dep {
+		t.Fatal("already-loaded import update reparsed untouched dep.ts")
 	}
-	if !strings.Contains(updated.GetSourceFile(a.FileName()).Text(), "a = 2") || !strings.Contains(updated.GetSourceFile(b.FileName()).Text(), "b = 2") {
-		t.Fatal("module-boundary fallback did not expose every native overlay")
+	if updated.GetSourceFile(a.FileName()) == a || !strings.Contains(updated.GetSourceFile(a.FileName()).Text(), "from \"./dep\"") {
+		t.Fatal("a.ts did not receive its import-bearing overlay")
 	}
-	t.Logf("observable full_rebuilds=%d native_overlays_present=2 incoming_parse_trees_retained=0", programCreations)
+	if updated.GetSourceFile(b.FileName()) == b || !strings.Contains(updated.GetSourceFile(b.FileName()).Text(), "b = 2") {
+		t.Fatal("b.ts did not receive its text overlay")
+	}
+	t.Log("observable sparse_import_add=true unchanged_dep_reused=true program_reconstructions=1")
+}
+
+func TestNativeFlameworkSparseUpdate_fallsBackOnceWithEveryOverlay_whenNewModuleIsRequired(t *testing.T) {
+	// Given: a new on-disk module is not part of the current Program file set.
+	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
+		"a.ts": "export const a = 1;\n",
+		"b.ts": "export const b = 1;\n",
+	})
+	if err := os.WriteFile(filepath.Join(dir, "src", "extra.ts"), []byte("export const extra = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	programCreations := 0
+	program = compiler.NewProgram(compiler.ProgramOptions{
+		Host:   program.Host(),
+		Config: program.CommandLine(),
+		CreateCheckerPool: func(*compiler.Program) compiler.CheckerPool {
+			programCreations++
+			return nil
+		},
+	})
+	programCreations = 0
+	sourceFiles = projectSourceFiles(program)
+	a := program.GetSourceFile(filepath.Join(dir, "src", "a.ts"))
+	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
+	if program.GetSourceFile(filepath.Join(dir, "src", "extra.ts")) != nil {
+		t.Fatal("extra.ts was unexpectedly already part of the Program")
+	}
+
+	// When: a.ts imports the unloaded module and b.ts also has overlay text.
+	updated, _, _, err := updateNativeFlameworkProgram(nativeProgramUpdate{
+		program: program, sourceFiles: sourceFiles,
+		overlays: []nativeSourceOverlay{
+			{fileName: b.FileName(), text: "export const b = 2;\n"},
+			{fileName: a.FileName(), text: "import { extra } from \"./extra\"; export const a = extra;\n"},
+		},
+	})
+	// Then: one full rebuild includes every overlay and loads the new module graph.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if programCreations != 1 {
+		t.Fatalf("new-module update created %d Programs, want one full fallback", programCreations)
+	}
+	if updated.GetSourceFile(a.FileName()) == a || updated.GetSourceFile(b.FileName()) == b {
+		t.Fatal("new-module fallback retained an incoming changed parse tree")
+	}
+	if !strings.Contains(updated.GetSourceFile(a.FileName()).Text(), "from \"./extra\"") ||
+		!strings.Contains(updated.GetSourceFile(b.FileName()).Text(), "b = 2") {
+		t.Fatal("new-module fallback did not expose every native overlay")
+	}
+	if updated.GetSourceFile(filepath.Join(dir, "src", "extra.ts")) == nil {
+		t.Fatal("new-module fallback did not load extra.ts into the Program")
+	}
+	t.Logf("observable full_rebuilds=%d new_module_loaded=true", programCreations)
 }
 
 func sparseNativeProgram(t *testing.T, sources map[string]string) (string, *compiler.Program, []*ast.SourceFile) {
