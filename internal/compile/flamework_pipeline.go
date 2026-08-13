@@ -61,9 +61,11 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 	if err != nil {
 		return nil, []string{filepath.Join(filepath.FromSlash(dir), "rotor.toml") + ": " + err.Error()}, errors.New("compile: invalid flamework.after")
 	}
+	// OpenProject takes a single root; Flamework's createPathTranslator
+	// resolves that from rootDir or rootDirs (plus commonSourceDirectory).
 	project, err := flamework.OpenProject(flamework.ProjectOptions{
 		ProjectDir:       filepath.FromSlash(dir),
-		RootDir:          filepath.FromSlash(program.Options().RootDir),
+		RootDir:          createPathTranslator(program, false).RootDir,
 		OutDir:           filepath.FromSlash(program.Options().OutDir),
 		IncludeDirectory: opts.IncludePath,
 		RojoConfigPath:   opts.RojoConfigPath,

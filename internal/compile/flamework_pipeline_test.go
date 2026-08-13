@@ -179,6 +179,50 @@ func TestFlameworkPipelineComposesDiagnosticTraceAcrossEveryStage(t *testing.T) 
 	t.Fatalf("TS2304 missing from diagnostics: %+v", result.Diagnostics)
 }
 
+func TestPrepareFlameworkPipelineAcceptsRootDirsWhenRootDirIsNull(t *testing.T) {
+	// Given: native Flamework is enabled and tsconfig uses rootDirs with rootDir: null
+	// (the test-project pattern: sources live under both src/ and test/).
+	dir := task7FlameworkProject(t, "[flamework]\n")
+	if err := os.Mkdir(filepath.Join(dir, "test"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test", "spec.ts"), []byte("export const spec = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rewriteFlameworkRootDirs(t, dir)
+
+	// When: the real compile pipeline opens native Flamework.
+	result, diagnostics, err := BuildProjectWithOptions(dir, ProjectOptions{})
+
+	// Then: rootDirs stands in for rootDir; OpenProject does not assert.
+	if err != nil || len(diagnostics) != 0 {
+		t.Fatalf("BuildProjectWithOptions = (%v, %v)", diagnostics, err)
+	}
+	if _, ok := result.Outputs["out/src/main.luau"]; !ok {
+		t.Fatalf("outputs = %v, want out/src/main.luau", result.Outputs)
+	}
+	if _, ok := result.Outputs["out/test/spec.luau"]; !ok {
+		t.Fatalf("outputs = %v, want out/test/spec.luau from rootDirs test/", result.Outputs)
+	}
+}
+
+func rewriteFlameworkRootDirs(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "tsconfig.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(data), `"rootDir": "src"`, `"rootDir": null, "rootDirs": ["src", "test"]`, 1)
+	text = strings.Replace(text, `"include": ["src"]`, `"include": ["src", "test"]`, 1)
+	if text == string(data) {
+		t.Fatal("rewriteFlameworkRootDirs: tsconfig did not contain expected rootDir/include")
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const flameworkStagePlugin = `const ts = require("typescript");
 module.exports = function (_program, config) {
 	const source = (context) => (sourceFile) => {

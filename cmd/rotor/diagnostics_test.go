@@ -416,7 +416,7 @@ func TestCmdDiagnosticsInternalErrorCarriesStack(t *testing.T) {
 	if file.InternalError == nil {
 		t.Fatal("internalError is absent")
 	}
-	if !strings.Contains(file.InternalError.Message, "identifier has no symbol") {
+	if !strings.Contains(file.InternalError.Message, "neverDeclared") || !strings.Contains(file.InternalError.Message, "has no symbol") {
 		t.Errorf("internalError.message = %q", file.InternalError.Message)
 	}
 	if !strings.Contains(file.InternalError.Stack, "rotor/internal/transformer") {
