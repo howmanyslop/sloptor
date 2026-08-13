@@ -60,16 +60,22 @@ func isReferencedAliasValue(s *State, declaration *ast.Node, name *ast.Node) boo
 }
 
 func isImportedNameReferencedAsValue(s *State, name *ast.Node) bool {
-	alias := s.Checker.GetSymbolAtLocation(name)
-	if alias == nil {
-		return false
+	if importedNameUsedAsJsxFactory(s, name) {
+		return true
 	}
-	target := checker.SkipAlias(alias, s.Checker)
+	alias := s.Checker.GetSymbolAtLocation(name)
+	var target *ast.Symbol
+	if alias != nil {
+		target = checker.SkipAlias(alias, s.Checker)
+	}
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
 		if ast.IsIdentifier(node) {
 			if node == name || node.Text() != name.Text() || ast.IsPartOfTypeNode(node) || ast.IsPartOfTypeQuery(node) {
 				return false
+			}
+			if alias == nil {
+				return true
 			}
 			reference := s.Checker.GetSymbolAtLocation(node)
 			if reference == alias || reference != nil && checker.SkipAlias(reference, s.Checker) == target {
@@ -86,6 +92,35 @@ func isImportedNameReferencedAsValue(s *State, name *ast.Node) bool {
 		return node.ForEachChild(visit)
 	}
 	return s.SourceFile.AsNode().ForEachChild(visit)
+}
+
+func importedNameUsedAsJsxFactory(s *State, name *ast.Node) bool {
+	if s == nil || s.SourceFile == nil || name == nil || !fileContainsJsx(s.SourceFile.AsNode()) {
+		return false
+	}
+	factory := s.EmitResolver().GetJsxFactoryEntityUnsafe(name)
+	if factory != nil && ast.GetFirstIdentifier(factory).Text() == name.Text() {
+		return true
+	}
+	fragment := s.EmitResolver().GetJsxFragmentFactoryEntityUnsafe(name)
+	return fragment != nil && ast.GetFirstIdentifier(fragment).Text() == name.Text()
+}
+
+func fileContainsJsx(node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	found := false
+	var visit func(*ast.Node) bool
+	visit = func(child *ast.Node) bool {
+		if ast.IsJsxElement(child) || ast.IsJsxSelfClosingElement(child) || ast.IsJsxFragment(child) {
+			found = true
+			return true
+		}
+		return child.ForEachChild(visit)
+	}
+	node.ForEachChild(visit)
+	return found
 }
 
 // countImportExpUses ports transformImportDeclaration.ts countImportExpUses
