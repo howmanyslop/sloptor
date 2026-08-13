@@ -1,4 +1,4 @@
--- Compiled with @isentinel/roblox-ts v4.0.11
+-- Compiled with sloptor v2.3.0
 local TS = _G[script]
 local function runtimePromise()
 	return TS.Promise.new(function(resolve)

@@ -105,10 +105,11 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 	validateNotAnyType(s, expression.Right)
 
 	// banned
-	if operatorKind == ast.KindEqualsEqualsToken {
+	switch operatorKind {
+	case ast.KindEqualsEqualsToken:
 		s.Diags.Add(DiagNoEqualsEquals(node))
 		return luau.NewNone()
-	} else if operatorKind == ast.KindExclamationEqualsToken {
+	case ast.KindExclamationEqualsToken:
 		s.Diags.Add(DiagNoExclamationEquals(node))
 		return luau.NewNone()
 	}
@@ -194,13 +195,14 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 	ordered := ensureTransformOrder(s, []*ast.Node{expression.Left, expression.Right})
 	left, right := ordered[0], ordered[1]
 
-	if operatorKind == ast.KindInKeyword {
+	switch operatorKind {
+	case ast.KindInKeyword:
 		return luau.NewBinary(
 			luau.NewComputedIndex(convertToIndexableExpression(right), left),
 			"~=",
 			luau.Nil(),
 		)
-	} else if operatorKind == ast.KindInstanceOfKeyword {
+	case ast.KindInstanceOfKeyword:
 		if IsPossiblyType(s, s.GetType(expression.Right), IsRobloxType(s)) {
 			s.Diags.Add(DiagNoRobloxSymbolInstanceof(expression.Right))
 		}

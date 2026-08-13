@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 return function()
 	it("should support switch statements with fall through", function()
 		local function foo(s)

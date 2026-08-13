@@ -355,7 +355,7 @@ var readonlyArrayMethods = map[string]PropertyCallMacro{
 	"reduce": func(s *State, node *ast.Node, expression luau.Expression, args []luau.Expression) luau.Expression {
 		expression = s.PushToVarIfComplex(expression, "exp")
 
-		var start luau.Expression = luau.Num(1)
+		var start = luau.Num(1)
 		end := luau.NewUnary("#", expression)
 		const step = 1
 

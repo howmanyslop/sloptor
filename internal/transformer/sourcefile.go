@@ -5,21 +5,14 @@ import (
 
 	"rotor/internal/luau"
 	"rotor/internal/rojo"
+	"rotor/internal/version"
 	"rotor/tsgo/ast"
 )
 
-// CompilerVersion is the rbxtsc release rotor targets byte-for-byte. Upstream
-// COMPILER_VERSION (Shared/constants.ts:9, the package.json version) is used
-// ONLY in the header comment, which transformSourceFile.ts:225 prepends
-// inside the transformer — not in compileFiles/renderAST.
-const CompilerVersion = "3.0.0"
-
 // HeaderComment is the text of the leading build-comment line (rendered as
-// `--<HeaderComment>`). It defaults to the upstream rbxtsc header so the
-// differential harness stays a strict byte comparison against real rbxtsc
-// output; `rotor build` rebrands it (the v1.0 contract is byte-identical
-// output, header-normalized).
-var HeaderComment = " Compiled with roblox-ts v" + CompilerVersion
+// `--<HeaderComment>`). It now brands output as Sloptor using the release
+// version from internal/version.
+var HeaderComment = " Compiled with sloptor v" + version.Version
 
 // TransformSourceFile ports nodes/transformSourceFile.ts: transform the
 // source file held by state into the final Luau statement list, ready for
@@ -110,7 +103,7 @@ func getLastNonCommentStatement(listNode *luau.ListNode[luau.Statement]) *luau.L
 // the `local TS = ...` import (CreateRuntimeLibImport) — hoisting any leading
 // Luau directive comments (`--!strict`, sourced from leading `//!...` TS
 // comments) above it. The header comment text starts with a space so it
-// renders `-- Compiled with roblox-ts v3.0.0` (or the HeaderComment override).
+// renders `-- Compiled with sloptor v2.3.0` (or the HeaderComment override).
 func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 	headerStatements := luau.NewList[luau.Statement]()
 	headerStatements.Push(luau.NewComment(HeaderComment))

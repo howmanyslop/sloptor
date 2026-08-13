@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 local a = 10
 local b = 3
 print(a + b, a - b, a * b, a / b, a % b, a ^ b)

@@ -44,7 +44,7 @@ func needsInverseEntry(s *State, member *ast.Node) bool {
 func transformEnumDeclaration(s *State, node *ast.Node) *luau.List[luau.Statement] {
 	// const enum: no emit unless preserveConstEnums
 	if ast.HasSyntacticModifier(node, ast.ModifierFlagsConst) &&
-		!(s.Program != nil && s.Program.Options().PreserveConstEnums.IsTrue()) {
+		(s.Program == nil || !s.Program.Options().PreserveConstEnums.IsTrue()) {
 		return luau.NewList[luau.Statement]()
 	}
 

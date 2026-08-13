@@ -100,7 +100,7 @@ func handleExports(s *State, sourceFile *ast.SourceFile, symbol *ast.Symbol, sta
 		// local exports variable is created in transformExportAssignment
 		stmts := sourceFile.Statements.Nodes
 		finalStatement := stmts[len(stmts)-1]
-		if !(ast.IsExportAssignment(finalStatement) && finalStatement.AsExportAssignment().IsExportEquals) {
+		if !ast.IsExportAssignment(finalStatement) || !finalStatement.AsExportAssignment().IsExportEquals {
 			statements.Push(luau.NewReturn(luau.GlobalID("exports")))
 		}
 

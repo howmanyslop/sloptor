@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 local square = function(x)
 	return x * x
 end

@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 local items = { 10, 20, 30 }
 local total = 0
 for _, item in items do

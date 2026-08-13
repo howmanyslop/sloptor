@@ -88,9 +88,10 @@ func transformLogicalOrAssignmentExpression(s *State, left, right *ast.Node) lua
 func transformLogicalOrCoalescingAssignmentExpression(s *State, node *ast.Node) luau.WritableExpression {
 	expression := node.AsBinaryExpression()
 	operator := expression.OperatorToken.Kind
-	if operator == ast.KindQuestionQuestionEqualsToken {
+	switch operator {
+	case ast.KindQuestionQuestionEqualsToken:
 		return transformCoalescingAssignmentExpression(s, expression.Left, expression.Right)
-	} else if operator == ast.KindAmpersandAmpersandEqualsToken {
+	case ast.KindAmpersandAmpersandEqualsToken:
 		return transformLogicalAndAssignmentExpression(s, expression.Left, expression.Right)
 	}
 	return transformLogicalOrAssignmentExpression(s, expression.Left, expression.Right)

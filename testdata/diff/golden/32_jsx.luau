@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 local TS = require(script.Parent.include.RuntimeLib)
 local React = TS.import(script, script.Parent, "node_modules", "@rbxts", "react")
 -- self-closing host element, props incl. implicit-true

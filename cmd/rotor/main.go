@@ -17,12 +17,10 @@ import (
 	rotorversion "rotor/internal/version"
 )
 
-// version is rotor's own release version, used for `--version` and the
-// `sloptor build` emit header (`-- Compiled with rotor v...`). Library/test
-// compilation keeps the upstream rbxtsc header so differential
-// byte-comparison stays strict. The value is defined in code
-// (internal/version) — no ldflags injection; kept as a var so tests can
-// override it.
+// version is sloptor's own release version, used for `--version` and the
+// `sloptor build` emit header (`-- Compiled with sloptor v...`). The value is
+// defined in code (internal/version) — no ldflags injection; kept as a var so
+// tests can override it.
 var version = rotorversion.Version
 
 func main() {
