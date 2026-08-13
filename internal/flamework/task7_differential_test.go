@@ -189,7 +189,7 @@ func task7Manifest(t *testing.T, root string) []string {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(data)
+		sum := sha256.Sum256(stripTask7LuauHeader(data))
 		entries = append(entries, fmt.Sprintf("%x  %s", sum, filepath.ToSlash(relative)))
 		return nil
 	})
@@ -611,8 +611,12 @@ func compareTask7Trees(t *testing.T, oracle, native string) {
 			if err != nil {
 				return err
 			}
-			target[filepath.ToSlash(relative)], err = os.ReadFile(path)
-			return err
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			target[filepath.ToSlash(relative)] = stripTask7LuauHeader(data)
+			return nil
 		})
 		if err != nil {
 			t.Fatalf("walk Luau tree: %v", err)
@@ -626,6 +630,19 @@ func compareTask7Trees(t *testing.T, oracle, native string) {
 			t.Fatalf("final Luau %s differs\n--- oracle\n%s\n--- native\n%s", name, expected, got[name])
 		}
 	}
+}
+
+// stripTask7LuauHeader removes the leading `-- Compiled with ...` comment line
+// so the differential comparison is header-independent (the project design
+// contract is byte-identical Luau modulo the compiler branding line).
+func stripTask7LuauHeader(data []byte) []byte {
+	if !bytes.HasPrefix(data, []byte("-- Compiled with ")) {
+		return data
+	}
+	if idx := bytes.IndexByte(data, '\n'); idx >= 0 {
+		return data[idx+1:]
+	}
+	return nil
 }
 
 func compareTask7JSON(t *testing.T, oracle, native string) {

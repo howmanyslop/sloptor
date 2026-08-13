@@ -40,7 +40,7 @@ func TestMacrosModel(t *testing.T) {
 
 	files := compileRuntimeLibProject(t, "macros_model")
 
-	want := "-- Compiled with roblox-ts v3.0.0\n" +
+	want := "-- Compiled with sloptor v2.3.0\n" +
 		"-- $nameof: trailing property name, and a bare identifier.\n" +
 		"print(\"Health\")\n" +
 		"print(\"foo\")\n" +

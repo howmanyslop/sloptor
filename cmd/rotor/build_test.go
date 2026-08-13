@@ -1098,7 +1098,7 @@ func TestCmdBuildMinify(t *testing.T) {
 	}
 	for p, c := range minLuau {
 		minSize += len(c)
-		if strings.Contains(c, "-- Compiled with @isentinel/roblox-ts") {
+		if strings.Contains(c, "-- Compiled with sloptor") {
 			t.Errorf("%s still carries the header comment (not minified)", p)
 		}
 		// Minified output must still be valid Luau.
@@ -1109,7 +1109,7 @@ func TestCmdBuildMinify(t *testing.T) {
 	// A normal build keeps the header comment (proves the flag is the cause).
 	keptHeader := false
 	for _, c := range normalLuau {
-		if strings.Contains(c, "-- Compiled with @isentinel/roblox-ts") {
+		if strings.Contains(c, "-- Compiled with sloptor") {
 			keptHeader = true
 		}
 	}

@@ -32,7 +32,7 @@ import (
 // GetFinalPathNameByHandle realpath, so rbxtsc exercised the same
 // guessVirtualPath path and emitted the flat-layout import verbatim:
 //
-//	-- Compiled with roblox-ts v3.0.0
+//	-- Compiled with sloptor v2.3.0
 //	local TS = require(script.Parent.include.RuntimeLib)
 //	local dummy = TS.import(script, script.Parent, "node_modules", "@rbxts", "dummy", "out").dummy
 //	print(dummy())
@@ -142,7 +142,7 @@ func TestCompileProjectPnpmSymlinks(t *testing.T) {
 	// (`{"tree":{"$path":"src"}}`) collapses the src directory onto the
 	// package root, and rbxtsc discovers that nested project file through
 	// the junction (oracle 2026-06-06, same scratch procedure).
-	want := "-- Compiled with roblox-ts v3.0.0\n" +
+	want := "-- Compiled with sloptor v2.3.0\n" +
 		"local TS = require(script.Parent.include.RuntimeLib)\n" +
 		"local dummy = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n" +
 		"local linked = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"linked\").linked\n" +
@@ -178,7 +178,7 @@ func TestCompileProjectPnpmSymlinksWithNodeModulesRojoPath(t *testing.T) {
 		t.Fatalf("diagnostics: %v", diags)
 	}
 
-	want := "-- Compiled with roblox-ts v3.0.0\n" +
+	want := "-- Compiled with sloptor v2.3.0\n" +
 		"local TS = require(script.Parent.include.RuntimeLib)\n" +
 		"local dummy = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n" +
 		"local linked = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"linked\").linked\n" +
