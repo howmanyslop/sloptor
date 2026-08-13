@@ -368,6 +368,14 @@ fs.writeFileSync(p + ".tmp", next);
     if [[ "$code_v" != "$new_ver" || "$pkg_v" != "$new_ver" ]]; then
         die "post-write mismatch: code=$code_v pkg=$pkg_v want=$new_ver"
     fi
+
+    # Keep emitted `-- Compiled with sloptor v...` header comments in golden
+    # files and Go test expectations in sync with the new version.
+    if [[ "$FLAG_DRY_RUN" == 1 ]]; then
+        info "[dry-run] would run ./scripts/bump-header.sh"
+    else
+        "$REPO_ROOT/scripts/bump-header.sh" || die "failed to bump emitted header comments"
+    fi
 }
 
 run_or_echo() {
