@@ -195,9 +195,14 @@ func applyNativeFlameworkTransform(dir string, program *compiler.Program, source
 		return nil, tsDiagnosticInfos(result.Diagnostics, traces), errors.New("compile: native Flamework diagnostics")
 	}
 
+	// Upstream always prints a fresh source-file update, so by default every
+	// source is overlaid back into the Program (restoring printFlameworkSource
+	// and the overlay/reparse path). Only flamework.skipUnchangedFiles opts
+	// back into pointer-identity reuse of unchanged files.
+	skipUnchanged := project.SkipUnchangedFiles()
 	changed := make([]nativeSourceOverlay, 0, len(result.Sources))
 	for index, metadata := range result.Sources {
-		if !metadata.Changed() {
+		if skipUnchanged && !metadata.Changed() {
 			continue
 		}
 		text, trace, err := printFlameworkSource(result.Files[index], metadata)

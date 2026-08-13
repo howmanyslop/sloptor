@@ -237,6 +237,10 @@ func (p *Project) PathTranslator() *rojo.PathTranslator {
 	return p.translator
 }
 
+func (p *Project) SkipUnchangedFiles() bool {
+	return p.config.SkipUnchangedFiles
+}
+
 func (p *Project) RojoResolver() *rojo.RojoResolver {
 	return p.resolver
 }

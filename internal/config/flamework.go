@@ -16,6 +16,7 @@ type FlameworkConfig struct {
 	HashPrefix            string                      `json:"hashPrefix,omitempty" toml:"hashPrefix,omitempty"`
 	Salt                  string                      `json:"salt,omitempty" toml:"salt,omitempty"`
 	PreloadIDs            bool                        `json:"preloadIds,omitempty" toml:"preloadIds,omitempty"`
+	SkipUnchangedFiles    bool                        `json:"skipUnchangedFiles,omitempty" toml:"skipUnchangedFiles,omitempty"`
 	Optimizations         FlameworkOptimizations      `json:"optimizations,omitempty" toml:"optimizations,omitempty"`
 	Profiles              map[string]FlameworkProfile `json:"profiles,omitempty" toml:"profiles,omitempty"`
 }
@@ -28,6 +29,7 @@ type FlameworkProfile struct {
 	HashPrefix            string                 `json:"hashPrefix,omitempty" toml:"hashPrefix,omitempty"`
 	Salt                  string                 `json:"salt,omitempty" toml:"salt,omitempty"`
 	PreloadIDs            bool                   `json:"preloadIds,omitempty" toml:"preloadIds,omitempty"`
+	SkipUnchangedFiles    bool                   `json:"skipUnchangedFiles,omitempty" toml:"skipUnchangedFiles,omitempty"`
 	Optimizations         FlameworkOptimizations `json:"optimizations,omitempty" toml:"optimizations,omitempty"`
 }
 
@@ -95,7 +97,7 @@ func (c *Config) ValidateFlamework() []error {
 func hasGlobalFlameworkOptions(flamework *FlameworkConfig) bool {
 	return flamework.After != "" || flamework.NoSemanticDiagnostics || flamework.Obfuscation ||
 		flamework.IDGenerationMode != "" || flamework.HashPrefix != "" || flamework.Salt != "" ||
-		flamework.PreloadIDs || flamework.Optimizations.GuardGenerationDedupLimit != nil
+		flamework.PreloadIDs || flamework.SkipUnchangedFiles || flamework.Optimizations.GuardGenerationDedupLimit != nil
 }
 
 func validateFlameworkProfile(name string, profile FlameworkProfile) []error {
@@ -107,6 +109,7 @@ func validateFlameworkProfile(name string, profile FlameworkProfile) []error {
 		HashPrefix:            profile.HashPrefix,
 		Salt:                  profile.Salt,
 		PreloadIDs:            profile.PreloadIDs,
+		SkipUnchangedFiles:    profile.SkipUnchangedFiles,
 		Optimizations:         profile.Optimizations,
 	}}
 	errs := cfg.ValidateFlamework()

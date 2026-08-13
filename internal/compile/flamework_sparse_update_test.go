@@ -11,7 +11,7 @@ import (
 	"rotor/tsgo/compiler"
 )
 
-func TestNativeFlameworkSparseUpdate_reusesIncomingProgramAndFiles_whenEverySourceIsUnchanged(t *testing.T) {
+func TestNativeFlameworkSparseUpdate_reprintsEverySourceByDefault_whenNoStructuralChangeOccurs(t *testing.T) {
 	// Given: a native Flamework project whose ordinary sources need no structural transform.
 	dir := task7FlameworkProject(t, "[flamework]\n")
 	_, program, diagnostics, err := newProjectProgram(dir, "")
@@ -25,25 +25,65 @@ func TestNativeFlameworkSparseUpdate_reusesIncomingProgramAndFiles_whenEverySour
 	sourceFiles := projectSourceFiles(program)
 	traces := diagnosticTraces{"unchanged-prefix": {fileName: "unchanged.ts", text: "prefix"}}
 
-	// When: the native stage runs.
+	// When: the native stage runs with the default upstream-parity behavior.
 	prepared, infos, err := applyNativeFlameworkTransform(filepath.ToSlash(dir), program, sourceFiles, nil, traces, pipeline.project)
-	// Then: no print/overlay/reparse path replaces the incoming compiler state.
+	// Then: every source is reprinted and overlaid, so the compiler sees fresh parse trees.
+	if err != nil {
+		t.Fatalf("applyNativeFlameworkTransform: %v (%v)", err, infos)
+	}
+	if prepared.program == program {
+		t.Fatal("default native transform reused the incoming Program; want print/overlay/reparse")
+	}
+	if len(prepared.sourceFiles) != len(sourceFiles) {
+		t.Fatalf("default native source count = %d, want %d", len(prepared.sourceFiles), len(sourceFiles))
+	}
+	for index, sourceFile := range sourceFiles {
+		if prepared.sourceFiles[index] == sourceFile {
+			t.Fatalf("default native source[%d] = %p, want fresh parse tree", index, sourceFile)
+		}
+		if prepared.sourceTraces[normalizeSourceFilePath(sourceFile.FileName())] == nil {
+			t.Fatalf("default native source[%d] missing composed trace", index)
+		}
+	}
+	if prepared.sourceTraces["unchanged-prefix"] != traces["unchanged-prefix"] {
+		t.Fatal("default native replaced the incoming prefix trace")
+	}
+	t.Logf("observable program_rebuilt=true source_files_reprinted=%d traces_composed=%d", len(sourceFiles), len(sourceFiles))
+}
+
+func TestNativeFlameworkSparseUpdate_reusesIncomingProgramAndFiles_whenSkipUnchangedFilesIsEnabled(t *testing.T) {
+	// Given: a native Flamework project opting into identity reuse.
+	dir := task7FlameworkProject(t, "[flamework]\nskipUnchangedFiles = true\n")
+	_, program, diagnostics, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (%v)", err, diagnostics)
+	}
+	pipeline, diagnostics, err := prepareFlameworkPipeline(filepath.ToSlash(dir), program, ProjectOptions{})
+	if err != nil {
+		t.Fatalf("prepareFlameworkPipeline: %v (%v)", err, diagnostics)
+	}
+	sourceFiles := projectSourceFiles(program)
+	traces := diagnosticTraces{"unchanged-prefix": {fileName: "unchanged.ts", text: "prefix"}}
+
+	// When: the native stage runs with skipUnchangedFiles enabled.
+	prepared, infos, err := applyNativeFlameworkTransform(filepath.ToSlash(dir), program, sourceFiles, nil, traces, pipeline.project)
+	// Then: the opt-in no-op path preserves the incoming compiler state.
 	if err != nil {
 		t.Fatalf("applyNativeFlameworkTransform: %v (%v)", err, infos)
 	}
 	if prepared.program != program {
-		t.Fatalf("native no-op Program = %p, want incoming %p", prepared.program, program)
+		t.Fatalf("native opt-in Program = %p, want incoming %p", prepared.program, program)
 	}
 	if len(prepared.sourceFiles) != len(sourceFiles) {
-		t.Fatalf("native no-op source count = %d, want %d", len(prepared.sourceFiles), len(sourceFiles))
+		t.Fatalf("native opt-in source count = %d, want %d", len(prepared.sourceFiles), len(sourceFiles))
 	}
 	for index := range sourceFiles {
 		if prepared.sourceFiles[index] != sourceFiles[index] {
-			t.Fatalf("native no-op source[%d] = %p, want incoming %p", index, prepared.sourceFiles[index], sourceFiles[index])
+			t.Fatalf("native opt-in source[%d] = %p, want incoming %p", index, prepared.sourceFiles[index], sourceFiles[index])
 		}
 	}
 	if prepared.sourceTraces["unchanged-prefix"] != traces["unchanged-prefix"] {
-		t.Fatal("native no-op replaced the incoming prefix trace")
+		t.Fatal("native opt-in replaced the incoming prefix trace")
 	}
 	t.Logf("observable program_reused=true source_files_reused=%d trace_reused=true", len(sourceFiles))
 }

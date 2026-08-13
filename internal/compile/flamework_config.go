@@ -71,6 +71,7 @@ func selectFlameworkProfile(dir string, parsed *tsoptions.ParsedCommandLine, fla
 				HashPrefix:            profile.HashPrefix,
 				Salt:                  profile.Salt,
 				PreloadIDs:            profile.PreloadIDs,
+				SkipUnchangedFiles:    profile.SkipUnchangedFiles,
 				Optimizations:         profile.Optimizations,
 			}, nil
 		}

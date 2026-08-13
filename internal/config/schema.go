@@ -114,6 +114,10 @@ const Schema = `{
               "hashPrefix": { "type": "string", "pattern": "^(?:[^$]|$)" },
               "salt": { "type": "string" },
               "preloadIds": { "type": "boolean" },
+              "skipUnchangedFiles": {
+                "type": "boolean",
+                "description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity)."
+              },
               "optimizations": {
                 "type": "object",
                 "additionalProperties": false,
@@ -154,6 +158,10 @@ const Schema = `{
         "preloadIds": {
           "type": "boolean",
           "description": "Generate identifiers for exports."
+        },
+        "skipUnchangedFiles": {
+          "type": "boolean",
+          "description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity)."
         },
         "optimizations": {
           "type": "object",

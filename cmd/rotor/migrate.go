@@ -223,11 +223,12 @@ func sameFlameworkOptions(left, right migrate.FlameworkOptions) bool {
 		left.NoSemanticDiagnostics == right.NoSemanticDiagnostics &&
 		left.Obfuscation == right.Obfuscation &&
 		left.PreloadIDs == right.PreloadIDs &&
+		left.SkipUnchangedFiles == right.SkipUnchangedFiles &&
 		(leftLimit == nil && rightLimit == nil || leftLimit != nil && rightLimit != nil && *leftLimit == *rightLimit)
 }
 
 func describeFlameworkOptions(options migrate.FlameworkOptions) string {
-	return fmt.Sprintf("after=%q, idGenerationMode=%q, hashPrefix=%q, salt=%q", options.After, options.IDGenerationMode, options.HashPrefix, options.Salt)
+	return fmt.Sprintf("after=%q, idGenerationMode=%q, hashPrefix=%q, salt=%q, skipUnchangedFiles=%t", options.After, options.IDGenerationMode, options.HashPrefix, options.Salt, options.SkipUnchangedFiles)
 }
 
 func runMigrateCommand(streams cliStreams, dir string, force bool) error {
