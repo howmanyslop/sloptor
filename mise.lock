@@ -285,6 +285,10 @@ url = "https://dl.google.com/go/go1.26.5.windows-amd64.zip"
 checksum = "sha256:97e6b2a833b6d89f9ff17d25419ac0a7e3b482a044e9ab18cdef834bd834fd38"
 url = "https://dl.google.com/go/go1.26.5.windows-amd64.zip"
 
+[[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
+version = "1.7.0"
+backend = "go:golang.org/x/vuln/cmd/govulncheck"
+
 [[tools.golangci-lint]]
 version = "2.12.2"
 backend = "aqua:golangci/golangci-lint"
