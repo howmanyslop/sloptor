@@ -7,6 +7,8 @@ package diagframe
 
 import (
 	"fmt"
+	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -178,6 +180,50 @@ func stylerFor(color bool) *term.Styler {
 	return term.For(term.PlainWriter{})
 }
 
+// isWindowsDrive reports whether p looks like a Windows drive path (e.g. "C:/"
+// or "C:\"). On Windows filepath.IsAbs already handles this; this check
+// exists so a Windows-style path processed on a non-Windows host (e.g. from
+// a config or cross-build) is still treated as absolute.
+func isWindowsDrive(p string) bool {
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '/' || p[2] == '\\') {
+		c := p[0]
+		return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	}
+	return false
+}
+
+// fileURI returns a file:// URI for p, resolving relative paths against the
+// current working directory and percent-encoding the path. An already-qualified
+// file:// URI is returned unchanged. Used for OSC 8 hyperlinks so terminals
+// (VS Code, etc.) open a real file rather than a bogus network share.
+// Previously the code used "file://"+path with a relative path, which VS Code
+// interpreted as a UNC host (e.g. \\src\...) and failed with
+// "The network name cannot be found. (0x43)".
+func fileURI(p string) string {
+	if p == "" {
+		return ""
+	}
+	if strings.HasPrefix(p, "file://") {
+		return p
+	}
+	abs := p
+	if !filepath.IsAbs(p) && !isWindowsDrive(p) {
+		if a, err := filepath.Abs(p); err == nil {
+			abs = a
+		}
+	}
+	abs = filepath.ToSlash(abs)
+	escaped := (&url.URL{Path: abs}).EscapedPath()
+	if strings.HasPrefix(escaped, "//") {
+		// UNC: //server/share/file → file://server/share/file (not file:////...)
+		return "file:" + escaped
+	}
+	if strings.HasPrefix(escaped, "/") {
+		return "file://" + escaped
+	}
+	return "file:///" + escaped
+}
+
 const tabWidth = 4
 
 // Render returns the framed (and, when o.Color, ANSI-colored) block for one
@@ -222,7 +268,9 @@ func renderSpot(b *strings.Builder, path, source string, lang Language, sp Spot,
 
 	loc := fmt.Sprintf("%s:%d:%d", path, line, col)
 	if o.Link {
-		loc = s.Hyperlink("file://"+path, loc)
+		if uri := fileURI(path); uri != "" {
+			loc = s.Hyperlink(uri+fmt.Sprintf("#%d:%d", line, col), loc)
+		}
 	}
 	fmt.Fprintf(b, "  %s %s\n", s.Muted("-->"), loc)
 
