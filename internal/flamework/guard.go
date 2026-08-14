@@ -192,6 +192,9 @@ func (g *guardGenerator) buildInner(typeValue *checker.Type) (*ast.Node, error) 
 	if typeValue.Flags()&checker.TypeFlagsUnknown != 0 {
 		return guardCall(factory, "union", guardField(factory, "t", "any"), guardField(factory, "t", "none")), nil
 	}
+	if typeValue.Flags()&checker.TypeFlagsAny != 0 {
+		return guardField(factory, "t", "any"), nil
+	}
 	if typeValue.Flags()&checker.TypeFlagsTemplateLiteral != 0 {
 		return nil, g.fail(typeValue, "template literal types are unsupported")
 	}

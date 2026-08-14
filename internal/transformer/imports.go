@@ -81,13 +81,20 @@ func isImportedNameReferencedAsValue(s *State, name *ast.Node) bool {
 			if reference == alias || reference != nil && checker.SkipAlias(reference, s.Checker) == target {
 				return true
 			}
+			if reference == nil {
+				// Under noSemanticDiagnostics the checker may fail to resolve a
+				// value use (e.g. the base of a property access). Treat an
+				// unresolvable value identifier as a reference rather than drop a
+				// runtime binding.
+				return true
+			}
 			if node.Parent != nil && ast.IsShorthandPropertyAssignment(node.Parent) {
 				reference = s.Checker.GetShorthandAssignmentValueSymbol(node.Parent)
 				if reference == alias || reference != nil && checker.SkipAlias(reference, s.Checker) == target {
 					return true
 				}
 			}
-			return true
+			return false
 		}
 		return node.ForEachChild(visit)
 	}

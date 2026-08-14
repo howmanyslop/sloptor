@@ -77,6 +77,12 @@ type TransformState struct {
 	// surfaces caches the Flamework surface scan per file so the expression
 	// prefilter reads an imported module's text at most once per transform.
 	surfaces map[string]bool
+	// flameworkExpressionSurfaces is the immutable per-transform reachability
+	// index. Keyed by SourceFile.FileName(). A file is present iff it (or any
+	// transitive importer via type/value/re-export edges, including type-only)
+	// reaches a direct Flamework expression surface declarer. Built once from
+	// program.GetSourceFiles() before source transforms begin.
+	flameworkExpressionSurfaces map[string]bool
 }
 
 func newTransformState(input TransformInput, plans []FilePlan) (*TransformState, error) {
@@ -107,7 +113,7 @@ func newTransformState(input TransformInput, plans []FilePlan) (*TransformState,
 		}
 	}
 	emitContext := printer.NewEmitContext()
-	return &TransformState{
+	s := &TransformState{
 		program:        input.Program,
 		checker:        input.Checker,
 		project:        input.Project,
@@ -116,7 +122,9 @@ func newTransformState(input TransformInput, plans []FilePlan) (*TransformState,
 		macroRuntime:   macroRuntime,
 		plans:          clonePlans(plans),
 		generatedNames: make(map[string]map[string]int),
-	}, nil
+	}
+	initializeFlameworkExpressionSurfaces(s)
+	return s, nil
 }
 
 func (s *TransformState) nextGeneratedName(fileName, preferred string) string {

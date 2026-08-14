@@ -46,8 +46,7 @@ func transformFlameworkExpressionWithRuntime(state *TransformState, node *ast.No
 		transformed, err := transformFlameworkBinaryExpression(state, node)
 		return expressionTransformResult{expression: transformed}, err
 	case ast.KindElementAccessExpression, ast.KindPropertyAccessExpression:
-		transformed, err := transformFlameworkAccessExpression(state, node)
-		return expressionTransformResult{expression: transformed}, err
+		return transformFlameworkAccessExpression(state, node, runtime)
 	case ast.KindDeleteExpression:
 		transformed, err := transformFlameworkDeleteExpression(state, node)
 		return expressionTransformResult{expression: transformed}, err
@@ -161,7 +160,6 @@ func transformFlameworkExpressionsInSourceFileWithRuntime(state *TransformState,
 		transformed.EndOfFileToken,
 	).AsSourceFile(), nil
 }
-
 func defaultFlameworkMacroRuntime() MacroRuntime {
 	return MacroRuntime{UUID: NewUUIDv4, RandomIndex: flameworkMacroRandomIndex, BuildGuard: buildFlameworkGuardForMacro}
 }
@@ -230,7 +228,6 @@ func macroTransformImports(state *TransformState, node *ast.Node, result MacroTr
 	}
 	return imports
 }
-
 func synthesizedGuardReferenceCount(root *ast.Node) int {
 	if root == nil {
 		return 0
