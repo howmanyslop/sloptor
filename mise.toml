@@ -9,7 +9,7 @@ lockfile = true
 [tools]
 "github:rojo-rbx/rojo" = "7.6.1"
 "github:lune-org/lune" = "0.10.1"
-go = "1.26.5"
+go = "1.26.6"
 goreleaser = "latest"
 hyperfine = "1.20.0"
 communique = "latest"
