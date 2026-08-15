@@ -13,27 +13,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
+  test:
     runs-on: blacksmith-16vcpu-ubuntu-2404
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
-        with:
-          install_args: go
-          experimental: true
-
-      - name: Restore Go module and build caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/AppData/Local/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
 
       - name: Check formatting
         run: |
@@ -46,19 +34,6 @@ jobs:
 
       - name: Vet
         run: go vet ./internal/... ./cmd/... ./tools/...
-
-      - name: Build
-        run: go build ./...
-
-  test:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
 
       - name: Test
         run: |
