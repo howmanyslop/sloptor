@@ -454,9 +454,10 @@ func getOptimizedIncrementorStepValue(s *State, incrementor *ast.Node, idSymbol 
 	} else if ast.IsPostfixUnaryExpression(incrementor) || ast.IsPrefixUnaryExpression(incrementor) {
 		operand, operator := unaryOperandAndOperator(incrementor)
 		if ast.IsIdentifier(operand) && s.Checker.GetSymbolAtLocation(operand) == idSymbol {
-			if operator == ast.KindPlusPlusToken {
+			switch operator {
+			case ast.KindPlusPlusToken:
 				return 1, true
-			} else if operator == ast.KindMinusMinusToken {
+			case ast.KindMinusMinusToken:
 				return -1, true
 			}
 		}
@@ -668,9 +669,10 @@ func transformForStatementOptimized(s *State, node *ast.Node) *luau.List[luau.St
 	statements := TransformStatementList(s, statement, getStatements(statement), nil)
 	statements.UnshiftList(s.LabelResets())
 
-	if operatorKind == ast.KindLessThanToken {
+	switch operatorKind {
+	case ast.KindLessThanToken:
 		end = offsetExpr(end, -1)
-	} else if operatorKind == ast.KindGreaterThanToken {
+	case ast.KindGreaterThanToken:
 		end = offsetExpr(end, 1)
 	}
 

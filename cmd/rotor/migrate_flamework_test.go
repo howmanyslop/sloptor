@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"rotor/internal/migrate"
 )
 
 func TestMigrateFlameworkUsesDefaultTSConfig(t *testing.T) {
@@ -242,6 +244,22 @@ func TestMigrateFlameworkStateMatrixDoesNotWriteOnFailure(t *testing.T) {
 				t.Fatalf("rotor.toml changed: %q", got)
 			}
 		})
+	}
+}
+
+func TestSameFlameworkOptionsDistinguishesSkipUnchangedFiles(t *testing.T) {
+	base := migrate.FlameworkOptions{After: "prefix", IDGenerationMode: "full", HashPrefix: "game", Salt: "salt"}
+	skipped := base
+	skipped.SkipUnchangedFiles = true
+
+	if !sameFlameworkOptions(base, migrate.FlameworkOptions{After: "prefix", IDGenerationMode: "full", HashPrefix: "game", Salt: "salt"}) {
+		t.Fatal("identical options compared unequal")
+	}
+	if sameFlameworkOptions(base, skipped) {
+		t.Fatal("skipUnchangedFiles difference was ignored by option equality")
+	}
+	if !strings.Contains(describeFlameworkOptions(skipped), "skipUnchangedFiles=true") {
+		t.Fatalf("describeFlameworkOptions = %q, want skipUnchangedFiles=true", describeFlameworkOptions(skipped))
 	}
 }
 

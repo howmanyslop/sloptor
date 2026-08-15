@@ -348,6 +348,15 @@ fs.writeFileSync(p + ".tmp", next);
     set -l pkg_v (read_pkg_version)
     test "$code_v" = "$new_ver" -a "$pkg_v" = "$new_ver"
     or die "post-write mismatch: code=$code_v pkg=$pkg_v want=$new_ver"
+
+    # Keep emitted `-- Compiled with sloptor v...` header comments in golden
+    # files and Go test expectations in sync with the new version.
+    if test $FLAG_DRY_RUN -eq 1
+        info "[dry-run] would run ./scripts/bump-header.sh"
+    else
+        $REPO_ROOT/scripts/bump-header.sh
+        or die "failed to bump emitted header comments"
+    end
 end
 
 function run_or_echo

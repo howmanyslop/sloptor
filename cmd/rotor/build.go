@@ -517,8 +517,6 @@ func runBuildOnce(dir, tsConfigPath string, opts projectOptions) (*compile.Build
 }
 
 func runBuildOnceWithTimings(dir, tsConfigPath string, opts projectOptions, timings *compile.BuildTimings) (*compile.BuildResult, []compile.DiagnosticInfo, time.Duration, error) {
-	transformer.HeaderComment = " Compiled with @isentinel/roblox-ts v4.0.11"
-
 	start := time.Now()
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings
@@ -536,7 +534,6 @@ func runBuildOnceWithTimings(dir, tsConfigPath string, opts projectOptions, timi
 }
 
 func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *compile.BuildTimings) (*compile.BuildResult, []compile.DiagnosticInfo, time.Duration, error) {
-	transformer.HeaderComment = " Compiled with @isentinel/roblox-ts v4.0.11"
 	start := time.Now()
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings

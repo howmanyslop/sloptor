@@ -1,6 +1,8 @@
 package transformer
 
 import (
+	"fmt"
+
 	"rotor/internal/luau"
 	"rotor/tsgo/ast"
 )
@@ -18,9 +20,24 @@ func identifierSymbol(s *State, node *ast.Node) *ast.Symbol {
 		symbol = s.Checker.GetSymbolAtLocation(node)
 	}
 	if symbol == nil {
-		panic("transformer: identifier has no symbol") // upstream assert
+		// tsgo's GetSymbolAtLocation returns nil where TypeScript returns
+		// unknownSymbol. Upstream never sees that: getPreEmitDiagnostics
+		// skips the file first. [flamework] noSemanticDiagnostics skips
+		// that precheck, so emit the identifier text instead of asserting.
+		if s.SkipSemanticDiagnostics {
+			return nil
+		}
+		panic(missingIdentifierSymbol(node)) // upstream assert
 	}
 	return symbol
+}
+
+func missingIdentifierSymbol(node *ast.Node) string {
+	name := node.Text()
+	if file := ast.GetSourceFileOfNode(node); file != nil && file.FileName() != "" {
+		return fmt.Sprintf("transformer: identifier %q has no symbol\n    at %s", name, file.FileName())
+	}
+	return fmt.Sprintf("transformer: identifier %q has no symbol", name)
 }
 
 // TransformIdentifier ports transformIdentifier.ts transformIdentifier (L111-
@@ -34,6 +51,9 @@ func TransformIdentifier(s *State, node *ast.Node) luau.Expression {
 	}
 
 	symbol := identifierSymbol(s, node)
+	if symbol == nil {
+		return luau.ID(node.Text())
+	}
 
 	if s.Checker.IsUndefinedSymbol(symbol) {
 		return luau.Nil()
@@ -172,6 +192,9 @@ func TransformIdentifier(s *State, node *ast.Node) luau.Expression {
 // own text is used.
 func TransformIdentifierDefined(s *State, node *ast.Node) luau.AnyIdentifier {
 	symbol := identifierSymbol(s, node)
+	if symbol == nil {
+		return luau.ID(node.Text())
+	}
 	if replacement := s.SymbolToID[symbol]; replacement != nil {
 		return replacement
 	}

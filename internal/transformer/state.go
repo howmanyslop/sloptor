@@ -177,6 +177,11 @@ type State struct {
 	// so option-free call sites keep the upstream-default behavior.
 	OptimizedLoops bool
 
+	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
+	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
+	// that would have been TS2304 can reach the transformer with no symbol.
+	SkipSemanticDiagnostics bool
+
 	// HasExportEquals is set by transformExportAssignment when `export = x`
 	// is seen; changes export emission shape.
 	HasExportEquals bool

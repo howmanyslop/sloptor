@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 return function()
 	describe("should work for objects", function()
 		it("should delete from the object with property acccess", function()

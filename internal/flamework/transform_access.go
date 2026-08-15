@@ -6,41 +6,41 @@ import (
 	"rotor/tsgo/ast"
 )
 
-func transformFlameworkAccessExpression(state *TransformState, node *ast.Node) (*ast.Node, error) {
+func transformFlameworkAccessExpression(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
 	if !sourceMayNeedFlameworkAccessRewrite(state, ast.GetSourceFileOfNode(node)) {
-		return transformFlameworkExpressionChildren(state, node)
+		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
 	typeOfReceiver := state.checker.GetTypeAtLocation(node.Expression())
 	hashType := state.checker.GetTypeOfPropertyOfType(typeOfReceiver, "_flamework_key_obfuscation")
 	if hashType == nil || !hashType.IsStringLiteral() {
-		return transformFlameworkExpressionChildren(state, node)
+		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
 
 	name, known := flameworkAccessName(node)
 	if !known {
 		if ast.IsElementAccessExpression(node) && ast.IsAsExpression(node.AsElementAccessExpression().ArgumentExpression) {
-			return transformFlameworkExpressionChildren(state, node)
+			return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 		}
-		return nil, &MacroError{
+		return expressionTransformResult{}, &MacroError{
 			Node:    node,
 			Message: "This object has key obfuscation enabled and must be accessed directly.",
 			Cause:   ErrDynamicObfuscatedAccess,
 		}
 	}
 
-	receiver, err := transformFlameworkExpression(state, node.Expression())
+	receiverResult, err := transformFlameworkExpressionWithRuntime(state, node.Expression(), runtime)
 	if err != nil {
-		return nil, err
+		return expressionTransformResult{}, err
 	}
 	context, ok := hashType.AsLiteralType().Value().(string)
 	if !ok {
-		return nil, fmt.Errorf("%w: obfuscation context is not text", ErrDynamicObfuscatedAccess)
+		return expressionTransformResult{}, fmt.Errorf("%w: obfuscation context is not text", ErrDynamicObfuscatedAccess)
 	}
 	obfuscated := name
 	if state.project.config.Obfuscation {
 		obfuscated, err = state.project.HashString(name, context)
 		if err != nil {
-			return nil, fmt.Errorf("obfuscate Flamework key %q: %w", name, err)
+			return expressionTransformResult{}, fmt.Errorf("obfuscate Flamework key %q: %w", name, err)
 		}
 	}
 	literal := state.factory.NewStringLiteral(name, ast.TokenFlagsNone)
@@ -48,7 +48,11 @@ func transformFlameworkAccessExpression(state *TransformState, node *ast.Node) (
 		state.factory.NewStringLiteral(obfuscated, ast.TokenFlagsNone),
 		state.factory.NewLiteralTypeNode(literal),
 	)
-	return state.factory.NewElementAccessExpression(receiver, node.QuestionDotToken(), index, node.Flags), nil
+	return expressionTransformResult{
+		expression:    state.factory.NewElementAccessExpression(receiverResult.expression, node.QuestionDotToken(), index, node.Flags),
+		prerequisites: receiverResult.prerequisites,
+		imports:       receiverResult.imports,
+	}, nil
 }
 
 func flameworkAccessName(node *ast.Node) (string, bool) {

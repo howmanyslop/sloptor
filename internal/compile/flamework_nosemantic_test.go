@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,4 +38,44 @@ func TestPreEmitProjectFileDiagnostics_skipsSemantic_whenNoSemanticDiagnosticsCo
 		t.Fatalf("SkipSemanticDiagnostics pre-emit = %v, want no diagnostics", skipped)
 	}
 	t.Logf("observable semantic_diags=%d skipped_diags=%d", len(withSemantic), len(skipped))
+}
+
+func TestSkipSemanticDiagnosticsEmitsUnresolvedIdentifierInsteadOfICE(t *testing.T) {
+	// Given: noSemanticDiagnostics skipped the TS2304 that would have aborted
+	// transform, so an unresolved identifier reaches the roblox-ts emitter.
+	dir := writeProject(t, "@scope/no-semantic-identifier", "")
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const x = neverDeclared;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: the real compile path honors SkipSemanticDiagnostics.
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{SkipSemanticDiagnostics: true})
+
+	// Then: emit the identifier text instead of the upstream symbol assert.
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("BuildProjectWithOptions = (%v, %v)", diags, err)
+	}
+	got := result.Outputs["out/main.luau"]
+	if !strings.Contains(got, "neverDeclared") {
+		t.Fatalf("output missing unresolved identifier:\n%s", got)
+	}
+}
+
+func TestFlameworkNoSemanticDiagnosticsEmitsUnresolvedIdentifierInsteadOfICE(t *testing.T) {
+	// Given: native Flamework is on and the profile disables semantic diagnostics.
+	dir := task7FlameworkProject(t, "[flamework]\nnoSemanticDiagnostics = true\n")
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const x = neverDeclared;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When: the build reads noSemanticDiagnostics from rotor.toml.
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+
+	// Then: the Flamework flag reaches the transformer and does not ICE.
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("BuildProjectWithOptions = (%v, %v)", diags, err)
+	}
+	if !strings.Contains(result.Outputs["out/main.luau"], "neverDeclared") {
+		t.Fatalf("output missing unresolved identifier:\n%s", result.Outputs["out/main.luau"])
+	}
 }

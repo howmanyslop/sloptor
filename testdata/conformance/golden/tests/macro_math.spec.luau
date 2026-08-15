@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 return function()
 	it("should support number // number = number", function()
 		expect(1 // 2).to.equal(0)

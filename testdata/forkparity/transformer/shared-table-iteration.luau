@@ -1,4 +1,4 @@
--- Compiled with @isentinel/roblox-ts v4.0.11
+-- Compiled with sloptor v2.3.0
 local function iterateTable(t)
 	local sum = 0
 	for k, v in t do

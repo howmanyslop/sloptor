@@ -79,6 +79,7 @@ after = "redacted-react-compiler"
 
 [flamework.profiles."./tsconfig.lib.json"]
 after = "jest"
+skipUnchangedFiles = true
 `
 	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"), []byte(rotor), 0o644); err != nil {
 		t.Fatal(err)
@@ -94,8 +95,8 @@ after = "jest"
 	if err != nil {
 		t.Fatalf("prepareFlameworkConfig: %v (diags: %v)", err, diags)
 	}
-	if selected == nil || selected.After != "jest" {
-		t.Fatalf("selected Flamework config = %+v, want lib profile after jest", selected)
+	if selected == nil || selected.After != "jest" || !selected.SkipUnchangedFiles {
+		t.Fatalf("selected Flamework config = %+v, want lib profile after jest with skipUnchangedFiles", selected)
 	}
 }
 

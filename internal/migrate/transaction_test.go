@@ -62,13 +62,13 @@ func TestMergeFlameworkTOMLRendersAllNativeOptionsAsValidTOML(t *testing.T) {
 	limit := 7
 	change, status, err := MergeFlameworkTOML(filepath.Join(t.TempDir(), config.ConfigFileName), FlameworkOptions{
 		After: "prefix", NoSemanticDiagnostics: true, Obfuscation: true, IDGenerationMode: "tiny",
-		HashPrefix: "game", Salt: "line\ncontrol\x01", PreloadIDs: true,
+		HashPrefix: "game", Salt: "line\ncontrol\x01", PreloadIDs: true, SkipUnchangedFiles: true,
 		Optimizations: FlameworkOptimizations{GuardGenerationDedupLimit: &limit},
 	})
 	if err != nil || status != MergeReady {
 		t.Fatalf("MergeFlameworkTOML = (%v, %v), want ready", status, err)
 	}
-	for _, want := range []string{"after = \"prefix\"", "noSemanticDiagnostics = true", "obfuscation = true", "idGenerationMode = \"tiny\"", "hashPrefix = \"game\"", "salt = \"line\\ncontrol\\u0001\"", "preloadIds = true", "[flamework.optimizations]", "guardGenerationDedupLimit = 7"} {
+	for _, want := range []string{"after = \"prefix\"", "noSemanticDiagnostics = true", "obfuscation = true", "idGenerationMode = \"tiny\"", "hashPrefix = \"game\"", "salt = \"line\\ncontrol\\u0001\"", "preloadIds = true", "skipUnchangedFiles = true", "[flamework.optimizations]", "guardGenerationDedupLimit = 7"} {
 		if !strings.Contains(string(change.Updated), want) {
 			t.Fatalf("updated TOML missing %q:\n%s", want, change.Updated)
 		}

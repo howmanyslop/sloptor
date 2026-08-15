@@ -1,4 +1,4 @@
--- Compiled with @isentinel/roblox-ts v4.0.11
+-- Compiled with sloptor v2.3.0
 local function flatAnd(a, b, c)
 	return bit32.band(a, b, c)
 end

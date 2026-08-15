@@ -913,6 +913,7 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 		state.Stamps = pctx.stamps
 		state.LogTruthyChanges = opts.LogTruthyChanges
 		state.OptimizedLoops = !opts.NoOptimizedLoops
+		state.SkipSemanticDiagnostics = opts.SkipSemanticDiagnostics
 
 		var text string
 		var sourceMap string

@@ -1,4 +1,4 @@
--- Compiled with roblox-ts v3.0.0
+-- Compiled with sloptor v2.3.0
 local TS = require(script.Parent.include.RuntimeLib)
 local exports = {}
 for _k, _v in TS.import(script, script.Parent, "22a_base") or {} do

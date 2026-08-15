@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -469,4 +470,167 @@ func TestTransformFlameworkExpressionsInSourceFile_importsPreludeForFlameworkCre
 		t.Fatalf("reparse diagnostics = %v", reparsed.Diagnostics())
 	}
 	t.Logf("guards-only transformed TypeScript:\n%s", printed)
+}
+
+func TestTransformSourceFile_injectsCallerLineThroughTransitiveTypeOnlyImports(t *testing.T) {
+	// Given: three-module fixture with exact data flow per plan.
+	// store.ts declares Modding.Caller<"line"> via _flamework_macro_caller and the overloaded enqueue.
+	// context.ts uses import type for Store and re-exports interface.
+	// main.ts uses only import type for Context, destructures, calls the 3-arg overload, and has ZERO Flamework surface text.
+	directory := t.TempDir()
+	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"strict":true,"rootDir":"src","outDir":"out","moduleResolution":"node"},"include":["src/**/*.ts"]}`)
+	writeTransformFixture(t, directory, "src/store.ts", strings.Join([]string{
+		`type CallerMetadata = { line: number; };`,
+		`declare namespace Modding {`,
+		`    export type Caller<M extends keyof CallerMetadata> = CallerMetadata[M] & { _flamework_macro_caller: M };`,
+		`}`,
+		`export interface Store {`,
+		`    enqueue(player: unknown, transform: unknown, callsiteId?: Modding.Caller<"line">): void;`,
+		`    enqueue(player: unknown, key: string, transform: unknown, callsiteId?: Modding.Caller<"line">): void;`,
+		`}`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/context.ts", strings.Join([]string{
+		`import type { Store } from "./store";`,
+		`export interface Context {`,
+		`    data: Store;`,
+		`}`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/main.ts", strings.Join([]string{
+		`import type { Context } from "./context";`,
+		`declare const ctx: Context;`,
+		`const { data } = ctx;`,
+		`declare const player: unknown;`,
+		`declare const transform: unknown;`,
+		`data.enqueue(player, "settings.userSettings", transform);`,
+	}, "\n"))
+
+	// Additional for diamond/cycle/disconnected (must be before program load)
+	writeTransformFixture(t, directory, "src/mid1.ts", `import type { Store } from "./store"; export interface M1 { s: Store }`)
+	writeTransformFixture(t, directory, "src/mid2.ts", `import type { Store } from "./store"; export interface M2 { s: Store }`)
+	writeTransformFixture(t, directory, "src/diamondMain.ts", strings.Join([]string{
+		`import type { M1 } from "./mid1";`,
+		`import type { M2 } from "./mid2";`,
+		`declare const m1: M1; declare const m2: M2;`,
+		`declare const player: unknown; declare const transform: unknown;`,
+		`declare const data: import("./store").Store;`,
+		`data.enqueue(player, "diamond.key", transform);`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/cycleB.ts", `import type { Store } from "./store"; export interface CB { s: Store }`)
+	writeTransformFixture(t, directory, "src/cycleA.ts", strings.Join([]string{
+		`import type { CB } from "./cycleB";`,
+		`declare const cb: CB;`,
+		`declare const player: unknown; declare const transform: unknown;`,
+		`declare const data: import("./store").Store;`,
+		`data.enqueue(player, "cycle.key", transform);`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/disconnected.ts", `export function plain(left: number, right: number): number { return left + right; }`)
+
+	program := newTransformProgram(t, directory)
+	typeChecker, release := program.GetTypeChecker(context.Background())
+	t.Cleanup(release)
+	sourceFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/main.ts")))
+	if sourceFile == nil {
+		t.Fatal("call site source file was not loaded")
+	}
+	project, err := OpenProject(ProjectOptions{ProjectDir: directory, RootDir: "src", OutDir: "out", Config: config.FlameworkConfig{}})
+	if err != nil {
+		t.Fatalf("OpenProject() error = %v", err)
+	}
+	state, err := newTransformState(TransformInput{Program: program, Checker: typeChecker, Files: []*ast.SourceFile{sourceFile}, Project: project}, nil)
+	if err != nil {
+		t.Fatalf("newTransformState() error = %v", err)
+	}
+	if !sourceNeedsFlameworkExpressionTransform(state, sourceFile) {
+		t.Fatal("call site reaching macro declaration only through type-only imports was rejected by the expression prefilter")
+	}
+
+	// When: transformSourceFile runs.
+	transformed, err := transformSourceFile(state, sourceFile)
+	// Then: the caller macro argument is substituted (line number) and we got a replacement file.
+	if err != nil {
+		t.Fatalf("transformSourceFile() error = %v", err)
+	}
+	if transformed == sourceFile {
+		t.Fatal("transformSourceFile returned original source file with no structural change; expected injection of caller line")
+	}
+	printed := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(transformed)
+	if !strings.Contains(printed, `data.enqueue(player, "settings.userSettings", transform`) {
+		t.Fatalf("transformed call lost the original three arguments:\n%s", printed)
+	}
+	if !regexp.MustCompile(`enqueue\(player, "settings.userSettings", transform, \d+ as never\)`).MatchString(printed) {
+		t.Fatalf("transformed call missing injected Caller<\"line\"> line number as fourth argument:\n%s", printed)
+	}
+	t.Logf("cross-module transitive type-only caller injection TypeScript:\n%s", printed)
+
+	// Diamond via type-only: multiple mids reach store; diamondMain reaches surface transitively. Must admit and inject.
+	writeTransformFixture(t, directory, "src/mid1.ts", `import type { Store } from "./store"; export interface M1 { s: Store }`)
+	writeTransformFixture(t, directory, "src/mid2.ts", `import type { Store } from "./store"; export interface M2 { s: Store }`)
+	writeTransformFixture(t, directory, "src/diamondMain.ts", strings.Join([]string{
+		`import type { M1 } from "./mid1";`,
+		`import type { M2 } from "./mid2";`,
+		`declare const m1: M1; declare const m2: M2;`,
+		`declare const player: unknown; declare const transform: unknown;`,
+		`declare const data: import("./store").Store;`,
+		`data.enqueue(player, "diamond.key", transform);`,
+	}, "\n"))
+	diamondFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/diamondMain.ts")))
+	if diamondFile == nil {
+		t.Fatal("diamond main not loaded")
+	}
+	if !sourceNeedsFlameworkExpressionTransform(state, diamondFile) {
+		t.Fatal("diamond caller through type-only diamond not admitted")
+	}
+	dt, derr := transformSourceFile(state, diamondFile)
+	if derr != nil {
+		t.Fatalf("diamond transform err: %v", derr)
+	}
+	dp := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(dt)
+	if !strings.Contains(dp, `enqueue(player, "diamond.key", transform`) || !regexp.MustCompile(`enqueue\(player, "diamond.key", transform, \d+ as never\)`).MatchString(dp) {
+		t.Fatalf("diamond missing injection:\n%s", dp)
+	}
+
+	// Cycle (type-only) containing the macro declarer reach. Must terminate (BFS marked) and inject at caller.
+	writeTransformFixture(t, directory, "src/cycleB.ts", `import type { Store } from "./store"; export interface CB { s: Store }`)
+	writeTransformFixture(t, directory, "src/cycleA.ts", strings.Join([]string{
+		`import type { CB } from "./cycleB";`,
+		`declare const cb: CB;`,
+		`declare const player: unknown; declare const transform: unknown;`,
+		`declare const data: import("./store").Store;`,
+		`data.enqueue(player, "cycle.key", transform);`,
+	}, "\n"))
+	cycleFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/cycleA.ts")))
+	if cycleFile == nil {
+		t.Fatal("cycle caller not loaded")
+	}
+	if !sourceNeedsFlameworkExpressionTransform(state, cycleFile) {
+		t.Fatal("cycle caller not admitted")
+	}
+	ct, cerr := transformSourceFile(state, cycleFile)
+	if cerr != nil {
+		t.Fatalf("cycle transform err (did not terminate?): %v", cerr)
+	}
+	cp := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(ct)
+	if !regexp.MustCompile(`enqueue\(player, "cycle.key", transform, \d+ as never\)`).MatchString(cp) {
+		t.Fatalf("cycle missing exact injection (or did not terminate):\n%s", cp)
+	}
+
+	// Disconnected ordinary source in same program: must remain ineligible, retain original source pointer (fast path).
+	writeTransformFixture(t, directory, "src/disconnected.ts", `export function plain(left: number, right: number): number { return left + right; }`)
+	discFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/disconnected.ts")))
+	if discFile == nil {
+		t.Fatal("disconnected not loaded")
+	}
+	if sourceNeedsFlameworkExpressionTransform(state, discFile) {
+		t.Fatal("disconnected ordinary source was incorrectly admitted")
+	}
+	discT, derr2 := transformSourceFile(state, discFile)
+	if derr2 != nil {
+		t.Fatal(derr2)
+	}
+	if discT != discFile {
+		t.Fatal("disconnected must reuse original source pointer (no expression walk)")
+	}
+
+	t.Log("diamond/cycle/disconnected subcases: admission, injection (exactly 1 line), termination, and reuse verified")
 }

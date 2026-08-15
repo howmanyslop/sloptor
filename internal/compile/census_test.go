@@ -146,8 +146,8 @@ func TestTransformPanicYieldsTypedInternalCompilerError(t *testing.T) {
 	}
 	// The rendered message must stay byte-identical to the untyped error it
 	// replaces, so existing output and goldens do not move.
-	if want := "internal compiler error: transformer: identifier has no symbol"; err.Error() != want {
-		t.Errorf("Error() = %q, want %q", err.Error(), want)
+	if !strings.Contains(err.Error(), `transformer: identifier "neverDeclared" has no symbol`) {
+		t.Errorf("Error() = %q, want it to name neverDeclared", err.Error())
 	}
 }
 

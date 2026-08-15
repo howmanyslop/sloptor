@@ -61,9 +61,11 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 	if err != nil {
 		return nil, []string{filepath.Join(filepath.FromSlash(dir), "rotor.toml") + ": " + err.Error()}, errors.New("compile: invalid flamework.after")
 	}
+	// OpenProject takes a single root; Flamework's createPathTranslator
+	// resolves that from rootDir or rootDirs (plus commonSourceDirectory).
 	project, err := flamework.OpenProject(flamework.ProjectOptions{
 		ProjectDir:       filepath.FromSlash(dir),
-		RootDir:          filepath.FromSlash(program.Options().RootDir),
+		RootDir:          createPathTranslator(program, false).RootDir,
 		OutDir:           filepath.FromSlash(program.Options().OutDir),
 		IncludeDirectory: opts.IncludePath,
 		RojoConfigPath:   opts.RojoConfigPath,
@@ -193,9 +195,14 @@ func applyNativeFlameworkTransform(dir string, program *compiler.Program, source
 		return nil, tsDiagnosticInfos(result.Diagnostics, traces), errors.New("compile: native Flamework diagnostics")
 	}
 
+	// Upstream always prints a fresh source-file update, so by default every
+	// source is overlaid back into the Program (restoring printFlameworkSource
+	// and the overlay/reparse path). Only flamework.skipUnchangedFiles opts
+	// back into pointer-identity reuse of unchanged files.
+	skipUnchanged := project.SkipUnchangedFiles()
 	changed := make([]nativeSourceOverlay, 0, len(result.Sources))
 	for index, metadata := range result.Sources {
-		if !metadata.Changed() {
+		if skipUnchanged && !metadata.Changed() {
 			continue
 		}
 		text, trace, err := printFlameworkSource(result.Files[index], metadata)

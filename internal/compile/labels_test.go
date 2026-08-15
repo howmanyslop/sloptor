@@ -23,7 +23,7 @@ import (
 func TestLabelsModel(t *testing.T) {
 	files := compileRuntimeLibProject(t, "labels_model")
 
-	want := "-- Compiled with roblox-ts v3.0.0\n" +
+	want := "-- Compiled with sloptor v2.3.0\n" +
 		"local n = 0\n" +
 		"local _outer\n" +
 		"for i = 0, 2 do\n" +

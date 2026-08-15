@@ -53,7 +53,7 @@ print(over(1), over("x"))
 // name for the local (and for self-recursion) — only the export KEY is
 // `default`.
 func TestExportDefaultNamedFunction(t *testing.T) {
-	want := `-- Compiled with roblox-ts v3.0.0
+	want := `-- Compiled with sloptor v2.3.0
 local function foo(n)
 	return if n == 0 then 1 else n * foo(n - 1)
 end
@@ -69,7 +69,7 @@ return {
 // TestExportDefaultAnonymousFunction: an anonymous `export default function`
 // is emitted under the literal name `default` and always localized.
 func TestExportDefaultAnonymousFunction(t *testing.T) {
-	want := `-- Compiled with roblox-ts v3.0.0
+	want := `-- Compiled with sloptor v2.3.0
 local function default(x)
 	return x + 10
 end

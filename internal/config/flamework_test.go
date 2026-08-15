@@ -17,6 +17,7 @@ obfuscation = true
 hashPrefix = "game"
 salt = "salt"
 preloadIds = true
+skipUnchangedFiles = true
 
 [flamework.optimizations]
 guardGenerationDedupLimit = 0
@@ -35,6 +36,7 @@ guardGenerationDedupLimit = 0
 	if cfg.Flamework.After != "rbxts-transform-env" || !cfg.Flamework.NoSemanticDiagnostics ||
 		!cfg.Flamework.Obfuscation || cfg.Flamework.HashPrefix != "game" ||
 		cfg.Flamework.Salt != "salt" || !cfg.Flamework.PreloadIDs ||
+		!cfg.Flamework.SkipUnchangedFiles ||
 		cfg.Flamework.Optimizations.GuardGenerationDedupLimit == nil ||
 		*cfg.Flamework.Optimizations.GuardGenerationDedupLimit != 0 {
 		t.Fatalf("flamework = %+v", cfg.Flamework)
@@ -104,6 +106,12 @@ func TestFlameworkSchema(t *testing.T) {
 	if profile["additionalProperties"] != false {
 		t.Fatalf("flamework profile additionalProperties = %v, want false", profile["additionalProperties"])
 	}
+	for _, section := range []map[string]any{flameworkProperties, profile["properties"].(map[string]any)} {
+		skip := section["skipUnchangedFiles"].(map[string]any)
+		if skip["type"] != "boolean" {
+			t.Fatalf("skipUnchangedFiles schema = %v, want boolean type", skip)
+		}
+	}
 }
 
 func TestFlameworkSchemaRejectsReservedHashPrefix(t *testing.T) {
@@ -156,6 +164,7 @@ func TestLoadFlameworkProfilesAppliesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	writeConfigFile(t, dir, ConfigFileName, `[flamework.profiles."tsconfig.lib.json"]
 after = "jest"
+skipUnchangedFiles = true
 `)
 
 	cfg, err := Load(dir)
@@ -166,8 +175,8 @@ after = "jest"
 	if !exists {
 		t.Fatal("tsconfig.lib.json profile missing")
 	}
-	if profile.After != "jest" || profile.IDGenerationMode != "full" {
-		t.Fatalf("profile = %+v, want after jest with full ID mode", profile)
+	if profile.After != "jest" || profile.IDGenerationMode != "full" || !profile.SkipUnchangedFiles {
+		t.Fatalf("profile = %+v, want after jest, full ID mode, skipUnchangedFiles", profile)
 	}
 }
 

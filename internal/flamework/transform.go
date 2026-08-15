@@ -196,31 +196,15 @@ func sourceNeedsFlameworkExpressionTransform(state *TransformState, sourceFile *
 	if sourceFile == nil {
 		return false
 	}
-	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+	if sourceDeclaresFlameworkExpressionSurface(state, sourceFile) {
 		return true
 	}
-	text := sourceFile.Text()
-	if text == "" {
-		return false
-	}
-	// Identifier/API surface used by expression rewrites and macros. Planned
-	// Flamework classes already force a walk. `.attributes` covers component
-	// attribute get/set rewrites that do not always import @flamework by name.
-	if strings.Contains(text, "Flamework") ||
-		strings.Contains(text, "Modding") ||
-		strings.Contains(text, "Reflect.") ||
-		strings.Contains(text, ".attributes") {
-		return true
-	}
-	for name := range flameworkMacroCalleeNames {
-		if strings.Contains(text, name) {
+	if state != nil && state.flameworkExpressionSurfaces != nil {
+		if state.flameworkExpressionSurfaces[sourceFile.FileName()] {
 			return true
 		}
 	}
-	// Macro, intrinsic, and key-obfuscation markers are type-level, so a call
-	// site carries no textual evidence when the declaration it resolves to lives
-	// in another module. Admit files that directly import such a module.
-	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+	return false
 }
 
 // callMayBeFlameworkMacro is a cheap filter before GetResolvedSignature.
@@ -239,10 +223,15 @@ func callMayBeFlameworkMacro(state *TransformState, node *ast.Node) bool {
 	if sourceFile == nil {
 		return false
 	}
-	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+	if sourceDeclaresFlameworkExpressionSurface(state, sourceFile) {
 		return true
 	}
-	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+	if state != nil && state.flameworkExpressionSurfaces != nil {
+		if state.flameworkExpressionSurfaces[sourceFile.FileName()] {
+			return true
+		}
+	}
+	return false
 }
 
 // sourceMayNeedFlameworkAccessRewrite is the access/assignment counterpart of
@@ -252,17 +241,15 @@ func sourceMayNeedFlameworkAccessRewrite(state *TransformState, sourceFile *ast.
 	if sourceFile == nil {
 		return false
 	}
-	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+	if sourceDeclaresFlameworkExpressionSurface(state, sourceFile) {
 		return true
 	}
-	text := sourceFile.Text()
-	if strings.Contains(text, "Flamework") ||
-		strings.Contains(text, "Modding") ||
-		strings.Contains(text, "Reflect.") ||
-		strings.Contains(text, ".attributes") {
-		return true
+	if state != nil && state.flameworkExpressionSurfaces != nil {
+		if state.flameworkExpressionSurfaces[sourceFile.FileName()] {
+			return true
+		}
 	}
-	return importsFlameworkSurfaceDeclaration(state, sourceFile)
+	return false
 }
 
 func calleeMayBeFlameworkMacro(expression *ast.Node) bool {
@@ -314,29 +301,6 @@ func sourceDeclaresFlameworkSurface(state *TransformState, sourceFile *ast.Sourc
 	}
 	state.setFlameworkSurface(sourceFile, declares)
 	return declares
-}
-
-func importsFlameworkSurfaceDeclaration(state *TransformState, sourceFile *ast.SourceFile) bool {
-	if state == nil || state.program == nil {
-		return false
-	}
-	for _, imp := range sourceFile.Imports() {
-		if imp == nil {
-			continue
-		}
-		resolved := state.program.GetResolvedModuleFromModuleSpecifier(sourceFile, imp)
-		if !resolved.IsResolved() {
-			continue
-		}
-		imported := state.program.GetSourceFileForResolvedModule(resolved.ResolvedFileName)
-		if imported == nil || imported == sourceFile {
-			continue
-		}
-		if sourceDeclaresFlameworkSurface(state, imported) {
-			return true
-		}
-	}
-	return false
 }
 
 func mergeTransformAnalyses(explicit, discovered []FileAnalysis) ([]FileAnalysis, error) {
@@ -434,4 +398,113 @@ func luaFileName(fileName string) string {
 		return "init"
 	}
 	return fileName
+}
+
+// sourceDeclaresFlameworkExpressionSurface reports whether the file itself
+// triggers expression transforms by direct declaration or textual surface.
+// This factors the non-import checks that were previously inlined in the three
+// prefilters so the reachability index can seed from a single predicate.
+func sourceDeclaresFlameworkExpressionSurface(state *TransformState, sourceFile *ast.SourceFile) bool {
+	if sourceFile == nil {
+		return false
+	}
+	if sourceDeclaresFlameworkSurface(state, sourceFile) {
+		return true
+	}
+	text := sourceFile.Text()
+	if text == "" {
+		return false
+	}
+	if strings.Contains(text, "Flamework") ||
+		strings.Contains(text, "Modding") ||
+		strings.Contains(text, "Reflect.") ||
+		strings.Contains(text, ".attributes") {
+		return true
+	}
+	for name := range flameworkMacroCalleeNames {
+		if strings.Contains(text, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// initializeFlameworkExpressionSurfaces populates the cached reachability
+// index once per state using SourceFile.Imports() (includes type-only) and
+// resolved modules. Seeds from direct expression surfaces, walks reverse
+// "imported-by" edges with FIFO+marked to cover transitive + diamonds/cycles.
+// Non-external (global/ambient) surface seed marks the entire program.
+func initializeFlameworkExpressionSurfaces(state *TransformState) {
+	if state == nil || state.program == nil || state.flameworkExpressionSurfaces != nil {
+		return
+	}
+	state.flameworkExpressionSurfaces = make(map[string]bool)
+
+	reverse := make(map[string][]string)
+	all := state.program.GetSourceFiles()
+	fileByName := make(map[string]*ast.SourceFile, len(all))
+	for _, f := range all {
+		if f == nil {
+			continue
+		}
+		fn := f.FileName()
+		fileByName[fn] = f
+		for _, spec := range f.Imports() {
+			if spec == nil {
+				continue
+			}
+			res := state.program.GetResolvedModuleFromModuleSpecifier(f, spec)
+			if !res.IsResolved() {
+				continue
+			}
+			imp := res.ResolvedFileName
+			if imp == "" || imp == fn {
+				continue
+			}
+			reverse[imp] = append(reverse[imp], fn)
+		}
+	}
+
+	// seed
+	queue := make([]string, 0, len(all))
+	marked := make(map[string]bool)
+	hasGlobal := false
+	for _, seed := range all {
+		if seed == nil {
+			continue
+		}
+		sfn := seed.FileName()
+		if sourceDeclaresFlameworkExpressionSurface(state, seed) {
+			if !marked[sfn] {
+				marked[sfn] = true
+				state.flameworkExpressionSurfaces[sfn] = true
+				queue = append(queue, sfn)
+			}
+			if !ast.IsExternalModule(seed) {
+				if !strings.HasPrefix(sfn, "bundled:") && !strings.Contains(sfn, "/libs/") {
+					hasGlobal = true
+				}
+			}
+		}
+	}
+
+	if hasGlobal {
+		for fn := range fileByName {
+			state.flameworkExpressionSurfaces[fn] = true
+		}
+		return
+	}
+
+	// BFS over reverse importers
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, imp := range reverse[cur] {
+			if !marked[imp] {
+				marked[imp] = true
+				state.flameworkExpressionSurfaces[imp] = true
+				queue = append(queue, imp)
+			}
+		}
+	}
 }

@@ -20,7 +20,7 @@ import (
 // output bytes).
 // ----------------------------------------------------------------------------
 
-const importsHeaderModel = "-- Compiled with roblox-ts v3.0.0\n" +
+const importsHeaderModel = "-- Compiled with sloptor v2.3.0\n" +
 	"local TS = require(script.Parent.include.RuntimeLib)\n"
 
 // TestCompileProjectImportsModel covers the Model-project import matrix; the
@@ -40,7 +40,7 @@ func TestCompileProjectImportsModel(t *testing.T) {
 			"print(g(\"world\"), x)\n" +
 			"return nil\n",
 		// digest §5.3: the imported module itself.
-		"out/_scratch_util.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_util.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local VALUE = 123\n" +
 			"local function greet(name)\n" +
 			"\treturn `Hello, {name}`\n" +
@@ -77,7 +77,7 @@ func TestCompileProjectImportsModel(t *testing.T) {
 			"return nil\n",
 		// type-only import: the import line is ABSENT (early-out, no TS line
 		// either since nothing used the runtime lib).
-		"out/_scratch_typeonly.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_typeonly.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local n = 1\n" +
 			"print(n)\n" +
 			"return nil\n",
@@ -85,7 +85,7 @@ func TestCompileProjectImportsModel(t *testing.T) {
 		// position — IsReferencedAliasDeclaration is false on the checker
 		// that semantically checked the file, so the whole import (and the
 		// runtime lib) vanish.
-		"out/_scratch_elide.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_elide.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local s = \"types\"\n" +
 			"print(s)\n" +
 			"return nil\n",
@@ -104,7 +104,7 @@ func TestCompileProjectImportsModel(t *testing.T) {
 			"VfxForge.emit(\"effect\")\n" +
 			"return nil\n",
 		// import-equals (entity name): plain aliasing, no import machinery.
-		"out/_scratch_eqns.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_eqns.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local A = Ambient\n" +
 			"print(A.val)\n" +
 			"return nil\n",
@@ -130,13 +130,13 @@ func TestCompileProjectImportsModel(t *testing.T) {
 			"return nil\n",
 		// nested source file: leading Parent segments fold into one
 		// script.Parent.Parent root expression.
-		"out/_scratch_sub/inner.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_sub/inner.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local TS = require(script.Parent.Parent.include.RuntimeLib)\n" +
 			"local VALUE = TS.import(script, script.Parent.Parent, \"_scratch_util\").VALUE\n" +
 			"print(VALUE)\n" +
 			"return nil\n",
 		// the type-provider module itself (type-only export elides).
-		"out/_scratch_types.luau": "-- Compiled with roblox-ts v3.0.0\n" +
+		"out/_scratch_types.luau": "-- Compiled with sloptor v2.3.0\n" +
 			"local tag = \"types\"\n" +
 			"return {\n" +
 			"\ttag = tag,\n" +
@@ -160,7 +160,7 @@ func TestCompileProjectImportsModel(t *testing.T) {
 func TestCompileProjectImportsGame(t *testing.T) {
 	files := compileRuntimeLibProject(t, "imports_game")
 
-	header := "-- Compiled with roblox-ts v3.0.0\n" +
+	header := "-- Compiled with sloptor v2.3.0\n" +
 		"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n"
 	wants := map[string]string{
 		"out/_scratch_once.luau": header +
@@ -200,7 +200,7 @@ func TestCompileProjectImportsGame(t *testing.T) {
 func TestCompileProjectImportsPackage(t *testing.T) {
 	files := compileRuntimeLibProject(t, "imports_package")
 
-	header := "-- Compiled with roblox-ts v3.0.0\n" +
+	header := "-- Compiled with sloptor v2.3.0\n" +
 		"local TS = _G[script]\n"
 	wants := map[string]string{
 		"out/_scratch_pkg.luau": header +

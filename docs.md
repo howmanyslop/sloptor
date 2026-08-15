@@ -118,6 +118,8 @@ sloptor completion <bash|zsh|fish|powershell>
 
 `sloptor migrate flamework [tsconfig-file] [--remove-package]` is the hard-cut migration from the legacy `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
 
+Native Flamework reprints and re-parses every source by default, matching the upstream transformer's fresh source-file update per file. `[flamework] skipUnchangedFiles = true` (or the same key under a `[flamework.profiles.<tsconfig>]` entry) opts back into reusing sources the transform leaves unchanged, skipping the print/overlay/reparse pass for them.
+
 Rotor rejects a tsconfig whose effective plugin list still contains `rbxts-transformer-flamework`; the legacy plugin is not supported. Run the migration before building. Keep `flamework.json`: it remains the runtime configuration and the migration does not remove it.
 
 Package cleanup is optional. With `--remove-package`, Rotor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Flamework-only builds and `sloptor doctor` do not require Node.js.

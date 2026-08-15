@@ -19,6 +19,7 @@ import (
 type FlameworkOptions struct {
 	After, IDGenerationMode, HashPrefix, Salt      string
 	NoSemanticDiagnostics, Obfuscation, PreloadIDs bool
+	SkipUnchangedFiles                             bool
 	Optimizations                                  FlameworkOptimizations
 }
 
@@ -117,6 +118,7 @@ func ExistingFlameworkOptions(path string) (FlameworkOptions, bool, error) {
 		HashPrefix:            project.Flamework.HashPrefix,
 		Salt:                  project.Flamework.Salt,
 		PreloadIDs:            project.Flamework.PreloadIDs,
+		SkipUnchangedFiles:    project.Flamework.SkipUnchangedFiles,
 		Optimizations: FlameworkOptimizations{
 			GuardGenerationDedupLimit: project.Flamework.Optimizations.GuardGenerationDedupLimit,
 		},
@@ -143,7 +145,7 @@ func renderFlameworkTables(header, optimizationsHeader string, options Flamework
 		key     string
 		enabled bool
 	}{
-		{"noSemanticDiagnostics", options.NoSemanticDiagnostics}, {"obfuscation", options.Obfuscation}, {"preloadIds", options.PreloadIDs},
+		{"noSemanticDiagnostics", options.NoSemanticDiagnostics}, {"obfuscation", options.Obfuscation}, {"preloadIds", options.PreloadIDs}, {"skipUnchangedFiles", options.SkipUnchangedFiles},
 	} {
 		if option.enabled {
 			lines = append(lines, option.key+" = true")
