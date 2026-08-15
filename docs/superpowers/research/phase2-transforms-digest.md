@@ -25,6 +25,7 @@ pushing "prerequisite statements" onto a stack of statement lists.
 - `noPrereqs(callback)` (L173): capture + assert the prereq list is empty.
 
 Variable helpers:
+
 - `pushToVar(expression, name?)` (L272): emits `local <tempId> = <expression>` as a prereq and
   returns the new `luau.TemporaryIdentifier`. Temp name falls back to `valueToIdStr(expression)`.
 - `pushToVarIfComplex(expression, name?)` (L287): returns `expression` unchanged if
@@ -34,34 +35,41 @@ Variable helpers:
   else `pushToVar`.
 
 Type lookup (THE central checker call):
+
 - `getType(node)` (L184–186):
+
   ```ts
   public getType(node: ts.Node) {
       return getOrSetDefault(this.getTypeCache, node, () => this.typeChecker.getTypeAtLocation(skipUpwards(node)));
   }
   ```
+
   CHECKER: `typeChecker.getTypeAtLocation(skipUpwards(node))` — memoized per node. Note the
   `skipUpwards` — the type is taken at the highest enclosing parenthesized/assertion wrapper,
   so `(x as Foo)` queries the type of the `as` expression, not of `x`.
 
 Runtime library:
+
 - `TS(node, name)` (L189–197): sets `usesRuntimeLib = true`, returns `luau.property(luau.globals.TS, name)`
   i.e. `TS.<name>`; warns `warnings.runtimeLibUsedInReplicatedFirst` when project is a Game and the
   file lands in ReplicatedFirst. First wave only needs this for `instanceof` (`TS.instanceof`) and
   try/return interplay (out of scope); a port can stub it.
 
 Comments:
+
 - `getLeadingComments(node)` (L139–153): `ts.getLeadingCommentRanges(sourceFileText, node.pos)`,
   maps each range to `luau.comment(text)` where text strips the leading `//`/`/*` 2 chars and a
   trailing `*/` 2 chars for multi-line ranges.
 
 Hoisting maps:
+
 - `hoistsByStatement: Map<ts.Statement | ts.CaseClause, Array<ts.Identifier>>` (L180)
 - `isHoisted: Map<ts.Symbol, boolean>` (L181)
 - `symbolToIdMap: Map<ts.Symbol, luau.TemporaryIdentifier>` (L387) — identifier substitution used
   by the for-loop closure-copy logic and others.
 
 Module-export access (needed for `export let`):
+
 - `getModuleIdPropertyAccess(idSymbol)` (L356–364): if symbol's valueDeclaration belongs to a
   module with an id registered, returns `moduleId.<aliasName>`. Uses
   CHECKER: `typeChecker.getSymbolAtLocation(sourceFile | moduleDecl.name)` (L332),
@@ -69,6 +77,7 @@ Module-export access (needed for `export let`):
   CHECKER: `ts.skipAlias(exportSymbol, typeChecker)` (L318).
 
 ### 0.2 DiagnosticService — `TSTransformer/classes/DiagnosticService.ts`
+
 Static accumulator: `addDiagnostic` pushes onto array (L15); `flush()` (L30) returns and clears.
 Diagnostics never abort the walk — transforms return `luau.none()`/empty list and continue, so a
 single compile reports many errors.
@@ -76,11 +85,13 @@ single compile reports many errors.
 ### 0.3 Small utils
 
 - `wrapExpressionStatement(node)` — `util/wrapExpressionStatement.ts` L3–16 (discard semantics):
+
   ```ts
   if (luau.isTemporaryIdentifier(node) || luau.isNone(node)) return luau.list.make();
   else if (luau.isCall(node)) return list.make(CallStatement { expression: node });
   else return list.make(VariableDeclaration { left: luau.tempId(), right: node });
   ```
+
   i.e. an expression used as a statement is: dropped if a temp/none, kept as a call statement if a
   call, otherwise assigned to a discarded `local _ = <exp>` (Luau can't have bare expressions).
 
@@ -132,6 +143,7 @@ single compile reports many errors.
   expressions, varargs literal; recurses through parenthesized/if/binary/unary/array/set/map
   members. Otherwise (Identifier, ComputedIndex, PropertyAccess, Call, MethodCall): returns true,
   EXCEPT a TS identifier whose symbol is not mutable:
+
   ```ts
   if (ts.isIdentifier(node)) {
       const symbol = state.typeChecker.getSymbolAtLocation(node);   // CHECKER (L45)
@@ -157,6 +169,7 @@ single compile reports many errors.
 
 Evaluation-order preservation for sibling expressions (call args, binary operands, template spans,
 array literal elements):
+
 ```ts
 const expressionInfoList = nodes.map(node => state.capture(() => transformer(state, node)));
 const lastArgWithPrereqsIndex = findLastIndex(expressionInfoList, ([, prereqs]) => !luau.list.isEmpty(prereqs));
@@ -177,6 +190,7 @@ for (let i = 0; i < expressionInfoList.length; i++) {
     }
 }
 ```
+
 Semantics: each node is transformed with its own captured prereqs; all prereqs are re-emitted in
 order; any expression that comes BEFORE the last expression-with-prereqs must be snapshotted into a
 temp unless it is a simple primitive, already a temp, or a `const` identifier (cannot be mutated by
@@ -193,6 +207,7 @@ looks up and calls; `assert(false, "Unknown expression: ...")` if missing.
 
 Banned kinds → `DIAGNOSTIC(factory)` helper (L46–49) which adds the diagnostic and returns
 `luau.none()` (`NO_EMIT`, L44):
+
 - `BigIntLiteral` → `errors.noBigInt`
 - `NullKeyword` → `errors.noNullLiteral`
 - `PrivateIdentifier` → `errors.noPrivateIdentifier`
@@ -219,6 +234,7 @@ EmptyStatement. Banned: ForInStatement → `errors.noForInStatement`, LabeledSta
 `errors.noLabeledStatement`, DebuggerStatement → `errors.noDebuggerStatement`.
 
 `transformStatement` (L103–113) — declare-modifier skip happens here for ALL statements:
+
 ```ts
 const modifiers = ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined;
 if (modifiers?.some(v => v.kind === ts.SyntaxKind.DeclareKeyword)) return NO_EMIT();
@@ -227,6 +243,7 @@ if (modifiers?.some(v => v.kind === ts.SyntaxKind.DeclareKeyword)) return NO_EMI
 ### 1.3 transformStatementList — `nodes/transformStatementList.ts` L26–91
 
 Per statement, in order:
+
 1. `const [transformedStatements, prereqStatements] = state.capture(() => transformStatement(state, statement));`
    (L42) — prereqs produced by the statement's own expressions are captured here.
 2. Comments: if `state.compilerOptions.removeComments !== true`, push
@@ -255,33 +272,41 @@ leading comments — this preserves comments after the final statement in a bloc
 ## 2. Literals
 
 ### 2.1 Numeric — `expressions/transformNumericLiteral.ts` L5–9
+
 ```ts
 return luau.create(luau.SyntaxKind.NumberLiteral, { value: node.getText() });
 ```
+
 Raw source text (preserves hex/binary/underscores); the luau-ast renderer is responsible for any
 normalization. No checker calls.
 
 ### 2.2 String — `expressions/transformStringLiteral.ts` L6–8
+
 `luau.string(createStringFromLiteral(node))`.
 `util/createStringFromLiteral.ts` L11–26: uses `node.getText()` NOT `node.text` ("Cannot just use
 `node.text` because that converts `\\n` to be `\n`" — escapes must be preserved verbatim).
+
 - StringLiteral / NoSubstitutionTemplateLiteral: `ts.stripQuotes(text)` (strip 1 char each side).
 - TemplateHead: slice off leading `` ` `` (1) and trailing `${` (2).
 - TemplateMiddle: slice off leading `}` (1) and trailing `${` (2).
 - TemplateTail: slice off leading `}` (1) and trailing `` ` `` (1).
 
 ### 2.3 Boolean — `expressions/transformBooleanLiteral.ts`
+
 `transformTrueKeyword` → `TrueLiteral {}`; `transformFalseKeyword` → `FalseLiteral {}`.
 
 ### 2.4 NoSubstitutionTemplateLiteral — `expressions/transformNoSubstitutionTemplateLiteral.ts` L8–12
+
 Backtick strings without `${}` stay as Luau interpolated strings (valid Luau):
 `InterpolatedString { parts: [transformInterpolatedStringPart(node)] }`.
 `nodes/transformInterpolatedStringPart.ts` L5–7:
 `InterpolatedStringPart { text: createStringFromLiteral(node) }`.
 
 ### 2.5 TemplateExpression — `expressions/transformTemplateExpression.ts` L7–29
+
 TS template strings ALWAYS become Luau `InterpolatedString` (backtick `` `a{b}c` `` syntax) — there
 is NO concatenation fallback in v3 (concatenation only appears for binary `+`, §4):
+
 ```ts
 const parts = luau.list.make<luau.InterpolatedStringPart | luau.Expression>();
 if (node.head.text.length > 0) parts.push(transformInterpolatedStringPart(node.head));
@@ -293,6 +318,7 @@ for (let i = 0; i < node.templateSpans.length; i++) {
 }
 return luau.create(luau.SyntaxKind.InterpolatedString, { parts });
 ```
+
 Empty text parts are skipped (`.text.length > 0` checks use the cooked `.text`, while emitted text
 uses raw `getText()` slices). Span expressions go through `ensureTransformOrder` (CHECKER via
 §0.4). NOTE: the Luau renderer's interpolation implies `tostring` semantics per part.
@@ -300,16 +326,19 @@ uses raw `getText()` slices). Span expressions go through `ensureTransformOrder`
 ### 2.6 ArrayLiteralExpression — `expressions/transformArrayLiteralExpression.ts` L10–91
 
 Non-spread fast path (L11–13):
+
 ```ts
 if (!node.elements.find(element => ts.isSpreadElement(element))) {
     return luau.array(ensureTransformOrder(state, node.elements));
 }
 ```
+
 → inline `{ e1, e2, ... }` with order preservation. This is the only path the first wave needs.
 
 Spread path (L15–90), documented for later: uses an `ArrayPointer` (starts inline). A running
 `lengthId` temp caches `#array` (`updateLengthId`, L20–40: first time `local _length = #_array`,
 afterwards `_length = #_array`; resets `amtElementsSinceUpdate`). Per element:
+
 - SpreadElement (L44–64): if pointer still inline, `disableArrayInline` + `updateLengthId`. Then
   CHECKER: `state.getType(element.expression)` (L51) feeds
   `getAddIterableToArrayBuilder(state, element.expression, type)` (runtime-helper selection by
@@ -323,6 +352,7 @@ Returns `ptr.value`.
 ### 2.7 ObjectLiteralExpression — `expressions/transformObjectLiteralExpression.ts` L92–115
 
 Walks `node.properties` building a `MapPointer` (inline `{...}` until forced out):
+
 - every property first hits `validateMethodAssignment(state, property)`
   (`util/validateMethodAssignment.ts`; for object literals: compares method-ness of the element
   type vs its contextual type; CHECKER: `state.getType(node)` L30,
@@ -332,6 +362,7 @@ Walks `node.properties` building a `MapPointer` (inline `{...}` until forced out
   `errors.expectedMethodGotFunction` / `errors.expectedFunctionGotMethod`).
 - PropertyAssignment: if name is PrivateIdentifier → `errors.noPrivateIdentifier`, continue. Else
   `transformPropertyAssignment` (L14–32):
+
   ```ts
   let [left, leftPrereqs] = state.capture(() => transformPropertyName(state, name));
   const [right, rightPrereqs] = state.capture(() => transformExpression(state, initializer));
@@ -343,6 +374,7 @@ Walks `node.properties` building a `MapPointer` (inline `{...}` until forced out
   state.prereqList(rightPrereqs);
   assignToMapPointer(state, ptr, left, right);
   ```
+
   `transformPropertyName` (`nodes/transformPropertyName.ts` L6–14): plain identifier key `a` →
   `luau.string("a")`; computed `[a]` → transform `name.expression`; string/number literal names →
   transform directly. (The luau-ast Map renderer turns string-literal indices into `a = v` /
@@ -367,6 +399,7 @@ Returns `ptr.value`.
 ## 3. Identifiers — `expressions/transformIdentifier.ts`
 
 ### 3.1 transformIdentifierDefined (L14–28) — the "raw" form (also used by declarations)
+
 ```ts
 const symbol = ts.isShorthandPropertyAssignment(node.parent)
     ? state.typeChecker.getShorthandAssignmentValueSymbol(node.parent)   // CHECKER (L16)
@@ -407,6 +440,7 @@ return luau.create(luau.SyntaxKind.Identifier, { name: node.text });
 
 Records that a symbol must be pre-declared (`local x` merged at the declaration statement) when it
 is referenced lexically BEFORE/AT its declaring statement within the same block. Logic:
+
 - Skip if `state.isHoisted.get(symbol) !== undefined` (already decided).
 - `declaration = symbol.valueDeclaration ?? getDeclarationFromImport(symbol)` (L52;
   `getDeclarationFromImport` L38–45 scans `symbol.declarations` for one under any import syntax —
@@ -445,6 +479,7 @@ const operatorKind = node.operatorToken.kind;
 validateNotAnyType(state, node.left);    // §11.2
 validateNotAnyType(state, node.right);
 ```
+
 1. Banned (L120–126): `==` → `errors.noEqualsEquals`, `!=` → `errors.noExclamationEquals`;
    both return `luau.none()`.
 2. Logical (L129–135): `&&`, `||`, `??` → `transformLogical` (§4.4).
@@ -457,6 +492,7 @@ validateNotAnyType(state, node.right);
      with `errors.noLuaTupleDestructureAssignmentExpression` when used as a non-statement;
      the upstream rest-spread rejection inside `transformOptimizedArrayAssignmentPattern` (L49).
    - Simple/compound assignment (L186–214):
+
      ```ts
      const writableType = state.getType(node.left);     // CHECKER (L186)
      const valueType = state.getType(node.right);       // CHECKER (L187)
@@ -469,24 +505,29 @@ validateNotAnyType(state, node.right);
          return createCompoundAssignmentExpression(state, node, writable, writableType, readable, operatorKind, value, valueType);
      }
      ```
+
      This is the *expression* form (`x = (y += 1)`): `readAfterWrite = true` so the writable target
      is stabilized for re-reading (see §4.3); the function returns `writable` as the value of the
      expression after prereqing the assignment.
 5. Non-assignment (L217–252):
+
    ```ts
    const [left, right] = ensureTransformOrder(state, [node.left, node.right]);
    ```
+
    - `in` (L219–227): `right[left] ~= nil` —
      `luau.binary(ComputedIndexExpression { expression: convertToIndexableExpression(right), index: left }, "~=", luau.nil())`.
    - `instanceof` (L228–233): if
      CHECKER: `isPossiblyType(state.getType(node.right), isRobloxType(state))` (L229) →
      `errors.noRobloxSymbolInstanceof`. Emits `TS.instanceof(left, right)` (runtime lib).
    - Relational `< <= > >=` (L238–250): diagnostic gate —
+
      ```ts
      if ((!isDefinitelyType(leftType, isStringType) && !isDefinitelyType(leftType, isNumberType)) ||
          (!isDefinitelyType(rightType, isStringType) && !isDefinitelyType(leftType, isNumberType)))
          errors.noNonNumberStringRelationOperator(node);
      ```
+
      (Note the upstream quirk: the second clause re-tests `leftType` for number — verbatim at
      L245–246.) Where CHECKER: `leftType = state.getType(node.left)` (L235),
      `rightType = state.getType(node.right)` (L236). Then falls through to
@@ -503,6 +544,7 @@ compound forms (used via read-modify-write).
 Order of resolution: simple map → plus → bitwise call → comma → assert-unreachable.
 
 `+` / `+=` (L74–76) → `createBinaryAdd` (L44–56) — THE `..` vs `+` decision:
+
 ```ts
 const leftIsString = isDefinitelyType(leftType, isStringType);    // CHECKER predicates
 const rightIsString = isDefinitelyType(rightType, isStringType);
@@ -516,6 +558,7 @@ if (leftIsString || rightIsString) {
     return luau.binary(left, "+", right);
 }
 ```
+
 If either side is *definitely* string → string concat with `tostring()` wrapped around any side not
 definitely string. Otherwise numeric `+`. (TS type system guarantees `string|number + ...` is the
 only ambiguity; "possibly string but not definitely" sides get tostring'd only when the other side
@@ -526,12 +569,14 @@ Comma operator (L84–87): `state.prereqList(wrapExpressionStatement(left)); ret
 ### 4.3 Assignment plumbing — `util/assignment.ts`, `nodes/transformWritable.ts`
 
 `getSimpleAssignmentOperator(leftType, operatorKind, rightType)` (assignment.ts L23–34):
+
 ```ts
 if (operatorKind === ts.SyntaxKind.PlusEqualsToken) {
     return isDefinitelyType(leftType, isStringType) || isDefinitelyType(rightType, isStringType) ? "..=" : "+=";
 }
 return COMPOUND_OPERATOR_MAP.get(operatorKind);
 ```
+
 `COMPOUND_OPERATOR_MAP` (L7–21): `-=`→`-=`, `*=`→`*=`, `/=`→`/=`, `**=`→`^=`, `%=`→`%=`,
 `++`→`+=`, `--`→`-=`, `=`→`=`. Returns `undefined` for everything else (bitwise compounds
 `&= |= ^= <<= >>= >>>=`, and logical-assignment ops are routed earlier) → triggers the
@@ -543,6 +588,7 @@ when operator is `..=` and CHECKER: `!isDefinitelyType(valueType, isStringType)`
 `tostring(value)`; else pass through. (Mirrors createBinaryAdd's coercion for the `+=` case.)
 
 `transformWritableExpression(state, node, readAfterWrite)` (transformWritable.ts L13–41):
+
 - `ts.isPrototypeAccess(node)` → `errors.noPrototype` (then continues).
 - PropertyAccessExpression: transform `node.expression`; base becomes
   `pushToVarIfNonId(exp, "exp")` when `readAfterWrite` else `convertToIndexableExpression(exp)`;
@@ -556,6 +602,7 @@ when operator is `..=` and CHECKER: `!isDefinitelyType(valueType, isStringType)`
 
 `transformWritableAssignment(state, writeNode, valueNode, readAfterWrite, readBeforeWrite)`
 (L43–58):
+
 ```ts
 const writable = transformWritableExpression(state, writeNode, readAfterWrite);
 const [value, prereqs] = state.capture(() => transformExpression(state, valueNode));
@@ -563,6 +610,7 @@ const readable = !readBeforeWrite || luau.list.isEmpty(prereqs) ? writable : sta
 state.prereqList(prereqs);
 return { writable, readable, value };
 ```
+
 `readable` is a pre-RHS snapshot of the target used by compound fallback; only materialized into a
 temp when the RHS had prereqs that could mutate the target.
 
@@ -572,10 +620,12 @@ return the writable as the expression's value.
 ### 4.4 transformLogical — `nodes/transformLogical.ts` L147–167 (with truthiness interplay)
 
 `&&`:
+
 ```ts
 return buildInlineConditionExpression(state, node, kind, "and",
     (conditionId, node) => createTruthinessChecks(state, conditionId, node));
 ```
+
 `||`: same with luau op `"or"` and condition `luau.unary("not", createTruthinessChecks(...))`.
 `??` (L156–164): condition builder is `conditionId == nil`. If
 CHECKER: `!isPossiblyType(state.getType(node), isBooleanLiteralType(state, false))` (L158) → can
@@ -588,10 +638,12 @@ NEVER inline: build chain with `enableInlining = false` and always materialize a
 
 `getLogicalChain(state, binaryExp, binaryOperatorKind, enableInlining)` (L37–53): per item:
 CHECKER: `state.getType(node)` (L44); capture transform; inline flag:
+
 ```ts
 const willWrap = index < array.length - 1 && willCreateTruthinessChecks(type);
 inline = luau.list.isEmpty(statements) && !willWrap;
 ```
+
 (an item is inlineable only if it produced no prereqs AND — unless it's the last item — its
 truthiness in Luau matches TS truthiness, i.e. no 0/NaN/"" possibility; the LAST item never needs
 a wrap because its value is returned, not tested.)
@@ -605,7 +657,8 @@ inline → return it directly (pure `a and b and c`). Otherwise allocate
 
 `buildLogicalChainPrereqs(state, chain, conditionId, buildCondition, index = 0)` (L58–94),
 recursive nesting:
-```
+
+```text
 [item0.statements]
 local _condition = item0.expression            -- index 0; assignments thereafter
 if buildCondition(_condition, item0.node) then
@@ -614,6 +667,7 @@ if buildCondition(_condition, item0.node) then
     if buildCondition(_condition, item1.node) then ... end
 end
 ```
+
 Result expression is `conditionId`.
 
 ---
@@ -621,7 +675,9 @@ Result expression is `conditionId`.
 ## 5. Unary — `expressions/transformUnaryExpression.ts`
 
 ### 5.1 transformPostfixUnaryExpression (L13–40) — expression position
+
 `validateNotAnyType(state, node.operand)`. Then:
+
 ```ts
 const writable = transformWritableExpression(state, node.operand, true);
 const origValue = luau.tempId("original");
@@ -631,7 +687,9 @@ return origValue;
 ```
 
 ### 5.2 transformPrefixUnaryExpression (L42–71)
+
 `validateNotAnyType(state, node.operand)`.
+
 - `++`/`--` (L45–55): `writable = transformWritableExpression(state, node.operand, true)`;
   prereq `writable += 1` / `-= 1`; return `writable` (the new value).
 - Unary `+` (L56–58): `errors.noUnaryPlus`; still returns `transformExpression(operand)`.
@@ -641,6 +699,7 @@ return origValue;
 - `~` (L67–68): `bit32.bnot(exp)`.
 
 ### 5.3 ++/-- as statements — `statements/transformExpressionStatement.ts` L13–24
+
 When a Prefix/PostfixUnaryExpression with `++`/`--` is the whole expression statement
 (`isUnaryAssignmentOperator`, typeGuards.ts L13–17), no temp is made:
 `transformWritableExpression(state, node.operand, /*readAfterWrite*/ false)` then a single
@@ -654,6 +713,7 @@ TS truthiness: `0`, `NaN`, `""`, `false`, `undefined`(nil) are falsy. Luau: only
 So conditions need extra guards when the static type admits 0, NaN, or "".
 
 `willCreateTruthinessChecks(type)` (L9–15):
+
 ```ts
 return isPossiblyType(type, isNumberLiteralType(0))
     || isPossiblyType(type, isNaNType)
@@ -661,6 +721,7 @@ return isPossiblyType(type, isNumberLiteralType(0))
 ```
 
 `createTruthinessChecks(state, exp, node)` (L17–56):
+
 ```ts
 const type = state.getType(node);                                    // CHECKER (L18)
 const isAssignableToZero = isPossiblyType(type, isNumberLiteralType(0));
@@ -687,6 +748,7 @@ if (state.data.projectOptions.logTruthyChanges && (any of the three)) {
 }
 return binaryExpressionChain(checks, "and");
 ```
+
 Emission shapes: `x` (no checks) | `x ~= 0 and x == x and x` | `x == x and x` (NaN-only, i.e.
 plain `number`) | `x ~= "" and x` | full `x ~= 0 and x == x and x ~= "" and x`. NOTE the
 TS#32778 workaround: a type assignable to literal `0` also gets the NaN check (`x == x`) even if
@@ -710,6 +772,7 @@ CHECKER: `type.getBaseTypes()` recursively (`baseType.isClassOrInterface()` to r
 
 `isDefinitelyType(type, ...callbacks)` (L38–40): operates on
 CHECKER: `type.getConstraint() ?? type` (L39). Inner (L25–36):
+
 ```ts
 if (type.isUnion()) return type.types.every(t => isDefinitelyTypeInner(t, callbacks));
 else if (type.isIntersection()) return type.types.some(t => isDefinitelyTypeInner(t, callbacks));
@@ -719,10 +782,12 @@ else {
     return callbacks.some(cb => cb(type));
 }
 ```
+
 union → EVERY member matches; intersection → SOME member; class/interface → also check base types.
 CHECKER: `type.isUnion()`, `type.isIntersection()`, `type.types`, `type.isClassOrInterface()`.
 
 `isPossiblyType(type, ...callbacks)` (L68–70), inner (L42–66):
+
 ```ts
 if (type.isUnionOrIntersection()) return type.types.some(t => isPossiblyTypeInner(t, callbacks));
 else {
@@ -737,14 +802,17 @@ else {
     return callbacks.some(cb => cb(type));
 }
 ```
+
 CHECKER flags tested: `ts.TypeFlags.TypeVariable | ts.TypeFlags.AnyOrUnknown` (unconstrained
 generics/any/unknown are "possibly anything"). `isDefinedType` (L72–81) detects the rbxts
 `defined` type (`{}`-like Object with nothing on it):
+
 ```ts
 type.flags === ts.TypeFlags.Object && type.getProperties().length === 0
     && type.getCallSignatures().length === 0 && type.getConstructSignatures().length === 0
     && type.getNumberIndexType() === undefined && type.getStringIndexType() === undefined
 ```
+
 CHECKER: exact-equality `type.flags === ts.TypeFlags.Object`, `getProperties`, `getCallSignatures`,
 `getConstructSignatures`, `getNumberIndexType`, `getStringIndexType`. `defined` counts as
 "possibly X" for every X except a pure `isUndefinedType` query.
@@ -767,12 +835,14 @@ CHECKER: exact-equality `type.flags === ts.TypeFlags.Object`, `getProperties`, `
   "types" in type && flags & ts.TypeFlags.TemplateLiteral`) → `texts.length === 0 ||
   texts.every(v => v.length === 0)`; else `isStringType`.
 - `isArrayType(state)` (L122–137):
+
   ```ts
   if (!!(type.flags & ts.TypeFlags.Any)) return false;   // isArrayLikeType returns true for any
   return state.typeChecker.isTupleType(type) || state.typeChecker.isArrayLikeType(type)
       || type.symbol === macroManager.getSymbolOrThrow(SYMBOL_NAMES.ReadonlyArray)
       || ... Array | ReadVoxelsArray | TemplateStringsArray;
   ```
+
   CHECKER: `typeChecker.isTupleType`, `typeChecker.isArrayLikeType`, `type.symbol` identity vs
   ambient @rbxts symbols (port: resolve these global interface symbols once at startup).
 - `isObjectType` (L181–183): `flags & ts.TypeFlags.Object`.
@@ -825,6 +895,7 @@ state.prereqList(prereqs);
 const exp = luau.call(convertToIndexableExpression(expression), args);
 return wrapReturnIfLuaTuple(state, node, exp);
 ```
+
 Key ordering rule: callee expression was already transformed by the chain walker BEFORE the args;
 if arg transformation produced prereqs and the callee expression could be affected
 (`expressionMightMutate`), snapshot callee to `local _fn = ...` first.
@@ -847,6 +918,7 @@ Super-property call branch (L170–175; later). Macro: CHECKER:
 `getFirstDefinedSymbol` → `macroManager.getPropertyCallMacro(symbol)` (L180) → `runCallMacro`.
 Then args via captured `ensureTransformOrder`, `fixVoidArgumentsForRobloxFunctions`, and the same
 mutate-snapshot of `baseExpression` (L189–192). The METHOD decision (L194–212):
+
 ```ts
 if (isMethod(state, expression)) {
     if (luau.isValidIdentifier(name)) {
@@ -868,6 +940,7 @@ return wrapReturnIfLuaTuple(state, node, exp);
 `node.expression` (a[b]) (L226–230). Super branch (L232–240; later). PropertyCall macro check
 identical to §8.2 (CHECKER `getNonOptionalType` L242). Then NOTE the index expression is ordered
 WITH the args:
+
 ```ts
 const [[argumentExp, ...args], prereqs] = state.capture(() =>
     ensureTransformOrder(state, [argumentExpression, ...nodeArguments]));
@@ -890,6 +963,7 @@ return wrapReturnIfLuaTuple(state, node, exp);
 ```
 
 ### 8.4 runCallMacro (L21–83) — macro path, documented for the later port
+
 Captures arg transform; spread-last-arg handling: CHECKER:
 `typeChecker.getSignaturesOfType(state.getType(node.expression), ts.SignatureKind.Call)[0]` (L33),
 last parameter `dotDotDotToken` → `errors.noVarArgsMacroSpread`; otherwise CHECKER:
@@ -908,6 +982,7 @@ getOrSetDefault(state.multiTransformState.isMethodCache, t.symbol, () => isMetho
 cached PER SYMBOL across the whole program (multiTransformState).
 
 `isMethodInner(state, node, type)` (L51–77):
+
 ```ts
 for (const callSignature of type.getCallSignatures()) {            // CHECKER (L55)
     const thisValueDeclaration = callSignature.thisParameter?.valueDeclaration;   // CHECKER
@@ -923,10 +998,12 @@ for (const callSignature of type.getCallSignatures()) {            // CHECKER (L
 if (hasMethodDefinition && hasCallbackDefinition) errors.noMixedTypeCall(node);
 return hasMethodDefinition;
 ```
+
 A signature with an explicit `this` parameter typed `void` is a callback; any other `this` type
 makes it a method.
 
 `isMethodDeclaration(state, node)` (L19–49), for signatures without a thisParameter symbol:
+
 - non-FunctionLike → false.
 - explicit `this` identifier first param (`getThisParameter`, L9–17) →
   `!(state.getType(thisParam).flags & ts.TypeFlags.Void)` — CHECKER (L23).
@@ -939,11 +1016,13 @@ makes it a method.
 ### 8.6 wrapReturnIfLuaTuple — `util/wrapReturnIfLuaTuple.ts` (the LuaTuple check)
 
 (L58–63):
+
 ```ts
 if (isLuaTupleType(state)(state.getType(node)) && shouldWrapLuaTuple(state, node, exp))
     return luau.array([exp]);
 return exp;
 ```
+
 CHECKER: `state.getType(node)` + nominal-property LuaTuple test (§7.2). A multi-return call typed
 `LuaTuple<T>` is packed `{ f() }` UNLESS the syntactic context consumes the multiple values.
 `shouldWrapLuaTuple` (L8–56): wrap (true) if `exp` isn't a call; else with
@@ -963,6 +1042,7 @@ Entry (L36–43): `getConstantValueLiteral(state, node)` first —
 member accesses fold to `luau.string`/`luau.number`. Else `transformOptionalChain(state, node)`.
 
 `transformPropertyAccessExpressionInner(state, node, expression, name)` (L11–34):
+
 ```ts
 validateNotAnyType(state, node.expression);                                   // a in a.b
 addIndexDiagnostics(state, node, state.typeChecker.getNonOptionalType(state.getType(node)));  // CHECKER (L20)
@@ -971,8 +1051,10 @@ if (ts.isDeleteExpression(skipUpwards(node).parent)) {
 }
 return luau.property(convertToIndexableExpression(expression), name);
 ```
+
 NOTE: `addIndexDiagnostics` receives the type of THE ACCESS ITSELF (`state.getType(node)`), used
 for method-indexing errors. `util/addIndexDiagnostics.ts` L10–26:
+
 ```ts
 const symbol = getFirstDefinedSymbol(state, expType);
 if ((symbol && macroManager.getPropertyCallMacro(symbol)) ||
@@ -980,6 +1062,7 @@ if ((symbol && macroManager.getPropertyCallMacro(symbol)) ||
     errors.noIndexWithoutCall(node);
 if (ts.isPrototypeAccess(node)) errors.noPrototype(node);
 ```
+
 `util/isValidMethodIndexWithoutCall.ts` L6–35: indexing a method WITHOUT calling is allowed when
 parent is a BinaryExpression (`a.b !== undefined`), a PrefixUnaryExpression (`!a.b`), or the arg of
 the `typeIs`/`typeOf` call macros (CHECKER: `typeChecker.getNonOptionalType(state.getType(
@@ -990,6 +1073,7 @@ parent.expression))` L20 + `getFirstDefinedSymbol` + `getCallMacro`).
 Entry (L71–78): constant-value fold then `transformOptionalChain`.
 
 `transformElementAccessExpressionInner(state, node, expression, argumentExpression)` (L15–69):
+
 ```ts
 validateNotAnyType(state, node.expression);            // a in a[b]
 validateNotAnyType(state, node.argumentExpression);    // b in a[b]
@@ -1016,9 +1100,11 @@ return ComputedIndexExpression {
     index: addOneIfArrayType(state, expType, index),
 };
 ```
+
 LuaTuple indexing of a direct call: `f()[0]` → `(f())`; `f()[n]` → `(select(n + 1, f()))`.
 
 THE +1 ARRAY OFFSET — `util/addOneIfArrayType.ts` L7–13 (precise):
+
 ```ts
 export function addOneIfArrayType(state: TransformState, type: ts.Type, expression: luau.Expression) {
     if (isDefinitelyType(type, isArrayType(state), isUndefinedType)) {
@@ -1028,6 +1114,7 @@ export function addOneIfArrayType(state: TransformState, type: ts.Type, expressi
     }
 }
 ```
+
 Conditions: the OBJECT type (already `getNonOptionalType`-stripped at all three call sites:
 element access read/write L26, element call callee L272, writable element access
 transformWritable.ts L29 — the writable site passes raw `state.getType(node.expression)` WITHOUT
@@ -1067,11 +1154,13 @@ hoist self (`local _self = base`); macro + `?.()` → `errors.noOptionalMacroCal
 ### 10.1 transformVariableStatement — `statements/transformVariableStatement.ts`
 
 `transformVariableStatement` (L191–196) → `transformVariableDeclarationList` (L173–189):
+
 - `isVarDeclaration(node)` (L169–171): `!(flags & Const) && !(flags & Let)` → `errors.noVar`.
 - Per declaration: `const [variableStatements, prereqs] = state.capture(() =>
   transformVariableDeclaration(state, declaration)); pushList(prereqs); pushList(variableStatements);`
 
 `transformVariableDeclaration` (L101–167):
+
 ```ts
 let value: luau.Expression | undefined;
 if (node.initializer) {
@@ -1085,6 +1174,7 @@ if (ts.isIdentifier(name)) {
 ```
 
 `transformVariable(state, identifier, right?)` (L19–55) — the identifier-binding core:
+
 ```ts
 validateIdentifier(state, identifier);
 const symbol = state.typeChecker.getSymbolAtLocation(identifier);   // CHECKER (L22)
@@ -1124,6 +1214,7 @@ via `wrapExpressionStatement` (L127–131).
 ### 10.2 transformExpressionStatement — `statements/transformExpressionStatement.ts` L86–89
 
 `expression = skipDownwards(node.expression)` then `transformExpressionStatementInner` (L26–84):
+
 - BinaryExpression:
   - logical-assignment (`&&= ||= ??=`) → dedicated statement transform (later).
   - assignment operator with non-destructuring LHS (L34–75): statement-form twin of §4.1 step 4:
@@ -1144,6 +1235,7 @@ via `wrapExpressionStatement` (L127–131).
 const condition = createTruthinessChecks(state, transformExpression(state, node.expression), node.expression);
 const statements = transformStatementList(state, node.thenStatement, getStatements(node.thenStatement));
 ```
+
 (condition prereqs flow into the CURRENT outer prereq capture — if-statements don't loop, so no
 special handling.) Else handling (L16–31): none → empty list; `else if` → recursively
 `state.capture(transformIfStatementInner)`; when the nested elseif produced prereqs they cannot
@@ -1172,7 +1264,8 @@ return [ WhileStatement { condition: conditionExp, statements: whileStatements }
 Body first: `transformStatementList`. Inversion micro-opt (L12–16): if the TS condition is
 `!expr`, strip the `!` and remember `conditionIsInvertedInLuau = false`. Capture condition +
 truthiness prereqs. Emit:
-```
+
+```text
 repeat
     do            -- body wrapped in DoStatement for correct local scoping vs condition
         [body]
@@ -1180,6 +1273,7 @@ repeat
     [conditionPrereqs]
 until <not condition | condition>
 ```
+
 (`until not cond` normally, since `repeat..until` exits when true while do/while continues when
 true; with the stripped-`!` case the inversion cancels.)
 
@@ -1189,6 +1283,7 @@ true; with the stripped-`!` case the inversion cancels.)
 `transformForStatementOptimized`; else/fallback `transformForStatementFallback`.
 
 10.6.1 Fallback (L102–297) — fully general while-loop desugaring:
+
 - Initializer (L126–209):
   - VariableDeclarationList: `noVar` check. CLOSURE-CAPTURE MACHINERY (the subtle part): for each
     declared identifier (`getDeclaredVariables`), compute
@@ -1206,12 +1301,14 @@ true; with the stripped-`!` case the inversion cancels.)
     per-iteration `let` capture semantics.
   - Expression initializer: `transformExpressionStatementInner` with captured prereqs (L204–208).
 - Incrementor (L211–247): guarded so it runs at the TOP of every iteration EXCEPT the first:
-  ```
+
+  ```text
   local _shouldIncrement = false
   while ... do
       if _shouldIncrement then [incrementor stmts] else _shouldIncrement = true end
       ...
   ```
+
   (this makes `continue` still trigger the increment, since Luau `continue` jumps to loop top).
 - Condition (L249–274): captured `createTruthinessChecks` (or `luau.bool(true)` when absent). If
   ANY whileStatements precede the body (incrementor guard, per-iteration locals, or condition
@@ -1239,6 +1336,7 @@ transforms, `<` → `offset(end, -1)`, `>` → `offset(end, +1)`, `NumericForSta
 { id, start, end, step, statements }`.
 
 ### 10.7 transformBlock — `statements/transformBlock.ts` L6–12
+
 Free-standing `{ ... }` → `DoStatement { statements: transformStatementList(state, node,
 node.statements) }` (preserves scoping).
 
@@ -1248,15 +1346,18 @@ node.statements) }` (preserves scoping).
 {}` when `isReturnBlockedByTryStatement`; out of scope) else `return nil` — NOTE: explicit
 `ReturnStatement { expression: luau.nil() }`, NOT a bare `return`, preserving JS `undefined`.
 With expression → `transformReturnStatementInner` (L28–69):
+
 - `$tuple(...)` macro returns (L36–39; later): args become a multi-value return list.
 - Normal: `expression = transformExpression(state, skipDownwards(returnExp));` then the LuaTuple
   check (L42–48):
+
   ```ts
   if (isLuaTupleType(state)(state.getType(returnExp)) && !isTupleReturningCall(state, returnExp, expression)) {
       if (luau.isArray(expression)) expression = expression.members;   // return a, b, c
       else expression = luau.call(luau.globals.unpack, [expression]);  // return unpack(exp)
   }
   ```
+
   `isTupleReturningCall` (L10–16): `luau.isCall(luaExpression) && isLuaTupleType(state)(
   state.typeChecker.getTypeAtLocation(skipDownwards(tsExpression)))` — CHECKER (L14), deliberately
   NOT `state.getType` ("intentionally NOT using state.getType() here, because that uses
@@ -1265,6 +1366,7 @@ With expression → `transformReturnStatementInner` (L28–69):
 - Try-block wrapping (L51–63, later): `return TS.TRY_RETURN, { <values> }`.
 
 ### 10.9 transformBreakStatement — `statements/transformBreakStatement.ts` L8–25
+
 Label → `errors.noLabeledStatement`, empty list. **ROTOR DIVERGENCE:** labels are a
 rotor extension (transformer/labeledstatement.go); only a label crossing a try is
 rejected, as `noLabeledStatementsWithinTryCatch`. `isBreakBlockedByTryStatement(node)`
@@ -1273,11 +1375,13 @@ TryStatement|IterationStatement|SwitchStatement is a Try) → `return TS.TRY_BRE
 Else `BreakStatement {}`.
 
 ### 10.10 transformContinueStatement — `statements/transformContinueStatement.ts` L8–25
+
 Identical shape: label → `noLabeledStatement` (same ROTOR DIVERGENCE as 10.9);
 try-blocked → `return TS.TRY_CONTINUE`;
 else `ContinueStatement {}` (Luau has native `continue`).
 
 ### 10.11 transformThrowStatement — `statements/transformThrowStatement.ts` L6–16
+
 `throw x` → `CallStatement { error(<x>) }`; bare rethrow `throw;` (no expression) → `error()`.
 No type checks, no validateNotAny.
 
@@ -1286,12 +1390,14 @@ No type checks, no validateNotAny.
 ## 11. Diagnostics
 
 ### 11.1 Infrastructure — `Shared/diagnostics.ts`
+
 Factories are created at module load with sequential `id` (L20, L54); category Error or Warning;
 messages joined with `\n`; `suggestion(text)` prefixes "Suggestion: " (L16–18); some carry a
 GitHub `issue(n)` link. `getDiagnosticId` (L85–88) reads the id back. Port: stable enumeration of
 ids matters only for the `--allowedDiagnostics`-style filtering and tests; preserve names+messages.
 
 ### 11.2 validateNotAnyType — `util/validateNotAny.ts` L9–36 (FULL)
+
 ```ts
 if (ts.isSpreadElement(node)) node = skipDownwards(node.expression);
 let type = state.getType(node);                                    // CHECKER (L14)
@@ -1312,6 +1418,7 @@ if (isDefinitelyType(type, isAnyType(state))) {
     } else errors.noAny(node);
 }
 ```
+
 Arrays of any (`any[]`) are reported via their element type; the per-symbol cache dedupes repeat
 reports for the same variable; symbol-less any accesses always report.
 
@@ -1403,6 +1510,7 @@ Diagnostics: `Shared/diagnostics.ts`.
 ### 12.2 CHECKER call-site inventory (tsgo API surface)
 
 TypeChecker methods:
+
 - `getTypeAtLocation` — TransformState.ts:185 (memoized `state.getType`, takes `skipUpwards`);
   transformReturnStatement.ts:14 (raw, takes `skipDownwards`).
 - `getSymbolAtLocation` — transformIdentifier.ts:17,121; ensureTransformOrder.ts:37;
@@ -1448,6 +1556,7 @@ Node-level TS helpers used: `ts.canHaveModifiers`/`getModifiers`, `ts.hasSyntact
 NodeFlags.Let/Const/Namespace.
 
 ### 12.3 Macro hook points (port: raise clean "macro not supported" errors)
+
 - `macroManager.getIdentifierMacro` — transformIdentifier.ts:132.
 - `macroManager.getCallMacro` — transformIdentifier.ts:155; transformCallExpression.ts:138;
   isValidMethodIndexWithoutCall.ts:23.
@@ -1459,6 +1568,7 @@ NodeFlags.Let/Const/Namespace.
 - `macroManager.isMacroOnlyClass` — transformObjectLiteralExpression.ts:37.
 
 ### 12.4 First-wave diagnostic name list (complete)
+
 noBigInt, noNullLiteral, noPrivateIdentifier, noRegex, noTypeOfExpression, noForInStatement,
 noLabeledStatement, noDebuggerStatement, noAny, noVar, noGetterSetter, noEqualsEquals,
 noExclamationEquals, upstream rest-spread rejection, noLuaTupleDestructureAssignmentExpression,

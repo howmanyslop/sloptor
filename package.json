@@ -47,6 +47,10 @@
 	"devDependencies": {
 		"@biomejs/biome": "catalog:lint",
 		"@cliffy/command": "catalog:dev",
+		"@commitlint/cli": "catalog:dev",
+		"@commitlint/config-conventional": "catalog:dev",
+		"@commitlint/types": "catalog:dev",
+		"@pobammer-ts/small-rules": "catalog:lint",
 		"@total-typescript/ts-reset": "catalog:types",
 		"@types/node": "catalog:types",
 		"@typescript/native-preview": "catalog:dev",

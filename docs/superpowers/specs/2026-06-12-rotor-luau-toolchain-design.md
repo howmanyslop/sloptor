@@ -256,7 +256,8 @@ The inner-loop command: `rotor dev [-p project] [--rojo project.json] [--no-serv
     Rojo/roblox-ts project. (roblox-ts's own `TS.import(...)` RuntimeLib shape is a
     documented later increment, not v1-D core.)
 - **Runtime model (darklua-equivalent table+closure, Roblox-faithful cycle
-    detection):** emit one module table:
+  detection):** emit one module table:
+
   ```lua
   local __ROTOR_BUNDLE = { cache = {}, loading = {} }
   do
@@ -275,6 +276,7 @@ The inner-loop command: `rotor dev [-p project] [--rojo project.json] [--no-serv
       end
   end
   ```
+
   Each `require(...)` in a module body is rewritten to `__ROTOR_BUNDLE.load_<id>()`.
   The entry module runs last. The `loading` guard reproduces Roblox's recursive-
   require error rather than recursing forever or silently returning a partial

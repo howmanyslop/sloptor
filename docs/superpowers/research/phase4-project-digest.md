@@ -79,6 +79,7 @@ const tsConfigPath = findTsConfigPath(argv.project);
 const projectOptions = Object.assign({}, DEFAULT_PROJECT_OPTIONS,
                                      getTsConfigProjectOptions(tsConfigPath), argv);
 ```
+
 - `getTsConfigProjectOptions` (L22-29): reads tsConfigPath raw, JSON-parses via
   `ts.parseConfigFileTextToJson`, returns the top-level **`rbxts`** key — an undocumented
   way to persist any Partial\<ProjectOptions\> in tsconfig.json. Merge order: defaults <
@@ -115,6 +116,7 @@ else {
   if (hasErrors(emitResult.diagnostics)) process.exitCode = 1;
 }
 ```
+
 Order matters: **cleanup → copyInclude → copyFiles → compileFiles**. Error diags → exit 1;
 `hasErrors` = any `DiagnosticCategory.Error` (`Shared/util/hasErrors.ts`). catch: exit 1 +
 `LoggableError.log()` (formatted via `ts.formatDiagnosticsWithColorAndContext`,
@@ -127,9 +129,9 @@ Order matters: **cleanup → copyInclude → copyFiles → compileFiles**. Error
 - **Custom roblox-ts diagnostics** carry `code: " roblox-ts"` (a string crammed into the code
   field — `Shared/util/createTextDiagnostic.ts` L9), so pretty print renders
   `error roblox-ts: <message>` instead of `error TS1234:`. Located diagnostics (from
-  `Shared/diagnostics.ts`) follow the same scheme with ` roblox-ts` suffixed ids.
+  `Shared/diagnostics.ts`) follow the same scheme with `roblox-ts` suffixed ids.
 - **LogService** (`Shared/classes/LogService.ts`): `warn` = `kleur.yellow("Compiler Warning:")
-  + " " + msg`; `writeLineIfVerbose` gated on `--verbose`; `write` tracks partial lines (a
+  - " " + msg`; `writeLineIfVerbose` gated on `--verbose`; `write` tracks partial lines (a
   partial benchmark line gets a `\n` injected before any writeLine).
 - **Verbose benchmark lines** (`Shared/util/benchmark.ts`): `LogService.write(name)` then
   `` ` ( ${Date.now()-start} ms )\n` `` appended — i.e. `copy include files ( 12 ms )`.
@@ -151,6 +153,7 @@ Order matters: **cleanup → copyInclude → copyFiles → compileFiles**. Error
 ### 2.1 createProjectData — `Project/functions/createProjectData.ts`
 
 Already ported into `projectContext` EXCEPT the option-driven bits:
+
 - `projectOptions.includePath = path.resolve(includePath || join(projectPath, "include"))`
   (L29 — `||` intentionally catches `""`); rotor hardcodes the fallback.
 - `--rojo` override: truthy `projectOptions.rojo` → `path.resolve(rojo)`; else
@@ -168,7 +171,7 @@ Already ported into `projectContext` EXCEPT the option-driven bits:
   host = `ts.createIncrementalCompilerHost(options)` with **createHash salted** (L8-26):
   `contentsToHash = "version=3.0.0," + "type=" + String(projectOptions.type) + "," +
   "isPackage=" + String(isPackage) + "," + "plugins=" + JSON.stringify(compilerOptions.plugins ?? []) + ","
-  + <raw rojo config file contents if any>`, prepended to every hashed datum
+  - <raw rojo config file contents if any>`, prepended to every hashed datum
   (`host.createHash = data => origCreateHash(contentsToHash + data)`). Effect: changing the
   compiler version, `--type`, package-ness, plugin config, or the Rojo project file
   invalidates EVERY file signature in `.tsbuildinfo` → full rebuild. This is the entire
@@ -189,6 +192,7 @@ Already ported into `projectContext` EXCEPT the option-driven bits:
 and JSON source files (L8).
 
 `getChangedFilePaths(program, pathHints?)` (`getChangedFilePaths.ts` L12-54):
+
 - Builds `reversedReferencedMap` from `program.getState().referencedMap` (importer→imported,
   reversed to imported→importers) (L18-28).
 - `search(filePath)`: add file + transitively all files that import it; recursion stops at
@@ -233,6 +237,7 @@ if (!noInclude && projectOptions.type !== ProjectType.Package
     && !(projectOptions.type === undefined && data.isPackage))
   fs.copySync(INCLUDE_PATH, data.projectOptions.includePath, { dereference: true });
 ```
+
 - `INCLUDE_PATH` = `<rbxtsc package root>/include` (`Shared/constants.ts` L5) — contains
   exactly `RuntimeLib.lua` (6018 B) and `Promise.lua` (60896 B) in 3.0.0
   (`reference/roblox-ts/include/`). rotor has NO include/ assets yet → Phase 4 must vendor
@@ -278,6 +283,7 @@ Front half (L27-100) is ported. The rest:
   `getCustomPreEmitDiagnostics(data, sourceFile)` (= `fileUsesCommentDirectives`, §2.9);
   TransformState; transformSourceFile; renderAST; queue.
 - **L187-208 write phase** (verbose benchmark `writing compiled files`):
+
   ```ts
   const afterDeclarations = compilerOptions.declaration
     ? [transformTypeReferenceDirectives, transformPathsTransformer(program, {})] : undefined;
@@ -293,6 +299,7 @@ Front half (L27-100) is ported. The rest:
                         /*emitOnlyDtsFiles*/ true, { afterDeclarations });
   }
   ```
+
   - `--writeOnlyChanged`: byte-compare existing output, skip identical writes (keeps Rojo
     live-sync from re-syncing untouched files).
   - **Declaration emit (Package projects)**: per queued file, TS's own d.ts-only emit
@@ -332,6 +339,7 @@ watch path needs the addition hook.
 
 Per compiled file (via `getCustomPreEmitDiagnostics`, `Project/util/getCustomPreEmitDiagnostics.ts`
 — a one-entry checker list):
+
 - skip entirely if `projectOptions.allowCommentDirectives` (L6-8);
 - one `errors.noCommentDirectives` per `sourceFile.commentDirectives` entry (the
   `@ts-ignore`/`@ts-expect-error` ranges TS's scanner collected) at the directive's range
@@ -354,10 +362,12 @@ Per compiled file (via `getCustomPreEmitDiagnostics`, `Project/util/getCustomPre
 ### 3.1 Watcher setup (L24-31, L223-235)
 
 chokidar over `getRootDirs(options)` with:
+
 ```ts
 { awaitWriteFinish: { pollInterval: 10, stabilityThreshold: 50 },
   ignoreInitial: true, disableGlobbing: true, usePolling }
 ```
+
 Events: `add`+`addDir` → collectAddEvent; `change` → collectChangeEvent;
 `unlink`+`unlinkDir` → collectDeleteEvent; `once("ready")` → report
 `"Starting compilation in watch mode..."` then run the initial compile. All event paths are
@@ -403,6 +413,7 @@ initial pipeline again (cleanup + copies included).
 ### 3.5 Incremental compile (L98-168)
 
 For the batched additions/changes/removals:
+
 - **additions**: directory → `walkDirectorySync` collecting compilable descendants into
   `fileNamesSet` + `filesToCompile`; compilable file → both sets; non-compilable →
   `checkFileName` + `filesToCopy` (L99-115).
@@ -463,6 +474,7 @@ For the batched additions/changes/removals:
 
 tsgo does NOT expose `EmitAndSemanticDiagnosticsBuilderProgram`; its incremental machinery
 lives in `tsgo/execute/incremental`:
+
 - `incremental.Program` wraps `compiler.Program` + a `snapshot` holding `fileInfos`
   (version/signature), `referencedMap`, `semanticDiagnosticsPerFile`, `changedFilesSet`,
   `affectedFilesPendingEmit`, `emitSignatures` (`incremental/snapshot.go` L300-341) — the
@@ -509,14 +521,16 @@ lives in `tsgo/execute/incremental`:
 rotor has only rootDir/outDir (project.go L380-398). Full list — each failure pushes a
 bullet; all collected then thrown as one ProjectError (L107-115):
 
-```
+```text
 Invalid "tsconfig.json" configuration!
 https://roblox-ts.com/docs/quick-start#project-folder-setup
 - <error1>\n- <error2>\n...
 ```
+
 (each error line ends with `\n` including the last — already byte-matched in rotor.)
 
 Checks, in source order (kleur.yellow() = `y`, applied to the quoted fragments):
+
 1. `opts.noLib !== true` → `` `"noLib"` must be `true` `` (L37-39).
 2. `opts.strict !== true` → `` `"strict"` must be `true` `` (L41-43).
 3. target check is **commented out** upstream (L45-47) — any target passes. Do not enforce.
@@ -533,7 +547,7 @@ Checks, in source order (kleur.yellow() = `y`, applied to the quoted fragments):
    typesLocation)` and `+ ".d.ts"` existence → else `` `"types"` `<loc>` were not found. Make
    sure the path is relative to `typeRoots` `` (L70-86).
 10. `rootDir`/`rootDirs` (ported). 11. `outDir` (ported) (L89-95).
-12. `opts.importsNotUsedAsValues !== undefined` → `` `"importsNotUsedAsValues"` is no longer
+11. `opts.importsNotUsedAsValues !== undefined` → `` `"importsNotUsedAsValues"` is no longer
     supported, use `"verbatimModuleSyntax": <true|false>` instead `` — suggested value `true`
     iff the old value was `Preserve` (L98-104).
 
@@ -595,6 +609,7 @@ Boundary: text→text per compilation pass. Projects without `plugins` never spa
 - **Spawn**: `node <bundled sidecar.js>`, once per build (kept alive in watch). Locate node
   from PATH; failure → hard ProjectError naming the missing prerequisite.
 - **Request** (JSON over stdio, one message per compile pass):
+
   ```jsonc
   {
     "protocol": 1,
@@ -604,11 +619,13 @@ Boundary: text→text per compilation pass. Projects without `plugins` never spa
     "changedFiles": [{ "fileName": "<abs>", "text": "..." }]  // watch overlay updates (d.ts etc.)
   }
   ```
+
   The sidecar (real `typescript` npm package) builds/reuses its own ts.Program (full
   TypeChecker — flamework-class plugins work), runs getPluginConfigs → createTransformerList
   → ts.transformNodes → printFile, mirroring §6.1 exactly including the after/before/
   afterDeclarations flatten order.
 - **Response**:
+
   ```jsonc
   {
     "diagnostics": [{ "category": "error|warning", "code": "...", "file": "...",
@@ -616,6 +633,7 @@ Boundary: text→text per compilation pass. Projects without `plugins` never spa
     "transformed": [{ "fileName": "<abs>.ts", "text": "<printed TS source>" }]
   }
   ```
+
   rotor then re-parses each transformed text through tsgo as an overlay (the analog of
   proxyProgram: a second tsgo Program whose host serves overridden file contents) and
   compiles from THAT program/checker. Declaration emit (Package + plugins) also runs over
@@ -635,6 +653,7 @@ Boundary: text→text per compilation pass. Projects without `plugins` never spa
 
 `internal/compile/project.go` L70-89: `parsed.CompilerOptions().Checkers = &one` before
 NewProgram. The pin exists because:
+
 - tsgo's pool (`tsgo/compiler/checkerpool.go`): default 4 checkers (L41), files assigned
   ROUND-ROBIN `fileAssociations[file] = checkers[i%checkerCount]` (L116);
   `Program.GetTypeChecker(ctx)` returns checkers[0] while
@@ -681,6 +700,7 @@ NewProgram. The pin exists because:
 ### 7.3 Recommendation
 
 **Keep the pin for v1.** Rationale:
+
 - Correctness surface is wide (items 1-5), and the dedup-cache divergence (item 3) directly
   threatens the diagnostics-corpus parity gate of Phase 5.
 - The win is bounded: with the pin, the semantic pass is single-checker (≈ tsc-equivalent
@@ -713,7 +733,7 @@ plan is the spec.
 | 13 | collect-all-files diagnostics before bailing (vs first-file abort) | compileFiles.ts L151-185 | first-error abort |
 | 14 | Rojo-resolver/config warnings via `Compiler Warning:` channel | compileFiles.ts L65-67, createProjectData.ts L41 | dropped |
 | 15 | progress/verbose output (`N/M compile`, benchmarks, `compiling as X..`) | compileFiles.ts L102-155, benchmark.ts | none |
-| 16 | pretty diagnostic printing with ` roblox-ts` code + located ids | createTextDiagnostic.ts, diagnostics.ts | plain strings |
+| 16 | pretty diagnostic printing with `roblox-ts` code + located ids | createTextDiagnostic.ts, diagnostics.ts | plain strings |
 | 17 | exit-code parity (1 for usage errors too) | cli.ts L30-35 | uses 2 |
 | 18 | watch mode for build (events, 100 ms batch, incremental sets, statuses) | setupProjectWatchProgram.ts | check-only poll watch |
 | 19 | incremental builds (.tsbuildinfo + salt + changed-file selection) | createProgramFactory.ts, getChangedFilePaths.ts | none |

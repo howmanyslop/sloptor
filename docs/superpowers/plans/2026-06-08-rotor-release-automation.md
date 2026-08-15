@@ -10,13 +10,13 @@
 
 ---
 
-### Task 1: Make the CLI release version linker-injectable
+## Task 1: Make the CLI release version linker-injectable
 
 **Files:**
+
 - Modify: `cmd/rotor/main.go`
 - Create: `cmd/rotor/main_test.go`
 - Test: `cmd/rotor/main_test.go`
-
 - [ ] **Step 1: Write the failing version output test**
 
 ```go
@@ -90,6 +90,7 @@ Expected: `PASS`
 ### Task 2: Add GoReleaser configuration
 
 **Files:**
+
 - Create: `.goreleaser.yml`
 
 - [ ] **Step 1: Add the release build matrix**
@@ -136,6 +137,7 @@ release:
 ### Task 3: Add the tag-triggered GitHub Actions workflow
 
 **Files:**
+
 - Create: `.github/workflows/release.yml`
 
 - [ ] **Step 1: Add the tag trigger and checkout/setup steps**
@@ -170,6 +172,7 @@ on:
 ### Task 4: Update the README release and install docs
 
 **Files:**
+
 - Modify: `README.md`
 
 - [ ] **Step 1: Replace the local-build-first installation section with release-first guidance**
@@ -207,6 +210,7 @@ rokit add uproot/rotor@1.0.1
 ### Task 5: Verify the release flow locally
 
 **Files:**
+
 - Test: `cmd/rotor/main_test.go`
 
 - [ ] **Step 1: Run CLI tests**

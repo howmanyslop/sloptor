@@ -7,6 +7,7 @@ Every checker/type-API usage is flagged `CHECKER:`. Builds on `phase2-transforms
 prereq/pushToVar), `phase3-imports-digest.md` (transformEntityName, import retention).
 
 Empirical claims verified 2026-06-07:
+
 - **Oracle shapes**: rbxtsc 3.0.0 (real CLI) run over a THROWAWAY COPY of
   `testdata/diff/project` in `%TEMP%\rotor-jsx-oracle` with `@rbxts/react@17.3.7-ts.1`
   npm-installed and the randomness jsx tsconfig keys added. All §3 Luau is byte-verbatim
@@ -94,7 +95,7 @@ Dispatch (`transformExpression.ts` L96-99): `JsxElement`, `JsxExpression`, `JsxF
 
 ### 2.1 transformJsx (transformJsx.ts L12-46) — the core
 
-```
+```text
 transformJsx(state, node /*JsxElement|JsxSelfClosingElement*/, tagName, attributes, children):
     jsxFactoryEntity = state.resolver.getJsxFactoryEntity(node)        // CHECKER (EmitResolver)
     assert(jsxFactoryEntity)   // "Expected jsxFactoryEntity to be defined"
@@ -118,6 +119,7 @@ transformJsx(state, node /*JsxElement|JsxSelfClosingElement*/, tagName, attribut
 ```
 
 Shapes (oracle-proven, §3):
+
 - no attrs, no children → `React.createElement("frame")`
 - attrs only → `React.createElement("frame", { ... })`
 - children only → `React.createElement("frame", nil, child1, child2)`
@@ -143,7 +145,7 @@ files never hit it).
 
 ### 2.2 transformJsxTagName (transformJsxTagName.ts L9-38)
 
-```
+```text
 transformJsxTagNameExpression(state, node /*JsxTagNameExpression*/):
     if isIdentifier(node):
         firstChar = node.text[0]
@@ -168,6 +170,7 @@ transformJsxTagName(state, tagName):
 ```
 
 Notes:
+
 - The lowercase test is on the RAW first char via JS `toLowerCase()`. `"_" === "_".toLowerCase()`
   → true, so `<_Comp/>` emits the STRING `"_Comp"` even though the checker bound it to a
   function component. Oracle-proven (§3 case L). Port with the same semantics: take the
@@ -187,7 +190,7 @@ ROTOR MAPPING: `transformJsxTagName` in jsx.go. `s.Capture` (state.go:277),
 
 Top loop (L70-103) over `attributes.properties` (order preserved):
 
-```
+```text
 for attribute in attributes.properties:
     if isJsxAttribute(attribute): transformJsxAttribute(state, attribute, attributesPtr)
     else:  // JsxSpreadAttribute  `<frame {...x}/>`
@@ -210,7 +213,7 @@ for attribute in attributes.properties:
 
 `transformJsxAttribute` (L50-68):
 
-```
+```text
 initializer = attribute.initializer                 // string literal | JsxExpression | JsxElement | undefined
 if initializer && isJsxExpression(initializer): initializer = initializer.expression
                                                     // NOTE: {} empty expr -> undefined -> true (QUIRK §7.3)
@@ -225,7 +228,7 @@ assignToMapPointer(state, attributesPtr, luau.string(text), init)
 
 `createJsxAttributeLoop` (L11-48) — the generic spread merge:
 
-```
+```text
 definitelyObject = isDefinitelyType(state.getType(tsExpression), isObjectType)   // CHECKER
 if !definitelyObject: expression = state.pushToVarIfComplex(expression, "attribute")
 statement = ForStatement{ ids: [tempId("k"), tempId("v")], expression,
@@ -254,7 +257,7 @@ attribute name via `attr.AsJsxAttribute().Name()` (Identifier or JsxNamespacedNa
 
 ### 2.4 transformJsxChildren (transformJsxChildren.ts L11-39)
 
-```
+```text
 lastJsxChildIndex = findLastIndex(children, c => !isJsxText(c) || !c.containsOnlyTriviaWhiteSpaces)
 for i in [0, lastJsxChildIndex):              // EXCLUSIVE of the last significant child
     if isJsxExpression(children[i]) && children[i].dotDotDotToken:
@@ -292,7 +295,7 @@ inline a small helper (rotor has none generic).
 
 ### 2.5 transformJsxExpression (transformJsxExpression.ts L6-15)
 
-```
+```text
 if node.expression:
     expression = transformExpression(state, node.expression)
     if node.dotDotDotToken: return luau.call(luau.globals.unpack, [expression])   // {...arr} -> unpack(arr)
@@ -305,7 +308,7 @@ ROTOR MAPPING: jsx.go `transformJsxExpression`; dispatch case `ast.KindJsxExpres
 
 ### 2.6 transformJsxFragment (transformJsxFragment.ts L9-34)
 
-```
+```text
 jsxFactoryEntity = state.resolver.getJsxFactoryEntity(node); assert(...)
 createElementExpression = convertToIndexable(transformEntityName(state, jsxFactoryEntity))
 jsxFragmentFactoryEntity = state.resolver.getJsxFragmentFactoryEntity(node)        // CHECKER
@@ -378,6 +381,7 @@ local React = TS.import(script, script.Parent, "node_modules", "@rbxts", "react"
 ```tsx
 export const a = <frame BackgroundTransparency={0.5} Visible />;
 ```
+
 ```lua
 local a = React.createElement("frame", {
 	BackgroundTransparency = 0.5,
@@ -396,6 +400,7 @@ export const b = (
 	</screengui>
 );
 ```
+
 ```lua
 local b = (React.createElement("screengui", {
 	ResetOnSpawn = false,
@@ -411,6 +416,7 @@ local b = (React.createElement("screengui", {
 ```tsx
 export const c = (<><frame /><frame /></>);
 ```
+
 ```lua
 local c = (React.createElement(React.Fragment, nil, React.createElement("frame"), React.createElement("frame")))
 ```
@@ -427,6 +433,7 @@ export const d = (
 	</TextHolder>
 );
 ```
+
 ```lua
 local d = (React.createElement(TextHolder, nil, "hello world", cond and React.createElement("frame"), if cond then React.createElement("frame") else React.createElement("textlabel"), items))
 ```
@@ -437,6 +444,7 @@ local d = (React.createElement(TextHolder, nil, "hello world", cond and React.cr
 export const e = <frame BackgroundTransparency={1} {...extra} Visible={false} />;
 export const e2 = <frame {...extra} Visible={false} />;
 ```
+
 ```lua
 local _attributes = {
 	BackgroundTransparency = 1,
@@ -466,6 +474,7 @@ export const f = (
 	</frame>
 );
 ```
+
 ```lua
 local f = (React.createElement("frame", {
 	key = "container",
@@ -488,6 +497,7 @@ export const g = (
 	/>
 );
 ```
+
 ```lua
 local g = (React.createElement("textbutton", {
 	Event = {
@@ -508,6 +518,7 @@ local g = (React.createElement("textbutton", {
 ```tsx
 export const h = <NS.Item text="3" />;          // also <Nested.Deep.Comp />
 ```
+
 ```lua
 local h = React.createElement(NS.Item, {
 	text = "3",
@@ -526,6 +537,7 @@ export const i = (
 	</TextHolder>
 );
 ```
+
 ```lua
 local i = (React.createElement(TextHolder, nil, "one & two three line2"))
 ```
@@ -535,6 +547,7 @@ local i = (React.createElement(TextHolder, nil, "one & two three line2"))
 ```tsx
 export const j = <frame>{...arr}</frame>;
 ```
+
 ```lua
 local j = React.createElement("frame", nil, unpack(arr))
 ```
@@ -610,6 +623,7 @@ local g = React.createElement("frame")        -- <frame>{}</frame>
 ```tsx
 export const h = <frame>{list.map(s => <textlabel key={s} Text={s} />)}</frame>;
 ```
+
 ```lua
 -- ▼ ReadonlyArray.map ▼
 local _newValue = table.create(#list)
@@ -646,6 +660,7 @@ local k = React.createElement(React.Fragment, nil, children)
 function _Comp() { return <frame />; }
 export const a = <_Comp />;
 ```
+
 ```lua
 local function _Comp()
 	return React.createElement("frame")

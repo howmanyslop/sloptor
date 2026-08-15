@@ -13,7 +13,7 @@ Expands rotor from compiler + Luau toolchain into the all-in-one Roblox toolchai
 
 ## Architecture
 
-```
+```text
 rotor.config.ts ──(internal/config: esbuild transpile → goja eval)──► Config struct
                                                                         │
         ┌──────────────────────────┬────────────────────────────────────┤

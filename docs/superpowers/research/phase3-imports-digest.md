@@ -11,6 +11,7 @@ rbxtsc ground truth for the diff fixture project), NewExpression + constructor m
 multi-file CompileFile spec.
 
 Dispatch entries (`nodes/statements/transformStatement.ts`):
+
 - L80 `ts.SyntaxKind.ExportAssignment → transformExportAssignment`
 - L81 `ExportDeclaration → transformExportDeclaration`
 - L87 `ImportDeclaration → transformImportDeclaration`
@@ -38,32 +39,37 @@ export function transformImportDeclaration(state: TransformState, node: ts.Impor
 		createImportExpression(state, node.getSourceFile(), node.moduleSpecifier),
 	);                                                                                       // L47–49
 ```
+
 `Lazy` (`Shared/classes/Lazy.ts`) is a get/set memo: `get()` runs the factory once;
 `set(v)` overrides. The TS.import call is therefore only BUILT if some binding survives
 elision — a fully-elided import emits NOTHING, not even the require (see 1.4).
 
 Steps with an importClause (L51–120):
+
 1. **Use counting** (L53, helper `countImportExpUses` L13–37): counts how many bindings will
    actually read `importExp`:
    - default name: +1 if `state.resolver.isReferencedAliasDeclaration(importClause) && (!symbol
      || isSymbolOfValue(symbol))` where `symbol = getOriginalSymbolOfNode(state.typeChecker,
      importClause.name)` (L16–21). CHECKER: emit-resolver call (§1.5) + `getSymbolAtLocation`
-     + `ts.skipAlias` (getOriginalSymbolOfNode.ts L3–9).
+     - `ts.skipAlias` (getOriginalSymbolOfNode.ts L3–9).
    - namespace import: unconditional +1 (L24–25). NO elision check — `import * as ns` always
      binds if the clause survived the type-only check.
    - each named element: same referenced+value check as default, on the element (L27–32).
 2. **Temp var when uses > 1** (L54–65):
+
    ```ts
    const moduleName = node.moduleSpecifier.text.split("/");
    const id = luau.tempId(cleanModuleName(moduleName[moduleName.length - 1]));
    luau.list.push(statements, luau.create(luau.SyntaxKind.VariableDeclaration, { left: id, right: importExp.get() }));
    importExp.set(id);
    ```
+
    `cleanModuleName` (`util/cleanModuleName.ts`): `name.replace(/\W/g, "_")` — last specifier
    segment, non-word chars → `_`. tempId render gets the usual `_` prefix: ground truth
    `local __scratch_util = TS.import(...)` for specifier `"./_scratch_util"` (§5.3).
    With uses == 1 the call is inlined at the single use site; uses == 0 → nothing.
 3. **Default import** (L68–88): if name passes the same referenced+value check:
+
    ```ts
    const moduleFile = getSourceFileFromModuleSpecifier(state, node.moduleSpecifier);
    const moduleSymbol = moduleFile && state.typeChecker.getSymbolAtLocation(moduleFile);     // CHECKER (L73)
@@ -73,6 +79,7 @@ Steps with an importClause (L51–120):
        ...transformVariable(state, importClauseName, importExp.get())                        // synthetic default interop
    }
    ```
+
    CHECKER: `state.getModuleExports` = cached `typeChecker.getExportsOfModule(moduleSymbol)`
    (TransformState.ts L308–312). If the target has a real `default` export → `.default`
    property; otherwise (allowSyntheticDefaultImports over an `export =` module) the default
@@ -101,6 +108,7 @@ if (!importClause || (state.compilerOptions.verbatimModuleSyntax && luau.list.is
 	}
 }
 ```
+
 `import "./x"` (no clause) → bare `TS.import(script, ...)` CallStatement. Under
 verbatimModuleSyntax, an import whose bindings all elided still emits the call (side effects
 preserved). The `luau.isCallExpression` guard skips the case where importExp was already
@@ -123,6 +131,7 @@ preserved). The `luau.isCallExpression` guard skips the case where importExp was
 Upstream resolver: `state.resolver = typeChecker.getEmitResolver(sourceFile)`
 (TransformState.ts L61 — strada's per-file getEmitResolver forces the file to be CHECKED so
 alias-reference marks exist). Five call sites, all in this phase's files:
+
 - transformImportDeclaration.ts L18, L29 (countImportExpUses), L71 (default), L105 (named)
 - transformExportDeclaration.ts L14 (export specifiers, §2.1)
 Asked with: `ts.ImportClause` (for the default name), `ts.ImportSpecifier`,
@@ -137,7 +146,9 @@ exported aliases) the alias target is a value. Combined in the transform with
 so type-only and const-enum imports drop even when "referenced".
 
 **tsgo offers this directly** — no shim needed:
+
 - `tsgo/checker/emitresolver.go` L688–712 `func (r *EmitResolver) IsReferencedAliasDeclaration(node *ast.Node) bool`:
+
   ```go
   if !c.canCollectSymbolAliasAccessibilityData || !ast.IsParseTreeNode(node) { return true }
   ...
@@ -152,6 +163,7 @@ so type-only and const-enum imports drop even when "referenced".
   }
   return false
   ```
+
 - `canCollectSymbolAliasAccessibilityData = c.compilerOptions.VerbatimModuleSyntax.IsFalseOrUnknown()`
   (`tsgo/checker/checker.go` L922) — under verbatimModuleSyntax the method returns true for
   everything (matches strada; pairs with the 1.2 fallback).
@@ -190,6 +202,7 @@ if (node.isTypeOnly) return luau.list.make<luau.Statement>();   // export type {
 if (node.moduleSpecifier) return transformExportFrom(state, node);
 return luau.list.make<luau.Statement>();                        // plain `export { x }` — no emit here
 ```
+
 Plain `export { x }` (no specifier) emits nothing at the statement; handleExports collects it
 via getExportPair (§2.3).
 
@@ -200,6 +213,7 @@ CHECKER: `aliasSymbol = typeChecker.getSymbolAtLocation(element.name)` and
 re-exports of values kept even when "unreferenced" locally.)
 
 `transformExportFrom` (L40–123):
+
 1. Use counting (L26–38): NamedExports → count of value specifiers; namespace
    (`export * as ns`) or bare star → always 1.
    uses == 1 → inline `createImportExpression`; uses > 1 → temp
@@ -211,12 +225,14 @@ re-exports of values kept even when "unreferenced" locally.)
    position.
 4. `export * as foo from "./m"` (L84–94): `exports.foo = <importExp>`.
 5. `export * from "./m"` (L95–118):
+
    ```ts
    const keyId = luau.tempId("k"); const valueId = luau.tempId("v");
    // ForStatement: for _k, _v in <importExp> or {} do exports[_k] = _v end
    // importExp may be `nil` in .d.ts files, so default to `{}`
    expression: luau.binary(importExp, "or", luau.map()),
    ```
+
 6. `state.hasExportFrom = true` (L120) — forces the `local exports = {}` path in
    handleExports.
 
@@ -229,6 +245,7 @@ if (symbol && !isSymbolOfValue(ts.skipAlias(symbol, state.typeChecker))) return 
 if (node.isExportEquals) return transformExportEquals(state, node);
 else return transformExportDefault(state, node);
 ```
+
 - `transformExportEquals` (L10–27): sets `state.hasExportEquals = true`. If the node is the
   FINAL statement of the file → direct `return <expr>`; otherwise
   `local exports = <expr>` (left: `state.getModuleIdFromNode(node)` = `exports`) and
@@ -242,6 +259,7 @@ else return transformExportDefault(state, node);
 
 (Already ported in rotor `internal/transformer/exports.go`; restated for the export-from
 additions.) Selection loop (L100–130) over CHECKER `state.getModuleExports(fileSymbol)` skips:
+
 1. `ignoredExportSymbols` (L47–67 `getIgnoredExportSymbols`): for each
    `export * from "./m"` statement, ALL of m's exports
    (CHECKER: `getOriginalSymbolOfNode(typeChecker, statement.moduleSpecifier)` →
@@ -264,12 +282,15 @@ else plain `return { k = v, ... }` (L168–188).
 sort key cannot reproduce cross-file interleave. Ground truth shows the trailing-pairs problem
 is SMALLER than feared because star/export-from symbols never reach exportPairs (skips 1+3
 above) — the interleave lives in STATEMENT POSITION. Real rbxtsc 3.0.0 output for
+
 ```ts
 export const own = 1;
 export * from "./_scratch_util";
 export { greet as hello } from "./_scratch_util";
 ```
+
 is (verbatim, fixture project, `--type model`):
+
 ```lua
 -- Compiled with roblox-ts v3.0.0
 local TS = require(script.Parent.include.RuntimeLib)
@@ -282,6 +303,7 @@ exports.hello = TS.import(script, script.Parent, "_scratch_util").greet
 exports.own = own
 return exports
 ```
+
 Each export-from statement created its OWN TS.import (uses counted per declaration, both 1 ⇒
 inline, no temp). `exports.own` (the only exportPairs survivor) trails. Remaining ordering
 risk for rotor: `getModuleExports` iteration order of the FILE symbol still drives trailing
@@ -302,12 +324,14 @@ export function createImportExpression(state, sourceFile, moduleSpecifier): luau
 	return luau.call(state.TS(moduleSpecifier.parent, "import"), parts);
 }
 ```
+
 ALWAYS `TS.import(script, <root expr>, "<name>"...)` — `state.TS` sets `usesRuntimeLib`
 (TransformState.ts L189–197, plus `warnings.runtimeLibUsedInReplicatedFirst` for Game files
 whose rbxPath[0] == "ReplicatedFirst", computed in the ctor L63–65). WaitForChild semantics
 live INSIDE RuntimeLib's TS.import at runtime — the emitted AST carries plain strings.
 
 `getImportParts` (L184–210):
+
 1. `const moduleFile = getSourceFileFromModuleSpecifier(state, moduleSpecifier)`; missing →
    `errors.noModuleSpecifierFile` + `[luau.none()]` (every error path returns `[luau.none()]`
    so the call renders as `TS.import(script, nil)` — diagnostics carry the failure).
@@ -351,6 +375,7 @@ if (ts.isStringLiteralLike(moduleSpecifier)) {
 	if (result.resolvedModule) return state.program.getSourceFile(result.resolvedModule.resolvedFileName);
 }
 ```
+
 tsgo equivalents, all public: `Checker.ResolveExternalModuleName`
 (`tsgo/checker/exports.go` L104), `Program.GetModeForUsageLocation`
 (`tsgo/compiler/program.go` L1509), `Program.GetResolvedModule` (L468) /
@@ -365,19 +390,23 @@ const moduleScope = path.relative(state.data.nodeModulesPath, moduleOutPath).spl
 if (!moduleScope.startsWith("@"))  → errors.noUnscopedModule, [none]
 if (!validateModule(state, moduleScope)) → errors.noInvalidModule, [none]
 ```
+
 `validateModule` (L49–59): `path.join(nodeModulesPath, scope)` must `path.normalize`-equal one
 of `state.compilerOptions.typeRoots`. (`data.nodeModulesPath` = `<pkgJsonDir>/node_modules`,
 `Project/functions/createProjectData.ts` L31.)
+
 - **Package** projectType (L89–110): find rbxPath via the FIRST matching of
   `state.pkgRojoResolvers` (one `RojoResolver.synthetic(typeRoot)` per typeRoot,
   compileFiles.ts L77; helper `findRelativeRbxPath` L61–68); none →
   `errors.noRojoData(..., relative(projectPath, moduleOutPath), /*isPackage*/ true)`. Emit:
+
   ```ts
   propertyAccessExpressionChain(
       luau.call(state.TS(moduleSpecifier.parent, "getModule"),
           [luau.globals.script, luau.string(moduleScope), luau.string(moduleName)]),  // moduleName = relativeRbxPath[0]
       relativeRbxPath.slice(1))
   ```
+
   → `TS.getModule(script, "@rbxts", "services")` or `TS.getModule(script, "@rbxts", "pkg").out.foo`.
 - **Game/Model** (L111–133): `moduleRbxPath = state.rojoResolver.getRbxPathFromFilePath(moduleOutPath)`
   (else noRojoData/true); the scope must appear in the rbxPath with `NODE_MODULES`
@@ -396,6 +425,7 @@ const sourceOutPath = state.pathTranslator.getOutputPath(sourceFile.fileName);
 const sourceRbxPath = state.rojoResolver.getRbxPathFromFilePath(sourceOutPath);
 if (!sourceRbxPath) → errors.noRojoData(sourceFile, relative(projectPath, sourceOutPath), false), [none]
 ```
+
 - **Game** (L158–178): network check first — skipped when `ts.isImportCall(moduleSpecifier.parent)`
   (dynamic `import("")` may be guarded by RunService checks at runtime):
   `getNetworkType(moduleRbxPath) === Server && getNetworkType(sourceRbxPath) !== Server` →
@@ -419,10 +449,12 @@ ONE `propertyAccessExpressionChain(luau.globals.script, ["Parent", ...])` (so th
 
 `nodes/expressions/transformImportExpression.ts` L8–30: non-string-literal arg →
 `errors.noNonStringModuleSpecifier`, `luau.none()`. Else
+
 ```ts
 luau.call(luau.property(state.TS(node, "Promise"), "new"), [FunctionExpression(
     parameters: [resolve], statements: [CallStatement(resolve(<createImportExpression(...)>))])])
 ```
+
 → `TS.Promise.new(function(resolve) resolve(TS.import(script, ...)) end)`.
 `macros/callMacros.ts` L56–60 `$getModuleTree`: `getImportParts` then
 `luau.array([parts.shift()!, luau.array(parts)])` → `{ root, { "rest", "of", "path" } }`.
@@ -455,6 +487,7 @@ SERVER_CONTAINERS = ServerStorage/ServerScriptService (L45–46); config names
 `default.project.json` / legacy `roblox-project.json` / `*.project.json` (L22–24).
 
 Methods roblox-ts calls (call sites in §1–3, compileFiles, TransformState):
+
 - `static findRojoConfigFilePath(projectPath)` (L115–131): default.project.json wins; else
   candidates by regex, warn on multiple. → `{ path?, warnings }`.
 - `static fromPath(configPath)` (L146–150) — parseConfig(resolve(path), doNotPush=true).
@@ -495,6 +528,7 @@ roblox-ts constructs it in `Project/functions/createPathTranslator.ts` L8–18:
 constants.ts L54).
 PathInfo model (L10–30): fileName + ALL dot-extensions as a stack (so `a.spec.ts` →
 exts [".spec", ".ts"]; `extsPeek(1)` sees `.d` of `.d.ts`).
+
 - `getOutputPath(filePath)` (L45–56): if last ext is `.ts`/`.tsx` and not `.d.*`: pop ext,
   `index` → `init` rename, push `.luau`; rebase rootDir→outDir. (`src/foo/index.ts` →
   `out/foo/init.luau`.)
@@ -535,6 +569,7 @@ if (projectType !== ProjectType.Package) {
 		→ emitResultFailure("Runtime library cannot be in an isolated container!")
 }
 ```
+
 Packages get `runtimeLibRbxPath = undefined` ⇒ `_G[script]` form. Note `.lua` filename here;
 RojoResolver's convertToLuau normalizes. rojoResolver itself: `data.rojoConfigPath ?
 RojoResolver.fromPath(...) : RojoResolver.synthetic(outDir)` (L61–63).
@@ -545,11 +580,13 @@ Emitted by transformSourceFile L227–230 (`if (state.usesRuntimeLib)
 luau.list.push(headerStatements, state.createRuntimeLibImport(node))`) AFTER the
 `-- Compiled with roblox-ts v3.0.0` comment; headerStatements are unshifted after handleExports
 and after `--!directive` comments are pulled to the very top (L232–240).
+
 - **Game** (L205–228): `local TS = require(game:GetService("<p0>"):WaitForChild("<p1>"):...)`
   — chain of `WaitForChild` MethodCallExpressions over the runtimeLibRbxPath tail, wrapped in
   `require`. (Imports use plain strings; the runtime lib require is the ONE place WaitForChild
   is emitted literally.)
 - **Model** (L229–253): per-FILE relative chain:
+
   ```ts
   const sourceOutPath = this.pathTranslator.getOutputPath(sourceFile.fileName);
   const rbxPath = this.rojoResolver.getRbxPathFromFilePath(sourceOutPath);
@@ -557,6 +594,7 @@ and after `--!directive` comments are pulled to the very top (L232–240).
   // local TS = require(script.<chain>) where chain = RojoResolver.relative(rbxPath, runtimeLibRbxPath)
   //   with RbxPathParent → "Parent", everything as PROPERTY accesses (no WaitForChild)
   ```
+
 - **Package** (L254–264): `local TS = _G[script]` (ComputedIndexExpression `_G[script]`);
   comment in source: "we pass RuntimeLib access to packages via `_G[script] = TS`".
 
@@ -568,6 +606,7 @@ and after `--!directive` comments are pulled to the very top (L232–240).
 ["fixture","include","RuntimeLib"]; relative = [Parent,"include","RuntimeLib"].
 Compiled 2026-06-06 with real rbxtsc 3.0.0 (`.\node_modules\.bin\rbxtsc.cmd --type model`),
 scratch cleaned up after. **src/_scratch_util.ts**:
+
 ```ts
 export const VALUE = 123;
 export function greet(name: string) {
@@ -577,14 +616,18 @@ export default function () {
 	return VALUE;
 }
 ```
+
 **src/_scratch_main.ts**:
+
 ```ts
 import greeter, { VALUE, greet as g } from "./_scratch_util";
 const x = VALUE + greeter();
 print(g("world"), x);
 export {};
 ```
+
 **out/_scratch_main.luau** (verbatim):
+
 ```lua
 -- Compiled with roblox-ts v3.0.0
 local TS = require(script.Parent.include.RuntimeLib)
@@ -596,7 +639,9 @@ local x = VALUE + greeter()
 print(g("world"), x)
 return nil
 ```
+
 **out/_scratch_util.luau** (verbatim):
+
 ```lua
 -- Compiled with roblox-ts v3.0.0
 local VALUE = 123
@@ -612,6 +657,7 @@ return {
 	VALUE = VALUE,
 }
 ```
+
 Confirms: uses=3 ⇒ temp `__scratch_util` (tempId named `_scratch_util`); binding order
 default→named in clause order; real-default module ⇒ `.default`; `export {}` ⇒ no exports ⇒
 ModuleScript `return nil` (transformSourceFile L213–220 — CHECKER-free:
@@ -641,6 +687,7 @@ export function transformNewExpression(state: TransformState, node: ts.NewExpres
 	return luau.call(luau.property(expression, "new"), args);
 }
 ```
+
 Fallback covers user classes AND `new Instance("Part")` → `Instance.new("Part")` — there is
 NO separate Instance macro (verified: no Instance entry anywhere in macros/). `new C` without
 parens → empty args. `getFirstConstructSymbol` (`util/types.ts` L226–242): CHECKER —
@@ -664,6 +711,7 @@ export const CONSTRUCTOR_MACROS: MacroList<ConstructorMacro> = {
 	ReadonlySetConstructor: SetConstructor,
 };
 ```
+
 - **ArrayConstructor** (L16–22): args present → `table.create(<args>)` (`new Array<T>(8)` →
   `table.create(8)`; second arg fills); else `{}`.
 - **SetConstructor** (L24–53): no args → `luau.set()` (`{}` rendering with `[v] = true`
@@ -697,6 +745,7 @@ diagnostics → `new TransformState(...13 args)` → transformSourceFile → ren
 `pathTranslator.getOutputPath(fileName)`.
 
 Minimal Phase 3 changes:
+
 1. **CompileProject(projectDir) → map[outRelPath]string**: build Program once (reuse
    SanitizeFS pipeline); enumerate `program.SourceFiles()` filtered to non-declaration files
    under rootDir (upstream uses `getChangedSourceFiles`/all root files; diff harness wants
@@ -733,6 +782,7 @@ Minimal Phase 3 changes:
 
 From `Shared/diagnostics.ts` (line refs) — ALL already present in rotor's
 `internal/transformer/diagnostics.go` (66-factory set):
+
 - L188 `noModuleSpecifierFile` — "Could not find file for import. Did you forget to `npm install`?" (getImportParts L187)
 - L189 `noInvalidModule` — "You can only use npm scopes that are listed in your typeRoots." (L85)
 - L190 `noUnscopedModule` — "You cannot use modules directly under node_modules." (L80)
@@ -760,6 +810,7 @@ NewExpression adds no new diagnostics (guards `noConstructorMacroWithoutNew`, `n
 ## 9. Inventory
 
 ### 9.1 Reference files digested (read in full)
+
 `nodes/statements/transformImportDeclaration.ts`, `transformImportEqualsDeclaration.ts`,
 `transformExportDeclaration.ts`, `transformExportAssignment.ts`,
 `nodes/transformSourceFile.ts` (handleExports + runtime-lib/header assembly),
@@ -782,6 +833,7 @@ L714, MarkLinkedReferencesRecursively L799), `checker/checker.go` L922/L28500/L3
 `checker/exports.go` L104–110, `compiler/program.go` L468–485/L1509.
 
 ### 9.2 CHECKER call-site inventory (new in Phase 3)
+
 - `resolver.isReferencedAliasDeclaration` — transformImportDeclaration.ts:18,29,71,105;
   transformExportDeclaration.ts:14. tsgo: `Checker.GetEmitResolver().IsReferencedAliasDeclaration`
   — EXISTS, requires the file checked first (GetSemanticDiagnostics).
@@ -807,6 +859,7 @@ L714, MarkLinkedReferencesRecursively L799), `checker/checker.go` L922/L28500/L3
   node_modules segment).
 
 ### 9.3 Vendoring + sequencing notes
+
 - VENDOR for Phase 3: github.com/roblox-ts/rojo-resolver @ 1.1.0 and
   github.com/roblox-ts/path-translator @ 1.1.0 into `reference/` (only dist JS available
   locally today; §4 captures full behavior with dist line refs).

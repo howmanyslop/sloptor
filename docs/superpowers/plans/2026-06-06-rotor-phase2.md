@@ -17,7 +17,7 @@
 
 ## File Structure
 
-```
+```text
 testdata/diff/project/           the fixture rbxts project (oracle input)
 │   ├── package.json             pinned: roblox-ts@3.0.0, typescript@5.5.3, @rbxts/compiler-types@3.0.0-types.0, @rbxts/types
 │   ├── tsconfig.json            standard rbxts config (rbxtsc-required options INCLUDED)
@@ -54,13 +54,14 @@ internal/compile/sanitize.go     tsconfig sanitizer vfs wrapper (strips TS7-remo
 ### Task 1: Fixture project, oracle runner, committed goldens
 
 **Files:**
+
 - Create: `testdata/diff/project/{package.json, tsconfig.json, default.project.json}`, `testdata/diff/project/src/*.ts` (9 fixtures below), `tools/oracle/oracle.ps1`
 - Create (generated): `testdata/diff/golden/*.luau`
 - Modify: `.gitignore` (add `testdata/diff/project/node_modules/`, `testdata/diff/project/out/`, `testdata/diff/project/include/`)
-
 - [ ] **Step 1: Project files** — exactly the validated recipe:
 
 `package.json`:
+
 ```json
 {
 	"name": "rotor-diff-fixtures",
@@ -75,6 +76,7 @@ internal/compile/sanitize.go     tsconfig sanitizer vfs wrapper (strips TS7-remo
 ```
 
 `tsconfig.json` (rbxtsc REQUIRES the legacy options; rotor sanitizes them at load — Task 5):
+
 ```json
 {
 	"compilerOptions": {
@@ -99,6 +101,7 @@ internal/compile/sanitize.go     tsconfig sanitizer vfs wrapper (strips TS7-remo
 ```
 
 `default.project.json`:
+
 ```json
 {"name":"fixture","tree":{"$path":"out","include":{"$path":"include"},"node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"}}}}
 ```
@@ -106,6 +109,7 @@ internal/compile/sanitize.go     tsconfig sanitizer vfs wrapper (strips TS7-remo
 - [ ] **Step 2: Fixture sources.** One concern per file; ONLY first-wave constructs (no functions defined, no macros — global calls like `print`, `math.floor`, `tostring`, `tonumber`, `typeOf` are fine EXCEPT `typeOf` which IS a macro — do not use it; no string-value methods like `.upper()` — macros; no `array.push` — macro; plain indexing is fine).
 
 `src/01_literals.ts`:
+
 ```typescript
 const a = 5;
 const b = 3.25;
@@ -125,6 +129,7 @@ print(a, b, c, d, e, s1, s2, s3, t, f, arr, empty, obj, tmpl);
 ```
 
 `src/02_variables.ts`:
+
 ```typescript
 let x = 1;
 const y = 2;
@@ -137,6 +142,7 @@ print(x, y, z, m, n);
 ```
 
 `src/03_arithmetic.ts`:
+
 ```typescript
 const a = 10;
 const b = 3;
@@ -150,6 +156,7 @@ print(a & b, a | b, a ^ b, a << b, a >>> b);
 ```
 
 `src/04_logic.ts`:
+
 ```typescript
 const t = true;
 const f = false;
@@ -170,6 +177,7 @@ if (s) {
 ```
 
 `src/05_control.ts`:
+
 ```typescript
 const limit = 10;
 let total = 0;
@@ -207,6 +215,7 @@ print(total, count);
 ```
 
 `src/07_access.ts`:
+
 ```typescript
 const arr = [10, 20, 30];
 const first = arr[0];
@@ -222,6 +231,7 @@ print(math.floor(3.7), math.max(1, 2, 3), tostring(42), tonumber("7"));
 ```
 
 `src/08_exports.ts`:
+
 ```typescript
 export const constant = 42;
 export let mutable = "start";
@@ -231,6 +241,7 @@ print(internal, mutable);
 ```
 
 `src/09_unary.ts`:
+
 ```typescript
 let i = 0;
 i++;
@@ -247,6 +258,7 @@ print(after, before, i);
 ```
 
 `src/10_strings.ts`:
+
 ```typescript
 const name = "world";
 const n = 3;
@@ -258,6 +270,7 @@ print(plain, multi, tableInTemplate, concat);
 ```
 
 `src/06_globals.ts`:
+
 ```typescript
 print("hello");
 warn("warning");
@@ -267,6 +280,7 @@ print(game.GetService === undefined);
 NOTE: each fixture MUST compile cleanly under rbxtsc — Step 4 verifies; if rbxtsc rejects a construct (e.g. `game.GetService === undefined` may produce a diagnostic), simplify that line and note it. Goldens are whatever rbxtsc actually emits.
 
 - [ ] **Step 3: Oracle script** `tools/oracle/oracle.ps1`:
+
 ```powershell
 # Regenerates the differential-test goldens by running the REAL rbxtsc 3.0.0
 # over testdata/diff/project. Requires Node/npm. Run from repo root:
@@ -298,6 +312,7 @@ Write-Host "goldens regenerated: $((Get-ChildItem $golden).Count) files"
 - [ ] **Step 4: Generate goldens.** Run `powershell -File tools/oracle/oracle.ps1`. Expected: one `.luau` per fixture in `testdata/diff/golden/`. READ each golden and sanity-check it starts with `-- Compiled with roblox-ts v3.0.0`. If rbxtsc reports compile errors in any fixture, fix the fixture (stay within first-wave constructs) and re-run. Report any fixture lines you had to change.
 
 - [ ] **Step 5: Commit**
+
 ```powershell
 git add testdata tools .gitignore && git commit -m "diff: fixture project, oracle runner, rbxtsc goldens"
 ```
@@ -305,9 +320,11 @@ git add testdata tools .gitignore && git commit -m "diff: fixture project, oracl
 ### Task 2: Differential harness (manifest-gated)
 
 **Files:**
+
 - Create: `internal/diff/manifest.go`, `internal/diff/diff_test.go`
 
 - [ ] **Step 1:** `manifest.go`:
+
 ```go
 package diff
 
@@ -319,6 +336,7 @@ var EnabledFixtures = []string{}
 ```
 
 - [ ] **Step 2:** `diff_test.go`:
+
 ```go
 package diff
 
@@ -411,6 +429,7 @@ func tail(lines []string) string {
 ```
 
 - [ ] **Step 3:** This won't compile until `internal/compile` exists (Task 5). Create a placeholder `internal/compile/compile.go`:
+
 ```go
 // Package compile wires program creation, transformation, and rendering into
 // a single entry point. Full implementation lands with the transformer
@@ -423,9 +442,11 @@ func CompileFile(projectDir, relPath string) (string, []string, error) {
 	return "", nil, errors.New("compile: not implemented yet")
 }
 ```
+
 Run `go test ./internal/diff/ -v` — expect PASS with all fixtures logged as skipped (manifest empty).
 
 - [ ] **Step 4: Commit**
+
 ```powershell
 git add internal && git commit -m "diff: manifest-gated differential harness"
 ```
@@ -435,11 +456,12 @@ git add internal && git commit -m "diff: manifest-gated differential harness"
 **Digest:** transforms digest §11 (Diagnostics inventory — all 33 error + 2 warning names with exact messages) and transformstate digest (DiagnosticService section).
 
 **Files:**
+
 - Create: `internal/transformer/diagnostics.go`, `internal/transformer/diagservice.go`
 - Test: `internal/transformer/diagnostics_test.go`
-
 - [ ] **Step 1 (test first):** a test that constructs a service, adds two diagnostics for distinct nodes, adds a `addSingleDiagnostic`-style duplicate (same factory, second occurrence ignored), flushes, and asserts count + exact message strings for at least `noAny` (`"Using values of type `any` is not supported!"` — VERIFY exact text against the digest/reference, do not trust this plan) and one banned-syntax message.
 - [ ] **Step 2:** Implement. Design (Go):
+
 ```go
 type Diagnostic struct {
 	Code     string // upstream factory name, e.g. "noAny"
@@ -449,7 +471,9 @@ type Diagnostic struct {
 }
 type DiagService struct { ... } // Add(d), AddSingle(d) dedupes by Code, Flush() []Diagnostic, HasErrors() bool
 ```
+
 Every factory from the digest inventory becomes a `func DiagNoAny(node *ast.Node) Diagnostic`-style constructor with the EXACT upstream message text (copy from digest; cross-check `reference/roblox-ts/src/Shared/diagnostics.ts` for any the digest abbreviated). Include the two warnings (`truthyChange`, and the other listed). Port the message-formatting helpers (`issue(...)` suffix etc.) faithfully.
+
 - [ ] **Step 3:** `go test ./internal/transformer/ -v` green; commit `"transformer: diagnostics and service"`.
 
 ### Task 4: TransformState core
@@ -457,10 +481,11 @@ Every factory from the digest inventory becomes a `func DiagNoAny(node *ast.Node
 **Digest:** transformstate digest — TransformState fields/methods (prereq stack, capture, pushToVar*, getType, TS(), valueToIdStr) and MultiTransformState.
 
 **Files:**
+
 - Create: `internal/transformer/state.go`, `internal/transformer/valuetoidstr.go`
 - Test: `internal/transformer/state_test.go`
-
 - [ ] **Step 1 (tests first; checker-free — prereq mechanics don't need types):**
+
 ```go
 func TestCapture(t *testing.T) {
 	s := NewTestState() // helper: state with nil checker for mechanics tests
@@ -487,7 +512,9 @@ func TestPushToVarIfComplex(t *testing.T) {
 	if prereqs.Size() != 1 { t.Fatal("complex expr must produce a local prereq") }
 }
 ```
+
 Also test `PushToVarIfNonID` (skips identifiers AND temp ids only) and that `RuntimeLib(node, "instanceof")` sets `UsesRuntimeLib` and returns `TS.instanceof` shaped AST.
+
 - [ ] **Step 2:** Implement per digest: exact pushToVarIfComplex kind set {Identifier, TemporaryIdentifier, NilLiteral, TrueLiteral, FalseLiteral, NumberLiteral, StringLiteral} (this is `luau.IsSimple`), `valueToIdStr` port (name-hint derivation — full logic from digest/reference `util/valueToIdStr.ts`), getType = cache over `Checker.GetTypeAtLocation(SkipUpwards(node))` (port `util/traversal/skipUpwards.ts`), fields: prereqStack, hoistsByStatement `map[*ast.Node]*luau.List[luau.AnyIdentifier]`, isHoisted `map[*ast.Symbol]bool`, symbolToID, moduleIDBySymbol, UsesRuntimeLib, MultiState caches struct. Defer the emit-resolver-dependent bits (JSX factory, import elision) with documented `// Phase 3/4:` markers — NOT panics, they're just absent fields until needed.
 - [ ] **Step 3:** Tests green, vet clean; commit `"transformer: TransformState core"`.
 
@@ -496,12 +523,13 @@ Also test `PushToVarIfNonID` (skips identifiers AND temp ids only) and that `Run
 **Digest:** transformstate digest — transformSourceFile flow, exports shapes, header/return-nil/trailing-newline byte layout, hoist merge in transformStatementList.
 
 **Files:**
+
 - Create: `internal/transformer/sourcefile.go`, `internal/transformer/statementlist.go`, `internal/transformer/exports.go`, `internal/compile/compile.go` (replace placeholder), `internal/compile/sanitize.go`
 - Test: `internal/compile/sanitize_test.go`, `internal/transformer/sourcefile_test.go`
-
 - [ ] **Step 1: Config sanitizer (test first).** TS7 removed `downlevelIteration`, `baseUrl`, and `moduleResolution: "Node"`(node10) — but rbxtsc REQUIRES them in tsconfig.json. rotor must load the same tsconfig with those keys stripped/mapped. Implement `sanitize.go` as a `vfs.FS` wrapper: intercept `ReadFile` of the tsconfig path; parse the JSON loosely (strip `//` comments first — tsconfigs allow them), delete `downlevelIteration` and `baseUrl`, replace `"moduleResolution": "Node"` (case-insensitive value match) with `"bundler"`... STOP: verify what current rbxts code on TS6 actually maps to — check what option value tsgo accepts that preserves node_modules `@rbxts` resolution. Empirically test BOTH `"node16"` and omitting moduleResolution entirely (module commonjs implies a default) against the fixture project: the sanitizer is correct when `compile.CompileFile` typechecks fixture 01 with ZERO diagnostics. Choose whichever works, document why in a comment.
 
 Test: read fixture tsconfig through the wrapper, assert stripped keys absent, assert program creation over the fixture project yields no config/semantic diagnostics for `01_literals.ts`.
+
 - [ ] **Step 2: transformStatementList + sourcefile (tests first).** Unit test at the transformer level (no full pipeline): build a tiny TS source in-memory via the fixture project's program? — NO: keep it integration-shaped. The honest unit here is the diff harness itself; write ONE narrow test: `TestEmptyModuleEmitsReturnNil` — compile (via compile.CompileFile against a scratch file you add to the fixture project? NO — don't pollute fixtures). Instead: expose `transformer.TransformSourceFile(state) *luau.List[luau.Statement]` and test the EXPORT SHAPES with table-driven mini-programs once the pipeline runs. Practical order: implement, then validate via Task 6's first enabled fixture. For THIS task, implement + test the pure parts:
   - exports shape selection given (hasExportEquals, hasExportFrom, mutable-export set, immutable map) — pure function `chooseExportShape` with a unit test for all four shapes per the digest
   - header prepending + `return nil` rule (last non-comment statement isn't a return) as a pure post-processing function over `*luau.List[luau.Statement]` — unit-testable with hand-built lists
@@ -513,10 +541,10 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §1 (dispatch), §2 (literals: raw-text numerics, raw `getText()` slicing for strings, template→InterpolatedString always, array/object pointers with prereq-degradation).
 
 **Files:**
+
 - Create: `internal/transformer/dispatch.go`, `internal/transformer/literals.go`, `internal/transformer/pointer.go` (the map/array pointer util from transformstate digest)
 - Modify: `internal/diff/manifest.go` (+`01_literals`, `10_strings`)
 - Test: `internal/transformer/literals_test.go` + the diff harness
-
 - [ ] **Step 1:** Port dispatch maps: `transformExpression(state, node)` / `transformStatement` type-switching on `ast.Kind*`; unknown/banned kinds → digest-exact diagnostics (e.g. `noNullLiteral` for null) returning `luau.NewNone()` / empty list, never aborting. Port literals per digest: numeric = raw source text via node text (slice `state.SourceFileText`), string = raw text slice INCLUDING quote conversion rules documented in the digest, template expression → `luau.InterpolatedString` with part escaping (renderer handles escapes — transformer passes cooked text per digest; follow the digest exactly), array/object literal pointer mechanics (inline until a member has prereqs, then materialize temp + per-field assignments).
 - [ ] **Step 2:** Enable `01_literals` and `10_strings` in the manifest. Run `go test ./internal/diff/ -v -run TestDifferential`. Iterate until byte-identical (the first-diff reporter pinpoints divergences; compare against the digest and reference TS — `print(...)` is a plain call: implementing calls is Task 10, BUT fixtures 01/10 end with a `print(...)` line... **ordering fix**: implement a minimal plain-call path NOW (no isMethod, no macros — bare `f(args)` for identifier callees only) as part of dispatch.go, marked `// full call support: task 10`).
 - [ ] **Step 3:** Full suite green; commit `"transformer: dispatch + literals; first byte-identical goldens"`.
@@ -526,9 +554,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §3 (identifier: symbol lookup, undefined→nil, hoist check, export-let routing) and §10 (variable statement identifier path, expression statement discard semantics, wrapExpressionStatement).
 
 **Files:**
+
 - Create: `internal/transformer/identifier.go`, `internal/transformer/hoist.go` (checkIdentifierHoist; createHoistDeclaration in statementlist.go)
 - Modify: `internal/transformer/statements.go` (create — transformVariableStatement identifier path, transformExpressionStatement), `internal/diff/manifest.go` (+`02_variables`)
-
 - [ ] **Step 1:** Port per digest: transformIdentifier (shorthand-aware symbol lookup → `Checker.GetSymbolAtLocation`, `isUndefinedSymbol`→nil, macro-misuse diagnostics stubbed to fire on ANY macro symbol — macro identification: resolve the ambient symbol names per digest §3, with `// macros: Phase 3` for the actual macro table), checkIdentifierHoist (statement-index comparison within BlockLike + the three self-reference exemptions; the switch-case `checkVariableHoist` FindAllReferences path is OUT of scope — document with marker), transformVariableStatement for Identifier bindings incl. multi-declaration and export-let (`exports.name = value`), transformExpressionStatement (assignment/increment specializations + wrapExpressionStatement drop semantics).
 - [ ] **Step 2:** Enable `02_variables`; iterate to byte parity; full suite green; commit `"transformer: identifiers, variable and expression statements"`.
 
@@ -537,9 +565,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §6 (createTruthinessChecks — exact check order `~= 0`, `x == x`, `~= ""`, value; the TS#32778 NaN-when-0-possible workaround; truthyChange warnings) and §7 (isDefinitelyType/isPossiblyType combinators + the 15 TypeFlags inventory with tsgo mapping).
 
 **Files:**
+
 - Create: `internal/transformer/types.go`, `internal/transformer/truthiness.go`
 - Test: `internal/transformer/types_test.go` (uses the fixture project's program to obtain real types — pattern from spike: get type of known declarations in a scratch source file added under `testdata/diff/project/src/_typeprobe.ts`? NO — fixtures must stay rbxtsc-compilable and golden-matched. Instead create a SEPARATE tiny project `internal/transformer/testdata/typeprobe/` with its own tsconfig (sanitizer-compatible) purely for type-predicate tests.)
-
 - [ ] **Step 1 (test first):** typeprobe project with declarations of known types (`number`, `string`, `5`, `0 | 1`, `string | undefined`, `boolean`, unions); table-driven assertions: `IsDefinitelyType(t, IsStringType)` etc. matching the digest's union=every/intersection=some semantics, and `IsPossiblyType` TypeVariable/AnyOrUnknown→true behavior.
 - [ ] **Step 2:** Implement with tsgo's `checker.Type` flags API (digest documents which `ts.TypeFlags` each predicate tests; map to `tsgo/checker` flag constants — grep the vendored source for the flag names). Then `createTruthinessChecks` exactly per digest (including the 0-possible→NaN-check-added workaround and `logTruthyChanges` plumbed as a State option, default off).
 - [ ] **Step 3:** Tests green; commit `"transformer: type predicates and truthiness checks"`.
@@ -549,9 +577,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §4 (operator map; `+`→`..` decision with tostring sides; relational both-sides rule INCLUDING the documented upstream quirk — port the quirk, byte parity over sanity; `===`→`==`; bitwise→`bit32.*`; `in`; compound assignment simple-map vs read-modify-write; getAssignableValue) and §5 (unary: ++/-- statement vs expression forms).
 
 **Files:**
+
 - Create: `internal/transformer/binary.go`, `internal/transformer/logical.go`, `internal/transformer/assignment.go`, `internal/transformer/unary.go`
 - Modify: `internal/diff/manifest.go` (+`03_arithmetic`, `04_logic`, `09_unary`)
-
 - [ ] **Step 1:** Port per digest, in this order: createBinaryFromOperator (pure mapping + type-directed `+`), assignment utils, transformBinaryExpression (incl. `==`/`!=` banned diagnostics), transformLogical (chain flattening, inline-vs-if-chain criteria, `??` nil-check + possibly-false refusal), prefix/postfix unary.
 - [ ] **Step 2:** Enable the three fixtures; iterate to byte parity (logical chains and truthiness interplay are the likely divergence points — the digest documents the exact inline criteria). Full suite green; commit `"transformer: binary, logical, assignment, unary operators"`.
 
@@ -560,9 +588,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §8 (calls: optional-chain flattener degenerating to left fold; isMethod full logic with per-symbol cache + noMixedTypeCall; macro hook points → clean `macros not yet supported: <name>` diagnostic; ensureTransformOrder for arguments; wrapReturnIfLuaTuple) and §9 (access: addOneIfArrayType constant-fold +1, LuaTuple `select(n+1, ...)`, const-enum folding, addIndexDiagnostics).
 
 **Files:**
+
 - Create: `internal/transformer/access.go`, `internal/transformer/call.go`, `internal/transformer/ensureorder.go` (ensureTransformOrder + convertToIndexableExpression from transformstate digest utils)
 - Modify: `internal/transformer/dispatch.go` (replace Task 6's minimal call path), `internal/diff/manifest.go` (+`06_globals`, `07_access`)
-
 - [ ] **Step 1:** Port per digest. Method calls emit `a:b()` unless the name is a Luau reserved word (then `a.b(a, ...)` per digest — follow exactly). `print`/`warn`/`math.floor` are plain calls/property-calls — `math.floor` is a PROPERTY call on a namespace: verify the digest's treatment (likely not "method" since no this-parameter).
 - [ ] **Step 2:** Enable `06_globals`, `07_access`; byte parity (the +1 index offset and its constant folding is THE critical check: `arr[0]`→`arr[1]`, `arr[idx]`→`arr[idx + 1]`); full suite green; commit `"transformer: access and call expressions"`.
 
@@ -571,9 +599,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transforms digest §10 — if (elseif prereq fallback to nested else+if), while/do (condition prereqs relocated into loop body with `if not c then break end` / repeat-until shapes), C-style for (FULL port incl. the optimized numeric-for detection; the let-capture closure-copy sub-path is OUT of scope — panic `"rotor: loop closure capture not yet supported (phase 3)"`; guarded incrementor; continue finalizers), block→do, return (explicit `return nil`, LuaTuple unpack rules), break/continue/throw.
 
 **Files:**
+
 - Modify: `internal/transformer/statements.go`
 - Modify: `internal/diff/manifest.go` (+`05_control`)
-
 - [ ] **Step 1:** Port per digest. The optimized-loops pass is required (fixture 05 and the oracle's own sample rely on it: `for (let i = 0; i < limit; i++)` → `for i = 0, limit - 1 do`-shaped numeric for — the digest documents the exact preconditions and emitted bounds; note rbxtsc emitted `for i = 0, 9 do` for a literal bound: constant folding of `limit - 1` happens when the bound is a literal — follow the digest precisely).
 - [ ] **Step 2:** Enable `05_control`; byte parity; full suite; commit `"transformer: control-flow statements with optimized loops"`.
 
@@ -582,9 +610,9 @@ Test: read fixture tsconfig through the wrapper, assert stripped keys absent, as
 **Digest:** transformstate digest exports section (four shapes + skip rules).
 
 **Files:**
+
 - Modify: `internal/transformer/exports.go`, `internal/transformer/sourcefile.go`
 - Modify: `internal/diff/manifest.go` (+`08_exports`)
-
 - [ ] **Step 1:** Complete the export wiring: `export let` (mutable) forces `local exports = {}` shape with `exports.mutable = ...` writes (already partially landed in Task 7) + `export const` in that same file joins the exports table; verify shape selection against the golden (08 has both mutable and immutable exports → the digest says mutable presence forces the exports-table shape for the whole file).
 - [ ] **Step 2:** Enable `08_exports`; byte parity; full suite; commit `"transformer: export shapes"`.
 

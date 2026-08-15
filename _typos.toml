@@ -1,0 +1,11 @@
+[default.extend-words]
+ba = "ba"
+childs = "childs"
+curren = "curren"
+iif = "iif"
+inferrable = "inferrable"
+mis = "mis"
+onces = "onces"
+pn = "pn"
+unparseable = "unparseable"
+writables = "writables"

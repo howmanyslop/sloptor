@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Vendor resolver references + port RojoResolver/PathTranslator
+## Task 1: Vendor resolver references + port RojoResolver/PathTranslator
 
 1. Vendor `github.com/roblox-ts/rojo-resolver` @ v1.1.0 and `github.com/roblox-ts/path-translator` @ v1.1.0 into `reference/rojo-resolver/` and `reference/path-translator/` (same recipe as Phase 0 Task 2: clone at the version tag — verify package.json version 1.1.0, fall back to the matching commit; strip .git; record SHAs in `reference/VERSIONS.md`; LICENSE files must exist).
 2. Port both to Go: `internal/rojo/resolver.go` + `internal/rojo/pathtranslator.go` (package `rojo`) per the vendored TS sources, cross-checked against digest §4's behavioral extraction (partitions LIFO, init/index renames, sub-extensions, isolated/network containers, `Relative`, `GetImportPath(isNodeModule)` no-rebase quirk, `RojoResolver.Synthetic`). TDD with table-driven tests over: the diff fixture's default.project.json, a game-shaped project json (ServerScriptService/ReplicatedStorage tree), synthetic, and path-translation cases (init.luau, .d.ts skips, sub-extensions).
@@ -27,6 +27,7 @@ Commit: `"transformer: MacroManager skeleton, constructor macros, new expression
 ### Task 3: Project-aware compile + runtime-lib emission
 
 Per digest §5 + §7:
+
 1. `internal/compile`: `CompileProject(projectDir) (map[relOutPath]string, diags, error)` — one Program; per-file State sharing MultiState; module-specifier→SourceFile resolution via the tsgo equivalents the digest names (ResolveExternalModuleName etc.); PathTranslator out-paths. Keep `CompileFile` as a thin wrapper for existing tests (single file, same machinery).
 2. Runtime-lib emission replaces the `ErrRuntimeLibNotSupported` sentinel: Model-type `local TS = require(script.Parent...RuntimeLib)` relative chains (the diff fixture is Model — digest §5 has the verbatim 2-file ground truth), Game absolute `GetService`/`WaitForChild` chains, Package `_G[script]`. RuntimeLibRbxPath validation diagnostics (the 4 plain-text emit failures digest §8 flags as new — add them).
 3. The TransformState gains the Rojo context (RojoResolver, PathTranslator, ProjectType, runtimeLibRbxPath) per the reference TransformState fields deferred since Phase 2.
@@ -61,6 +62,7 @@ Commit: `"Phase 3a complete: multi-file projects compile"`
 ---
 
 ## Done criteria
+
 1. Multi-file fixtures (21-24) byte-identical including runtime-lib require lines and the star-export loop.
 2. RojoResolver/PathTranslator ported with the vendored references in-repo.
 3. MacroManager is ONE component; constructor macros + NewExpression live.

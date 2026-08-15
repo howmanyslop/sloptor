@@ -1230,4 +1230,6 @@ git commit -m "test(lex): diagnostics carry positions and recover"
 - **Corpus note:** `include/` contains the vendored RuntimeLib + Promise Luau; the
   acceptance project's `out/` is rotor's own emitted Luau — both are good
   roundtrip corpora. `reference/luau-ast` is TS, not a Luau corpus.
+
+```text
 ```

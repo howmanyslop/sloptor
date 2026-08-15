@@ -42,7 +42,7 @@ A pure syntax transpiler (SWC/esbuild-style) cannot replace it: roblox-ts's Luau
 
 ## Architecture
 
-```
+```text
 rotor (single static Go binary)
 ├── cmd/rotor               CLI — rbxtsc-compatible flags (build, -w, --type, --luau, …)
 ├── internal/project        program creation, watch, incremental, file orchestration
@@ -76,6 +76,7 @@ Apache-2.0 obligations: retain LICENSE/NOTICE, state changes.
 ### Transformer plugins (Node sidecar)
 
 When `compilerOptions.plugins` is configured, rotor spawns a bundled Node helper that:
+
 1. loads plugins with the real JS `typescript` package and builds the JS-side `ts.Program` they expect (full `TypeChecker` access — `rbxts-transformer-flamework`-class plugins work unmodified);
 2. applies transformers and prints transformed TS source text;
 3. streams transformed text back to rotor, which compiles it through the native pipeline.

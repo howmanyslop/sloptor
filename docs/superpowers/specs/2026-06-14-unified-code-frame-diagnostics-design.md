@@ -114,7 +114,7 @@ Behavior:
   APIs — one code path resolves Luau and TS spots.
 - **Layout** (matches the approved mock):
 
-  ```
+  ```text
   error: expected ')'
     --> entry.luau:3:18
      |
@@ -257,7 +257,7 @@ targets rather than failing.
 
 ## Data flow
 
-```
+```text
 Luau:  source + []cst.Diagnostic ─┐
                                   ├─► []diagframe.Spot ─► group by file ─► Render ─► stderr
 TS:    *ast.Diagnostic ───────────┤        (per file, with that file's source)

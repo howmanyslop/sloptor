@@ -58,7 +58,7 @@ i.e. for `baseUrl: "src"` → **`"paths": { "*": ["./src/*"] }`** in the same co
   runs for any NON-relative specifier when `Paths.Size() > 0`; substitutions are resolved
   `tspath.CombinePaths(baseDirectory, strings.Replace(subst, "*", matchedStar, 1))` and loaded
   via `nodeLoadModuleByRelativeName(..., considerPackageJson=true)` — full extension probing
-  + directory/index resolution, identical to what a baseUrl candidate got in TS5.
+  - directory/index resolution, identical to what a baseUrl candidate got in TS5.
 - **fallthrough**: `tryLoadModuleUsingPaths` (resolver.go:1266-1302) returns
   `continueSearching()` when the matched pattern's substitutions all fail;
   `resolveNodeLikeWorker` (resolver.go:540-580) then proceeds to
@@ -434,7 +434,7 @@ function wrapComments(methodName: string, callback: PropertyCallMacro): Property
   Set/Map shared `size` (ids = one valueless tempId). **numeric `for i = a, b[, s] do`**
   (`NumericForStatement`, rotor `luau.NewNumericFor`): filterUndefined pass 2, reduce.
 
-### 4.3 Math classes (PORTED — propertycallmacros.go) 
+### 4.3 Math classes (PORTED — propertycallmacros.go)
 
 `makeMathMethod(op)`: `luau.binary(expression, op, rhs)`, rhs parenthesized unless
 `luau.isSimple`. Rows: CFrame `+ - *`; UDim/UDim2 `+ -`; Vector2/Vector3 `+ - * / //`;
@@ -492,6 +492,7 @@ Set/Map size are separate entries.)
 - **map(cb)** — base push "exp"; `local _newValue = table.create(#exp)` (hint "newValue");
   cb pushToVarIfNonId; generic-for: `_newValue[_k] = cb(v, k-1, exp)`. Returns _newValue.
 - **mapFiltered(cb)** (L289-331) — verbatim shape:
+
   ```lua
   local _newValue = {}            -- pushToVar(luau.array(), "newValue")
   local _callback = ...           -- pushToVarIfNonId(args[0], "callback")
@@ -504,8 +505,10 @@ Set/Map size are separate entries.)
       end
   end
   ```
+
   returns _newValue. (Declaration order: newValue, callback, length — byte-relevant.)
 - **filterUndefined()** (L333-401) — two passes:
+
   ```lua
   local _length = 0                       -- pushToVar(0, "length")
   for _i in _exp do                        -- generic for, ONE id
@@ -521,11 +524,13 @@ Set/Map size are separate entries.)
       end
   end
   ```
+
   returns _result. Base pushToVarIfComplex FIRST (header-exempt push per §4.1).
 - **filter(cb)** (L403-444) — like mapFiltered but condition `cb(v, k-1, exp) == true`
   (explicit `== luau.bool(true)` comparison!) and assigns `_newValue[_length] = _v`.
   Declaration order: newValue, callback, length.
 - **reduce(cb, initialValue?)** (L446-512) — verbatim TS:
+
   ```ts
   expression = state.pushToVarIfComplex(expression, "exp");
   let start: luau.Expression = luau.number(1);
@@ -543,6 +548,7 @@ Set/Map size are separate entries.)
   const callbackId = state.pushToVar(args[0], "callback");   // pushToVar, NOT IfNonId!
   // numeric for: for _i = start, #exp do  _result = _callback(_result, exp[_i], _i - 1, exp) end
   ```
+
   returns _result. Note: callback pushed AFTER result (byte order), with unconditional
   pushToVar; `step === 1` → step omitted in the NumericForStatement.
 - **find(cb)** (L514-548) — base push "exp"; cb pushToVarIfNonId; `local _result`
@@ -573,12 +579,14 @@ Set/Map size are separate entries.)
   (upstream order); base pushToVarIfComplex "exp"; `local _length = #exp` (pushToVar,
   "length"); `valueIsUsed = !isUsedAsStatement`; `local _value = exp[_index]` (pushToVar,
   "value" — created UNCONDITIONALLY, even when unused!); prereq:
+
   ```lua
   if _value ~= nil then
       _exp[_index] = _exp[_length]
       _exp[_length] = nil
   end
   ```
+
   returns _value or none.
 - **sort(compareFn?)** — `valueIsUsed = !isUsedAsStatement`; if used base→pushToVarIfComplex
   "exp"; `args.unshift(expression)`; CallStatement prereq `table.sort(exp[, cb])`; returns
@@ -589,6 +597,7 @@ Set/Map size are separate entries.)
 ### 4.8 Set/Map — shared + specific (L736-908)
 
 READONLY_SET_MAP_SHARED (spread into both readonly tables):
+
 - **isEmpty** — `next(expression) == nil`.
 - **size** — `local _size = 0` (pushToVar, "size"); generic-for with ONE valueless tempId
   (`ids: [luau.tempId()]` — renders `for _ in exp do`): `_size += 1`. Returns _size.
@@ -596,6 +605,7 @@ READONLY_SET_MAP_SHARED (spread into both readonly tables):
   convertToIndexableExpression).
 
 SET_MAP_SHARED (spread into both mutable tables):
+
 - **delete(key)** (L767-798) — `local _value = args[0]` via pushToVarIfComplex(args[0],
   "value"); `valueIsUsed = !isUsedAsStatement`; if used: base → **pushToVarIfNonId** (exp,
   "exp") (NonId, not IfComplex!), `local _valueExisted = exp[_value] ~= nil` (pushToVar,

@@ -10,14 +10,14 @@
 
 ---
 
-### Task 1: Diagnostics corpus harness
+## Task 1: Diagnostics corpus harness
 
 **Files:**
+
 - Create: `internal/conformance/diagnostics_test.go`
 - Create: `internal/conformance/diagnostics_manifest.go`
 - Modify: `testdata/conformance/README.md`
 - Test: `internal/conformance/diagnostics_test.go`
-
 - [ ] **Step 1: Write the failing diagnostics harness test**
 
 ```go
@@ -150,11 +150,11 @@ git commit -m "conformance: add diagnostics corpus harness"
 ### Task 2: Upstream source byte-diff corpus enablement
 
 **Files:**
+
 - Modify: `internal/conformance/conformance_test.go`
 - Modify: `internal/conformance/manifest.go`
 - Modify: `testdata/conformance/README.md`
 - Test: `internal/conformance/conformance_test.go`
-
 - [ ] **Step 1: Write the failing categorized enablement test**
 
 ```go
@@ -227,11 +227,11 @@ git commit -m "conformance: enable upstream byte-diff corpus"
 ### Task 3: Runtime behavioral suite runner
 
 **Files:**
+
 - Create: `internal/conformance/runtime_test.go`
 - Create: `internal/conformance/runtime.go`
 - Modify: `testdata/conformance/README.md`
 - Test: `internal/conformance/runtime_test.go`
-
 - [ ] **Step 1: Write the failing runtime tool-detection test**
 
 ```go
@@ -306,10 +306,10 @@ git commit -m "conformance: add runtime behavioral suite runner"
 ### Task 4: Acceptance runner for `randomness`
 
 **Files:**
+
 - Create: `internal/conformance/acceptance_test.go`
 - Modify: `testdata/conformance/README.md`
 - Test: `internal/conformance/acceptance_test.go`
-
 - [ ] **Step 1: Write the failing acceptance-path resolution test**
 
 ```go
@@ -375,6 +375,7 @@ git commit -m "conformance: add randomness acceptance runner"
 ---
 
 ## Done criteria
+
 1. `go test ./internal/conformance -run TestDiagnosticsCorpus -count=1` passes.
 2. `go test ./internal/conformance -run TestConformance -count=1 -v` runs a non-empty enabled fixture set and reports skipped fixtures explicitly.
 3. `go test ./internal/conformance -run TestBehavioralSuite -count=1 -v` skips cleanly when `lune` is absent and executes when it is present.

@@ -1,16 +1,16 @@
 {
-  "name": "@rotor/sidecar",
-  "private": true,
-  "version": "0.1.0",
-  "description": "Standalone transformer sidecar for Rotor Phase 4",
-  "type": "commonjs",
-  "bin": {
-    "rotor-sidecar": "./main.js"
-  },
-  "scripts": {
-    "test": "node --test test/*.test.js"
-  },
-  "dependencies": {
-    "typescript": "5.5.3"
-  }
+	"name": "@rotor/sidecar",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Standalone transformer sidecar for Rotor Phase 4",
+	"bin": {
+		"rotor-sidecar": "./main.js"
+	},
+	"type": "commonjs",
+	"scripts": {
+		"test": "node --test test/*.test.js"
+	},
+	"dependencies": {
+		"typescript": "5.5.3"
+	}
 }

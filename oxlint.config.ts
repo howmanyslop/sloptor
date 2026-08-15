@@ -1,16 +1,7 @@
-// oxlint-disable small-rules/prevent-abbreviations -- ok.
 import { argv } from "node:process";
 import { defineConfig } from "oxlint";
-import { ALL_REACT_DOCTOR_RULES } from "oxlint-plugin-react-doctor";
 
 import type { ExternalPluginEntry } from "oxlint";
-
-const reactDoctorRules = Object.fromEntries(
-	Object.entries(ALL_REACT_DOCTOR_RULES).map(([key, value]) => {
-		if (key.includes("nextjs-") || key.includes("preact-")) return [key, "off"];
-		return [key, value];
-	}),
-);
 
 const configuration = defineConfig({
 	$schema: "node_modules/oxlint/configuration_schema.json",
@@ -34,8 +25,7 @@ const configuration = defineConfig({
 		"scripts/clis/**/*.ts",
 	],
 	jsPlugins: [
-		"./plugins/small-rules.js",
-		{ name: "react-doctor", specifier: "oxlint-plugin-react-doctor" },
+		"@pobammer-ts/small-rules",
 		{ name: "antfu", specifier: "eslint-plugin-antfu" },
 		{ name: "unused-imports", specifier: "eslint-plugin-unused-imports" },
 		{ name: "sonar", specifier: "eslint-plugin-sonarjs" },
@@ -59,33 +49,6 @@ const configuration = defineConfig({
 			files: ["documentation/**/*"],
 		},
 		{
-			// rule-newness.ts spawns git to classify rules; the binary is a fixed system dependency.
-			files: ["documentation/src/data/rule-newness.ts"],
-			rules: {
-				"no-console": "off",
-				"sonar/no-os-command-from-path": "off",
-			},
-		},
-		{
-			files: ["documentation/**/*.astro"],
-			plugins: [],
-			rules: {
-				"import/unambiguous": "off",
-				"small-rules/no-unused-imports": "off",
-				"small-rules/prevent-abbreviations": "off",
-				"sonar/unused-import": "off",
-				"unused-imports/no-unused-imports": "off",
-			},
-		},
-		{
-			files: ["documentation/src/types/satteri-optional-peers.d.ts"],
-			rules: {
-				"import/unambiguous": "off",
-				"small-rules/no-unused-imports": "off",
-				"typescript/no-redundant-type-constituents": "off",
-			},
-		},
-		{
 			files: ["scripts/**/*.{ts,tsx}", "*.config.{ts,mjs,tsx}"],
 			rules: { "no-console": "off" },
 		},
@@ -94,131 +57,8 @@ const configuration = defineConfig({
 			rules: { "node/no-top-level-await": "off" },
 		},
 		{
-			files: ["tests/**/*.test.{tsx,ts}"],
-			plugins: ["vitest"],
-			rules: {
-				"max-lines": "off",
-				"max-lines-per-function": "off",
-				"no-console": "error",
-				"no-non-null-assertion": "off",
-				"small-rules/prefer-expect-assertions": [
-					"error",
-					{
-						additionalAssertionFunctions: ["expectRecord", "expectArray", "expectPresent"],
-						additionalExpectCallNames: ["expectRecord", "expectArray", "expectPresent"],
-					},
-				],
-				"small-rules/prevent-abbreviations": "off",
-				"unicorn/no-null": "off",
-				"vitest/consistent-each-for": "error",
-				"vitest/consistent-test-filename": "error",
-				"vitest/consistent-test-it": "error",
-				"vitest/consistent-vitest-vi": "error",
-				"vitest/expect-expect": "error",
-				"vitest/hoisted-apis-on-top": "error",
-				"vitest/max-expects": "off",
-				"vitest/max-nested-describe": "error",
-				"vitest/no-alias-methods": "error",
-				"vitest/no-commented-out-tests": "error",
-				"vitest/no-conditional-expect": "error",
-				"vitest/no-conditional-in-test": "error",
-				"vitest/no-conditional-tests": "error",
-				"vitest/no-disabled-tests": "error",
-				"vitest/no-duplicate-hooks": "error",
-				"vitest/no-focused-tests": "error",
-				"vitest/no-hooks": "error",
-				"vitest/no-identical-title": "error",
-				"vitest/no-import-node-test": "error",
-				"vitest/no-importing-vitest-globals": "off",
-				"vitest/no-interpolation-in-snapshots": "error",
-				"vitest/no-large-snapshots": "error",
-				"vitest/no-mocks-import": "error",
-				"vitest/prefer-called-exactly-once-with": "error",
-				"vitest/prefer-called-once": "error",
-				"vitest/prefer-called-times": "error",
-				"vitest/prefer-describe-function-title": "off",
-				"vitest/prefer-expect-assertions": "error",
-				"vitest/prefer-expect-type-of": "error",
-				"vitest/prefer-import-in-mock": "error",
-				"vitest/prefer-importing-vitest-globals": "error",
-				"vitest/prefer-strict-boolean-matchers": "error",
-				"vitest/prefer-to-be-falsy": "off",
-				"vitest/prefer-to-be-object": "error",
-				"vitest/prefer-to-be-truthy": "off",
-				"vitest/prefer-to-contain": "error",
-				"vitest/prefer-todo": "error",
-				"vitest/require-awaited-expect-poll": "error",
-				"vitest/require-hook": "off",
-				"vitest/require-local-test-context-for-concurrent-snapshots": "error",
-				"vitest/require-mock-type-parameters": "error",
-				"vitest/require-test-timeout": "off",
-				"vitest/require-top-level-describe": "off",
-				"vitest/valid-expect": "error",
-				"vitest/valid-title": "error",
-				"vitest/warn-todo": "error",
-			},
-		},
-		{
-			files: ["tests/fixtures/**/*.{ts,tsx}", "*.config.{cjs,mjs,js,cts,mts,ts}", "knip.ts"],
-			rules: { "import/no-default-export": "off" },
-		},
-		{
-			files: ["vitest*.config.ts"],
-			rules: { "unicorn/no-null": "off" },
-		},
-		{
-			files: ["tests/fixtures/**/*.{ts,tsx}"],
-			rules: { "typescript/ban-ts-comment": "off" },
-		},
-		{
 			files: ["**/*.d.ts"],
 			rules: { "import/unambiguous": "off" },
-		},
-		{
-			files: ["documentation/src/**/*.{ts,tsx}"],
-			plugins: ["react", "react-perf", "jsx-a11y"],
-			rules: {
-				"react-perf/jsx-no-new-function-as-prop": "off",
-				"react/jsx-curly-brace-presence": [
-					"error",
-					{
-						children: "always",
-					},
-				],
-				"react/jsx-filename-extension": [
-					"error",
-					{
-						extensions: ["jsx", "tsx"],
-						ignoreFilesWithoutCode: true,
-					},
-				],
-				"react/jsx-max-depth": ["error", { max: 3 }],
-				"react/react-in-jsx-scope": "off",
-				"small-rules/ban-react-fc": "error",
-				"small-rules/memoized-effect-dependencies": "error",
-				"small-rules/no-static-react-create-element": ["error", { environment: "standard" }],
-				"small-rules/prefer-hoisted-jsx-elements": [
-					"error",
-					{
-						additionalHoistableComponents: [],
-						additionalStaticFactories: [],
-						environment: "standard",
-					},
-				],
-				"small-rules/prefer-hoisted-jsx-object-properties": "error",
-				"small-rules/require-named-effect-functions": [
-					"error",
-					{
-						environment: "standard",
-						hooks: [
-							{ allowAsync: false, name: "useEffect" },
-							{ allowAsync: false, name: "useLayoutEffect" },
-							{ allowAsync: false, name: "useInsertionEffect" },
-						],
-					},
-				],
-				"small-rules/require-react-display-names": ["error", { environment: "standard" }],
-			},
 		},
 		{
 			files: ["src/**/*.{ts,tsx}"],
@@ -227,7 +67,6 @@ const configuration = defineConfig({
 	],
 	plugins: ["eslint", "import", "jsdoc", "node", "oxc", "promise", "typescript", "unicorn"],
 	rules: {
-		...reactDoctorRules,
 		"arrow-body-style": ["error", "as-needed"],
 		"capitalized-comments": "off",
 		complexity: "off",
@@ -949,172 +788,5 @@ const configuration = defineConfig({
 		},
 	},
 });
-
-// oxlint-disable no-inner-declarations unicorn/consistent-function-scoping -- testing
-if (import.meta.main) {
-	const START_NEW_LINE = /^/gmu;
-	function indentEveryLine(value: string, amount = 1): string {
-		return value.replace(START_NEW_LINE, "\t".repeat(amount));
-	}
-
-	interface JsonSchema {
-		readonly $ref?: string | undefined;
-		readonly additionalProperties?: boolean | JsonSchema | undefined;
-		readonly default?: unknown;
-		readonly description?: string | undefined;
-		readonly enum?: ReadonlyArray<unknown> | undefined;
-		readonly items?: JsonSchema | undefined;
-		readonly minItems?: number | undefined;
-		readonly minimum?: number | undefined;
-		readonly oneOf?: ReadonlyArray<JsonSchema> | undefined;
-		readonly properties?: Record<string, JsonSchema> | undefined;
-		readonly required?: ReadonlyArray<string> | undefined;
-		readonly type?: string | undefined;
-		readonly uniqueItems?: boolean | undefined;
-	}
-
-	interface SchemaToJsResult {
-		readonly configEntry: string;
-		readonly hasOptions: boolean;
-	}
-
-	function isRecord(object: unknown): object is Record<string, unknown> {
-		return typeof object === "object" && object !== null && !Array.isArray(object);
-	}
-
-	function formatDefaultValue(value: unknown): string {
-		if (value === null) return "null";
-		if (typeof value === "string") return JSON.stringify(value);
-		if (typeof value === "number" || typeof value === "boolean") return String(value);
-		if (Array.isArray(value)) {
-			if (value.length === 0) return "[]";
-			return `[${value.map(formatDefaultValue).join(", ")}]`;
-		}
-		if (!isRecord(value)) return "undefined";
-
-		const entries = Object.entries(value);
-		if (entries.length === 0) return "{}";
-
-		const lines = entries.map(([entryKey, entryValue]) => `${entryKey}: ${formatDefaultValue(entryValue)}`);
-		return `{ ${lines.join(", ")} }`;
-	}
-
-	function defaultExpression(schema: JsonSchema): string {
-		if (schema.default !== undefined) return formatDefaultValue(schema.default);
-
-		if (schema.oneOf !== undefined && schema.oneOf.length > 0) {
-			const [firstAlternative] = schema.oneOf;
-			if (firstAlternative?.type === "array") return "[]";
-			if (firstAlternative?.type === "object") return "{}";
-			return '""';
-		}
-
-		switch (schema.type) {
-			case "string":
-				return '""';
-
-			case "boolean":
-				return "false";
-
-			case "number":
-			case "integer":
-				return "0";
-
-			case "array":
-				return "[]";
-
-			case "object":
-				return "{}";
-
-			default:
-				return "undefined";
-		}
-	}
-
-	function schemaToJsConfig(ruleName: string, schema: ReadonlyArray<JsonSchema>): SchemaToJsResult {
-		if (!Array.isArray(schema) || schema.length === 0) {
-			return { configEntry: `"${ruleName}": "error",`, hasOptions: false };
-		}
-
-		const [topLevel] = schema;
-		if (topLevel === undefined) {
-			return { configEntry: `"${ruleName}": "error",`, hasOptions: false };
-		}
-
-		if (topLevel.type === "array" && topLevel.items?.type !== "object") {
-			return { configEntry: `"${ruleName}": "error",`, hasOptions: false };
-		}
-
-		if (topLevel.type !== "object" && topLevel.oneOf === undefined) {
-			return { configEntry: `"${ruleName}": "error",`, hasOptions: false };
-		}
-
-		const properties = topLevel.properties ?? {};
-		if (Object.keys(properties).length === 0) return { configEntry: `"${ruleName}": "error",`, hasOptions: false };
-
-		const lines: Array<string> = [`"${ruleName}": ["error", {`];
-		for (const [key, property] of Object.entries(properties)) {
-			lines.push(`\t${key}: ${defaultExpression(property)},`);
-		}
-		lines.push("}],");
-
-		return { configEntry: lines.join("\n"), hasOptions: true };
-	}
-
-	function getJsPluginName(packageName: string): string | undefined {
-		const jsPlugins: Array<ExternalPluginEntry> = configuration.jsPlugins;
-		for (const jsPlugin of jsPlugins) {
-			if (typeof jsPlugin === "object" && jsPlugin.specifier === packageName) {
-				return jsPlugin.name;
-			}
-			if (jsPlugin === packageName) return undefined;
-		}
-		return undefined;
-	}
-
-	async function validateSmallRulesAsync(): Promise<void> {
-		const smallRules = await import("./src/index.ts");
-		const name = getJsPluginName("@pobammer-ts/small-rules") ?? smallRules.default.meta?.name;
-		if (name === undefined) {
-			const error = new Error("Could not find the name of the small rules plugin.");
-			Error.captureStackTrace(error, validateSmallRulesAsync);
-			throw error;
-		}
-
-		console.log(`Validating ${name}...`);
-		const existingRules = new Set<string>();
-		for (const ruleKey of Object.keys(configuration.rules)) {
-			if (!ruleKey.startsWith(name)) continue;
-			existingRules.add(ruleKey);
-		}
-
-		const stringBuilder = new Array<string>();
-
-		for (const [ruleKey, rule] of Object.entries(smallRules.default.rules)) {
-			const key = `${name}/${ruleKey}`;
-			if (!existingRules.has(key)) {
-				const schema = rule.meta?.schema;
-				// oxlint-disable-next-line typescript/no-base-to-string -- idc
-				if (schema === undefined || String(schema).length === 0) {
-					console.log(`Missing rule ${key} has no schema.`);
-					stringBuilder.push(`\t"${key}": "error",`);
-					continue;
-				}
-
-				console.log(`Rule ${key} has a schema.`);
-				// oxlint-disable-next-line typescript/no-unsafe-type-assertion -- idc
-				const jsConfig = schemaToJsConfig(key, schema as ReadonlyArray<JsonSchema>);
-				if (!jsConfig.hasOptions) continue;
-
-				stringBuilder.push(indentEveryLine(jsConfig.configEntry, 1));
-			}
-		}
-
-		console.log(stringBuilder.join("\n"));
-	}
-
-	await validateSmallRulesAsync();
-}
-// oxlint-enable no-inner-declarations -- testing
 
 export default configuration;

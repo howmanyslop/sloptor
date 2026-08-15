@@ -24,9 +24,9 @@
 ## Task 1: template detection from an existing project
 
 **Files:**
+
 - Modify: `cmd/rotor/init.go`
 - Test: `cmd/rotor/init_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -123,9 +123,9 @@ git commit -m "feat(init): detect rotor.toml template from an existing project"
 ## Task 2: adopt-mode files + no-clobber writer
 
 **Files:**
+
 - Modify: `cmd/rotor/init.go`
 - Test: `cmd/rotor/init_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -253,9 +253,9 @@ git commit -m "feat(init): adopt-mode config files + no-clobber writer"
 ## Task 3: route `cmdInit` into adopt mode
 
 **Files:**
+
 - Modify: `cmd/rotor/init.go` (`cmdInit` decision + `--config` flag)
 - Test: `cmd/rotor/init_test.go`
-
 - [ ] **Step 1: Write the failing tests**
 
 ```go
@@ -358,9 +358,9 @@ git commit -m "feat(init): adopt existing projects (config-only) + --config; ide
 ## Task 4: `doctor` ↔ `init` synergy
 
 **Files:**
+
 - Modify: `cmd/rotor/doctor.go` (`runDoctor`)
 - Test: `cmd/rotor/doctor_test.go`
-
 - [ ] **Step 1: Write the failing tests**
 
 ```go
@@ -462,6 +462,7 @@ mkdir -p /tmp/adopt && printf '{"compilerOptions":{}}' > /tmp/adopt/tsconfig.jso
 go run ./cmd/rotor init /tmp/adopt --yes   # should ADD rotor.toml, not refuse
 go run ./cmd/rotor doctor /tmp/adopt       # should show an OK rotor.toml row
 ```
+
 Expected: adopt writes `rotor.toml` + schema + env decl; doctor reports the config OK.
 
 - [ ] **Step 3: Roadmap**

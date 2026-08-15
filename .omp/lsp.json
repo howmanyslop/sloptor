@@ -1,0 +1,10 @@
+{
+	"servers": {
+		"pkl-lsp": {
+			"command": "pkl-lsp",
+			"fileTypes": [".pkl"],
+			"languageId": "pkl",
+			"rootMarkers": ["hk.pkl", "*.pkl", ".git"]
+		}
+	}
+}

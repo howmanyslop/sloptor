@@ -39,7 +39,7 @@ resolved promises return the value, rejected ones `error(value, 2)`, cancelled o
 
 ### 1.2 transformAwaitExpression (expressions/transformAwaitExpression.ts L7-9) — ENTIRE transform
 
-```
+```text
 transformAwaitExpression(state, node):
     return luau.call(state.TS(node, "await"),
                      [transformExpression(state, skipDownwards(node.expression))])
@@ -59,7 +59,7 @@ three stub sites).
 **(a) transformFunctionDeclaration.ts L38-75.** After parameters+body are built and
 `localize` decided (existing rotor code, functions.go:55-62):
 
-```
+```text
 isAsync = hasSyntacticModifier(node, Async)
 if node.asteriskToken:                       // generator (see §2)
     if isAsync: addDiagnostic(noAsyncGeneratorFunctions(node))
@@ -80,7 +80,7 @@ always localized.
 
 **(b) transformFunctionExpression.ts L27-46** (FunctionExpression + ArrowFunction):
 
-```
+```text
 isAsync = hasSyntacticModifier(node, Async)
 if node.asteriskToken:                       // FunctionExpression only; arrows can't be generators
     if isAsync: addDiagnostic(noAsyncGeneratorFunctions(node))
@@ -120,7 +120,7 @@ builder already consumes this `.next` protocol.
 
 ### 2.2 wrapStatementsAsGenerator (util/wrapStatementsAsGenerator.ts L5-17) — ENTIRE util
 
-```
+```text
 wrapStatementsAsGenerator(state, node, statements):
     return luau.list.make(
         ReturnStatement{ expression:
@@ -139,7 +139,7 @@ switches to a variable.
 
 `yield` is an EXPRESSION kind (dispatch in transformExpression). Three cases:
 
-```
+```text
 transformYieldExpression(state, node):
     if !node.expression:
         return luau.call(luau.globals.coroutine.yield, [])          // bare `yield`
@@ -168,6 +168,7 @@ transformYieldExpression(state, node):
 ```
 
 Notes:
+
 - `yield v` → `coroutine.yield(v)`; resume arguments surface as the call's return value, so
   `const got = yield 1` → `local got = coroutine.yield(1)` (oracle §6.4).
 - `yield*` lowers to a generic for over the inner generator's bare `.next` (NO parens — the
@@ -196,6 +197,7 @@ function TS.try(try, catch, finally)  -- returns: exitType, returns
 ```
 
 Semantics (needed to understand WHY the emit shapes are correct, and for porting tests):
+
 - `try` is called via `pcall`. Its return values are `exitType, returns` — i.e. the try
   callback returns NOTHING on normal completion (exitType nil), `TS.TRY_BREAK` /
   `TS.TRY_CONTINUE` (one value) for rerouted break/continue, or
@@ -226,7 +228,7 @@ State.go already reserves the spot (state.go:100 comment).
 
 ### 3.3 transformTryStatement (statements/transformTryStatement.ts L188-200) — driver
 
-```
+```text
 transformTryStatement(state, node):
     statements = []
     exitTypeId = luau.tempId("exitType")     // created FIRST — temp numbering parity
@@ -247,7 +249,7 @@ nested-try tunneling mechanism.
 
 ### 3.4 transformCatchClause (L13-30)
 
-```
+```text
 parameters = []; statements = []
 if node.variableDeclaration:
     parameters.push( transformBindingName(state, node.variableDeclaration.name, statements) )
@@ -263,7 +265,7 @@ return FunctionExpression{parameters, hasDotDotDot: false, statements}
 
 ### 3.5 transformIntoTryCall (L32-76)
 
-```
+```text
 tryCallArgs = [ FunctionExpression{params: [], statements:
                     transformStatementList(state, node.tryBlock, node.tryBlock.statements)} ]
 if node.catchClause: tryCallArgs.push( transformCatchClause(state, node.catchClause) )
@@ -289,7 +291,7 @@ return VariableDeclaration{ left: list(exitTypeId, returnsId),                  
 
 ### 3.6 transformFlowControl (L109-186) + collapseFlowControlCases (L89-107) — COMPLETE
 
-```
+```text
 transformFlowControl(state, node, exitTypeId, returnsId, tryUses):
     flowControlCases = []
     if no flags set: return []                                       // bare-call case
@@ -331,7 +333,7 @@ runtime-lib usage is flagged.
 `collapseFlowControlCases` (L89-107): builds an elseif chain from the cases, with one twist —
 **the LAST case's condition is REPLACED by the bare `exitTypeId`** (truthiness test):
 
-```
+```text
 collapse(exitTypeId, cases):                       // assert(cases.length > 0)
     next = IfStatement{ condition: exitTypeId,     // last case: bare truthy check
                         statements: cases[last].statements, elseBody: [] }
@@ -342,6 +344,7 @@ collapse(exitTypeId, cases):                       // assert(cases.length > 0)
 ```
 
 Consequences (all oracle-verified, §6.2):
+
 - Single case → `if _exitType then <stmts> end` regardless of which flag (f5, f7-inner-style,
   contOnly, finReturn, sw).
 - Two cases → `if _exitType == TS.TRY_RETURN then ... elseif _exitType then ... end` (f7) or
@@ -356,7 +359,7 @@ Consequences (all oracle-verified, §6.2):
 
 ### 3.7 isBlockedByTryStatement (util/isBlockedByTryStatement.ts L3-18) — ENTIRE util
 
-```
+```text
 isReturnBlockedByTryStatement(node):
     ancestor = findAncestor(node, a => isTryStatement(a) || isFunctionLikeDeclaration(a))
     return ancestor != nil && isTryStatement(ancestor)
@@ -368,6 +371,7 @@ isBreakBlockedByTryStatement(node):
 ```
 
 Boundary rules (the "nearest wins" semantics):
+
 - `return`: blocked iff a TryStatement is hit before any function-like. A function inside a
   try resets — returns inside it are plain.
 - `break`/`continue`: blocked iff a TryStatement is hit before any loop OR switch. A loop
@@ -394,7 +398,7 @@ transformContinueStatement.ts produce flags; ONLY transformTryStatement.ts consu
 
 **transformBreakStatement.ts L8-25** (replace rotor statements.go:447-453):
 
-```
+```text
 if node.label: addDiagnostic(noLabeledStatement(node.label)); return []
 if isBreakBlockedByTryStatement(node):
     state.markTryUses("usesBreak")
@@ -408,7 +412,7 @@ ContinueStatement.
 **transformReturnStatement.ts L51-63 and L71-84** (extend rotor
 transformReturnStatementInner + transformReturnStatement):
 
-```
+```text
 // in transformReturnStatementInner, AFTER expression is computed (incl. LuaTuple handling):
 if isReturnBlockedByTryStatement(returnExp):
     state.markTryUses("usesReturn")
@@ -441,7 +445,7 @@ so `luau.IsFinalStatement` truncation in TransformStatementList behaves identica
 
 ### 4.1 needsInverseEntry (L14-16)
 
-```
+```text
 needsInverseEntry(state, member) = typeof state.typeChecker.getConstantValue(member) !== "string"
 ```
 
@@ -451,7 +455,7 @@ undefined → "not a string" → still gets an inverse entry).
 
 ### 4.2 transformEnumDeclaration (L18-128)
 
-```
+```text
 transformEnumDeclaration(state, node):
     // const enum: no emit unless preserveConstEnums
     if hasSyntacticModifier(node, ModifierFlags.Const) && compilerOptions.preserveConstEnums !== true:
@@ -508,6 +512,7 @@ transformEnumDeclaration(state, node):
 ```
 
 Shape notes (oracle §6.3):
+
 - General path renders as `local E` / `do local _inverse = {} ; E = setmetatable({}, { __index = _inverse }) ; E.A = 0 ; _inverse[0] = "A" ; ... end`.
   Member/inverse assignments INTERLEAVE per member. `E.A = 0` is a ComputedIndex that the
   renderer collapses to dot-form for valid-identifier string indices; non-identifier keys
@@ -532,7 +537,7 @@ Shape notes (oracle §6.3):
 
 ### 4.3 hasMultipleDefinitions (util/hasMultipleDefinitions.ts L3-14) — NEW SMALL UTIL
 
-```
+```text
 hasMultipleDefinitions(symbol, filter): count symbol.getDeclarations() passing filter; true if > 1
 ```
 
@@ -544,7 +549,7 @@ rotor: `symbol.Declarations` field. Shared by enums (§4.2) and namespaces (§5.
 
 ### 5.1 Entry: transformModuleDeclaration (L124-146)
 
-```
+```text
 transformModuleDeclaration(state, node):
     if !ts.isInstantiatedModule(node, false): return []        // type-only namespace → no emit
     symbol = typeChecker.getSymbolAtLocation(node.name)        // CHECKER
@@ -563,6 +568,7 @@ preserveConstEnums=false at BOTH upstream call sites (here and §5.2's filter).
 ### 5.2 isDeclarationOfNamespace (L16-30) — the merge filter
 
 A declaration counts toward "namespace value definitions" iff:
+
 - it has NO `declare` modifier, AND
 - (`isModuleDeclaration(d) && isInstantiatedModule(d, false)`) OR
   (`isFunctionDeclaration(d) && d.body`) OR `isClassDeclaration(d)`.
@@ -575,7 +581,7 @@ positioned at whichever declaration transforms first = the first one).
 
 For an export symbol, find the STATEMENT that declares its value:
 
-```
+```text
 for declaration in symbol.getDeclarations() ?? []:
     statement = getAncestor(declaration, ts.isStatement)
     if statement:
@@ -589,7 +595,7 @@ return undefined
 
 ### 5.4 transformNamespace (L46-122) — the emit
 
-```
+```text
 transformNamespace(state, name, body):           // body: ModuleBlock | nested ModuleDeclaration
     symbol = typeChecker.getSymbolAtLocation(name); assert(symbol)        // CHECKER
     validateIdentifier(state, name)
@@ -626,6 +632,7 @@ transformNamespace(state, name, body):           // body: ModuleBlock | nested M
 ```
 
 Behavior summary (oracle §6.3, §6.4):
+
 - `local X = {}` + `do ... end`. With exports: first do-statement is
   `local _container = X`; after each export-declaring statement the statement-list driver
   appends `_container.<name> = <name>` (rotor's ExportInfo already does EXACTLY this —
@@ -1189,7 +1196,7 @@ Oracle-verified CLI rendering (merging diags report ONCE per symbol, at the FIRS
 declaration, via `addDiagnosticWithCache(symbol, ..., isReportedByMultipleDefinitionsCache)` —
 rotor's `AddDiagnosticWithCache` + `Multi.IsReportedByMultipleDefinitionsCache` are ready):
 
-```
+```text
 src/_scratch3c.ts:1:1 - error TS roblox-ts: Enum merging is not supported!
 src/_scratch3c.ts:8:1 - error TS roblox-ts: Namespace merging is not supported!
 src/_scratch3c.ts:15:1 - error TS roblox-ts: Async generator functions are not supported!
