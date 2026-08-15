@@ -21,6 +21,7 @@ bun = "latest"
 golangci-lint = "latest"
 "go:golang.org/x/vuln/cmd/govulncheck" = "latest"
 hk = "1.55.0"
+rumdl = "latest"
 
 [tasks."build:one-shot"]
 description = "Delete the supplied project's out/out-test/out-tsc directories and *.rbxtsc.tsbuildinfo state, then run one-shot (non-watch) rotor builds --json with --checkers 1 and --checkers equal to the detected logical CPU count. Usage: mise run build:one-shot -- <project-dir> <tsconfig-path> (tsconfig path relative to the project dir)."
