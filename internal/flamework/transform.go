@@ -207,7 +207,6 @@ func sourceNeedsFlameworkExpressionTransform(state *TransformState, sourceFile *
 	return false
 }
 
-
 // callMayBeFlameworkMacro is a cheap filter before GetResolvedSignature.
 // False negatives drop macros and their diagnostics; prefer over-inclusion.
 func callMayBeFlameworkMacro(state *TransformState, node *ast.Node) bool {
@@ -252,7 +251,6 @@ func sourceMayNeedFlameworkAccessRewrite(state *TransformState, sourceFile *ast.
 	}
 	return false
 }
-
 
 func calleeMayBeFlameworkMacro(expression *ast.Node) bool {
 	current := ast.SkipParentheses(expression)

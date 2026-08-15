@@ -16,6 +16,7 @@ import (
 	"rotor/tsgo/printer"
 	"rotor/tsgo/tspath"
 )
+
 func TestTransformFlameworkExpressionsInSourceFile_preservesCallChildRecursion(t *testing.T) {
 	// Given
 	state, sourceFile := newExpressionTransformFixture(t, `
@@ -633,4 +634,3 @@ func TestTransformSourceFile_injectsCallerLineThroughTransitiveTypeOnlyImports(t
 
 	t.Log("diamond/cycle/disconnected subcases: admission, injection (exactly 1 line), termination, and reuse verified")
 }
-
