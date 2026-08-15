@@ -110,6 +110,9 @@ verifyStoreIntegrity: true
 catalogs:
   dev:
     "@cliffy/command": npm:@jsr/cliffy__command@1.2.1
+    '@commitlint/cli': 21.2.2
+    '@commitlint/config-conventional': 21.2.2
+    '@commitlint/types': 21.2.0
     "@oh-my-pi/pi-coding-agent": 17.3.2
     "@typescript/native-preview": 7.0.0-dev.20260707.2
     "arktype": 2.2.3
