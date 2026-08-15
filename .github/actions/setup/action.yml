@@ -24,6 +24,17 @@ runs:
       with:
         node-version: "22"
 
+    - name: Restore fixture dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.bun/install/cache
+          tools/sidecar/node_modules
+          testdata/diff/project/node_modules
+          testdata/conformance/project/node_modules
+          testdata/transformers/project/node_modules
+        key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
+
     - name: Install fixture dependencies (bun)
       shell: bash
       run: |

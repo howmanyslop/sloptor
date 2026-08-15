@@ -13,15 +13,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  checks:
     runs-on: blacksmith-16vcpu-ubuntu-2404
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
 
       - name: Check formatting
         run: |
@@ -38,12 +41,32 @@ jobs:
       - name: Build
         run: go build ./...
 
-      - name: Sidecar tests
-        run: node --test test/*.test.js
-        working-directory: tools/sidecar
+  test:
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
 
       - name: Test
-        run: go test ./... -count=1
+        run: |
+          set -euo pipefail
+          (cd tools/sidecar && node --test test/*.test.js) &
+          sidecar_pid=$!
+          go test ./... -count=1 &
+          go_test_pid=$!
+
+          status=0
+          if ! wait "$sidecar_pid"; then
+            status=1
+          fi
+          if ! wait "$go_test_pid"; then
+            status=1
+          fi
+          exit "$status"
         env:
           # The setup action installs testdata/transformers/project, so the
           # real-package transformer test must run here, never skip.
@@ -70,18 +93,23 @@ jobs:
         shell: bash
         run: go mod download
 
-      - name: Sidecar tests
-        shell: bash
-        working-directory: tools/sidecar
-        run: |
-          set -o pipefail
-          node --test test/*.test.js 2>&1 | tee "$RUNNER_TEMP/sidecar-test.log"
-
       - name: Test
         shell: bash
         run: |
-          set -o pipefail
-          go test ./... -count=1 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+          set -euo pipefail
+          ( (cd tools/sidecar && node --test test/*.test.js) 2>&1 | tee "$RUNNER_TEMP/sidecar-test.log" ) &
+          sidecar_pid=$!
+          (go test ./... -count=1 2>&1 | tee "$RUNNER_TEMP/go-test.log") &
+          go_test_pid=$!
+
+          status=0
+          if ! wait "$sidecar_pid"; then
+            status=1
+          fi
+          if ! wait "$go_test_pid"; then
+            status=1
+          fi
+          exit "$status"
         env:
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
 
