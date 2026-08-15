@@ -1169,9 +1169,11 @@ function do_full_or_bump --argument-names mode
         return 0
     end
 
-    # Commit only the two version files.
+    # Commit the version files plus everything bump-header.sh touched
+    # (golden/test header updates). `git add -u` = tracked changes only,
+    # so stray untracked files never leak into the release commit.
     if test $FLAG_DRY_RUN -eq 1
-        info "[dry-run] git add internal/version/version.go package.json"
+        info "[dry-run] git add -u"
         info "[dry-run] git commit -m \"$commit_msg\""
         info "[dry-run] git tag $tag"
         if test $FLAG_NO_PUSH -eq 0
@@ -1182,7 +1184,7 @@ function do_full_or_bump --argument-names mode
         return 0
     end
 
-    git add -- internal/version/version.go package.json
+    git add -u
     or die "git add failed"
 
     # Refuse if nothing staged (e.g. identical rewrite).
