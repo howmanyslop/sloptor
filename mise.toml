@@ -1,9 +1,11 @@
 [env]
 _.file = { path = ".env" }
 _.path = ["{{config_root}}/node_modules/.bin", "{{cwd}}/node_modules/.bin"]
+HK_MISE = 1
 
 [settings]
 auto_install = false
+experimental = true
 lockfile = true
 
 [tools]
@@ -18,6 +20,7 @@ pnpm = "11.21.0"
 bun = "latest"
 golangci-lint = "latest"
 "go:golang.org/x/vuln/cmd/govulncheck" = "latest"
+hk = "1.55.0"
 
 [tasks."build:one-shot"]
 description = "Delete the supplied project's out/out-test/out-tsc directories and *.rbxtsc.tsbuildinfo state, then run one-shot (non-watch) rotor builds --json with --checkers 1 and --checkers equal to the detected logical CPU count. Usage: mise run build:one-shot -- <project-dir> <tsconfig-path> (tsconfig path relative to the project dir)."
@@ -196,3 +199,33 @@ hyperfine \
     'go run ./cmd/rotor build --project "$PROJECT_DIR/$TSCONFIG_PATH" --json --checkers 1' \
     'go run ./cmd/rotor build --project "$PROJECT_DIR/$TSCONFIG_PATH" --json --checkers "$CORES"'
 '''
+
+[tasks."amend:no-verify"]
+description = "Amends the staged changes, reusing the previous commit message."
+run = "git commit --amend --reuse-message=HEAD --signoff --no-verify"
+
+[tasks."commit:no-verify"]
+description = "Commits the staged changes without running Git hooks."
+usage = """
+arg <message> {
+    help "Git commit message"
+}
+"""
+run = """
+git commit --signoff --message "${usage_message?}" --no-verify
+"""
+
+[tasks.amend]
+description = "Amends the staged changes, reusing the previous commit message."
+run = "git commit --amend --reuse-message=HEAD --signoff"
+
+[tasks.commit]
+description = "Commits the staged changes."
+usage = """
+arg <message> {
+    help "Git commit message"
+}
+"""
+run = """
+git commit --signoff --message "${usage_message?}"
+"""
