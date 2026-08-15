@@ -31,7 +31,7 @@ func TestEnvMacroModel(t *testing.T) {
 	// In order: .env value; process-env override; fallback arg; unset -> nil;
 	// dot access; element access; 2-arity with a set name (fallback unused);
 	// .env.<NODE_ENV> override; double/single quote stripping.
-	want := "-- Compiled with sloptor v2.3.0\n" +
+	want := "-- Compiled with sloptor v2.3.1\n" +
 		"print(\"Adventure Quest\")\n" +
 		"print(\"from-process\")\n" +
 		"print(\"fallback-value\")\n" +

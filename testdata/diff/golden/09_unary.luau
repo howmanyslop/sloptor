@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 local i = 0
 i += 1
 i -= 1

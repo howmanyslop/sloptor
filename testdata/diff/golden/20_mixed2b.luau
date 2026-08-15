@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 -- declared before the exported function: rbxtsc still returns the function
 -- first (binder binds FunctionDeclarations before other statements)
 local VERSION = 3

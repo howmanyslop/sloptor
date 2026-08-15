@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor",
-	"version": "2.3.0",
+	"version": "2.3.1",
 	"description": "All-in-one Roblox toolchain: native roblox-ts compiler, Luau bundler, minifier, dev loop, and packer. This package downloads the prebuilt rotor binary from GitHub Releases.",
 	"keywords": [
 		"bundler",

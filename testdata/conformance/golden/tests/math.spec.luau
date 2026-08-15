@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 return function()
 	describe("should support basic math operators", function()
 		it("should add numbers", function()

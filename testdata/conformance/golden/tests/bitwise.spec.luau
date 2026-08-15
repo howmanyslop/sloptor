@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 return function()
 	it("should support bitwise operations", function()
 		local a = 0b101

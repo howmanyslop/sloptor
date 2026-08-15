@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 local function getArr()
 	return { 3, 1, 2 }
 end

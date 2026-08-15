@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 -- Phase 3b adversarial mix: macro tables, optional chaining, and the full
 -- iteration builders interacting with each other — not in isolation.
 -- ?? joining an optional Map with a Map-returning call, used as a for-of source

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.0
+-- Compiled with sloptor v2.3.1
 local limit = 10
 local total = 0
 for i = 0, limit - 1 do
