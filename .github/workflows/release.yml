@@ -42,88 +42,75 @@ jobs:
     needs: validate
     runs-on: blacksmith-32vcpu-ubuntu-2404
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - goos: darwin
-            goarch: amd64
-            suffix: ""
-          - goos: darwin
-            goarch: arm64
-            suffix: ""
-          - goos: linux
-            goarch: amd64
-            suffix: ""
-          - goos: linux
-            goarch: arm64
-            suffix: ""
-          - goos: windows
-            goarch: amd64
-            suffix: ".exe"
-          - goos: windows
-            goarch: arm64
-            suffix: ".exe"
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
         with:
-          go-version-file: go.mod
-          cache: true
+          install_args: go
+          experimental: true
 
-      - name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/AppData/Local/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
+
+      - name: Build release binaries
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          SUFFIX: ${{ matrix.suffix }}
           VERSION: ${{ needs.validate.outputs.version }}
           CGO_ENABLED: "0"
         run: |
+          set -euo pipefail
           mkdir -p dist
-          output="dist/sloptor-v$VERSION-$GOOS-$GOARCH-bin$SUFFIX"
-          go build -trimpath -ldflags="-s -w" -o "$output" ./cmd/rotor
-          test -s "$output"
-          go version -m "$output"
 
-          if [ "$GOOS/$GOARCH" = "linux/amd64" ]; then
-            chmod +x "$output"
-            reported_version=$("$output" --version)
-            if [ "$reported_version" != "$VERSION" ]; then
-              echo "binary reports $reported_version, expected $VERSION"
-              exit 1
+          build_target() {
+            local goos="$1"
+            local goarch="$2"
+            local suffix="$3"
+            local output="dist/sloptor-v$VERSION-$goos-$goarch-bin$suffix"
+
+            GOOS="$goos" GOARCH="$goarch" go build -p 5 -trimpath -ldflags="-s -w" -o "$output" ./cmd/rotor
+            test -s "$output"
+            go version -m "$output"
+
+            if [ "$goos/$goarch" = "linux/amd64" ]; then
+              chmod +x "$output"
+              reported_version=$("$output" --version)
+              if [ "$reported_version" != "$VERSION" ]; then
+                echo "binary reports $reported_version, expected $VERSION"
+                return 1
+              fi
             fi
-          fi
+          }
 
-      - name: Upload ${{ matrix.goos }}-${{ matrix.goarch }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
+          pids=()
+          build_target darwin amd64 "" &
+          pids+=("$!")
+          build_target darwin arm64 "" &
+          pids+=("$!")
+          build_target linux amd64 "" &
+          pids+=("$!")
+          build_target linux arm64 "" &
+          pids+=("$!")
+          build_target windows amd64 ".exe" &
+          pids+=("$!")
+          build_target windows arm64 ".exe" &
+          pids+=("$!")
 
-  package:
-    needs:
-      - validate
-      - build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - name: Download binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          pattern: binary-*
-          path: dist
-          merge-multiple: true
+          status=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then
+              status=1
+            fi
+          done
+          exit "$status"
 
       - name: Package and verify release assets
         env:
@@ -204,7 +191,7 @@ jobs:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs:
       - validate
-      - package
+      - build
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     permissions:
@@ -277,7 +264,7 @@ jobs:
     needs: [validate, publish]
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
 
     steps:
       - name: Check out repository
