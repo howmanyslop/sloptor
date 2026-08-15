@@ -650,4 +650,6 @@ sites (parsed at the expression-statement / assignment-value entry, per the gram
   `cursor.go` and reused.
 - **Corpus reuse:** same `ROTOR_LUAU_CORPUS` mechanism and 405-file corpus as the
   lexer (A.1), so the parser is held to the same real-world bar.
+
+```text
 ```

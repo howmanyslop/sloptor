@@ -15,6 +15,7 @@
 ## Fixtures (Task 1 adds all; later tasks enable as transforms land)
 
 `14_functions.ts` — function declarations (local + exported), parameters with defaults, rest param usage as array, explicit returns, recursion, function calls of user functions, hoisted mutual recursion:
+
 ```typescript
 function add(a: number, b: number) {
 	return a + b;
@@ -42,6 +43,7 @@ print(add(1, 2), greet("bob"), greet("ann", "?"), sum(1, 2, 3), isEven(4), doubl
 ```
 
 `15_arrows.ts` — arrow functions: expression bodies, block bodies, stored in consts, passed as arguments, closures over locals, object-literal function values:
+
 ```typescript
 const square = (x: number) => x * x;
 const clamp = (x: number, lo: number, hi: number) => {
@@ -63,6 +65,7 @@ print(square(5), clamp(15, 0, 10), bump(), bump(), ops.twice(4), ops.apply(squar
 ```
 
 `16_destructuring.ts` — array/object binding patterns with defaults, nesting, omitted elements; assignment patterns:
+
 ```typescript
 const arr = [1, 2, 3, 4];
 const [first, second] = arr;
@@ -77,9 +80,11 @@ let a = 0, b = 0;
 ({ x: a } = obj);
 print(first, second, third, head, x, renamed, z, dx, missing, a, b);
 ```
+
 NOTE: `...nothing` rest element → upstream raises its rest-spread rejection — REMOVE that line if rbxtsc rejects the file outright (it will — diagnostics abort compilation); keep fixtures compiling clean, and cover the diagnostic in a unit test instead.
 
 `17_forof.ts` — for-of over arrays:
+
 ```typescript
 const items = [10, 20, 30];
 let total = 0;
@@ -99,9 +104,11 @@ for (const w of words) {
 }
 print(total, joined);
 ```
+
 NOTE: `.size()` is a MACRO — remove that if/break (use a plain condition like `joined !== ""` … which is banned `!==`? no — `!==` is fine, `!=` is banned). Keep fixtures macro-free.
 
 `18_switch.ts` — switch: literal cases, fallthrough, default, break, case-local variables:
+
 ```typescript
 function describe(n: number) {
 	switch (n) {
@@ -130,13 +137,16 @@ print(describe(0), describe(2), describe(3), describe(9), mode);
 ```
 
 `19_closures.ts` — loop closure captures + body-write loops (the Phase 2 divergence/panic cases, now fully supported):
+
 ```typescript
 const fns: Array<() => number> = [];
 for (let i = 0; i < 3; i++) {
 	fns.push(() => i);
 }
 ```
+
 NOTE: `fns.push` is a MACRO (Array.push) — restructure to avoid macros: assign into a pre-sized record via index writes? `fns[i] = () => i` — element WRITE on array... that's a plain assignment (no macro). Verify rbxtsc accepts it; the optimized loop may make copies unnecessary (per Phase 2 finding upstream optimizes closure-containing loops when preconditions hold) — so ALSO include a non-optimizable variant:
+
 ```typescript
 const fns: Array<() => number> = [];
 for (let i = 0; i !== 3; i++) {
@@ -149,6 +159,7 @@ for (let j = 0; j !== 5; ) {
 }
 print(fns[0](), fns[1](), fns[2](), calls);
 ```
+
 (The `j` loop is the body-write-no-closure case — Phase 2's documented byte-divergence, which Task 2 fixes.) Final fixture content = whatever compiles clean under rbxtsc; document adjustments.
 
 ---
@@ -206,6 +217,7 @@ Commit: `"Phase 2b complete: functions, destructuring, for-of, switch"`
 ---
 
 ## Done criteria
+
 1. 19-20 fixtures byte-identical (incl. the former divergence case in 19_closures).
 2. The loop closure-capture panic is GONE — replaced by the real copy machinery.
 3. Functions/arrows/destructuring/for-of(arrays)/switch compile byte-identically; async/generators/macros/non-array iteration raise clean diagnostics.

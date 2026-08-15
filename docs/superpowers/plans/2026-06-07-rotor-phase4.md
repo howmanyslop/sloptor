@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: ProjectOptions + full CLI surface + LogService
+## Task 1: ProjectOptions + full CLI surface + LogService
 
 Per digest §1: a `ProjectOptions` struct with DEFAULT_PROJECT_OPTIONS defaults; the `rbxts` tsconfig key (raw single-file read, NO extends — quirk verbatim; merge order defaults < rbxts < argv where ABSENT CLI booleans don't clobber); full `rotor build` flags (`-p/--project` with file-path + upward-search resolution, `-w/--watch`, `--usePolling` implies watch, `--verbose`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` → documented no-op/NYS, `--optimizedLoops` default true — WIRE the loops.go:653 gate, `--rojo` (empty string falls through to discovery — quirk), `--luau` default true → PathTranslator ext, `--allowCommentDirectives`); exit-code policy decision: match upstream exit 1 for usage errors (document the change from rotor's current 2); LogService analog (`Compiler Warning:` yellow channel — wire the DROPPED Rojo resolver warnings from project.go, `--verbose` benchmark lines with exact strings: `compiling as X..` two dots, `copy include files ( N ms )`, `N/M compile <rel>` padStart). `--version` prints rotor's version. Tests: option-merge table tests (rbxts key + CLI precedence), flag parsing incl. `--usePolling` without `--watch` error, project-path search.
 Commit: `"cli: full build flag surface, ProjectOptions merge, LogService"`
@@ -65,6 +65,7 @@ Commit: `"Phase 4 complete: full build CLI, watch, incremental, plugins"`
 - Task 8 last, solo.
 
 ## Done criteria
+
 1. `rotor build` on randomness produces an out tree byte-matching rbxtsc's (header-normalized), including copied files and include/.
 2. `rotor build -w` rebuilds incrementally with upstream-parity status lines and pipeline order; `--usePolling` works.
 3. Incremental manifest: warm builds recompile only changed files + dependents; salt invalidation correct.

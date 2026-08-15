@@ -8,7 +8,7 @@
 
 ---
 
-### Task 1: JSX
+## Task 1: JSX
 
 Per jsx digest: add `@rbxts/react@17.3.7-ts.1` (exact pin, same install flavor as the existing lock) + the 3 jsx tsconfig keys (`jsx: "react"`, `jsxFactory: "React.createElement"`, `jsxFragmentFactory: "React.Fragment"`) to `testdata/diff/project` — **all 35 existing goldens must stay byte-unchanged** (verify). Port the 5 transform files + util into `internal/transformer/jsx.go` + `jsxtext.go`: the single factory-call assembler (tag, attrs-map-or-nil, ...children), lowercase tag-name test (`<_Comp/>` → string `"_Comp"` quirk), attributes via MapPointer with inline-map pointer + the two spread paths (`table.clone`+`setmetatable(nil)` fast path vs `_k`/`_v` for-loop), `{}` attr → `true`, children via ensureTransformOrder, JsxText fixup copied from tsgo's unexported `tsgo/transformers/jsxtransforms/jsx.go:810` Go port (backslash-doubling quirk). Factory entity via EmitResolver GetJsxFactoryEntity/GetJsxFragmentFactoryEntity + transformEntityName (all pre-existing). 4 dispatch cases (JsxElement/JsxSelfClosingElement/JsxFragment + expression child handling). JsxText fixup paths are type-illegal to oracle-pin — unit-test against the digest's recorded shapes instead. Oracle-pinned fixture `32_jsx.tsx` (element+props, self-closing, fragment, `.map` children, `&&`/ternary children, key prop, Event/Change-style tables as plain props).
 Commit: `"transformer: JSX"`
@@ -51,6 +51,7 @@ Commit: `"Phase 3c complete: JSX, classes, async, try, enums"`
 ---
 
 ## Done criteria
+
 1. All fixtures byte-identical (target ~43 entries incl. 32-39).
 2. randomness count materially above 54 — every Phase 3c first-blocker construct compiles; remaining blockers (if any cascade out) tabled for the next phase, measured honestly.
 3. JSX/classes/async/try/enums/namespaces produce byte-identical output or loud diagnostics — no silent wrong output; the Phase 2 TRY_* no-op is retired.

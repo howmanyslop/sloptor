@@ -14,6 +14,7 @@ closure-capture copy system that real closures activate.
 ## 1. Functions
 
 ### 1.1 Dispatch entries
+
 - `transformExpression.ts` L83: `ts.SyntaxKind.ArrowFunction → transformFunctionExpression`;
   L94: `FunctionExpression → transformFunctionExpression`. **Arrows and function expressions
   share ONE transform** (`transformFunctionExpression.ts` takes
@@ -33,12 +34,13 @@ closure-capture copy system that real closures activate.
 4. `name = node.name ? transformIdentifierDefined(state, node.name) : luau.id("default")` (L26) —
    anonymous `export default function` is emitted under the literal name `default`.
    CHECKER: transformIdentifierDefined does `getSymbolAtLocation`/`getShorthandAssignmentValueSymbol`
-   + symbolToIdMap lookup (P2 §3.1).
+   - symbolToIdMap lookup (P2 §3.1).
 5. `let { statements, parameters, hasDotDotDot } = transformParameters(state, node)` (§1.4), then
    `pushList(statements, transformStatementList(state, node.body, node.body.statements))` (L28–29)
    — parameter-default/destructure statements come FIRST in the body, then the transformed body.
    No implicit return is ever inserted: Luau functions return nil implicitly.
 6. `localize` decision (L31–36):
+
    ```ts
    let localize = isExportDefault;
    if (node.name) {
@@ -47,6 +49,7 @@ closure-capture copy system that real closures activate.
        localize = state.isHoisted.get(symbol) !== true;
    }
    ```
+
    If the symbol was hoisted (a `local f` already emitted by createHoistDeclaration, P2 §1.3/§3.3),
    emit non-local `function f() end`; otherwise `local function f() end`. Note an export-default
    NAMED function also goes through the `node.name` branch (localize from hoisting), while an
@@ -65,6 +68,7 @@ Export rules for functions: there is NO `util/isBlockedByIsolatedContainer.ts` i
 (the task prompt's name doesn't exist; "isolated containers" only appear in import-path validation
 — `util/createImportExpression.ts` `errors.noIsolatedImport` — unrelated to functions). What
 actually governs exported functions:
+
 - file-level `export function f` produces no extra code at the statement; the exports table is
   assembled by `nodes/transformSourceFile.ts handleExports` (L94–189): non-mutable value exports
   are collected as `[exportKey, luau.id(name)]` pairs via `getExportPair` (L14–31; for
@@ -80,10 +84,12 @@ actually governs exported functions:
 ### 1.3 transformFunctionExpression — `nodes/expressions/transformFunctionExpression.ts` L11–47
 
 Handles `function() {}` AND arrows.
+
 1. `if (node.name) errors.noFunctionExpressionName(node.name)` (L12–14) — named function
    expressions (`const f = function g() {}`) are banned; transform continues (name dropped).
 2. `transformParameters` (§1.4).
 3. Body (L18–25):
+
    ```ts
    const body = node.body;
    if (ts.isFunctionBody(body)) {
@@ -94,6 +100,7 @@ Handles `function() {}` AND arrows.
        luau.list.pushList(statements, returnStatements);
    }
    ```
+
    `ts.isFunctionBody` = is a Block. Arrow expression bodies (`x => x + 1`) reuse the FULL return
    transform (§1.8) with prereqs captured into the function body, so `x => f().y` emits the call
    prereq then `return ...`. This is how implicit arrow returns work — there is no other
@@ -151,6 +158,7 @@ return luau.create(luau.SyntaxKind.IfStatement, {
     }),
 });
 ```
+
 i.e. `if id == nil then <init prereqs>; id = <init> end`. Default expressions are evaluated lazily
 inside the nil-check (TS semantics: default only computed when undefined is passed). Used by:
 parameter defaults, binding-element defaults, assignment-pattern defaults, for-of/map shapes.
@@ -201,12 +209,14 @@ parameter defaults, binding-element defaults, assignment-pattern defaults, for-o
 ### 1.8 Return plumbing — `nodes/statements/transformReturnStatement.ts` (COMPLETE)
 
 `transformReturnStatement` (L71–84):
+
 - No expression: if `isReturnBlockedByTryStatement(node)` → `state.markTryUses("usesReturn")` and
   emit `return TS.TRY_RETURN, {}` (Phase 3 try interplay); else emit `return nil` (L81) —
   upstream always materializes the nil.
 - With expression → `transformReturnStatementInner(state, node.expression)`.
 
 `transformReturnStatementInner` (L28–69):
+
 1. `$tuple(...)` macro return (L36–39): `ts.isCallExpression(returnExp) && isTupleMacro(...)` —
    CHECKER: `getFirstDefinedSymbol(state, state.getType(expression.expression))` (L20) compared to
    macroManager `$tuple` symbol — args via `ensureTransformOrder` (prereqs pushed into result),
@@ -215,10 +225,12 @@ parameter defaults, binding-element defaults, assignment-pattern defaults, for-o
    flattening (L42–48): if CHECKER: `isLuaTupleType(state)(state.getType(returnExp))` AND NOT
    `isTupleReturningCall` — which is (L10–16, verbatim comment "intentionally NOT using
    state.getType() here, because that uses skipUpwards"):
+
    ```ts
    luau.isCall(luaExpression) &&
    isLuaTupleType(state)(state.typeChecker.getTypeAtLocation(skipDownwards(tsExpression)))   // CHECKER (L14)
    ```
+
    then: a literal luau Array → return its members as a multi-return (`return a, b`); anything else
    → `return unpack(expression)`. (A call that itself returns a LuaTuple passes through —
    multi-returns chain.)
@@ -239,6 +251,7 @@ ModuleScripts, §1.2 export notes).
 CHECKER: `isLuaTupleType(state)(state.getType(node))` and `shouldWrapLuaTuple` → `luau.array([exp])`
 (truncate multi-return to a table); else pass through.
 `shouldWrapLuaTuple` (L8–56) — DON'T wrap (use the raw multi-value call) when:
+
 - `exp` is not a luau Call → wrap (true) immediately (L9–11);
 - parent (via `skipUpwards(node).parent`) is: ExpressionStatement; ForStatement with
   `parent.condition !== child` (initializer/incrementor position); VariableDeclaration whose name
@@ -251,6 +264,7 @@ CHECKER: `isLuaTupleType(state)(state.getType(node))` and `shouldWrapLuaTuple` �
 ### 1.10 transformMethodDeclaration — `nodes/transformMethodDeclaration.ts` (object-literal methods)
 
 Called from transformObjectLiteralExpression (P2 §2.7) with the object's `Pointer`.
+
 1. `!node.body` → empty (L21–23). PrivateIdentifier name → `errors.noPrivateIdentifier`, empty
    (L26–29).
 2. `transformParameters` + body via transformStatementList (L31–32); `name =
@@ -275,6 +289,7 @@ Called from transformObjectLiteralExpression (P2 §2.7) with the object's `Point
 Entry (L63–77): for a ClassElement with class parent and a name → `validateHeritageClause` per
 `ts.getAllSuperTypeNodes(node.parent)` (Phase 4). For ObjectLiteralElementLike: SpreadAssignment
 whose expression is NOT an object literal → `validateSpread`; else `validateObjectLiteralElement`.
+
 - `hasCallSignatures(type)` (L8–14): walkTypes; CHECKER: `t.getCallSignatures().length > 0`.
 - `validateTypes(state, node, baseType, assignmentType)` (L16–27): only when BOTH types have call
   signatures; `assignmentIsMethod = isMethodFromType(state, node, assignmentType)`; if
@@ -296,6 +311,7 @@ whose expression is NOT an object literal → `validateSpread`; else `validateOb
 ## 2. Destructuring
 
 Two parallel systems with identical accessor plumbing:
+
 - **Binding patterns** (`ts.ArrayBindingPattern`/`ts.ObjectBindingPattern`) — in `const/let`
   declarations and parameters. Elements are `ts.BindingElement` (name, optional propertyName,
   optional dotDotDotToken, optional initializer) or `ts.OmittedExpression`.
@@ -337,6 +353,7 @@ for (const element of bindingPattern.elements) {
     index++;
 }
 ```
+
 All output goes through `state.prereq*` (callers wrap in capturePrereqs). Rest elements
 (`...rest`) → upstream rest-spread rejection and ABORT the rest of the pattern (return). Defaults run
 before nested-pattern recursion. Omitted elements still invoke the accessor with `isOmitted=true`
@@ -346,6 +363,7 @@ so stateful accessors (string/set/map/iter) advance; the array accessor's omitte
 ### 2.3 transformObjectBindingPattern — `nodes/binding/transformObjectBindingPattern.ts` L13–48
 
 `validateNotAnyType`. Per element:
+
 - `dotDotDotToken` (`...rest`) → upstream rest-spread rejection, return.
 - name Identifier: `value = objectAccessor(state, parentId, state.getType(bindingPattern),
   prop ?? name)` — CHECKER (L27); `prop` is `element.propertyName` (`{ a: b }` reads `a`, declares
@@ -359,6 +377,7 @@ so stateful accessors (string/set/map/iter) advance; the array accessor's omitte
 `BindingAccessor = (state, parentId, index, idStack, isOmitted) => luau.Expression`. `idStack`
 carries iteration state BETWEEN elements of one pattern (e.g. the gmatch matcher, the last `next`
 key). Dispatch (L143–167), in order, all via `isDefinitelyType` (P2 §7.1):
+
 | predicate | accessor | emission per element |
 |---|---|---|
 | `isArrayType(state)` | arrayAccessor (L32–37) | `parentId[index + 1]` (literal-folded number); omitted: nothing |
@@ -367,9 +386,9 @@ key). Dispatch (L143–167), in order, all via `isDefinitelyType` (P2 §7.1):
 | `isMapType(state)` | mapAccessor (L86–103) | `local _k, _v = next(parentId[, lastK])` (multi-assign VariableDeclaration); pushes `_k`; returns `luau.Array { _k, _v }` — the `{ _k, _v }` table is then destructured by the nested `[k, v]` pattern; NOTE: no isOmitted branch (omitted map element still emits the local decl) |
 | `isIterableFunctionLuaTupleType(state)` | iterableFunctionLuaTupleAccessor (L105–117) | value = `{ parentId() }` (array-wrap the multi-return); omitted: CallStatement `parentId()` |
 | `isIterableFunctionType(state)` | iterableFunctionAccessor (L119–131) | value = `parentId()`; omitted: CallStatement |
-| `isIterableType(state)` | `errors.noIterableIteration` (L157), accessor = `() => luau.none()` |
+| `isIterableType(state)` | `errors.noIterableIteration` (L157), accessor = `() => luau.none()` |  |
 | `isGeneratorType(state)` ∥ `isObjectType` ∥ `ts.isThis(node)` | iterAccessor (L133–141) | value = `parentId.next().value`; omitted: CallStatement `parentId.next()` |
-| else | `assert(false, "Destructuring not supported for type: " + typeChecker.typeToString(type))` (L166) |
+| else | `assert(false, "Destructuring not supported for type: " + typeChecker.typeToString(type))` (L166) |  |
 
 Phase 2b ships arrayAccessor (+ objectAccessor §2.5); the others are pure-Luau emissions (no
 runtime lib!) needed when Phase 3 enables Map/Set/Generator/IterableFunction types.
@@ -394,6 +413,7 @@ else if (ts.isNumericLiteral(name) || ts.isStringLiteral(name) || ts.isNoSubstit
 else if (ts.isPrivateIdentifier(name)) { errors.noPrivateIdentifier(name); return luau.none(); }
 assertNever
 ```
+
 QUIRK: computed names get the +1 array adjustment (`type` is the PARENT pattern's type), but
 literal numeric names do NOT (`{ 0: x }` over a tuple emits `parent[0]`, `{ [0]: x }` emits
 `parent[1]` when parent is array-typed). Port verbatim.
@@ -401,13 +421,16 @@ literal numeric names do NOT (`{ 0: x }` over a tuple emits `parent[0]`, `{ [0]:
 ### 2.6 transformArrayAssignmentPattern — `nodes/binding/transformArrayAssignmentPattern.ts` L14–73
 
 Same skeleton as §2.2 but over `ts.ArrayLiteralExpression`:
+
 - accessor from CHECKER: `state.typeChecker.getTypeOfAssignmentPattern(assignmentPattern)` (L24)
   — NOT getType (assignment patterns need the special checker API).
 - Element forms: OmittedExpression → accessor(isOmitted). SpreadElement → upstream rest-spread rejection
   (NOTE: does NOT return — keeps iterating, unlike binding patterns). Default unwrapping:
+
   ```ts
   if (ts.isBinaryExpression(element)) { initializer = skipDownwards(element.right); element = skipDownwards(element.left); }
   ```
+
 - Identifier | ElementAccessExpression | PropertyAccessExpression targets:
   `id = transformWritableExpression(state, element, initializer !== undefined)` (P2 §4.3 —
   readAfterWrite only when a default needs to re-read), prereq `id = value` Assignment, then
@@ -420,6 +443,7 @@ idStack typed `Array<luau.Identifier>` here (cosmetic).
 ### 2.7 transformObjectAssignmentPattern — `nodes/binding/transformObjectAssignmentPattern.ts` L14–90
 
 Per property of the object literal LHS:
+
 - ShorthandPropertyAssignment `{ a }` / `{ a = 1 }` (L20–39): `value = objectAccessor(state,
   parentId, CHECKER: getTypeOfAssignmentPattern(assignmentPattern) (L25), name)`;
   `id = transformWritableExpression(state, name, property.objectAssignmentInitializer !== undefined)`;
@@ -437,6 +461,7 @@ Per property of the object literal LHS:
 
 `transformVariable(state, identifier, right?)` (L19–55) — single-name declaration (also used per
 binding element):
+
 1. `validateIdentifier`; CHECKER: `getSymbolAtLocation(identifier)` (L22), assert.
 2. export-let indirection (L26–40): `isSymbolMutable(state, symbol)` (P2 §0.3 CHECKER) and
    `state.getModuleIdPropertyAccess(symbol)` → prereq `exports.x = right` (when right) and return
@@ -447,6 +472,7 @@ binding element):
    `local left`). Returns left.
 
 `transformVariableDeclaration(state, node)` (L101–167):
+
 1. Initializer transformed FIRST with prereqs captured (L107–114; comment "must transform right
    _before_ checking isHoisted, that way references inside of value can be hoisted").
 2. Identifier name → capturePrereqs(transformVariable(name, value)).
@@ -456,14 +482,14 @@ binding element):
      `wrapExpressionStatement(value)` (P2 §0.3).
    - ArrayBindingPattern (L134–155), three paths:
      a. LuaTuple direct unpack: `luau.isCall(value)` AND CHECKER:
-        `isLuaTupleType(state)(state.getType(node.initializer))` AND
-        `!arrayBindingPatternContainsHoists(state, name)` →
-        `transformOptimizedArrayBindingPattern(state, name, value)` — `local a, b = f()` (the call
-        was NOT array-wrapped thanks to §1.9).
+     `isLuaTupleType(state)(state.getType(node.initializer))` AND
+     `!arrayBindingPatternContainsHoists(state, name)` →
+     `transformOptimizedArrayBindingPattern(state, name, value)` — `local a, b = f()` (the call
+     was NOT array-wrapped thanks to §1.9).
      b. Literal-array RHS: `luau.isArray(value)` non-empty AND no hoists →
-        `transformOptimizedArrayBindingPattern(state, name, value.members)` — `local a, b = x, y`
-        (comment L144: "we can't localize multiple variables at the same time if any of them are
-        hoisted").
+     `transformOptimizedArrayBindingPattern(state, name, value.members)` — `local a, b = x, y`
+     (comment L144: "we can't localize multiple variables at the same time if any of them are
+     hoisted").
      c. Fallback: `transformArrayBindingPattern(state, name, state.pushToVar(value, "binding"))`.
    - ObjectBindingPattern (L156–163): always `transformObjectBindingPattern(state, name,
      pushToVar(value, "binding"))`.
@@ -490,6 +516,7 @@ declaration (capture prereqs, push prereqs then statements per declaration).
 ### 2.9 Assignment-expression destructuring — `expressions/transformBinaryExpression.ts` L141–184
 
 Inside `ts.isAssignmentOperator(operatorKind)`:
+
 - ArrayLiteral LHS (L143–169): `rightExp = transformExpression(node.right)` ("in destructuring,
   rhs must be executed first").
   - Empty `[] = exp` (L147–152): if used as statement and rightExp is a literal empty Array →
@@ -518,6 +545,7 @@ statements. Emission order (L93–110): `local _t1, _t2` (if any variables) → 
 (defaults + nested destructures). `assert(!writes empty)`.
 
 ### 2.10 Parameters
+
 Entry documented in §1.4 — parameter binding patterns reuse §2.2/§2.3 with `paramId` as parent;
 defaults precede destructuring; `...[a,b]` flattening per §1.4.
 
@@ -542,6 +570,7 @@ const statements = transformStatementList(state, node.statement, getStatements(n
 const loopBuilder = getLoopBuilder(state, node.expression, expType);
 luau.list.pushList(result, loopBuilder(state, statements, node.initializer, exp));
 ```
+
 The BODY is transformed BEFORE the loop shape is built; builders prepend initializer statements.
 
 ### 3.2 LoopBuilder machinery (L34–57)
@@ -556,6 +585,7 @@ The BODY is transformed BEFORE the loop shape is built; builders prepend initial
 
 `transformForInitializer(state, initializer, initializers)` (L94–128) — produce ONE identifier for
 the loop binding:
+
 - VariableDeclarationList → `transformBindingName(state, initializer.declarations[0].name,
   initializers)` (§2.1: identifier directly as the loop variable, or `_binding` tempId + pattern
   destructure prepended to body).
@@ -575,15 +605,18 @@ but assigning a known `value` expression (used by map/generator builders): array
 Order of `isDefinitelyType` tests (CHECKER predicates per §2.4 table): Array → Set → Map → String
 → IterableFunction<LuaTuple> → IterableFunction → Generator → Iterable (error) → union (error) →
 `assert(false, "ForOf iteration type not implemented: " + typeToString)`.
+
 - `errors.noIterableIteration` (L430) / `errors.noMacroUnion` (L433) both return a builder that
   emits nothing.
 
 **buildArrayLoop** (L130–134) — Phase 2b scope:
+
 ```ts
 luau.list.push(ids, luau.tempId());                                    // discard slot
 luau.list.push(ids, transformForInitializer(state, initializer, initializers));
 return exp;
 ```
+
 → `for _, x in exp do ... end`. There is NO index variable in TS for-of; the first generic-for
 binding is an unnamed tempId (renders `_` when unreferenced). No ipairs — generalized iteration
 directly over the array expression. Pattern initializers destructure inside the body
@@ -612,6 +645,7 @@ expression = `string.gmatch(exp, utf8.charpattern)` → `for c in string.gmatch(
 iteration; nil terminates).
 
 **buildIterableFunctionLuaTupleLoop** (L286–382) — `type` is captured for tuple introspection:
+
 - Array-pattern fast path: VariableDeclarationList with ArrayBindingPattern name, or
   ArrayLiteralExpression initializer → `makeIterableFunctionLuaTupleShorthand` (L269–284):
   inline bindings → `for a, b in exp do`.
@@ -627,7 +661,8 @@ iteration; nil terminates).
     `for _el1, _el2 in exp do local t = { _el1, _el2 } ... end` (VariableDeclaration tupleId =
     array of return ids, prepended via initializers).
   - Else (unknown arity / expression initializer) while-loop protocol (L328–362):
-    ```
+
+    ```text
     local _iterFunc = exp                  -- pushToVar(exp, valueToIdStr(exp) || "iterFunc")
     while true do
         local _v = { _iterFunc() }
@@ -638,7 +673,8 @@ iteration; nil terminates).
     ```
 
 **buildGeneratorLoop** (L384–412):
-```
+
+```text
 for _result in exp.next do                 -- luau.property(convertToIndexableExpression(exp), "next")
     if _result.done then break end
     local x = _result.value                -- or pattern/writable via the two initializer helpers
@@ -665,9 +701,11 @@ non-literal step gets `or 1` to match `Number()` defaulting.
 ```ts
 const expression = state.pushToVarIfComplex(transformExpression(state, node.expression), "exp");
 ```
+
 (NOT captured — expression prereqs flow to the outer statement list; complex switch subject gets
 `local _exp = ...`.) `fallThroughFlagId = luau.tempId("fallthrough")`. Iterate
 `node.caseBlock.clauses`:
+
 - CaseClause: `shouldUpdateFallThroughFlag = i < clauses.length - 1 &&
   ts.isCaseClause(clauses[i+1])` (no flag update needed before a default clause or at the end);
   transformCaseClause (§4.2); push its prereqs then clauseStatements;
@@ -680,12 +718,14 @@ const expression = state.pushToVarIfComplex(transformExpression(state, node.expr
   quirk; TS would still match them — port verbatim).
 If flag needed: unshift `local _fallthrough = false`. Wrap EVERYTHING in
 `RepeatStatement { condition: luau.bool(true), statements }`:
-```
+
+```text
 repeat
     local _fallthrough = false          -- only when needed
     <case prereqs / if-blocks / default statements>
 until true
 ```
+
 TS `break` inside the switch → plain Luau `break` (transformBreakStatement) which exits the
 `repeat ... until true`. PORT NOTE: a TS `continue` inside a switch inside a loop emits a Luau
 `continue` inside the repeat, which in Luau jumps to the `until` of the REPEAT (effectively acting
@@ -697,13 +737,16 @@ Case condition: `[expression, prereqStatements] = state.capture(transformExpress
 expression is ALWAYS wrapped in a luau ParenthesizedExpression (L17). Base condition:
 `switchExpression == (caseExpr)`.
 Fallthrough plumbing — when `canFallThroughTo` (the previous case clause can reach this one):
+
 - case expression had prereqs (L22–42): prereqs must only run when not already falling through:
-  ```
+
+  ```text
   if not _fallthrough then
       <prereqs>
       _fallthrough = _exp == (<caseExpr>)
   end
   ```
+
   (the assignment is appended to the prereq block) and the clause condition becomes just
   `_fallthrough`.
 - no prereqs: condition = `_fallthrough or (_exp == (<caseExpr>))` (L44).
@@ -727,6 +770,7 @@ Returns `{ canFallThroughFrom, prereqs: prereqStatements, clauseStatements }`; c
 Called from `transformVariable` (every identifier declaration, §2.8) and
 `arrayBindingPatternContainsHoists` (§2.8). Distinct from `checkIdentifierHoist` (P2 §3.3 —
 use-before-declare at REFERENCES); this one runs at DECLARATIONS and only handles case clauses:
+
 ```ts
 if (state.isHoisted.get(symbol) !== undefined) return;          // already decided
 const statement = getAncestor(node, ts.isStatement);
@@ -745,6 +789,7 @@ if (isUsedOutsideOfCaseClause) {
     state.isHoisted.set(symbol, true);
 }
 ```
+
 Semantics: a `let/const` declared directly in a case clause is block-scoped to the whole case
 BLOCK in TS; if any reference lies outside the declaring clause (i.e. in a sibling clause —
 references outside the switch are TS scope errors), emit `local x` at the top of the declaring
@@ -764,6 +809,7 @@ variables that need it.
 
 `isIdWriteOrAsyncRead(state, forStatement, id)` (L78–100) — does the loop variable need the
 copy treatment? True if ANY reference (searchContainer = the ForStatement; §6 walker) satisfies:
+
 ```ts
 // write
 if (ts.isWriteAccess(token) && (!forStatement.incrementor || !isAncestorOf(forStatement.incrementor, token)))
@@ -772,6 +818,7 @@ if (ts.isWriteAccess(token) && (!forStatement.incrementor || !isAncestorOf(forSt
 const ancestor = getAncestor(token, v => v === forStatement || ts.isFunctionLike(v));
 if (ancestor && ancestor !== forStatement) return true;
 ```
+
 i.e. (a) the variable is WRITTEN anywhere in the loop except (solely) inside the incrementor, or
 (b) any reference sits inside a FunctionLike nested in the loop (closure capture = "async read").
 `ts.isWriteAccess` semantics for the port: token is a declaration name, LHS of any assignment
@@ -792,6 +839,7 @@ recursing object/array binding patterns, skipping omitted). For each id, CHECKER
 (L113–124).
 
 Initializer emission (L126–209):
+
 - Declaration list: `isVarDeclaration` → `errors.noVar`. FIRST (L132–143), for each
   needs-copy symbol: `state.symbolToIdMap.set(symbol, luau.tempId(id.getText()))` when skipClone,
   else `set(symbol, luau.tempId(id.getText() + "Copy"))` — so the upcoming declaration transform
@@ -812,13 +860,15 @@ Initializer emission (L126–209):
   `writable += 1`, else wrapExpressionStatement).
 
 Incrementor (L211–247): guarded by a first-iteration flag:
-```
+
+```text
 local _shouldIncrement = false
 while <cond> do
     if _shouldIncrement then <incrementor stmts (via transformExpressionStatementInner, captured)>
     else _shouldIncrement = true end
     ...
 ```
+
 Condition (L249–274): captured `createTruthinessChecks(transformExpression(condition))` (or
 `true` if absent). Prereqs pushed into whileStatements. If whileStatements is non-empty at this
 point (copies, incrementor gate, or condition prereqs): the while condition becomes `true` and,
@@ -844,6 +894,7 @@ a bare while is returned unwrapped.
 
 Gated by `state.data.projectOptions.optimizedLoops` (L492; default true in upstream project
 options). Bails (returns undefined → fallback) unless ALL hold:
+
 - initializer is a declaration list with EXACTLY one `ts.isIdentifier` declaration WITH initializer;
   CHECKER: `getSymbolAtLocation(decName)` (L408) exists; `isProbablyInteger(decInit)`.
 - incrementor exists and `getOptimizedIncrementorStepValue` (L299–332) yields a step: `i += <int
@@ -878,7 +929,8 @@ Used at: checkVariableHoist.ts:23 (`eachSymbolReferenceInFile`), transformForSta
 declaration list / loop body) and a `definition` identifier that IS the declaration name.
 
 TypeScript implementation semantics (services/findAllReferences.ts) — what the Go walker must do:
-```
+
+```text
 eachSymbolReferenceInFile(definition, checker, sourceFile, cb, searchContainer = sourceFile):
     symbol = checker.getSymbolAtLocation(definition)        // (parameter-property special case n/a here)
     if !symbol: return undefined
@@ -898,6 +950,7 @@ eachSymbolReferenceInFile(definition, checker, sourceFile, cb, searchContainer =
 isSymbolReferencedInFile(definition, checker, sourceFile, searchContainer) =
     eachSymbolReferenceInFile(..., () => true, searchContainer) === true
 ```
+
 Go port minimal requirements (all Phase 2b call sites operate on block-scoped locals, single
 file): recursive AST walk of `searchContainer` in document order; visit every Identifier node;
 skip the definition node itself; cheap text pre-filter (`name == symbol.Name`); resolve via
@@ -935,6 +988,7 @@ noAwaitForOf L219, plus the P2 set). **No new diagnostics need porting for Phase
 ## 8. Inventory
 
 ### 8.1 Reference files digested (all read in full)
+
 Functions: `nodes/statements/transformFunctionDeclaration.ts`,
 `nodes/expressions/transformFunctionExpression.ts` (covers ArrowFunction),
 `nodes/transformParameters.ts`, `nodes/transformInitializer.ts`, `util/isMethod.ts`,
@@ -960,7 +1014,9 @@ isLuaTupleType, isIterableFunctionLuaTupleType, isIterableType).
 Diagnostics: `Shared/diagnostics.ts` (Phase 2b factories), rotor `internal/transformer/diagnostics.go`.
 
 ### 8.2 CHECKER call-site inventory (new in Phase 2b)
+
 TypeChecker methods:
+
 - `getTypeOfAssignmentPattern` — transformArrayAssignmentPattern.ts:24;
   transformObjectAssignmentPattern.ts:25,55. (NEW API for the port.)
 - `getSymbolAtLocation` — transformFunctionDeclaration.ts:33; transformVariableStatement.ts:22;
@@ -995,11 +1051,13 @@ Map/ReadonlyMap/WeakMap, Generator, IterableFunction, Iterable, `_nominal_LuaTup
 macro named `size` (isSizeMacro).
 
 ### 8.3 Runtime-lib entries surfaced (Phase 3)
+
 `TS.async` (async functions/methods/expressions), `TS.generator` (generator wrap),
 `TS.TRY_RETURN` (return-in-try; with `state.markTryUses("usesReturn")`), `TS.TRY_BREAK`/
 `TS.TRY_CONTINUE` (break/continue-in-try). Phase 2b emits diagnostics-only or `state.TS` stubs.
 
 ### 8.4 Phase 2b diagnostic name list (complete)
+
 noFunctionExpressionName, noAsyncGeneratorFunctions, upstream rest-spread rejection,
 noLuaTupleDestructureAssignmentExpression, noIterableIteration, noMacroUnion, noAwaitForOf,
 noVar, noPrivateIdentifier, noMixedTypeCall, expectedMethodGotFunction, expectedFunctionGotMethod,

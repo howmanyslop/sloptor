@@ -61,7 +61,7 @@ These compile under rotor but not under rbxtsc. Unaffected code accepted by rbxt
 
 ## Commands
 
-```
+```text
 sloptor check [path] [-w]       typecheck the project (native, full strictness)
 sloptor build [options] [path]  compile the project to Luau
 sloptor diagnostics [options] [path]
@@ -130,7 +130,6 @@ External tsconfig transformer plugins still require Node.js, the bundled sidecar
 
 - **`"module"`** (default): `sloptor asset sync` uploads the configured `paths` and regenerates the typed accessor module (`assets.luau` + `assets.d.ts`) from the lockfile — the asphalt-style 1.x behaviour. The `$asset` macro still works.
 - **`"macro"`**: `sloptor asset sync` uploads `paths` and maintains the lockfile + the `rotor.d.ts` editor companion (no `assets.luau`); the `$asset` macro is the consumption path, with build-time auto-upload filling any gaps. Image uploads (Open Cloud creates a **Decal**) are automatically unwrapped to the underlying **Image** asset id — the decal id doesn't render in image properties like `ImageLabel.Image`; the unwrap uses the asset delivery API, so the key needs the **legacy-assets** scope alongside Assets R/W. The macro itself works in either mode — `mode` only changes what `sync` emits.
-
 - `path` is a project directory containing a `tsconfig.json` (defaults to the current directory).
 - Your project needs `node_modules` installed (rotor reads the same `@rbxts` types).
 - Exit codes: `0` = success, `1` = any failure (diagnostics, config, or usage) — matching upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports rather than gates: see below.
@@ -361,7 +360,7 @@ Notes and current caveats (see the [roadmap](roadmap.md)):
 
 ## Architecture
 
-```
+```text
 your-game/src/**/*.ts
         │
         ▼

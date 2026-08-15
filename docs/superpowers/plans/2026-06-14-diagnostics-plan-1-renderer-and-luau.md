@@ -29,9 +29,9 @@
 ## Task 1: `diagframe` core types + position math
 
 **Files:**
+
 - Create: `internal/diagframe/diagframe.go`
 - Test: `internal/diagframe/diagframe_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -189,9 +189,9 @@ git commit -m "feat(diagframe): core types + line/col position math"
 ## Task 2: keyword sets + highlighting
 
 **Files:**
+
 - Modify: `internal/diagframe/diagframe.go`
 - Test: `internal/diagframe/diagframe_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -410,9 +410,9 @@ git commit -m "feat(diagframe): Luau/TS keyword sets + keyword highlighting"
 ## Task 3: `Render` — the frame
 
 **Files:**
+
 - Modify: `internal/diagframe/diagframe.go`
 - Test: `internal/diagframe/diagframe_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -659,9 +659,9 @@ git commit -m "feat(diagframe): Render frame with gutter, caret, tabs, help line
 ## Task 4: keyword-set drift guard
 
 **Files:**
+
 - Modify: `internal/luau/validate.go`
 - Create: `internal/diagframe/keywords_drift_test.go`
-
 - [ ] **Step 1: Export the canonical predicate**
 
 In `internal/luau/validate.go`, add below the `luauReservedKeywords` var:
@@ -729,9 +729,9 @@ git commit -m "test(diagframe): guard Luau keyword set against internal/luau dri
 ## Task 5: grouping + summary + truncation
 
 **Files:**
+
 - Create: `internal/diagframe/group.go`
 - Test: `internal/diagframe/group_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -916,9 +916,9 @@ git commit -m "feat(diagframe): group by file, summary footer, --max-errors trun
 ## Task 6: wire `rotor minify`
 
 **Files:**
+
 - Modify: `cmd/rotor/minify.go:71-78`
 - Test: `cmd/rotor/minify_test.go`
-
 - [ ] **Step 1: Write/extend the failing test**
 
 Add to `cmd/rotor/minify_test.go` (follow the file's existing harness for invoking the command and capturing stderr; adapt names to the existing helpers):
@@ -993,10 +993,10 @@ git commit -m "feat(minify): show code frame for Luau syntax errors"
 ## Task 7: wire `rotor bundle` (+ `internal/bundle`)
 
 **Files:**
+
 - Modify: `internal/bundle/bundle.go:83-87`
 - Modify: `cmd/rotor/bundle.go:81-90`
 - Test: `internal/bundle/bundle_test.go`, `cmd/rotor/bundle_test.go`
-
 - [ ] **Step 1: Write the failing test (structured parse error)**
 
 The bundler currently returns a formatted `error` string. Give it a typed error carrying the location so the CLI can frame it. Add to `internal/bundle/bundle_test.go`:
@@ -1092,9 +1092,9 @@ git commit -m "feat(bundle): structured parse error + code frame in CLI"
 ## Task 8: wire `rotor pack`
 
 **Files:**
+
 - Modify: `internal/pack/luau.go:160-165`
 - Test: `internal/pack/luau_test.go`
-
 - [ ] **Step 1: Inspect the call site**
 
 The pack path embeds `diags[0].Message` into a generated Luau string for a node that fails to compile (`internal/pack/luau.go:162-164`). This is emitted *into the packed artifact*, not printed to stderr — so a full ANSI frame is wrong here. Instead, enrich the embedded message with `line:col` (keep it a plain string, no color).
@@ -1145,6 +1145,7 @@ Expected: PASS. (If `cmd/rotor` golden tests for minify/bundle changed output, u
 ```bash
 go run ./cmd/rotor minify <(printf 'return print(1 2)\n') || true
 ```
+
 Expected: a framed error with the source line and a caret. (On Windows use a temp file instead of process substitution.)
 
 - [ ] **Step 3: Update roadmap**

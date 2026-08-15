@@ -14,7 +14,7 @@
 
 ## File Structure
 
-```
+```text
 rotor/
 ├── go.mod                          module rotor (rename before publishing)
 ├── .gitattributes                  force LF on .lua/.luau/golden fixtures
@@ -44,6 +44,7 @@ rotor/
 ```
 
 Reference source roots used throughout (paths relative to `reference/luau-ast/src/`):
+
 - AST: `LuauAST/types/nodes.ts`, `LuauAST/types/operators.ts`, `LuauAST/impl/{enums,create,List,typeGuards,globals,strings}.ts`, `LuauAST/util/*.ts`
 - Renderer: `LuauRenderer/render.ts`, `LuauRenderer/RenderState.ts`, `LuauRenderer/solveTempIds.ts`, `LuauRenderer/nodes/**/*.ts`, `LuauRenderer/util/*.ts`
 
@@ -54,6 +55,7 @@ Reference source roots used throughout (paths relative to `reference/luau-ast/sr
 ### Task 1: Repo scaffolding
 
 **Files:**
+
 - Create: `go.mod`, `.gitattributes`, `.gitignore`, `README.md`
 
 - [ ] **Step 1: Verify Go toolchain**
@@ -116,8 +118,9 @@ git add -A && git commit -m "Scaffold rotor Go module"
 ### Task 2: Vendor reference sources
 
 **Files:**
-- Create: `reference/roblox-ts/` (from https://github.com/roblox-ts/roblox-ts at tag `v3.0.0`)
-- Create: `reference/luau-ast/` (from https://github.com/roblox-ts/luau-ast at the commit where `package.json` version is `2.0.0`)
+
+- Create: `reference/roblox-ts/` (from <https://github.com/roblox-ts/roblox-ts> at tag `v3.0.0`)
+- Create: `reference/luau-ast/` (from <https://github.com/roblox-ts/luau-ast> at the commit where `package.json` version is `2.0.0`)
 - Create: `reference/VERSIONS.md`
 
 Shallow clones may already exist at `C:\Users\user\AppData\Local\Temp\roblox-ts-research` and `C:\Users\user\AppData\Local\Temp\roblox-ts-luau-ast` — do NOT reuse them blindly; they are default-branch HEADs, not the pinned versions. Clone fresh at the right refs.
@@ -169,6 +172,7 @@ git add reference && git commit -m "Vendor reference sources: roblox-ts v3.0.0, 
 ### Task 3: tsgo mirror tool
 
 **Files:**
+
 - Create: `tools/mirror/main.go`
 
 No unit test — this is a build tool; Task 4 is its verification.
@@ -323,9 +327,9 @@ git add tools && git commit -m "Add tsgo mirror tool"
 ### Task 4: Run the mirror and build tsgo
 
 **Files:**
+
 - Create (generated): `tsgo/**`
 - Modify: `go.mod`, `go.sum` (tsgo's dependencies)
-
 - [ ] **Step 1: Run the mirror**
 
 Run: `go run ./tools/mirror`
@@ -341,6 +345,7 @@ Run: `go mod tidy` then `go build ./tsgo/...`
 Expected: tidy pulls tsgo's deps (dlclark/regexp2, go-json-experiment/json, etc.); build succeeds.
 
 **Contingencies (work through in order if the build fails):**
+
 1. `//go:embed` errors in `tsgo/bundled/...` about missing files → the embedded lib files were excluded or live outside `internal/`. Check upstream `internal/bundled/` layout; copy any non-Go asset dirs it embeds (e.g. `libs/`) into the same relative spot under `tsgo/` (extend the mirror tool if they sit outside `internal/`, then re-run it — don't hand-copy).
 2. Imports referencing `github.com/microsoft/typescript-go/` WITHOUT `/internal/` (rare) → extend the mirror tool's rewrite to handle those paths, re-run.
 3. Build-tag-gated files failing on Windows → check whether upstream builds those packages on Windows; if a package is irrelevant to compilation (e.g. fuzzing helpers), extend the mirror tool to skip that directory, re-run, and document the skip in MIRROR.md's changes list.
@@ -362,6 +367,7 @@ git add -A && git commit -m "Vendor typescript-go mirror"
 ### Task 5: Checker spike — drive tsgo's TypeChecker from Go
 
 **Files:**
+
 - Create: `internal/spike/testdata/spike/tsconfig.json`
 - Create: `internal/spike/testdata/spike/src/main.ts`
 - Test: `internal/spike/spike_test.go`
@@ -371,6 +377,7 @@ This is the de-risking spike. The code below is written against the API shapes c
 - [ ] **Step 1: Create the fixture project**
 
 `internal/spike/testdata/spike/tsconfig.json`:
+
 ```json
 {
 	"compilerOptions": {
@@ -384,6 +391,7 @@ This is the de-risking spike. The code below is written against the API shapes c
 ```
 
 `internal/spike/testdata/spike/src/main.ts`:
+
 ```typescript
 const greeting = "hello";
 const count = 42;
@@ -415,6 +423,7 @@ const total = add(count, items.length);
 - [ ] **Step 2: Write the failing spike test**
 
 `internal/spike/spike_test.go`:
+
 ```go
 package spike
 
@@ -525,6 +534,7 @@ git add internal go.mod go.sum && git commit -m "Phase 0 spike: drive tsgo TypeC
 ## Phase 1 — Luau AST + Renderer (port of @roblox-ts/luau-ast 2.0.0)
 
 General porting rules for every task below:
+
 - Reference TS file paths are given per task; port behavior **exactly** — including quirks (e.g. `getKindName` special cases, `renderNumberLiteral` underscore handling). Do not "improve" output.
 - Upstream `assert(...)` becomes `panic(...)` with the same message; these indicate compiler bugs, not user errors.
 - All output uses `\t` for indent and `\n` for newlines — never `\r\n`.
@@ -532,13 +542,14 @@ General porting rules for every task below:
 ### Task 6: SyntaxKind + Node interfaces
 
 **Files:**
+
 - Create: `internal/luau/kind.go`, `internal/luau/node.go`
 - Test: `internal/luau/kind_test.go`
 - Reference: `LuauAST/impl/enums.ts`, `LuauAST/types/nodes.ts` (base types), `LuauAST/util/getKindName.ts`, `LuauAST/types/operators.ts`
-
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/kind_test.go`:
+
 ```go
 package luau
 
@@ -587,6 +598,7 @@ Expected: FAIL (package doesn't compile — types undefined).
 - [ ] **Step 3: Implement kind.go and node.go**
 
 `internal/luau/kind.go`:
+
 ```go
 package luau
 
@@ -702,6 +714,7 @@ type AssignmentOperator string // "=" "+=" "-=" "*=" "/=" "//=" "%=" "^=" "..="
 ```
 
 `internal/luau/node.go`:
+
 ```go
 package luau
 
@@ -778,13 +791,14 @@ git add internal\luau && git commit -m "luau: SyntaxKind enum and node interface
 ### Task 7: List
 
 **Files:**
+
 - Create: `internal/luau/list.go`
 - Test: `internal/luau/list_test.go`
 - Reference: `LuauAST/impl/List.ts`
-
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/list_test.go` (uses `*Identifier` from Task 8 — define a minimal placeholder node in the test if Task 8 isn't done yet; the executor of Task 8 deletes the placeholder):
+
 ```go
 package luau
 
@@ -1071,6 +1085,7 @@ git add internal\luau && git commit -m "luau: doubly-linked node list"
 ### Task 8: Node structs
 
 **Files:**
+
 - Create: `internal/luau/nodes.go`
 - Test: `internal/luau/nodes_test.go`
 - Reference: `LuauAST/types/nodes.ts`, `LuauAST/types/mapping.ts`
@@ -1080,6 +1095,7 @@ Every node: embeds `base`, has `Kind()`, `shallowClone()`, and marker methods pe
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/nodes_test.go`:
+
 ```go
 package luau
 
@@ -1400,10 +1416,13 @@ func (*InterpolatedStringPart) Kind() SyntaxKind   { return KindInterpolatedStri
 ```
 
 Then add, for every node type `X` above, the boilerplate (write it out for all 40 — no shortcuts):
+
 ```go
 func (n *X) shallowClone() Node { c := *n; return &c }
 ```
+
 and the category markers:
+
 - `expressionNode()` on all expression types (Identifier through MixedTable, including all indexable)
 - `indexableNode()` on the 7 indexable types
 - `statementNode()` on all statement types (Assignment through Comment)
@@ -1411,11 +1430,13 @@ and the category markers:
 - `anyIdentifierNode()` on Identifier and TemporaryIdentifier
 - `writableNode()` on Identifier, TemporaryIdentifier, PropertyAccessExpression, ComputedIndexExpression
 - `ParamData()` on FunctionExpression, FunctionDeclaration, MethodDeclaration:
+
 ```go
 func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool) {
 	return n.Parameters, n.HasDotDotDot
 }
 ```
+
 (same body for the other two).
 
 - [ ] **Step 4: Update list_test.go**
@@ -1436,6 +1457,7 @@ git add internal\luau && git commit -m "luau: node structs for all 40 syntax kin
 ### Task 9: Factories with clone-on-reparent
 
 **Files:**
+
 - Create: `internal/luau/create.go`
 - Test: `internal/luau/create_test.go`
 - Reference: `LuauAST/impl/create.ts`
@@ -1445,6 +1467,7 @@ Upstream `create()` sets `parent` on each node/list-element field; if a child AL
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/create_test.go`:
+
 ```go
 package luau
 
@@ -1852,13 +1875,14 @@ git add internal\luau && git commit -m "luau: node factories with clone-on-repar
 ### Task 10: Type guards, validators, globals
 
 **Files:**
+
 - Create: `internal/luau/guards.go`, `internal/luau/validate.go`, `internal/luau/globals.go`
 - Test: `internal/luau/guards_test.go`, `internal/luau/validate_test.go`
 - Reference: `LuauAST/impl/typeGuards.ts`, `LuauAST/util/{isValidIdentifier,isValidNumberLiteral,isMetamethod,isReservedIdentifier,isReservedClassField}.ts`, `LuauAST/impl/globals.ts`, `LuauAST/impl/strings.ts`
-
 - [ ] **Step 1: Write the failing tests**
 
 `internal/luau/guards_test.go`:
+
 ```go
 package luau
 
@@ -1906,6 +1930,7 @@ func TestCompositeGuards(t *testing.T) {
 ```
 
 `internal/luau/validate_test.go`:
+
 ```go
 package luau
 
@@ -2162,14 +2187,15 @@ git add internal\luau && git commit -m "luau: type guards, validators, reserved 
 ### Task 11: RenderState + render utilities
 
 **Files:**
+
 - Create: `internal/luau/render/state.go`, `internal/luau/render/ending.go`, `internal/luau/render/parens.go`, `internal/luau/render/util.go`, `internal/luau/render/visit.go`
 - Create: `internal/luau/render/render.go` (dispatcher stub — full in Tasks 13/14)
 - Test: `internal/luau/render/util_test.go`
 - Reference: `LuauRenderer/RenderState.ts`, `LuauRenderer/util/{getEnding,needsParentheses,getSafeBracketEquals,renderArguments,renderParameters,renderStatements,visit}.ts`
-
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/render/util_test.go`:
+
 ```go
 package render
 
@@ -2320,6 +2346,7 @@ func (s *RenderState) Block(callback func() string) string {
 - [ ] **Step 4: Implement parens.go, util.go, ending.go, visit.go**
 
 `parens.go`:
+
 ```go
 package render
 
@@ -2373,6 +2400,7 @@ func needsParentheses(node luau.Node) bool {
 (Simplify the right-child comparison to a single `node == luau.Node(bin.Right)` — interface equality on the same pointer.)
 
 `util.go`:
+
 ```go
 package render
 
@@ -2426,6 +2454,7 @@ func renderStatements(s *RenderState, statements *luau.List[luau.Statement]) str
 ```
 
 `ending.go` — port `getEnding.ts` exactly:
+
 ```go
 package render
 
@@ -2560,6 +2589,7 @@ func getEnding(s *RenderState, node luau.Statement) string {
 ```
 
 `visit.go` — port `visit.ts` as a type switch (used by solveTempIds; full child coverage per the upstream KIND_TO_VISITOR table):
+
 ```go
 package render
 
@@ -2682,6 +2712,7 @@ func visitNode(node luau.Node, vis *visitor) {
 ```
 
 Also create `render.go` with just the exported entry points so the package compiles (bodies land in Tasks 13/14):
+
 ```go
 package render
 
@@ -2707,10 +2738,10 @@ git add internal\luau && git commit -m "luau/render: state, ending, precedence, 
 ### Task 12: solveTempIds
 
 **Files:**
+
 - Create: `internal/luau/render/solvetempids.go`
 - Test: `internal/luau/render/solvetempids_test.go`
 - Reference: `LuauRenderer/solveTempIds.ts`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -2964,14 +2995,15 @@ git add internal\luau && git commit -m "luau/render: scope-aware temp identifier
 ### Task 13: Expression renderers
 
 **Files:**
+
 - Create: `internal/luau/render/expressions.go`, `internal/luau/render/fields.go`
 - Modify: `internal/luau/render/render.go` (dispatcher gains expression cases)
 - Test: `internal/luau/render/expressions_test.go`
 - Reference: `LuauRenderer/nodes/expressions/**/*.ts`, `LuauRenderer/nodes/fields/*.ts`
-
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/render/expressions_test.go`:
+
 ```go
 package render
 
@@ -3482,6 +3514,7 @@ func renderMixedTable(s *RenderState, node *luau.MixedTable) string {
 ```
 
 `fields.go`:
+
 ```go
 package render
 
@@ -3531,14 +3564,15 @@ git add internal\luau && git commit -m "luau/render: expression and field render
 ### Task 14: Statement renderers + RenderAST
 
 **Files:**
+
 - Create: `internal/luau/render/statements.go` (replace stubs)
 - Modify: `internal/luau/render/render.go` (add `RenderAST`)
 - Test: `internal/luau/render/statements_test.go`
 - Reference: `LuauRenderer/nodes/statements/*.ts`, `LuauRenderer/render.ts` (renderAST)
-
 - [ ] **Step 1: Write the failing test**
 
 `internal/luau/render/statements_test.go`:
+
 ```go
 package render
 
@@ -3915,6 +3949,7 @@ func renderReturnStatement(s *RenderState, node *luau.ReturnStatement) string {
 ```
 
 Add `parseNumberValue` to `util.go` (mirrors JS `Number(value)` for literal forms the compiler emits):
+
 ```go
 func parseNumberValue(text string) (float64, error) {
 	cleaned := strings.ReplaceAll(text, "_", "")
@@ -3923,6 +3958,7 @@ func parseNumberValue(text string) (float64, error) {
 ```
 
 Add `RenderAST` to `render.go`:
+
 ```go
 // RenderAST mirrors upstream renderAST(): solve temp ids, then render.
 func RenderAST(ast *luau.List[luau.Statement]) string {
@@ -3946,6 +3982,7 @@ git add internal\luau && git commit -m "luau/render: statement renderers and Ren
 ### Task 15: Golden integration test + benchmark
 
 **Files:**
+
 - Test: `internal/luau/render/golden_test.go`
 
 A composite program exercising nesting, scoping, temp ids, semicolons, and precedence in one tree — the kind of structure the transformer will emit.

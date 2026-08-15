@@ -45,7 +45,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 Needs: class declaration + `export`; `extends` an IMPORTED identifier with type args
 (`Component<P,S>` — heritage `ExpressionWithTypeArguments`, transform `.expression` only);
 NO explicit constructor → implicit constructor with extends (`super.constructor(self, ...)`
-+ vararg passthrough); ONE property initializer (`state = {...}`, object literal); two
+
+- vararg passthrough); ONE property initializer (`state = {...}`, object literal); two
 plain instance methods (`function ErrorBoundary:componentDidCatch(...)`); `this.X`
 property/method access (`self.X`); a LEGACY class decorator `@ReactComponent`
 (randomness tsconfig has `"experimentalDecorators": true`) — emits
@@ -106,7 +107,7 @@ end
 
 Pseudocode (verbatim semantics):
 
-```
+```text
 transformClassLikeDeclaration(state, node):                      # L199
   isClassExpression = ts.isClassExpression(node)                 # L200
   statements = []
@@ -191,7 +192,7 @@ transformClassLikeDeclaration(state, node):                      # L199
 
 ### 2.3 createBoilerplate (transformClassLikeDeclaration.ts:37-188)
 
-```
+```text
 createBoilerplate(state, node, className, isClassExpression):
   isAbstract = ts.hasAbstractModifier(node)            # L43
   extendsNode = getExtendsNode(node)
@@ -256,7 +257,7 @@ end
 
 `transformClassConstructor` (L90-130) — explicit constructor (body guaranteed):
 
-```
+```text
 {statements, parameters, hasDotDotDot} = transformParameters(state, node)
   # NB: isMethod(state, ConstructorDeclaration) is FALSE (constructor type has construct
   # signatures, no call signatures) so `self` is NOT prepended; the `:` sugar supplies it.
@@ -291,7 +292,7 @@ classes pass `ptr = { name: "name", value: internalName }` (identifier pointer, 
 so the fast path applies. MISSING piece in rotor — the decorator key-pinning block (L36-49),
 required before §2.9:
 
-```
+```text
 name = transformPropertyName(node.name)
 if ts.hasDecorators(node) || node.parameters.some(p => ts.hasDecorators(p)):
   if !luau.isSimplePrimitive(name):        # computed non-literal key
@@ -349,7 +350,7 @@ Derived, NoCtor, AbsExtends all carry it; FromAbs doesn't).
 
 ### 2.7 this (expressions/transformThisExpression.ts:7-29)
 
-```
+```text
 symbol = CHECKER getSymbolAtLocation(node)
 if symbol === macroManager.getSymbolOrThrow("globalThis"): addDiagnostic(noGlobalThis(node))
 if symbol:
@@ -414,12 +415,14 @@ Per-kind callbacks:
 
 - METHOD (L94-157): needs `key = state.getClassElementObjectKey(member)` (assert non-nil —
   set in §2.5). Emit:
+
   ```lua
   local _descriptor = decorator(Class, KEY, { value = Class[KEY] })
   if _descriptor then
   	Class[KEY] = _descriptor.value
   end
   ```
+
   (tempId hint "descriptor"; map literal key is the string `"value"`.) Sandwich:
   initializers, then transformParameterDecorators(member), then finalizers.
 - PROPERTY (L159-180): `key = state.noPrereqs(() => transformPropertyName(member.name))`
@@ -460,7 +463,7 @@ nodes by filtering `node.Modifiers().Nodes` for `KindDecorator`.
 
 `transformSpreadAssignment(state, ptr, property)`:
 
-```
+```text
 expType = CHECKER getNonOptionalType(getType(property.expression))     # L35
 symbol = getFirstDefinedSymbol(state, expType)
 if symbol && macroManager.isMacroOnlyClass(symbol):
@@ -534,7 +537,7 @@ Dispatch (BOTH must be wired):
 
 ### 4.1 `??=` — transformCoalescingAssignmentExpression (L8-36)
 
-```
+```text
 writable = transformWritableExpression(state, left, /*readAfterWrite*/ true)
   # identifier -> itself; a.b -> pushToVarIfNonId(obj) when obj not an id (`local _exp = get()`);
   # a[i] -> also pushToVarIfComplex(index, "index")
@@ -547,7 +550,7 @@ NO truthiness machinery — strictly `== nil`. RHS prereqs evaluate lazily INSID
 
 ### 4.2 `&&=` — transformLogicalAndAssignmentExpression (L38-76)
 
-```
+```text
 writable = transformWritableExpression(state, left, true)
 [value, valuePrereqs] = capture(transformExpression(state, right))
 conditionId = pushToVar(writable, "condition")          # `local _condition = writable`
@@ -1110,13 +1113,13 @@ MethodDeclaration/FunctionDeclaration/Map/MapField/DoStatement, `luau.ID("self")
 ### 7.2 New rotor files / edits
 
 1. `internal/transformer/class.go` (new): transformClassLikeDeclaration + createBoilerplate
-   + isClassHoisted + transformClassDeclaration + transformClassExpression +
+   - isClassHoisted + transformClassDeclaration + transformClassExpression +
    transformImplicitClassConstructor + transformClassConstructor +
    transformPropertyInitializers + transformPropertyDeclaration (statics) + getExtendsNode
-   + findConstructor + getAllSuperTypeNodes + validateHeritageClause (fills
+   - findConstructor + getAllSuperTypeNodes + validateHeritageClause (fills
    methodassignment.go stub).
 2. `internal/transformer/decorators.go` (new): transformDecorators + transformMemberDecorators
-   + shouldInline + expressionMightMutate (needs `IsSymbolMutable` — already in exports.go
+   - shouldInline + expressionMightMutate (needs `IsSymbolMutable` — already in exports.go
    as the isDefinedAsLet machinery; check name) + the four per-kind callbacks.
 3. `internal/transformer/logicalassignment.go` (new, ~90 lines): the three transforms +
    expression/statement entry points.

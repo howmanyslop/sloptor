@@ -24,14 +24,7 @@
 			"tsconfig*.json",
 			"*.code-snippets"
 		],
-		"Shell Script": [
-			"zsh",
-			"zshrc",
-			"zprofile",
-			"zshenv",
-			"bashrc",
-			"bash_profile"
-		]
+		"Shell Script": ["zsh", "zshrc", "zprofile", "zshenv", "bashrc", "bash_profile"]
 	},
 	"format_on_save": "on",
 	"hard_tabs": true,
@@ -72,13 +65,7 @@
 			"tab_size": 4
 		},
 		"Go": {
-			"language_servers": [
-				"codebook",
-				"harper-ls",
-				"wakatime",
-				"golangci-lint",
-				"..."
-			]
+			"language_servers": ["codebook", "harper-ls", "wakatime", "golangci-lint", "..."]
 		},
 		"Go Mod": {
 			"language_servers": ["codebook", "harper-ls", "wakatime", "..."]
@@ -138,13 +125,7 @@
 				"language_server": { "name": "oxfmt" }
 			},
 			"hard_tabs": true,
-			"language_servers": [
-				"oxfmt",
-				"codebook",
-				"harper-ls",
-				"wakatime",
-				"json-language-server"
-			],
+			"language_servers": ["oxfmt", "codebook", "harper-ls", "wakatime", "json-language-server"],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
@@ -192,16 +173,7 @@
 				}
 			],
 			"hard_tabs": true,
-			"language_servers": [
-				"biome",
-				"oxfmt",
-				"oxlint",
-				"!tsgo",
-				"vtsls",
-				"harper-ls",
-				"codebook",
-				"wakatime"
-			],
+			"language_servers": ["biome", "oxfmt", "oxlint", "!tsgo", "vtsls", "harper-ls", "codebook", "wakatime"],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
@@ -217,13 +189,7 @@
 			"formatter": {
 				"language_server": { "name": "oxfmt" }
 			},
-			"language_servers": [
-				"codebook",
-				"harper-ls",
-				"oxfmt",
-				"rumdl",
-				"wakatime"
-			],
+			"language_servers": ["codebook", "harper-ls", "oxfmt", "rumdl", "wakatime"],
 			"prettier": { "allowed": false }
 		},
 		"Markdown": {
@@ -270,12 +236,7 @@
 				}
 			},
 			"hard_tabs": true,
-			"language_servers": [
-				"bash-language-server",
-				"wakatime",
-				"harper-ls",
-				"codebook"
-			],
+			"language_servers": ["bash-language-server", "wakatime", "harper-ls", "codebook"],
 			"tab_size": 4
 		},
 		"TOML": {
@@ -309,15 +270,7 @@
 				}
 			],
 			"hard_tabs": true,
-			"language_servers": [
-				"biome",
-				"oxfmt",
-				"oxlint",
-				"vtsls",
-				"harper-ls",
-				"codebook",
-				"wakatime"
-			],
+			"language_servers": ["biome", "oxfmt", "oxlint", "vtsls", "harper-ls", "codebook", "wakatime"],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
@@ -337,15 +290,7 @@
 				}
 			],
 			"hard_tabs": true,
-			"language_servers": [
-				"biome",
-				"oxfmt",
-				"oxlint",
-				"vtsls",
-				"harper-ls",
-				"codebook",
-				"wakatime"
-			],
+			"language_servers": ["biome", "oxfmt", "oxlint", "vtsls", "harper-ls", "codebook", "wakatime"],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},

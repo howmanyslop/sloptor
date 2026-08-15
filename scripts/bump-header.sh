@@ -33,9 +33,12 @@ stale=0
 replace_in() {
     local file="$1"
     local tmp
-    tmp=$(mktemp) || { echo "bump-header: mktemp failed" >&2; exit 1; }
+    tmp=$(mktemp) || {
+        echo "bump-header: mktemp failed" >&2
+        exit 1
+    }
 
-    perl -pe "s!${header_re}!${new_header}!g" "$file" > "$tmp" || {
+    perl -pe "s!${header_re}!${new_header}!g" "$file" >"$tmp" || {
         echo "bump-header: failed to rewrite $file" >&2
         rm -f "$tmp"
         return 1

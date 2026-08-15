@@ -9,6 +9,7 @@
 **Tech Stack:** Go (`internal/compile`), Node CommonJS (`tools/sidecar`), `go:embed`, bun-installed npm fixtures, `node --test` for JS tests.
 
 **Current state (verified 2026-06-10):**
+
 - `internal/compile/sidecar.go` spawns `node tools/sidecar/main.js` per compile pass; paths baked via `runtime.Caller(0)` (`repoFile`), plus a `testdata/diff/project/node_modules` NODE_PATH hack. Broken for released binaries.
 - `tools/sidecar/index.js` and `lib/diagnostics.js` `require("typescript")` at module load → resolves the sidecar's own pinned 5.5.3, a *different instance* than plugins get from the project. Upstream guarantees one shared instance.
 - Plugin `console.log` output goes to stdout → corrupts the line-JSON protocol. Flamework logs with chalk.
@@ -17,16 +18,16 @@
 
 ---
 
-### Task 1: Sidecar JS — per-project TypeScript resolution
+## Task 1: Sidecar JS — per-project TypeScript resolution
 
 The sidecar must use the same `typescript` module instance that plugins resolve from the project. Remove all top-level `require("typescript")` (they would also crash an extracted sidecar that has no `node_modules`).
 
 **Files:**
+
 - Modify: `tools/sidecar/index.js`
 - Modify: `tools/sidecar/lib/diagnostics.js`
 - Modify: `tools/sidecar/lib/session.js`
 - Test: `tools/sidecar/test/sidecar.test.js`
-
 - [x] **Step 1: Write failing tests for `resolveTypeScript`**
 
 Append to `tools/sidecar/test/sidecar.test.js` (it already requires `node:test`, `node:assert`, `node:path`, `node:fs`, `node:os` — add any missing requires at the top):
@@ -87,6 +88,7 @@ function toProtocolDiagnostic(ts, diagnostic) {
 ```
 
 `tools/sidecar/lib/session.js` — update the call sites (sessions hold `this.ts`):
+
 - `parsed.errors.map(toProtocolDiagnostic)` → `parsed.errors.map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic))`
 - `(result.diagnostics ?? []).map(toProtocolDiagnostic)` → `(result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic))`
 
@@ -168,9 +170,9 @@ git commit -m "feat(sidecar): resolve typescript from the project, matching the 
 Flamework (and any plugin using `console.log`) writes to stdout, which corrupts the line-JSON protocol. Capture the real stdout writer for protocol responses and redirect everything else to stderr.
 
 **Files:**
+
 - Modify: `tools/sidecar/main.js`
 - Test: `tools/sidecar/test/sidecar.test.js`
-
 - [x] **Step 1: Write the failing test**
 
 This test must spawn the real `main.js` (the redirect lives there, not in `serveStdio`). Append to `tools/sidecar/test/sidecar.test.js` (add `const { spawnSync } = require("node:child_process");` to the requires):
@@ -271,12 +273,12 @@ git commit -m "fix(sidecar): keep plugin console.log output off the stdout proto
 `go:embed` patterns must live in the embedded files' own directory, so the embed declaration goes in a new `tools/sidecar/embed.go` (package `sidecar`, import path `rotor/tools/sidecar`). `internal/compile` extracts it to a content-addressed cache dir unless `ROTOR_SIDECAR_PATH` points elsewhere. Delete `repoFile`/`runtime.Caller` and the `testdata/diff/project/node_modules` NODE_PATH entry from production code.
 
 **Files:**
+
 - Create: `tools/sidecar/embed.go`
 - Create: `internal/compile/sidecar_install.go`
 - Create: `internal/compile/sidecar_install_test.go`
 - Modify: `internal/compile/sidecar.go`
 - Modify: `internal/compile/sidecar_test.go`
-
 - [x] **Step 1: Create the embed package**
 
 `tools/sidecar/embed.go`:
@@ -467,6 +469,7 @@ func embeddedSidecarManifest() ([]string, string, error) {
 ```
 
 In `internal/compile/sidecar.go`:
+
 - Delete the `var sidecarMainPath/sidecarNodePath` block and the `repoFile` function.
 - `runTransformerSidecar` resolves the dir per call: `sidecarDir, err := resolveSidecarDir()` (propagate error), spawns `filepath.Join(sidecarDir, "main.js")`.
 - `sidecarEnv(projectDir)` becomes `sidecarEnv(projectDir, sidecarDir string)` with `nodePaths := []string{filepath.Join(filepath.FromSlash(projectDir), "node_modules"), filepath.Join(sidecarDir, "node_modules")}` — the testdata entry is gone. (The sidecar-dir entry keeps repo-dev working: synthetic test plugins `require("typescript")` and find `tools/sidecar/node_modules` through NODE_PATH.)
@@ -523,9 +526,9 @@ git commit -m "feat: embed the transformer sidecar so released binaries run plug
 Keep one Node worker alive per `(projectDir, tsConfigPath)` for the life of the rotor process. Subsequent requests reuse the warm JS program; file edits are communicated via the protocol's `changedFiles` (stamp-diff over the program's project source files), matching upstream's persistent `transformerWatcher`. Watch mode gets warmth for free because the registry outlives each `runBuildOnce` call.
 
 **Files:**
+
 - Modify: `internal/compile/sidecar.go`
 - Test: `internal/compile/sidecar_test.go`
-
 - [x] **Step 1: Write the failing warm-session test**
 
 The plugin below proves process reuse (a module-level counter survives only if the worker process and its require cache survive) and overlay correctness (the second build's output must reflect the edited source, which a stale LanguageService snapshot would miss). Append to `internal/compile/sidecar_test.go`:
@@ -869,10 +872,10 @@ func closeSidecarSessions() {
 `applyTransformerSidecar` call site: `runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program))`.
 
 Notes:
+
 - The old single-shot code path (write → close stdin → wait) is replaced entirely; the worker now exits when rotor's process exits and the pipes close.
 - Error reporting keeps surfacing the stderr tail (`session.fail`), preserving the existing `transformer sidecar failed: ...` message shape.
 - Stamps cover `.ts`/`.tsx` project files only (same scope `projectSourceFiles` gives the rest of the pipeline). A warm worker can hold a stale view of an edited ambient `.d.ts`; document this in Task 6 — it only affects what *plugins* see mid-watch, never rotor's own typecheck.
-
 - [x] **Step 4: Run the sidecar tests**
 
 Run: `go test ./internal/compile -run 'TestBuildProject|TestResolveSidecarDir' -count=1`
@@ -897,6 +900,7 @@ git commit -m "feat: keep one warm transformer sidecar per project across builds
 A real fixture project under `testdata/transformers/project` with `rbxts-transformer-flamework@1.3.2`, `@flamework/core@1.3.2`, and `rbxts-transform-env@3.0.0`, installed by bun (same pattern as the diff fixture), built by rotor through the full production sidecar path (embedded extraction, project-resolved typescript, warm session).
 
 **Files:**
+
 - Create: `testdata/transformers/project/package.json`
 - Create: `testdata/transformers/project/tsconfig.json`
 - Create: `testdata/transformers/project/default.project.json`
@@ -907,7 +911,6 @@ A real fixture project under `testdata/transformers/project` with `rbxts-transfo
 - Modify: `.gitignore` (or create entries; check existing patterns first)
 - Modify: `.github/actions/setup/action.yml`
 - Modify: `.github/workflows/ci.yml` (add a sidecar JS test step)
-
 - [x] **Step 1: Create the fixture project**
 
 `testdata/transformers/project/package.json` (versions mirror `testdata/diff/project` plus the transformer packages):
@@ -1024,7 +1027,7 @@ Run: `cd testdata/transformers/project && bun install --no-save`
 
 Check the repo `.gitignore` style first (`Read .gitignore`), then add:
 
-```
+```text
 testdata/transformers/project/node_modules/
 testdata/transformers/project/out/
 testdata/transformers/project/flamework.build
@@ -1144,25 +1147,23 @@ git commit -m "test: prove transformer plugins against real rbxts-transformer-fl
 ### Task 6: Documentation, roadmap, and push
 
 **Files:**
+
 - Modify: `docs/sidecar-protocol.md`
 - Modify: `roadmap.md`
 - Modify: `C:\Users\user\.claude\projects\C--Users-user-Source-roblox-rotor\memory\rotor-project-status.md`
-
 - [x] **Step 1: Update `docs/sidecar-protocol.md`**
 
 Rewrite the stale sections to document:
+
 - Deployment: the sidecar is embedded in the rotor binary and extracted to `<user-cache>/rotor/sidecar-<hash>/`; `ROTOR_SIDECAR_PATH` overrides (repo dev/tests). `tools/sidecar` remains the source of truth.
 - TypeScript resolution: resolved from the project's `node_modules` first (the same instance plugins `require`), falling back to the sidecar dir; `typescript-not-found` diagnostic when absent.
 - Stdout rule: plugin `console.log` is rerouted to stderr; rotor streams it to the compiler log. Protocol responses are the only stdout traffic.
 - Warm sessions: rotor keeps one worker per `(projectDir, tsConfigPath)` for the process lifetime, including across watch rebuilds; `changedFiles` carries stamp-diffed overlay text. Known limitation: a warm worker's plugin view of an edited ambient `.d.ts` can be stale until restart (rotor's own typecheck is unaffected).
 - Real-package coverage: `testdata/transformers/project` (Flamework + rbxts-transform-env) and how to run it.
-
 - [x] **Step 2: Update `roadmap.md`**
-
 - Phase 4 transformer line: note the sidecar is now embedded (released binaries work), typescript is project-resolved, stdout-protected, and watch sessions are warm.
 - Remove/strike the "Post-v1 Follow-up" bullet "Keep one warm Node sidecar session across `build -w` rebuilds" (done); add the `.d.ts`-staleness note as a known limitation if a follow-up list remains.
 - Verification section: add `go test ./internal/compile -run TestTransformersFixture` with the bun-install prerequisite, and note CI now runs the sidecar JS tests and installs `testdata/transformers/project`.
-
 - [x] **Step 3: Update the project-status memory file**
 
 Add to `rotor-project-status.md`: transformer plugin support hardened (embedded sidecar, shared typescript instance, stdout protection, warm watch sessions) and validated against `rbxts-transformer-flamework@1.3.2` + `rbxts-transform-env@3.0.0`; `@rbxts/transform-env` does not exist on npm.

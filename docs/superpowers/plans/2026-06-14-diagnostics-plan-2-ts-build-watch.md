@@ -26,9 +26,9 @@
 ## Task 1: `DiagnosticInfo` gains location + resolvers
 
 **Files:**
+
 - Modify: `internal/compile/compile.go:22-26` (struct), add resolvers
 - Test: `internal/compile/compile_test.go` (new test)
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -199,10 +199,10 @@ git commit -m "feat(compile): DiagnosticInfo carries source location + help spli
 ## Task 2: structured diags through the project path
 
 **Files:**
+
 - Modify: `internal/compile/project.go` (`compiledProjectSourceFile`, `compileProjectSourceFiles`, `compileProjectSourceFile`, `compileProjectProgram`)
 - Modify: `internal/compile/output.go` (`BuildResult`, `BuildProjectWithOptions`)
 - Test: `internal/compile/project_test.go` (new)
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -347,10 +347,10 @@ git commit -m "feat(compile): thread structured diagnostics through build; Build
 ## Task 3: build CLI renders frames
 
 **Files:**
+
 - Modify: `cmd/rotor/build.go` (`runBuildOnce`, build command flow, `--json`, `--max-errors`)
 - Modify: `cmd/rotor/ui.go` (`buildFailure`)
 - Test: `cmd/rotor/build_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -478,10 +478,10 @@ git commit -m "feat(build): code frames for TS + transformer errors; --max-error
 ## Task 4: watch frames + transition cues
 
 **Files:**
+
 - Modify: `cmd/rotor/watch.go` (`reportBuildPass`, rebuild entry, flags)
 - Modify: `cmd/rotor/ui.go` (watch banner states)
 - Test: `cmd/rotor/watch_test.go`
-
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -565,6 +565,7 @@ Expected: PASS. Validate via the golang Docker container per the project's CI-va
 ```bash
 go run ./cmd/rotor build internal/compile/testdata/macros_diag_model
 ```
+
 Expected: a framed TS/transformer error with `-->`, source line, caret, and a `✗ N errors in M files` footer.
 
 - [ ] **Step 3: Roadmap**

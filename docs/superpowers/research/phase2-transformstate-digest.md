@@ -67,6 +67,7 @@ constructor(
 debugRender(node)      { const state = new RenderState(); solveTempIds(state, node); return render(state, node); }
 debugRenderList(list)  { const state = new RenderState(); solveTempIds(state, list); return renderStatements(state, list); }
 ```
+
 Dev-only; port optional.
 
 ### 1.4 tryUses stack (lines 68-97)
@@ -84,6 +85,7 @@ markTryUses(property: keyof TryUses) {
 }
 popTryUsesStack() { this.tryUsesStack.pop(); }
 ```
+
 `TryUses` interface is `TSTransformer/types.ts:7-11`. Used by try/catch transform (return/break/continue must be tunneled out of the pcall closure). `markTryUses` is a silent no-op when stack is empty.
 
 ### 1.5 Prereq statement stack (lines 99-178) — THE core mechanic
@@ -128,6 +130,7 @@ noPrereqs(callback: () => luau.Expression): luau.Expression {
 ```
 
 Notes for the Go port:
+
 - `prereq`/`prereqList` write to the **top** of the stack; calling them with an empty stack is undefined (JS would index `[-1]` -> `undefined.push` crash). In practice every `transformStatement` call site is wrapped in `capture` (transformStatementList.ts:42), so a list is always present during statement transformation.
 - `luau.list` is a doubly-linked list (`head`/`tail`/`ListNode{prev,next,value}`); `pushList` splices the entire second list onto the first in O(1) and the source list must not be reused.
 
@@ -150,8 +153,9 @@ getLeadingComments(node: ts.Node) {
     );
 }
 ```
+
 - `CHECKER:` `ts.getLeadingCommentRanges(text, node.pos)` — TS scanner API (public). tsgo needs equivalent leading-trivia comment scanning over `[fullStart, start)`.
-- `// foo` -> comment text ` foo` (keeps space, drops `//`); `/* foo */` -> ` foo ` (drops both delimiters). Multi-line text renders as a `--[[ ... ]]` block (renderComment, see §8.3).
+- `// foo` -> comment text `foo` (keeps space, drops `//`); `/* foo */` -> ` foo ` (drops both delimiters). Multi-line text renders as a `--[[ ... ]]` block (renderComment, see §8.3).
 
 ### 1.7 Hoist maps (lines 180-181)
 
@@ -165,6 +169,7 @@ public getType(node: ts.Node) {
     return getOrSetDefault(this.getTypeCache, node, () => this.typeChecker.getTypeAtLocation(skipUpwards(node)));
 }
 ```
+
 - `CHECKER:` `typeChecker.getTypeAtLocation(...)`.
 - Important subtlety: the type is taken at `skipUpwards(node)` — i.e. it climbs through enclosing `NonNullExpression` / `ParenthesizedExpression` / `AsExpression` / `TypeAssertionExpression` / `SatisfiesExpression` wrappers (traversal.ts:27-41) so `(x as Foo)!` queries the type of the outermost wrapper. The cache key is the **original** node, not the skipped one.
 - `getOrSetDefault` (Shared/util/getOrSetDefault.ts:7-14): `map.get(key) ?? (set(key, getDefaultValue()), value)` — note it re-computes when the stored value is `undefined`.
@@ -181,6 +186,7 @@ public TS(node: ts.Node, name: string) {
     return luau.property(luau.globals.TS, name);
 }
 ```
+
 - Every runtime-lib call in the transformer goes through `state.TS(node, "async")` etc., yielding the expression `TS.async`. This is the **only** place `usesRuntimeLib` is set (verified by grep over the whole repo).
 - Warning text (Shared/diagnostics.ts:246-248): "This statement would generate a call to the runtime library. The runtime library should not be used from ReplicatedFirst." Emitted once per `TS()` call (not deduped).
 - `node` parameter exists solely for the warning's source location.
@@ -207,10 +213,12 @@ Three cases:
      `local TS = require(script.Parent.Parent.include.RuntimeLib)` (shape).
 
 3. **`runtimeLibRbxPath === undefined`** (Package projects; lines 254-264):
+
    ```ts
    // we pass RuntimeLib access to packages via `_G[script] = TS`
    return local TS = _G[script]   // ComputedIndexExpression(_G, script)
    ```
+
    Emits exactly: `local TS = _G[script]`.
 
 `runtimeLibRbxPath` is computed in compileFiles.ts:86-98: only for non-Package projects, as `rojoResolver.getRbxPathFromFilePath(path.join(includePath, "RuntimeLib.lua"))`, with hard failures if missing / in server-or-client-only container / in isolated container.
@@ -224,6 +232,7 @@ pushToVar(expression: luau.Expression | undefined, name?: string): luau.Temporar
     return temp;
 }
 ```
+
 - `expression` may be `undefined` -> emits `local _temp` with no value (used to pre-declare).
 - Temp-id name hint: explicit `name`, else `valueToIdStr(expression)` (util/valueToIdStr.ts:25-32):
   - Identifier `X` -> `"x"` (uncapitalize first letter); PropertyAccess `A.B` -> `"b"`; CallExpression `X.new()` -> `"x"`; anything else -> `""` (anonymous temp). Result must pass `luau.isValidIdentifier` else `""`.
@@ -235,6 +244,7 @@ pushToVarIfComplex<T>(expression: T, name?: string): Extract<T, luau.SimpleTypes
     return this.pushToVar(expression, name);
 }
 ```
+
 - `luau.isSimple` kind set (luau-ast/src/LuauAST/impl/typeGuards.ts:89-97): **Identifier, TemporaryIdentifier, NilLiteral, TrueLiteral, FalseLiteral, NumberLiteral, StringLiteral**.
 
 ```ts
@@ -243,6 +253,7 @@ pushToVarIfNonId<T>(expression: T, name?: string): luau.AnyIdentifier {
     return this.pushToVar(expression, name);
 }
 ```
+
 - `luau.isAnyIdentifier` = Identifier | TemporaryIdentifier (typeGuards.ts:10).
 
 (For reference, `isSimplePrimitive` used by ensureTransformOrder = the literal kinds only, no identifiers: typeGuards.ts:99-105.)
@@ -290,11 +301,13 @@ getModuleIdPropertyAccess(idSymbol): luau.PropertyAccessExpression | undefined {
     // implicitly returns undefined
 }
 ```
+
 This is how `export let x` reads/writes become `exports.x` (see transformIdentifier.ts:161-171).
 
 ### 1.13 guessVirtualPath (lines 366-385)
 
 Reverse-symlink lookup so pnpm-style installs map real paths back to virtual node_modules paths:
+
 ```ts
 guessVirtualPath(fsPath: string): string | undefined {
     const reverseSymlinkMap = this.program.getSymlinkCache?.().getSymlinkedDirectoriesByRealpath();  // CHECKER: ts-internal program.getSymlinkCache
@@ -310,6 +323,7 @@ guessVirtualPath(fsPath: string): string | undefined {
     }
 }
 ```
+
 Map keys have trailing slashes. Walks ancestors of `fsPath` upward; on a hit, rejoins the relative remainder onto the symlink (virtual) path.
 
 ### 1.14 classElementToObjectKeyMap (lines 389-399)
@@ -320,6 +334,7 @@ getClassElementObjectKey(classElement) { return map.get(classElement); }   // un
 ```
 
 ### CHECKER summary for TransformState
+
 - L61 `typeChecker.getEmitResolver(sourceFile)` (**internal**) + resolver methods `getJsxFactoryEntity`, `getJsxFragmentFactoryEntity`, `isReferencedAliasDeclaration`.
 - L140 `ts.getLeadingCommentRanges` (scanner, public).
 - L185 `typeChecker.getTypeAtLocation`.
@@ -333,6 +348,7 @@ getClassElementObjectKey(classElement) { return map.get(classElement); }   // un
 ## 2. Per-file emission shape
 
 ### 2.1 `TSTransformer/index.ts` (4 lines)
+
 Re-exports only: `MacroManager`, `MultiTransformState`, `TransformState` classes plus `transformSourceFile`.
 
 ### 2.2 `nodes/transformSourceFile.ts` (243 lines) — full flow
@@ -343,6 +359,7 @@ Re-exports only: `MacroManager`, `MultiTransformState`, `TransformState` classes
 2. **Statements** (209): `statements = transformStatementList(state, node, node.statements, undefined)` (see §7.3 — handles per-statement capture, comments, hoists).
 3. **Exports** (211): `handleExports(state, node, symbol, statements)` (below).
 4. **`return nil` for valueless ModuleScripts** (213-220):
+
    ```ts
    const lastStatement = getLastNonCommentStatement(statements.tail);   // walks .prev past luau.isComment nodes (lines 191-196)
    if (!lastStatement || !luau.isReturnStatement(lastStatement.value)) {
@@ -352,24 +369,30 @@ Re-exports only: `MacroManager`, `MultiTransformState`, `TransformState` classes
        }
    }
    ```
+
    I.e. plain `return nil` is appended only when (a) the output file maps to a ModuleScript per rojo, and (b) the last non-comment statement isn't already a return.
 5. **Header** (222-230):
+
    ```ts
    const headerStatements = luau.list.make<luau.Statement>();
    luau.list.push(headerStatements, luau.comment(` Compiled with roblox-ts v${COMPILER_VERSION}`));
    if (state.usesRuntimeLib) luau.list.push(headerStatements, state.createRuntimeLibImport(node));
    ```
+
    Note the comment text starts with a **space**, so it renders `-- Compiled with roblox-ts v3.0.0`. `COMPILER_VERSION` = package.json version (Shared/constants.ts:9). The header is added **here in the transformer**, not in compileFiles/renderAST.
 6. **Luau directive comment hoisting** (232-237):
+
    ```ts
    const directiveComments = luau.list.make<luau.Statement>();
    while (statements.head && luau.isComment(statements.head.value) && statements.head.value.text.startsWith("!")) {
        luau.list.push(directiveComments, luau.list.shift(statements)!);
    }
    ```
+
    Any run of leading comments whose text begins with `!` (i.e. `--!strict`, `--!native`, `--!optimize 2` — sourced from leading `//!...` TS comments preserved by getLeadingComments) is moved above the header. Note: only comments already at the very head of the statement list qualify; the scan stops at the first non-`!` comment or non-comment.
    (Unrelated gate: `allowCommentDirectives` project option does NOT gate this hoisting — it gates a *diagnostic* on TS comment directives `@ts-ignore`/`@ts-expect-error`/`ts-nocheck` in `Project/preEmitDiagnostics/fileUsesCommentDirectives.ts:5-34`, default `false` per constants.ts:53 → using those directives is an error unless the flag is on.)
 7. **Final assembly** (239-242):
+
    ```ts
    luau.list.unshiftList(statements, headerStatements);
    luau.list.unshiftList(statements, directiveComments);
@@ -377,24 +400,28 @@ Re-exports only: `MacroManager`, `MultiTransformState`, `TransformState` classes
    ```
 
 **Final byte layout of a compiled file** (rendering by `renderAST` in compileFiles.ts:179; renderer details §8):
-```
+
+```text
 --!strict                                                  (only if source had leading //!strict; 0+ lines)
 -- Compiled with roblox-ts v3.0.0
 local TS = require(game:GetService("ReplicatedStorage"):WaitForChild(...)...)   (only if usesRuntimeLib; form per §1.10)
 <transformed statements, tab-indented, one per state.line>
 return nil | return exports | return { ... }               (per §2.3; absent for Script/LocalScript outputs)
 ```
+
 Every rendered statement line ends with `\n` (RenderState.line), so the file ends with exactly one trailing newline and there is **no** blank line separation anywhere unless comments were in the source. No BOM. Indentation is tabs.
 
 ### 2.3 handleExports (lines 94-189) — when each return form appears
 
 Helpers first:
+
 - `getExportPair(state, exportSymbol)` (14-31): returns `[exportName, luauId]`. For `export { a as b }` specifiers -> `["b", transformIdentifierDefined(propertyName ?? name)]`. Otherwise `[symbol.name, luau.id(name)]` where `name` is `symbol.name` EXCEPT a default-exported named function/class uses its declared name (`export default function foo` -> `["default", foo]`).
 - `isExportSymbolFromExportFrom` (33-45): true if any declaration is an export specifier whose ExportDeclaration has a moduleSpecifier (`export { x } from "..."`).
 - `getIgnoredExportSymbols` (47-67): symbols to skip — everything re-exported by `export * from "./m"` (the module's own exports, via `state.getModuleExports`), and the namespace id of `export * as ns from "./m"`. (`CHECKER:` uses `getOriginalSymbolOfNode` and `typeChecker.getSymbolAtLocation`.)
 - `isExportSymbolOnlyFromDeclare` (78-86): true iff **every** declaration's ancestor statement has a `declare` modifier (so `export declare const x` is skipped, but `declare const x; export { x };` is not).
 
 Main logic (94-189):
+
 ```ts
 const ignoredExportSymbols = getIgnoredExportSymbols(state, sourceFile);
 let mustPushExports = state.hasExportFrom;
@@ -412,7 +439,9 @@ if (!state.hasExportEquals) {
     }
 }
 ```
+
 Then exactly one of four shapes:
+
 1. **`hasExportEquals`** (132-142): `transformExportAssignment` already created `local exports = <value>` (or assignments). If the file's LAST TS statement is not itself an `export =` assignment, append `return exports`. (If it is the last statement, the return was already emitted by that transform.)
 2. **`mustPushExports`** (143-167) — any `export ... from` or any mutable (`export let`) export: `luau.list.unshift(statements, local exports = {})` at the **top of the file** (before everything from the statement list but AFTER nothing — unshift happens before header is prepended, so it lands after `local TS` line in final output); then for each immutable pair append `exports.<key> = <id>`; finally `return exports`.
 3. **only immutable exports** (168-188): append a single `return { key = id, ... }` — a Map literal with `MapField{ index: luau.string(exportKey), value: exportId }` (renders as `return { x = f }` etc. via map rendering; string keys that are valid identifiers render unquoted).
@@ -430,7 +459,9 @@ Project type inference (27-35): Package if `data.isPackage` (scoped under @rbxts
 ## 3. MultiTransformState + DiagnosticService
 
 ### `classes/MultiTransformState.ts` (13 lines)
+
 State that lives for one whole **compilation step** (shared across all files of that pass; recreated each watch rebuild — compileFiles.ts:57). Pure cache container, no methods:
+
 ```ts
 isMethodCache: Map<ts.Symbol, boolean>
 isDefinedAsLetCache: Map<ts.Symbol, boolean>
@@ -441,7 +472,9 @@ getModuleExportsAliasMapCache: Map<ts.Symbol, Map<ts.Symbol, string>>
 ```
 
 ### `classes/DiagnosticService.ts` (40 lines)
+
 Global static accumulator (Go port: package-level or injected collector — note roblox-ts relies on it being global/static across modules):
+
 - `addDiagnostic(d)` — push.
 - `addDiagnostics(ds)` — push all.
 - `addSingleDiagnostic(d)` — dedupe by `d.code` via `singleDiagnostics: Set<number>`.
@@ -454,12 +487,14 @@ Global static accumulator (Go port: package-level or injected collector — note
 ## 4. util/ digests (requested set — all exist)
 
 ### `getStatements.ts` (5 lines)
+
 ```ts
 getStatements(statement: ts.Statement): ReadonlyArray<ts.Statement> =
     ts.isBlock(statement) ? statement.statements : [statement];
 ```
 
 ### `pointer.ts` (65 lines)
+
 ```ts
 interface Pointer<T> { name: string; value: T; }
 type MapPointer = Pointer<luau.Map | luau.TemporaryIdentifier>;
@@ -474,18 +509,22 @@ assignToMapPointer(state, ptr, left, right):
 disableMapInline(state, ptr):   if luau.isMap(ptr.value)   ptr.value = state.pushToVar(ptr.value, ptr.name)
 disableArrayInline(state, ptr): if luau.isArray(ptr.value) ptr.value = state.pushToVar(ptr.value, ptr.name)
 ```
+
 Pattern: build object literals inline until something side-effectful forces materialization into a temp (`local obj = { ... }` then `obj[k] = v`).
 
 ### `convertToIndexableExpression.ts` (12 lines)
+
 ```ts
 convertToIndexableExpression(expression: luau.Expression): luau.IndexableExpression {
     if (luau.isIndexableExpression(expression)) return expression;
     return luau.create(luau.SyntaxKind.ParenthesizedExpression, { expression });
 }
 ```
+
 Indexable kinds = Identifier, TemporaryIdentifier, ComputedIndexExpression, PropertyAccessExpression, CallExpression, MethodCallExpression, ParenthesizedExpression (luau-ast typeGuards.ts:19-23, contiguous SyntaxKind range First/LastIndexableExpression).
 
 ### `ensureTransformOrder.ts` (55 lines) — evaluation-order preservation
+
 ```ts
 ensureTransformOrder(state, nodes, transformer = transformExpression): Array<luau.Expression> {
     const expressionInfoList = nodes.map(node => state.capture(() => transformer(state, node)));
@@ -511,15 +550,18 @@ ensureTransformOrder(state, nodes, transformer = transformExpression): Array<lua
     return result;
 }
 ```
+
 Rationale: if argument j>i has prereq statements, those statements could mutate values argument i depends on; pin earlier non-safe expressions into temps (`local exp = ...`). Only expressions strictly **before the last** prereq-bearing index are pinned.
 
 ### `expressionChain.ts` (26 lines)
+
 ```ts
 binaryExpressionChain(expressions, operator) = expressions.reduce((acc, cur) => luau.binary(acc, operator, cur));  // left-assoc: a and b and c
 propertyAccessExpressionChain(expression, names) = names.reduce((acc, cur) => luau.property(acc, cur), convertToIndexableExpression(expression));  // exp.a.b.c
 ```
 
 ### `isUsedAsStatement.ts` (22 lines)
+
 ```ts
 isUsedAsStatement(expression: ts.Expression): boolean {
     const child = skipUpwards(expression);    // climb past parens/casts/nonnull/satisfies
@@ -532,6 +574,7 @@ isUsedAsStatement(expression: ts.Expression): boolean {
 ```
 
 ### `wrapExpressionStatement.ts` (16 lines)
+
 ```ts
 wrapExpressionStatement(node: luau.Expression): luau.List<luau.Statement> {
     if (luau.isTemporaryIdentifier(node) || luau.isNone(node)) return luau.list.make();          // drop entirely
@@ -539,6 +582,7 @@ wrapExpressionStatement(node: luau.Expression): luau.List<luau.Statement> {
     else return list of [ VariableDeclaration{ left: luau.tempId(), right: node } ];             // `local _ = <expr>` to keep side effects/valid syntax
 }
 ```
+
 `luau.isCall` = CallExpression | MethodCallExpression (typeGuards.ts:120).
 
 ---
@@ -612,6 +656,7 @@ function checkIdentifierHoist(state, node: ts.Identifier, symbol: ts.Symbol) {
     state.isHoisted.set(symbol, true);
 }
 ```
+
 - `CHECKER:` `ts.hasSyntacticModifier` (internal helper; ≈ getModifiers().some(...)); `typeChecker.getSymbolAtLocation` / `getShorthandAssignmentValueSymbol` at transformIdentifier.ts:119-121 (also `isUndefinedSymbol`, `isArgumentsSymbol` at 124-126).
 - Key detail: the `local x` is keyed by the **earliest using sibling statement**, not the declaration — the hoist declaration is emitted immediately before the statement that uses the symbol early, and the original declaration later compiles to an *assignment* (the declaration transform checks `state.isHoisted.get(symbol) === true` and emits `x = ...` instead of `local x = ...`).
 - Note `isHoisted` is read via `.get(symbol) !== undefined` — once a symbol is decided (always set to `true`), it's never reconsidered.
@@ -619,6 +664,7 @@ function checkIdentifierHoist(state, node: ts.Identifier, symbol: ts.Symbol) {
 ### 7.2 Population — `checkVariableHoist` (util/checkVariableHoist.ts:6-39) — switch-case leakage
 
 Called at variable-declaration time. If the declaration's parent statement sits directly in a `ts.CaseClause`, determine whether the symbol is referenced outside that case clause:
+
 ```ts
 const isUsedOutsideOfCaseClause =
     ts.FindAllReferences.Core.eachSymbolReferenceInFile(   // CHECKER: ts-internal FindAllReferences.Core
@@ -631,11 +677,13 @@ if (isUsedOutsideOfCaseClause) {
     state.isHoisted.set(symbol, true);
 }
 ```
+
 This is why `hoistsByStatement` is keyed by `ts.Statement | ts.CaseClause`. This is the hardest CHECKER item: tsgo needs a "find symbol references within container" facility.
 
 ### 7.3 Consumption — `createHoistDeclaration` + `transformStatementList`
 
 `util/createHoistDeclaration.ts:7-16`:
+
 ```ts
 createHoistDeclaration(state, statement: ts.Statement | ts.CaseClause): luau.VariableDeclaration | undefined {
     const hoists = state.hoistsByStatement.get(statement);
@@ -650,6 +698,7 @@ createHoistDeclaration(state, statement: ts.Statement | ts.CaseClause): luau.Var
 ```
 
 `nodes/transformStatementList.ts:26-91` — the merge point (also the generic statement-list driver used by transformSourceFile and every block):
+
 ```ts
 const result = luau.list.make<luau.Statement>();
 for (const statement of statements) {
@@ -670,6 +719,7 @@ if (state.compilerOptions.removeComments !== true) {
 }
 return result;
 ```
+
 Ordering invariant per statement: **leading comments → hoisted `local a, b` → prereq statements → transformed statement(s) → namespace export assignments**. `luau.isFinalStatement` = Break | Return | Continue (typeGuards.ts:114-118). Hoist timing subtlety: `transformStatement` runs (inside `capture`) *before* `createHoistDeclaration` is consulted, so hoists registered while transforming statement N (a use-before-declare inside N) are picked up for N itself.
 
 ---

@@ -442,6 +442,8 @@ do_snapshot_full() {
     goreleaser release --snapshot --clean --skip=publish || die "goreleaser snapshot failed"
     info "Snapshot artifacts in dist/"
     if [[ -d dist ]]; then
+        # dist/ holds goreleaser artifacts with plain names, so ls is fine here.
+        # shellcheck disable=SC2012
         ls -1 dist | head -n 40 || true
     fi
 }

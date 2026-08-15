@@ -34,6 +34,7 @@ Byte-parity contract is untouched: no transformer, logservice, or emit changes.
 ### Design
 
 **Approaches considered:**
+
 - *(a) Native FS events via fsnotify* — best latency, but a new dependency, no
   cross-platform recursive watch (per-directory watch management with
   create/rename races), and divergent platform semantics. Deferred.
