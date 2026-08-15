@@ -1,28 +1,29 @@
 name: Set up rotor toolchain
 description: >-
-  Install Go, Bun and Node.js, then install the fixture node_modules the test
-  suite needs. Bun is the canonical installer for fixtures — npm was the source
-  of flaky CI installs. rojo/lune are intentionally NOT installed: the
-  conformance runtime suite (lune-executed) skips here and is exercised locally
-  (see aftman.toml); CI gates on the byte-parity tests, which need no Roblox tools.
+  Install the Go, Bun, and Node.js versions pinned in mise.toml, then install
+  the fixture node_modules the test suite needs. Bun is the canonical installer
+  for fixtures — npm was the source of flaky CI installs. rojo/lune are
+  intentionally NOT installed: the conformance runtime suite (lune-executed)
+  skips here and is exercised locally (see aftman.toml); CI gates on the
+  byte-parity tests, which need no Roblox tools.
 
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@v5
+    - name: Set up Mise toolchain
+      uses: jdx/mise-action@v2
       with:
-        go-version-file: go.mod
+        install_args: go bun node
+        experimental: true
 
-    - name: Set up Bun
-      uses: oven-sh/setup-bun@v2
-
-    - name: Set up Node.js
-      # The transformer sidecar (tools/sidecar/main.js) runs under Node; plugin
-      # tests require `node` on PATH.
-      uses: actions/setup-node@v4
+    - name: Restore Go module and build caches
+      uses: actions/cache@v4
       with:
-        node-version: "22"
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/AppData/Local/go-build
+        key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
 
     - name: Restore fixture dependencies
       uses: actions/cache@v4
@@ -33,7 +34,7 @@ runs:
           testdata/diff/project/node_modules
           testdata/conformance/project/node_modules
           testdata/transformers/project/node_modules
-        key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
+        key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('mise.toml', 'mise.lock', 'tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
 
     - name: Install fixture dependencies (bun)
       shell: bash

@@ -20,11 +20,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
         with:
-          go-version-file: go.mod
-          cache: true
+          install_args: go
+          experimental: true
+
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/AppData/Local/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
 
       - name: Check formatting
         run: |
@@ -86,9 +95,8 @@ jobs:
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
 
-      # Warm the module cache before the long steps. setup-go caches on
-      # success only; this step downloads everything up front so a canceled
-      # later step never wastes a cold cache on re-downloads.
+      # Restore the cache before the long steps; an early download keeps a cold
+      # cache available after cancellation or failure.
       - name: Cache go modules
         shell: bash
         run: go mod download
@@ -148,16 +156,23 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
         with:
-          go-version-file: go.mod
-          cache: true
+          install_args: go go:golang.org/x/vuln/cmd/govulncheck
+          experimental: true
+
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/AppData/Local/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
 
       - name: govulncheck
         # Reachability-scoped scan of the whole module (rotor + vendored tsgo):
         # fails the build only for advisories on code paths rotor can actually
         # execute.
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
-          govulncheck ./...
+        run: govulncheck ./...
