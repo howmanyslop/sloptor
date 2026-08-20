@@ -58,35 +58,65 @@ func resetFlameworkFixtureGeneratedFiles(t *testing.T, dir string) {
 	})
 }
 
-func compileFlameworkSidecarOracle(projectDir string) (map[string]string, []string, error) {
-	dir, program, diags, err := newProjectProgram(projectDir, "")
+func TestBuildProjectLegacyFlameworkUsesSidecar(t *testing.T) {
+	dir := legacyFlameworkFixture(t)
+
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
 	if err != nil {
-		return nil, diags, err
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
 	}
-	sourceFiles := projectSourceFiles(program)
-	prepared, diags, err := applyTransformerSidecar(dir, program, sourceFiles, nil)
-	if err != nil {
-		return nil, diags, err
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
 	}
-	if prepared.program != program {
-		sourceFiles, err = remapProgramSourceFiles(prepared.program, sourceFiles)
-		if err != nil {
-			return nil, nil, err
-		}
+
+	envOut := result.Outputs["out/shared/env.luau"]
+	if !strings.Contains(envOut, "https://env.example") {
+		t.Fatalf("rbxts-transform-env did not inline ROTOR_FIXTURE_API_URL:\n%s", envOut)
 	}
-	pctx, diags, err := newProjectContext(dir, prepared.program, ProjectOptions{})
-	if err != nil {
-		return nil, diags, err
+	if strings.Contains(envOut, "$env") {
+		t.Fatalf("rbxts-transform-env left $env macros in output:\n%s", envOut)
 	}
-	pctx.sourceTraces = prepared.sourceTraces
-	outputs, _, infos, err := compileProjectSourceFiles(dir, prepared.program, pctx, sourceFiles, ProjectOptions{})
-	return outputs, diagnosticInfoMessages(infos), err
+
+	serviceOut := result.Outputs["out/server/services/test.service.luau"]
+	if !strings.Contains(serviceOut, "identifier") || !strings.Contains(serviceOut, "defineMetadata") {
+		t.Fatalf("rbxts-transformer-flamework did not inject identifier metadata:\n%s", serviceOut)
+	}
+
+	mainOut := result.Outputs["out/server/main.server.luau"]
+	if strings.Contains(mainOut, `"src/server/services"`) {
+		t.Fatalf("Flamework.addPaths was not rewritten:\n%s", mainOut)
+	}
 }
 
-// TestFlameworkSidecarFixtureEmitsMetadataAndEnv asserts the embedded sidecar
-// oracle directly. Production builds reject the legacy plugin before this seam.
-func TestFlameworkSidecarFixtureEmitsMetadataAndEnv(t *testing.T) {
-	dir := transformersFixtureDir(t)
+func TestBuildProjectLegacyFlameworkUsesSidecarWithoutActiveNativeProfile(t *testing.T) {
+	dir := legacyFlameworkFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"), []byte("[flamework.profiles.\"tsconfig.other.json\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+}
+
+func legacyFlameworkFixture(t *testing.T) string {
+	t.Helper()
+	fixture := transformersFixtureDir(t)
+	dir := t.TempDir()
+	copyDir(t, filepath.Join(fixture, "src"), filepath.Join(dir, "src"))
+	for _, name := range []string{"default.project.json", "package.json", "tsconfig.json"} {
+		data, err := os.ReadFile(filepath.Join(fixture, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(fixture, "node_modules"), filepath.Join(dir, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
 	resetFlameworkFixtureGeneratedFiles(t, dir)
 	closeSidecarSessions()
 	t.Setenv("ROTOR_SIDECAR_PATH", "")
@@ -96,32 +126,7 @@ func TestFlameworkSidecarFixtureEmitsMetadataAndEnv(t *testing.T) {
 	// script while the worker still has it open.
 	t.Cleanup(closeSidecarSessions)
 	t.Setenv("ROTOR_FIXTURE_API_URL", "https://env.example")
-
-	outputs, diags, err := compileFlameworkSidecarOracle(dir)
-	if err != nil {
-		t.Fatalf("compileFlameworkSidecarOracle: %v (diags: %v)", err, diags)
-	}
-	if len(diags) > 0 {
-		t.Fatalf("diagnostics: %v", diags)
-	}
-
-	envOut := outputs["out/shared/env.luau"]
-	if !strings.Contains(envOut, "https://env.example") {
-		t.Fatalf("rbxts-transform-env did not inline ROTOR_FIXTURE_API_URL:\n%s", envOut)
-	}
-	if strings.Contains(envOut, "$env") {
-		t.Fatalf("rbxts-transform-env left $env macros in output:\n%s", envOut)
-	}
-
-	serviceOut := outputs["out/server/services/test.service.luau"]
-	if !strings.Contains(serviceOut, "identifier") || !strings.Contains(serviceOut, "defineMetadata") {
-		t.Fatalf("rbxts-transformer-flamework did not inject identifier metadata:\n%s", serviceOut)
-	}
-
-	mainOut := outputs["out/server/main.server.luau"]
-	if strings.Contains(mainOut, `"src/server/services"`) {
-		t.Fatalf("Flamework.addPaths was not rewritten:\n%s", mainOut)
-	}
+	return dir
 }
 
 func nativeFlameworkFixtureDir(t *testing.T) string {

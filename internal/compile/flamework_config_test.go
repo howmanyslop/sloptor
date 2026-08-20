@@ -100,27 +100,6 @@ skipUnchangedFiles = true
 	}
 }
 
-func TestPrepareTransformerProgramRejectsLegacyFlameworkPlugin(t *testing.T) {
-	dir := writeProject(t, "flamework-legacy", "")
-	tsconfigPath := filepath.Join(dir, "tsconfig.json")
-	tsconfig, err := os.ReadFile(tsconfigPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated := strings.Replace(string(tsconfig), `"compilerOptions": {`, `"compilerOptions": {"plugins": [{"transform": "rbxts-transformer-flamework"}],`, 1)
-	if err := os.WriteFile(tsconfigPath, []byte(updated), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-	_, diags, err = prepareTransformerProgram(dir, program, projectSourceFiles(program), nil)
-	if err == nil || !strings.Contains(err.Error(), "sloptor migrate flamework") {
-		t.Fatalf("prepareTransformerProgram() = (%v, %v), want migration error", diags, err)
-	}
-}
-
 func TestPrepareTransformerProgramRejectsNativeAndLegacyFlamework(t *testing.T) {
 	dir := writeProject(t, "flamework-double", "")
 	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"), []byte("[flamework]\n"), 0o644); err != nil {

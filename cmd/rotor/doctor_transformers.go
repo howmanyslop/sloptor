@@ -46,7 +46,7 @@ func appendTransformerDoctorChecks(checks []doctorCheck, nodeModules string, has
 	return checks
 }
 
-func nativeFlameworkCheck(dir string) (doctorCheck, bool) {
+func nativeFlameworkCheck(dir, tsConfigPath string) (doctorCheck, bool) {
 	cfg, err := config.Load(dir)
 	if err != nil || cfg.Flamework == nil {
 		return doctorCheck{}, false
@@ -54,7 +54,24 @@ func nativeFlameworkCheck(dir string) (doctorCheck, bool) {
 	if validationErrors := cfg.ValidateFlamework(); len(validationErrors) > 0 {
 		return doctorCheck{status: doctorFail, label: "native Flamework", detail: validationErrors[0].Error(), hint: "correct [flamework] in rotor.toml before building"}, true
 	}
+	if len(cfg.Flamework.Profiles) > 0 {
+		relative, err := filepath.Rel(dir, tsConfigPath)
+		if err != nil {
+			return doctorCheck{status: doctorFail, label: "native Flamework", detail: err.Error(), hint: "correct the active tsconfig path"}, true
+		}
+		active := normalizeFlameworkDoctorProfilePath(relative)
+		for name := range cfg.Flamework.Profiles {
+			if normalizeFlameworkDoctorProfilePath(name) == active {
+				return doctorCheck{status: doctorOK, label: "native Flamework", detail: "enabled (no Node.js sidecar required)"}, true
+			}
+		}
+		return doctorCheck{}, false
+	}
 	return doctorCheck{status: doctorOK, label: "native Flamework", detail: "enabled (no Node.js sidecar required)"}, true
+}
+
+func normalizeFlameworkDoctorProfilePath(path string) string {
+	return filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.ReplaceAll(path, "\\", "/"))))
 }
 
 func legacyFlameworkPluginConfigured(transforms []string) bool {
@@ -66,11 +83,8 @@ func legacyFlameworkPluginConfigured(transforms []string) bool {
 	return false
 }
 
-func legacyFlameworkDoctorCheck(nativeEnabled bool) doctorCheck {
-	detail := "rbxts-transformer-flamework is no longer supported; run `sloptor migrate flamework`"
-	if nativeEnabled {
-		detail = "native [flamework] cannot be combined with rbxts-transformer-flamework; remove it from tsconfig.json"
-	}
+func legacyFlameworkDoctorCheck() doctorCheck {
+	detail := "native [flamework] cannot be combined with rbxts-transformer-flamework; remove it from tsconfig.json"
 	return doctorCheck{status: doctorFail, label: "transformer rbxts-transformer-flamework", detail: detail}
 }
 

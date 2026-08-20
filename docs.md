@@ -31,7 +31,7 @@ Compatibility isn't a hope — it's enforced by construction:
 - **Faithful porting**: the reference sources are vendored in-repo (`reference/`), and ports are reviewed line-by-line against them — down to quirks like ECMAScript `Number::toString` formatting and temp-identifier collision naming.
 - **Same runtime**: `RuntimeLib.lua` and `Promise.lua` match the targeted roblox-ts compiler runtime.
 
-Your existing project — `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins — is the compatibility target, unchanged. Native Flamework is opt-in through `[flamework]` in `rotor.toml`; the legacy tsconfig plugin is not. The compatibility oracle depends on the surface: use the fork archive for the changed surfaces above and upstream parity elsewhere.
+Your existing project — `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins — is the compatibility target, unchanged. Native Flamework is opt-in through `[flamework]` in `rotor.toml`; without an effective native configuration, the legacy tsconfig plugin runs through the Node sidecar. The compatibility oracle depends on the surface: use the fork archive for the changed surfaces above and upstream parity elsewhere.
 
 ## What works today
 
@@ -39,7 +39,7 @@ rotor **compiles multi-file TypeScript projects with upstream or fork-authoritat
 
 Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests. It runs in the native pipeline.
 
-The Node sidecar remains for other tsconfig transformer plugins.
+The Node sidecar remains for external tsconfig transformer plugins, including `rbxts-transformer-flamework` when native Flamework is not enabled.
 
 Anything not yet ported fails loudly with a clear "not yet supported" diagnostic — rotor **never silently emits wrong output**. On unaffected surfaces, compiled output remains byte-identical to `rbxtsc` 3.0.0; fork-changed surfaces follow the verified fork behavior instead.
 
@@ -116,13 +116,13 @@ sloptor completion <bash|zsh|fish|powershell>
 
 ### Native Flamework migration
 
-`sloptor migrate flamework [tsconfig-file] [--remove-package]` is the hard-cut migration from the legacy `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
+`sloptor migrate flamework [tsconfig-file] [--remove-package]` opts a project into native Flamework from the sidecar-backed `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
 
 Native Flamework reprints and re-parses every source by default, matching the upstream transformer's fresh source-file update per file. `[flamework] skipUnchangedFiles = true` (or the same key under a `[flamework.profiles.<tsconfig>]` entry) opts back into reusing sources the transform leaves unchanged, skipping the print/overlay/reparse pass for them.
 
-Rotor rejects a tsconfig whose effective plugin list still contains `rbxts-transformer-flamework`; the legacy plugin is not supported. Run the migration before building. Keep `flamework.json`: it remains the runtime configuration and the migration does not remove it.
+Without an effective `[flamework]` configuration, Rotor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive; configuring both is a hard error. Keep `flamework.json` in either mode: it remains the runtime configuration and the migration does not remove it.
 
-Package cleanup is optional. With `--remove-package`, Rotor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Flamework-only builds and `sloptor doctor` do not require Node.js.
+Package cleanup is optional. With `--remove-package`, Rotor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Native-Flamework-only builds and `sloptor doctor` do not require Node.js.
 
 External tsconfig transformer plugins still require Node.js, the bundled sidecar, and the project's `typescript` package.
 

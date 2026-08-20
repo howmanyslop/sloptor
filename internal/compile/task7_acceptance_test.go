@@ -127,11 +127,6 @@ func TestTask7FlameworkInvalidProjectStateFailsClosedAndPreservesArtifacts(t *te
 		{"runtime log level", "Malformed flamework.json\nenum /logLevel: must be equal to one of the allowed values {\"allowedValues\":[\"none\",\"verbose\"]}\nerror: compile: open native Flamework project: Malformed flamework.json\nenum /logLevel: must be equal to one of the allowed values {\"allowedValues\":[\"none\",\"verbose\"]}", task7WriteMutation("flamework.json", `{"logLevel":"debug"}`)},
 		{"runtime profiling", "Malformed flamework.json\ntype /profiling: must be boolean {\"type\":\"boolean\"}\nerror: compile: open native Flamework project: Malformed flamework.json\ntype /profiling: must be boolean {\"type\":\"boolean\"}", task7WriteMutation("flamework.json", `{"profiling":"yes"}`)},
 		{"runtime dependency warnings", "Malformed flamework.json\ntype /disableDependencyWarnings: must be boolean {\"type\":\"boolean\"}\nerror: compile: open native Flamework project: Malformed flamework.json\ntype /disableDependencyWarnings: must be boolean {\"type\":\"boolean\"}", task7WriteMutation("flamework.json", `{"disableDependencyWarnings":1}`)},
-		{"legacy plugin", "rbxts-transformer-flamework is no longer supported; run `sloptor migrate flamework`\nerror: rbxts-transformer-flamework is no longer supported; run `sloptor migrate flamework`", func(t *testing.T, dir string) {
-			t.Helper()
-			task7Write(t, filepath.Join(dir, "rotor.toml"), "")
-			task7SetPlugins(t, dir, `[{"transform":"rbxts-transformer-flamework"}]`)
-		}},
 		{"native and legacy plugin", "[flamework] cannot be combined with the legacy rbxts-transformer-flamework plugin; remove it from tsconfig.json\nerror: [flamework] cannot be combined with the legacy rbxts-transformer-flamework plugin; remove it from tsconfig.json", func(t *testing.T, dir string) {
 			t.Helper()
 			task7SetPlugins(t, dir, `[{"transform":"rbxts-transformer-flamework"}]`)

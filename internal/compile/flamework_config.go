@@ -39,8 +39,6 @@ func prepareFlameworkConfig(dir string, parsed *tsoptions.ParsedCommandLine) (*c
 			message := "[flamework] cannot be combined with the legacy rbxts-transformer-flamework plugin; remove it from tsconfig.json"
 			return nil, []string{message}, errors.New(message)
 		}
-		message := "rbxts-transformer-flamework is no longer supported; run `sloptor migrate flamework`"
-		return nil, []string{message}, errors.New(message)
 	}
 	return flamework, nil, nil
 }
@@ -76,7 +74,7 @@ func selectFlameworkProfile(dir string, parsed *tsoptions.ParsedCommandLine, fla
 			}, nil
 		}
 	}
-	return nil, fmt.Errorf("config: no [flamework.profiles.%q] entry for active tsconfig", active)
+	return nil, nil
 }
 
 func normalizeFlameworkProfilePath(path string) string {
