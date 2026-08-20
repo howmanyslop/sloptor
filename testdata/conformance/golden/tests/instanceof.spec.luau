@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.1
+-- Compiled with sloptor v2.3.2
 local TS = require(script.Parent.Parent.include.RuntimeLib)
 return function()
 	it("should support instanceof", function()

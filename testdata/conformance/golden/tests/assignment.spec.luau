@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.1
+-- Compiled with sloptor v2.3.2
 return function()
 	it("should support logical null coalescing assignment statement", function()
 		local x

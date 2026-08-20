@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.1
+-- Compiled with sloptor v2.3.2
 local x = 1
 local y = 2
 local z = nil

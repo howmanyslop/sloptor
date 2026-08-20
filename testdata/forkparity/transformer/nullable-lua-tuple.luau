@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.1
+-- Compiled with sloptor v2.3.2
 local function foo()
 	return 1, "a"
 end

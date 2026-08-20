@@ -46,7 +46,7 @@ func TestCompileFilePipelineNoExports(t *testing.T) {
 	}
 	// Statement transforms are stubbed out, so only the header and the
 	// ModuleScript `return nil` remain.
-	want := "-- Compiled with sloptor v2.3.1\nreturn nil\n"
+	want := "-- Compiled with sloptor v2.3.2\nreturn nil\n"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -65,7 +65,7 @@ func TestCompileFilePipelineExportShapes(t *testing.T) {
 	// mutable` (mutable): the mutable export forces the exports-table shape —
 	// `local exports = {}` up top, the immutable pair assigned at the bottom,
 	// then `return exports`.
-	want := "-- Compiled with sloptor v2.3.1\n" +
+	want := "-- Compiled with sloptor v2.3.2\n" +
 		"local exports = {}\n" +
 		"exports.constant = constant\n" +
 		"return exports\n"
@@ -132,7 +132,7 @@ func TestCompileFileReturnMapShape(t *testing.T) {
 	if len(diags) > 0 {
 		t.Fatalf("diagnostics: %v", diags)
 	}
-	want := "-- Compiled with sloptor v2.3.1\n" +
+	want := "-- Compiled with sloptor v2.3.2\n" +
 		"local x = 1\n" +
 		"return {\n" +
 		"\tx = x,\n" +
@@ -229,7 +229,7 @@ func TestCompileFileUsesFileAffinedCheckerForImports(t *testing.T) {
 	if len(diags) > 0 {
 		t.Fatalf("diagnostics: %v", diags)
 	}
-	want := "-- Compiled with sloptor v2.3.1\n" +
+	want := "-- Compiled with sloptor v2.3.2\n" +
 		"local TS = require(script.Parent.include.RuntimeLib)\n" +
 		"local g = TS.import(script, script.Parent, \"_scratch_util\").greet\n" +
 		"print(g(\"once\"))\n" +

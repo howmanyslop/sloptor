@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.1
+-- Compiled with sloptor v2.3.2
 return function()
 	it("should support number // number = number", function()
 		expect(1 // 2).to.equal(0)
