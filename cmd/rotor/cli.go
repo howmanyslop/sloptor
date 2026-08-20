@@ -72,6 +72,7 @@ func run(args []string) int {
 // matching the documented rbxtsc-compatible policy. Success is 0.
 func execute(args []string, streams cliStreams) int {
 	root := newRootCommand(streams)
+	args = normalizeCompilerInvocation(args)
 	resolved := resolveCommandChain(root, args)
 	args = normalizeLegacyArgs(resolved, args)
 	root.SetArgs(args)
@@ -179,7 +180,25 @@ func newVersionCommand() *cobra.Command {
 	}
 }
 
-// --- legacy argv normalization ---
+// --- argv normalization ---
+
+// normalizeCompilerInvocation accepts the command shape used by TypeScript
+// build integrations such as Nx. A leading --build/-b unambiguously selects
+// Sloptor's existing build command; flags anywhere else retain their normal
+// Cobra handling so explicit subcommands and root operations are untouched.
+func normalizeCompilerInvocation(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	first := args[0]
+	if first != "--build" && first != "-b" &&
+		!strings.HasPrefix(first, "--build=") && !strings.HasPrefix(first, "-b=") {
+		return args
+	}
+	normalized := make([]string, 0, len(args)+1)
+	normalized = append(normalized, "build")
+	return append(normalized, args...)
+}
 
 // resolveCommandChain walks args to the deepest command they name, so the
 // legacy normalizer and error hints can target the right flag set. Only
