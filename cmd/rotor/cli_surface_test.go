@@ -95,6 +95,37 @@ func TestBuildHelpShowsOptionsOrder(t *testing.T) {
 	}
 }
 
+// TestCompilerBuildInvocationMatchesSubcommand pins the TypeScript-compiler
+// compatibility surface used by Nx: a leading --build/-b is routed through
+// the existing build command without changing its parsing or result.
+func TestCompilerBuildInvocationMatchesSubcommand(t *testing.T) {
+	config := filepath.Join(t.TempDir(), "tsconfig.lib.json")
+	for _, flag := range []string{"--build", "-b"} {
+		t.Run(flag, func(t *testing.T) {
+			wantCode, wantOut, wantErr := runCLI(t, "build", flag, config)
+			gotCode, gotOut, gotErr := runCLI(t, flag, config)
+			if gotCode != wantCode || gotOut != wantOut || gotErr != wantErr {
+				t.Errorf("compiler invocation = (%d, %q, %q), want build subcommand result (%d, %q, %q)",
+					gotCode, gotOut, gotErr, wantCode, wantOut, wantErr)
+			}
+			if strings.Contains(gotErr, "unknown flag") {
+				t.Errorf("compiler invocation was rejected at the root: %s", gotErr)
+			}
+		})
+	}
+}
+
+// TestCompilerBuildHelpMatchesSubcommand ensures the compatibility spelling
+// resolves help against the build command rather than the root.
+func TestCompilerBuildHelpMatchesSubcommand(t *testing.T) {
+	wantCode, wantOut, wantErr := runCLI(t, "build", "--build", "--help")
+	gotCode, gotOut, gotErr := runCLI(t, "--build", "--help")
+	if gotCode != wantCode || gotOut != wantOut || gotErr != wantErr {
+		t.Errorf("--build --help = (%d, %q, %q), want build help (%d, %q, %q)",
+			gotCode, gotOut, gotErr, wantCode, wantOut, wantErr)
+	}
+}
+
 // TestInvalidCommandRendersCompactError pins the usage-error contract: one
 // red error: line, a dim help hint, exit 1, and never a full help dump.
 func TestInvalidCommandRendersCompactError(t *testing.T) {

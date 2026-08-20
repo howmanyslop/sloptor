@@ -263,6 +263,8 @@ A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, rotor need
 
 `sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. Sloptor adds `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--minify`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
 
+TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
+
 Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
 
 **rotor DX extensions** (not in rbxtsc; safe to ignore for parity):
