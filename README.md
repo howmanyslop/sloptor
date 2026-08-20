@@ -32,9 +32,9 @@ Both `build` and `check` accept `--checkers <n>` to tune type-checker workers pe
 
 Same `tsconfig.json`, same `@rbxts/*` packages, and external transformer plugins through the bundled Node sidecar — plus built-in compile-time macros rbxtsc doesn't have:
 
-Native Flamework is opt-in when `[flamework]` is enabled.
+Native Flamework is opt-in when `[flamework]` is enabled. Without it, `rbxts-transformer-flamework` remains supported through the Node sidecar.
 
-Flamework-only builds and `sloptor doctor` do not require Node.js; external tsconfig transformer plugins do.
+Native-Flamework-only builds and `sloptor doctor` do not require Node.js; external tsconfig transformer plugins do.
 
 | Macro | Inlines |
 |-------|---------|

@@ -91,7 +91,7 @@ type pluginEntry struct {
 	document  *jsoncDocument
 }
 
-// PlanFlameworkTSConfig plans, but never writes, the hard-cut migration for an
+// PlanFlameworkTSConfig plans, but never writes, the native migration for an
 // explicit tsconfig file. Extends are confined to the target file's directory.
 func PlanFlameworkTSConfig(path string) (TSConfigChange, error) {
 	absPath, err := filepath.Abs(path)

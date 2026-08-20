@@ -379,27 +379,56 @@ func TestDoctorResolvesEffectivePluginsFromPackageExtends(t *testing.T) {
 	}
 }
 
-func TestDoctorRejectsLegacyFlameworkWithoutNodeFallback(t *testing.T) {
-	// Given: the removed legacy transformer is the only configured plugin.
-	dir := doctorProjectFixture(t, "", `[{"transform":"rbxts-transformer-flamework"}]`)
-	t.Setenv("PATH", "")
+func TestDoctorSchedulesLegacyFlameworkSidecar(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		rotorConfig string
+	}{
+		{name: "without native configuration"},
+		{name: "without active native profile", rotorConfig: `[flamework.profiles."tsconfig.other.json"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Given: the legacy transformer is the only effective Flamework configuration.
+			dir := doctorProjectFixture(t, tc.rotorConfig, `[{"transform":"rbxts-transformer-flamework"}]`)
+			t.Setenv("PATH", "")
 
-	// When: doctor examines the obsolete configuration.
+			// When: doctor examines the sidecar-backed configuration.
+			code, out, _ := runCLI(t, "doctor", "--project", dir)
+
+			// Then: it checks the same Node and sidecar requirements as other external transformers.
+			if code != 1 {
+				t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
+			}
+			for _, want := range []string{"rbxts-transformer-flamework", "external transformer plugins require Node.js", "transformer sidecar"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("doctor output missing %q:\n%s", want, out)
+				}
+			}
+			if strings.Contains(out, "sloptor migrate flamework") {
+				t.Errorf("doctor unexpectedly requires migration:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestDoctorRejectsNativeAndLegacyFlamework(t *testing.T) {
+	// Given: native Flamework and the sidecar-backed transformer are both configured.
+	dir := doctorProjectFixture(t, "[flamework]\n", `[{"transform":"rbxts-transformer-flamework"}]`)
+
+	// When: doctor examines the conflicting configuration.
 	code, out, _ := runCLI(t, "doctor", "--project", dir)
 
-	// Then: it names the migration rather than scheduling Node or the sidecar.
+	// Then: the conflict is reported before either transformer pipeline is scheduled.
 	if code != 1 {
 		t.Fatalf("doctor exit = %d, want 1:\n%s", code, out)
 	}
-	for _, want := range []string{"rbxts-transformer-flamework", "sloptor migrate flamework"} {
+	for _, want := range []string{"native Flamework", "cannot be combined", "rbxts-transformer-flamework"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("doctor output missing %q:\n%s", want, out)
 		}
 	}
-	for _, absent := range []string{"transformer sidecar", "transformer plugins are configured"} {
-		if strings.Contains(out, absent) {
-			t.Errorf("legacy plugin unexpectedly fell back to %q:\n%s", absent, out)
-		}
+	if strings.Contains(out, "transformer sidecar") {
+		t.Errorf("doctor unexpectedly scheduled the sidecar:\n%s", out)
 	}
 }
 

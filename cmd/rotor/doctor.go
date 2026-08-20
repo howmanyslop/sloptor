@@ -161,7 +161,7 @@ func runDoctor(path string) ([]doctorCheck, string) {
 			"npm install -D @rbxts/types"))
 	}
 
-	nativeCheck, nativeEnabled := nativeFlameworkCheck(dir)
+	nativeCheck, nativeEnabled := nativeFlameworkCheck(dir, tsConfigPath)
 	if nativeEnabled {
 		checks = append(checks, nativeCheck)
 	}
@@ -174,8 +174,8 @@ func runDoctor(path string) ([]doctorCheck, string) {
 			detail: pluginErr.Error(),
 			hint:   "correct compilerOptions.plugins before running rotor build",
 		})
-	} else if legacyFlameworkPluginConfigured(plugins.transforms) {
-		checks = append(checks, legacyFlameworkDoctorCheck(nativeEnabled))
+	} else if nativeEnabled && legacyFlameworkPluginConfigured(plugins.transforms) {
+		checks = append(checks, legacyFlameworkDoctorCheck())
 	} else {
 		checks = appendTransformerDoctorChecks(checks, nodeModules, hasNodeModules, plugins.transforms)
 	}
