@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -22,6 +23,7 @@ const (
 	dstModule  = "rotor/tsgo/"
 	outDir     = "tsgo"
 	overlayDir = "tools/mirror/overlay"
+	patchDir   = "tools/mirror/patches"
 )
 
 func main() {
@@ -85,6 +87,9 @@ func main() {
 	if err := applyOverlay(outDir); err != nil {
 		log.Fatal(err)
 	}
+	if err := applyPatchesTo(""); err != nil {
+		log.Fatal(err)
+	}
 
 	mirrorMD := fmt.Sprintf(`# Mirror of microsoft/typescript-go internals
 
@@ -93,11 +98,11 @@ func main() {
 - Vendored: %s
 - Changes: files copied from internal/ with import paths rewritten
   ("%s" -> "%s"); *_test.go files and testdata/ directories omitted.
-  No other modifications to mirrored files. Regenerate with:
-  go run ./tools/mirror
-- Rotor additions (NOT from the mirror): overlay shims from
-  tools/mirror/overlay (e.g. checker/rotor_exports.go) are applied
-  automatically by tools/mirror after regenerating.
+  Rotor-owned edits are re-applied from tools/mirror/patches after
+  import rewriting. Overlay shims from tools/mirror/overlay
+  (e.g. checker/rotor_exports.go) are applied automatically.
+  Regenerate a pinned ref with:
+  go run ./tools/mirror -ref <sha>
 `, *repo, sha, time.Now().UTC().Format(time.RFC3339), srcModule, dstModule)
 	if err := os.WriteFile(filepath.Join(outDir, "MIRROR.md"), []byte(mirrorMD), 0o644); err != nil {
 		log.Fatal(err)
@@ -111,6 +116,42 @@ func main() {
 // (e.g. checker/rotor_exports.go) that must survive regeneration; they are
 // stored with the .tmpl suffix so `go build ./...` does not try to compile
 // them in place.
+func applyPatchesTo(directory string) error {
+	entries, err := os.ReadDir(patchDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".patch") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := filepath.Join(patchDir, name)
+		args := []string{"apply", "--unsafe-paths"}
+		if directory != "" {
+			resolved, err := filepath.EvalSymlinks(directory)
+			if err != nil {
+				return fmt.Errorf("resolve patch directory %q: %w", directory, err)
+			}
+			args = append(args, "--directory", resolved)
+		}
+		args = append(args, path)
+		cmd := exec.Command("git", args...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("apply %s: %w\n%s", name, err, out)
+		}
+	}
+	return nil
+}
+
 func applyOverlay(dst string) error {
 	return filepath.WalkDir(overlayDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
