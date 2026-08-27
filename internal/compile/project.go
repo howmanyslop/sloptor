@@ -20,13 +20,10 @@ import (
 	"rotor/internal/rojo"
 	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
-	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
-	"rotor/tsgo/vfs"
-	"rotor/tsgo/vfs/cachedvfs"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -129,11 +126,12 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	// the sidecar builds its transformed-source program on. The unwrapped path
 	// stays the default so a build without overlays keeps exactly the previous
 	// filesystem stack.
-	var fs vfs.FS = cachedvfs.From(SanitizeFSWithConfigPath(bundled.WrapFS(osvfs.FS()), configPath))
+	overlays := map[string]string(nil)
 	if len(opts.Overlays) > 0 {
-		fs = newOverlayFS(osvfs.FS(), configPath, normalizeOverlays(opts.Overlays))
+		overlays = normalizeOverlays(opts.Overlays)
 	}
-	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded)
+	fs := solutionCacheFS(opts.compileCache, configPath, overlays)
+	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
 	if err != nil {
 		return "", nil, diags, err
 	}
@@ -474,6 +472,7 @@ type ProjectOptions struct {
 	crossProjectImportPathMap map[string]string
 	pendingSolutionPersists   *[]func() error
 	deferRojoCachePersist     bool
+	compileCache              *solutionCompileCache
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds

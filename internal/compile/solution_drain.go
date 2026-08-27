@@ -44,6 +44,12 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 		persists  []func() error
 	}
 	outcomes := make([]drainOutcome, len(c.graph.Projects))
+	cache := newSolutionCompileCache()
+	if c.timings != nil {
+		defer func() {
+			c.timings.addParseCacheCounts(cache.hits.Load(), cache.misses.Load())
+		}()
+	}
 	RunSolutionTasks(tasks, c.builders, func(index int) error {
 		project := c.graph.Projects[index]
 		state := c.states[project.ConfigPath]
@@ -85,6 +91,7 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 		project.Options.pendingSolutionPersists = &persists
 		project.Options.pendingSolutionDependencyPersists = &dependencyPersists
 		project.Options.deferRojoCachePersist = true
+		project.Options.compileCache = cache
 		built, messages, err := c.drainer.Drain(project)
 		outcome.result = built
 		outcome.messages = messages

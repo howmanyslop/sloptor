@@ -968,7 +968,7 @@ func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[
 	}
 
 	fs := newOverlayFS(osvfs.FS(), configPath, overlays)
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, checkers, singleThreaded)
+	return newProjectProgramFromFSWithOptions(dir, configPath, fs, checkers, singleThreaded, nil, overlays)
 }
 
 func singleThreadedFromOptions(options *core.CompilerOptions) *bool {
@@ -980,10 +980,10 @@ func singleThreadedFromOptions(options *core.CompilerOptions) *bool {
 }
 
 func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Program, []string, error) {
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil)
+	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil, nil, nil)
 }
 
-func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool) (*compiler.Program, []string, error) {
+func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string) (*compiler.Program, []string, error) {
 	// rotor extension: serve the synthetic $env ambient declaration from an
 	// in-memory file next to the tsconfig (see envdecl.go for the parity
 	// rationale) ...
@@ -1000,6 +1000,13 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 	fs = injectMacroDeclFS(fs, macroDecl)
 
 	host := compiler.NewCompilerHost(dir, fs, bundled.LibPath(), nil, nil)
+	if cache != nil {
+		skip := syntheticDeclSkip(configPath)
+		for path := range overlays {
+			skip[normalizeSourceFilePath(path)] = struct{}{}
+		}
+		host = cache.wrap(host, skip)
+	}
 	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(configPath, nil, nil, host, nil)
 	if len(configDiags) > 0 {
 		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")

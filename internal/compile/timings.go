@@ -118,6 +118,18 @@ type BuildTimingCounts struct {
 	NodeWallMs                 int64 `json:"nodeWallMs,omitempty"`
 	NodeCPUUserUs              int64 `json:"nodeCpuUserUs,omitempty"`
 	NodeCPUSystemUs            int64 `json:"nodeCpuSystemUs,omitempty"`
+	ParseCacheHits             int64 `json:"parseCacheHits,omitempty"`
+	ParseCacheMisses           int64 `json:"parseCacheMisses,omitempty"`
+}
+
+func (timings *BuildTimings) addParseCacheCounts(hits, misses int64) {
+	if timings == nil {
+		return
+	}
+	timings.mu.Lock()
+	defer timings.mu.Unlock()
+	timings.Counts.ParseCacheHits += hits
+	timings.Counts.ParseCacheMisses += misses
 }
 
 func (timings *BuildTimings) setHashSkips(skips int) {
