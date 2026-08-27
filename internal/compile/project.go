@@ -133,7 +133,7 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	if len(opts.Overlays) > 0 {
 		fs = newOverlayFS(osvfs.FS(), configPath, normalizeOverlays(opts.Overlays))
 	}
-	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers)
+	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded)
 	if err != nil {
 		return "", nil, diags, err
 	}
@@ -505,6 +505,11 @@ type ProjectOptions struct {
 	// Builders overrides the project builder count when set by the CLI. A nil
 	// value preserves the upstream default behavior.
 	Builders *int
+
+	// SingleThreaded overrides compilerOptions.singleThreaded when set by the
+	// CLI. A nil value preserves the parsed config. Effective true forces one
+	// solution builder and one checker per program.
+	SingleThreaded *bool
 
 	// RojoConfigPath is the --rojo override (createProjectData.ts L33-43):
 	// non-empty values are path.resolve'd and used verbatim; QUIRK verbatim

@@ -684,6 +684,36 @@ func TestNewProjectProgramUsesMultipleCheckerGroups(t *testing.T) {
 	}
 }
 
+func TestApplySingleThreadedOverride(t *testing.T) {
+	options := &core.CompilerOptions{SingleThreaded: core.TSUnknown}
+	ApplySingleThreadedOverride(options, nil)
+	if options.SingleThreaded != core.TSUnknown {
+		t.Fatalf("nil override changed singleThreaded: got %v", options.SingleThreaded)
+	}
+	enabled := true
+	ApplySingleThreadedOverride(options, &enabled)
+	if options.SingleThreaded != core.TSTrue {
+		t.Fatalf("true override = %v, want true", options.SingleThreaded)
+	}
+	disabled := false
+	ApplySingleThreadedOverride(options, &disabled)
+	if options.SingleThreaded != core.TSFalse {
+		t.Fatalf("false override = %v, want false", options.SingleThreaded)
+	}
+}
+
+func TestEffectiveSolutionBuildersSingleThreaded(t *testing.T) {
+	builders := 4
+	enabled := true
+	if got := EffectiveSolutionBuilders(ProjectOptions{Builders: &builders, SingleThreaded: &enabled}); got != 1 {
+		t.Fatalf("singleThreaded builders = %d, want 1", got)
+	}
+	disabled := false
+	if got := EffectiveSolutionBuilders(ProjectOptions{Builders: &builders, SingleThreaded: &disabled}); got != 4 {
+		t.Fatalf("singleThreaded=false builders = %d, want 4", got)
+	}
+}
+
 func TestApplyCheckerOverride(t *testing.T) {
 	configuredCheckers := 1
 	cliCheckers := 3

@@ -24,6 +24,7 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
+	"rotor/tsgo/core"
 	"rotor/tsgo/tsoptions"
 	"rotor/tsgo/vfs"
 	"rotor/tsgo/vfs/osvfs"
@@ -254,7 +255,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	overlayRegion.End()
 	overlayDuration := time.Since(overlayStarted)
 	if err != nil {
-		transformedProgram, _, err = newProjectProgramWithOverlay(dir, configPath, programOverlays, program.Options().Checkers)
+		transformedProgram, _, err = newProjectProgramWithOverlay(dir, configPath, programOverlays, program.Options().Checkers, singleThreadedFromOptions(program.Options()))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -956,7 +957,7 @@ func sidecarEnv(projectDir, sidecarDir string) []string {
 	return append(env, "NODE_PATH="+nodePathValue)
 }
 
-func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[string]string, checkers *int) (*compiler.Program, []string, error) {
+func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[string]string, checkers *int, singleThreaded *bool) (*compiler.Program, []string, error) {
 	dir := filepath.ToSlash(projectDir)
 	if abs, err := filepath.Abs(projectDir); err == nil {
 		dir = filepath.ToSlash(abs)
@@ -967,14 +968,22 @@ func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[
 	}
 
 	fs := newOverlayFS(osvfs.FS(), configPath, overlays)
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, checkers)
+	return newProjectProgramFromFSWithOptions(dir, configPath, fs, checkers, singleThreaded)
+}
+
+func singleThreadedFromOptions(options *core.CompilerOptions) *bool {
+	if options == nil || options.SingleThreaded == core.TSUnknown {
+		return nil
+	}
+	value := options.SingleThreaded.IsTrue()
+	return &value
 }
 
 func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Program, []string, error) {
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil)
+	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil)
 }
 
-func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int) (*compiler.Program, []string, error) {
+func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool) (*compiler.Program, []string, error) {
 	// rotor extension: serve the synthetic $env ambient declaration from an
 	// in-memory file next to the tsconfig (see envdecl.go for the parity
 	// rationale) ...
@@ -996,6 +1005,7 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
 	}
 	ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
+	ApplySingleThreadedOverride(parsed.CompilerOptions(), singleThreaded)
 
 	raw := readRawEnforcedOptions(filepath.FromSlash(configPath))
 	if msg := validateCompilerOptions(parsed.CompilerOptions(), dir, raw); msg != "" {

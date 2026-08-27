@@ -165,7 +165,14 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 	return result, nil, nil
 }
 
+func EffectiveSolutionBuilders(entry ProjectOptions) int {
+	return effectiveSolutionBuilders(entry)
+}
+
 func effectiveSolutionBuilders(entry ProjectOptions) int {
+	if entry.SingleThreaded != nil && *entry.SingleThreaded {
+		return 1
+	}
 	if entry.Builders == nil {
 		return 4
 	}
