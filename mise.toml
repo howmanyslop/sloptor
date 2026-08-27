@@ -119,7 +119,7 @@ go run ./cmd/rotor build --build "$project/$tsconfig" --builders "$cores" --chec
 '''
 
 [tasks."benchmark:solution"]
-description = "hyperfine benchmark of solution (project references) rotor builds across builders/checkers combinations derived from the detected logical CPU count; deletes the supplied project's out/out-test/out-tsc directories and *.rbxtsc.tsbuildinfo state before every measured run so each build is cold. Usage: mise run benchmark:solution -- <project-dir> <tsconfig-path> (tsconfig path relative to the project dir)."
+description = "hyperfine benchmark of solution builds using one prebuilt sloptor binary. Matrix is defaults, 1x1, 1x4, 4x1, and 2x2 (capped to CPU count), not N-squared. Cold outputs each run. Usage: mise run benchmark:solution -- <project-dir> <tsconfig-path>."
 usage = """
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
@@ -150,23 +150,43 @@ export PROJECT_DIR="$project"
 export TSCONFIG_PATH="$tsconfig"
 export CORES="$cores"
 
+cap() {
+    n=$1
+    if [ "$n" -gt "$cores" ]; then
+        echo "$cores"
+    else
+        echo "$n"
+    fi
+}
+c4="$(cap 4)"
+c2="$(cap 2)"
+readonly c4 c2
+
+bin="$(mktemp)"
+trap 'rm -f "$bin"' EXIT
+go build -trimpath -o "$bin" ./cmd/rotor
+export SLOPTOR_BIN="$bin"
+
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
     --warmup 1 \
     --prepare "$prepareCommand" \
+    --export-json "${PROJECT_DIR}/sloptor-benchmark-solution.json" \
+    --command-name "defaults" \
     --command-name "builders=1 checkers=1" \
-    --command-name "builders=1 checkers=$CORES" \
-    --command-name "builders=$CORES checkers=1" \
-    --command-name "builders=$CORES checkers=$CORES" \
-    'go run ./cmd/rotor build --build "$PROJECT_DIR/$TSCONFIG_PATH" --json --builders 1 --checkers 1' \
-    'go run ./cmd/rotor build --build "$PROJECT_DIR/$TSCONFIG_PATH" --json --builders 1 --checkers "$CORES"' \
-    'go run ./cmd/rotor build --build "$PROJECT_DIR/$TSCONFIG_PATH" --json --builders "$CORES" --checkers 1' \
-    'go run ./cmd/rotor build --build "$PROJECT_DIR/$TSCONFIG_PATH" --json --builders "$CORES" --checkers "$CORES"'
+    --command-name "builders=1 checkers=$c4" \
+    --command-name "builders=$c4 checkers=1" \
+    --command-name "builders=$c2 checkers=$c2" \
+    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json" \
+    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers 1" \
+    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers $c4" \
+    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c4 --checkers 1" \
+    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c2 --checkers $c2"
 '''
 
 [tasks."benchmark:one-shot"]
-description = "hyperfine benchmark of one-shot (non-watch) rotor builds at --checkers 1 and --checkers equal to the detected logical CPU count; deletes the supplied project's out/out-test/out-tsc directories and *.rbxtsc.tsbuildinfo state before every measured run so each build is cold. Usage: mise run benchmark:one-shot -- <project-dir> <tsconfig-path> (tsconfig path relative to the project dir)."
+description = "hyperfine benchmark of one-shot builds using one prebuilt sloptor binary at --checkers 1 and --checkers min(4, CPUs). Cold outputs each run. Usage: mise run benchmark:one-shot -- <project-dir> <tsconfig-path>."
 usage = """
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
@@ -197,15 +217,27 @@ export PROJECT_DIR="$project"
 export TSCONFIG_PATH="$tsconfig"
 export CORES="$cores"
 
+c4="$cores"
+if [ "$c4" -gt 4 ]; then
+    c4=4
+fi
+readonly c4
+
+bin="$(mktemp)"
+trap 'rm -f "$bin"' EXIT
+go build -trimpath -o "$bin" ./cmd/rotor
+export SLOPTOR_BIN="$bin"
+
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
     --warmup 1 \
     --prepare "$prepareCommand" \
+    --export-json "${PROJECT_DIR}/sloptor-benchmark-one-shot.json" \
     --command-name "checkers=1" \
-    --command-name "checkers=$CORES" \
-    'go run ./cmd/rotor build --project "$PROJECT_DIR/$TSCONFIG_PATH" --json --checkers 1' \
-    'go run ./cmd/rotor build --project "$PROJECT_DIR/$TSCONFIG_PATH" --json --checkers "$CORES"'
+    --command-name "checkers=$c4" \
+    "$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers 1" \
+    "$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers $c4"
 '''
 
 [tasks."amend:no-verify"]
