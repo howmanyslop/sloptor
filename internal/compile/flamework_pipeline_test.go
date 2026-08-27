@@ -118,10 +118,17 @@ func TestFlameworkPipelineUsesConfiguredAfterOnRealBuildPath(t *testing.T) {
 	}
 
 	// When: the actual build surface runs.
-	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+	timings := NewBuildTimings()
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings})
 	// Then: both the prefix plugin and native stage reached emitted Luau.
 	if err != nil {
 		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	if timings.Counts.SidecarStats == 0 {
+		t.Fatal("sidecar stats = 0, want a disk snapshot on the first stage")
+	}
+	if timings.Counts.TotalSources > 0 && timings.Counts.SidecarSourceReads > 2*timings.Counts.TotalSources+8 {
+		t.Fatalf("sidecar source reads = %d for %d sources, want at most one compile-file pass plus declaration reverts", timings.Counts.SidecarSourceReads, timings.Counts.TotalSources)
 	}
 	output := result.Outputs["out/main.luau"]
 	prefix := strings.Index(output, "prefix-stage")

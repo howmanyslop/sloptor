@@ -85,6 +85,9 @@ type sidecarCallStats struct {
 	decode          time.Duration
 	requestBytes    int64
 	responseBytes   int64
+	stats           int
+	reads           int
+	changedFiles    int
 	spawned         bool
 	restarted       bool
 	nodeWallMs      int64
@@ -121,6 +124,9 @@ type preparedTransformerProgram struct {
 	overlayProgramDuration   time.Duration
 	sidecarRequestBytes      int64
 	sidecarResponseBytes     int64
+	sidecarStats             int
+	sidecarReads             int
+	sidecarChangedFiles      int
 	sidecarSpawned           bool
 	sidecarRestarted         bool
 	nodeWallMs               int64
@@ -178,17 +184,17 @@ func declarationUsesPathAliases(program *compiler.Program) bool {
 }
 
 func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
-	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, sidecarEmitBoth)
+	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, sidecarEmitBoth, nil)
 }
 
-func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*preparedTransformerProgram, []string, error) {
+func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode)
+	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode, state)
 	sidecarRegion.End()
 	if err != nil {
 		return nil, []string{err.Error()}, err
@@ -223,6 +229,10 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 		sourceTraces[normalizeSourceFilePath(file.FileName)] = fileTrace
 	}
 	stats.decode += time.Since(decodeStarted)
+	state.addCall(stats)
+	if mode.transformSources {
+		state.absorbTransformed(response.Transformed)
+	}
 	prepared := preparedFromSidecarStats(program, response.Declarations, sourceTraces, stats)
 	if len(response.Transformed) == 0 {
 		return prepared, nil, nil
@@ -269,6 +279,9 @@ func preparedFromSidecarStats(program *compiler.Program, declarations []sidecarO
 		sidecarDecodeDuration:    stats.decode,
 		sidecarRequestBytes:      stats.requestBytes,
 		sidecarResponseBytes:     stats.responseBytes,
+		sidecarStats:             stats.stats,
+		sidecarReads:             stats.reads,
+		sidecarChangedFiles:      stats.changedFiles,
 		sidecarSpawned:           stats.spawned,
 		sidecarRestarted:         stats.restarted,
 		nodeWallMs:               stats.nodeWallMs,
@@ -302,10 +315,115 @@ type sidecarSession struct {
 	dead     bool
 }
 
+type sidecarSlot struct {
+	mu      sync.Mutex
+	session *sidecarSession
+}
+
+type sidecarBuildState struct {
+	stageOverlays map[string]string
+	diskScanned   bool
+	call          sidecarCallStats
+}
+
+func newSidecarBuildState() *sidecarBuildState {
+	return &sidecarBuildState{stageOverlays: map[string]string{}}
+}
+
+func (s *sidecarBuildState) absorbSourceFiles(files []*ast.SourceFile) {
+	if s == nil {
+		return
+	}
+	if s.stageOverlays == nil {
+		s.stageOverlays = map[string]string{}
+	}
+	for _, file := range files {
+		s.stageOverlays[file.FileName()] = file.Text()
+	}
+}
+
+func (s *sidecarBuildState) absorbTransformed(files []sidecarOutputFile) {
+	if s == nil {
+		return
+	}
+	if s.stageOverlays == nil {
+		s.stageOverlays = map[string]string{}
+	}
+	for _, file := range files {
+		s.stageOverlays[file.FileName] = file.Text
+	}
+}
+
+func (s *sidecarBuildState) addCall(stats sidecarCallStats) {
+	if s == nil {
+		return
+	}
+	s.call.wait += stats.wait
+	s.call.prep += stats.prep
+	s.call.roundTrip += stats.roundTrip
+	s.call.decode += stats.decode
+	s.call.requestBytes += stats.requestBytes
+	s.call.responseBytes += stats.responseBytes
+	s.call.stats += stats.stats
+	s.call.reads += stats.reads
+	s.call.changedFiles += stats.changedFiles
+	s.call.spawned = s.call.spawned || stats.spawned
+	s.call.restarted = s.call.restarted || stats.restarted
+	s.call.nodeWallMs += stats.nodeWallMs
+	s.call.nodeCPUUserUs += stats.nodeCPUUserUs
+	s.call.nodeCPUSystemUs += stats.nodeCPUSystemUs
+	if stats.nodeVersion != "" {
+		s.call.nodeVersion = stats.nodeVersion
+	}
+}
+
+func (s *sidecarBuildState) applyTo(prepared *preparedTransformerProgram) {
+	if s == nil || prepared == nil {
+		return
+	}
+	prepared.sidecarWaitDuration = s.call.wait
+	prepared.sidecarPrepDuration = s.call.prep
+	prepared.sidecarRoundTripDuration = s.call.roundTrip
+	prepared.sidecarDecodeDuration = s.call.decode
+	prepared.sidecarRequestBytes = s.call.requestBytes
+	prepared.sidecarResponseBytes = s.call.responseBytes
+	prepared.sidecarStats = s.call.stats
+	prepared.sidecarReads = s.call.reads
+	prepared.sidecarChangedFiles = s.call.changedFiles
+	prepared.sidecarSpawned = s.call.spawned
+	prepared.sidecarRestarted = s.call.restarted
+	prepared.nodeWallMs = s.call.nodeWallMs
+	prepared.nodeCPUUserUs = s.call.nodeCPUUserUs
+	prepared.nodeCPUSystemUs = s.call.nodeCPUSystemUs
+	if s.call.nodeVersion != "" {
+		prepared.nodeVersion = s.call.nodeVersion
+	}
+	if s.call.roundTrip > 0 || s.call.prep > 0 || s.call.wait > 0 {
+		prepared.sidecarRoundTripRecorded = true
+	}
+}
+
 var (
-	sidecarMu       sync.Mutex
-	sidecarSessions = map[string]*sidecarSession{}
+	sidecarRegistryMu sync.Mutex
+	sidecarSlots      = map[string]*sidecarSlot{}
 )
+
+func sidecarSlotFor(key string) *sidecarSlot {
+	sidecarRegistryMu.Lock()
+	defer sidecarRegistryMu.Unlock()
+	slot := sidecarSlots[key]
+	if slot == nil {
+		slot = &sidecarSlot{}
+		sidecarSlots[key] = slot
+	}
+	return slot
+}
+
+func sidecarSlotCount() int {
+	sidecarRegistryMu.Lock()
+	defer sidecarRegistryMu.Unlock()
+	return len(sidecarSlots)
+}
 
 // sidecarStderrTail collects the worker's stderr (plugin console output —
 // Flamework logs there after the stdout-protocol redirect) for two readers:
@@ -489,6 +607,12 @@ func (s *sidecarSession) close() {
 // Overlays are keyed by the caller's spelling, so they are matched to fileNames
 // through normalizeOverlayPath rather than compared directly.
 func (s *sidecarSession) changedFilesFor(fileNames []string, overlays map[string]string) ([]sidecarChangedFile, error) {
+	changed, _, err := s.collectChangedFiles(fileNames, overlays, false)
+	return changed, err
+}
+
+func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[string]string, skipDiskScan bool) ([]sidecarChangedFile, sidecarCallStats, error) {
+	var ioStats sidecarCallStats
 	// An empty stamp map still means "no round trip yet". Overlaid files skip
 	// the stat-diff, but revertDroppedOverlays stamps each one as it hands the
 	// file back, so a session cannot reach a second round trip having stamped
@@ -501,10 +625,17 @@ func (s *sidecarSession) changedFilesFor(fileNames []string, overlays map[string
 		overlaid[key] = sidecarChangedFile{FileName: filepath.FromSlash(path), Text: text}
 	}
 
-	changed := s.revertDroppedOverlays(overlaid)
+	changed, revertReads, revertStats := s.revertDroppedOverlays(overlaid)
+	ioStats.reads += revertReads
+	ioStats.stats += revertStats
 	for _, key := range slices.Sorted(maps.Keys(overlaid)) {
 		changed = append(changed, overlaid[key])
 		s.overlaid[key] = overlaid[key].FileName
+	}
+
+	if skipDiskScan {
+		ioStats.changedFiles = len(changed)
+		return changed, ioStats, nil
 	}
 
 	// Keying every project file to answer a lookup that cannot hit costs a
@@ -523,20 +654,23 @@ func (s *sidecarSession) changedFilesFor(fileNames []string, overlays map[string
 			}
 		}
 		info, err := os.Stat(path)
+		ioStats.stats++
 		if err != nil {
 			continue
 		}
 		stamp := sidecarFileStamp{modTime: info.ModTime(), size: info.Size()}
 		if prev, ok := s.stamps[path]; !fresh && (!ok || prev != stamp) {
 			text, err := os.ReadFile(path)
+			ioStats.reads++
 			if err != nil {
-				return nil, err
+				return nil, ioStats, err
 			}
 			changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
 		}
 		s.stamps[path] = stamp
 	}
-	return changed, nil
+	ioStats.changedFiles = len(changed)
+	return changed, ioStats, nil
 }
 
 // revertDroppedOverlays undoes the overlays this round trip no longer carries,
@@ -556,8 +690,10 @@ func (s *sidecarSession) changedFilesFor(fileNames []string, overlays map[string
 //
 // overlaid is this round trip's overlays, keyed the way normalizeOverlayPath
 // keys them.
-func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile) []sidecarChangedFile {
+func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile) ([]sidecarChangedFile, int, int) {
 	changed := []sidecarChangedFile{}
+	reads := 0
+	stats := 0
 	for _, key := range slices.Sorted(maps.Keys(s.overlaid)) {
 		if _, ok := overlaid[key]; ok {
 			continue
@@ -566,7 +702,9 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 		delete(s.overlaid, key)
 
 		text, err := os.ReadFile(path)
+		reads++
 		info, statErr := os.Stat(path)
+		stats++
 		if err != nil || statErr != nil {
 			delete(s.stamps, path)
 			continue
@@ -574,10 +712,10 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 		changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
 		s.stamps[path] = sidecarFileStamp{modTime: info.ModTime(), size: info.Size()}
 	}
-	return changed
+	return changed, reads, stats
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
@@ -589,14 +727,15 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 	}
 
 	key := normalizeSourceFilePath(dir) + "|" + normalizeSourceFilePath(configPath)
+	slot := sidecarSlotFor(key)
 	waitStarted := time.Now()
-	sidecarMu.Lock()
+	slot.mu.Lock()
 	stats.wait = time.Since(waitStarted)
-	defer sidecarMu.Unlock()
+	defer slot.mu.Unlock()
 
 	for attempt := 0; ; attempt++ {
 		prepStarted := time.Now()
-		session := sidecarSessions[key]
+		session := slot.session
 		if session == nil || session.dead {
 			if session != nil {
 				session.close()
@@ -605,7 +744,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			if err != nil {
 				return nil, stats, nodeRequirementError(err, configPath, plugins)
 			}
-			sidecarSessions[key] = session
+			slot.session = session
 			if attempt == 0 {
 				stats.spawned = true
 			} else {
@@ -617,18 +756,13 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		for _, sourceFile := range stampFiles {
 			stampNames = append(stampNames, sourceFile.FileName())
 		}
-		sidecarOverlays := maps.Clone(overlays)
-		for _, sourceFile := range compileFiles {
-			onDisk, readErr := os.ReadFile(sourceFile.FileName())
-			if readErr != nil || sourceFile.Text() == string(onDisk) {
-				continue
-			}
-			if sidecarOverlays == nil {
-				sidecarOverlays = map[string]string{}
-			}
-			sidecarOverlays[sourceFile.FileName()] = sourceFile.Text()
-		}
-		changedFiles, err := session.changedFilesFor(stampNames, sidecarOverlays)
+		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, mode.transformSources)
+		stats.reads += overlayReads
+		skipDiskScan := state != nil && state.diskScanned && len(session.stamps) > 0
+		changedFiles, ioStats, err := session.collectChangedFiles(stampNames, sidecarOverlays, skipDiskScan)
+		stats.stats += ioStats.stats
+		stats.reads += ioStats.reads
+		stats.changedFiles += ioStats.changedFiles
 		if err != nil {
 			return nil, stats, err
 		}
@@ -660,8 +794,8 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		cancel()
 		session.stderr.drainTo()
 		if err != nil {
-			delete(sidecarSessions, key)
 			session.close()
+			slot.session = nil
 			if errors.Is(err, context.DeadlineExceeded) {
 				return nil, stats, err
 			}
@@ -669,6 +803,9 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 				continue
 			}
 			return nil, stats, err
+		}
+		if state != nil {
+			state.diskScanned = true
 		}
 		stats.responseBytes += int64(len(line))
 		decodeStarted := time.Now()
@@ -710,12 +847,68 @@ func nodeRequirementError(err error, configPath string, plugins []json.RawMessag
 }
 
 func closeSidecarSessions() {
-	sidecarMu.Lock()
-	defer sidecarMu.Unlock()
-	for key, session := range sidecarSessions {
-		session.close()
-		delete(sidecarSessions, key)
+	sidecarRegistryMu.Lock()
+	slots := make([]*sidecarSlot, 0, len(sidecarSlots))
+	for _, slot := range sidecarSlots {
+		slots = append(slots, slot)
 	}
+	sidecarSlots = map[string]*sidecarSlot{}
+	sidecarRegistryMu.Unlock()
+	for _, slot := range slots {
+		slot.mu.Lock()
+		if slot.session != nil {
+			slot.session.close()
+			slot.session = nil
+		}
+		slot.mu.Unlock()
+	}
+}
+
+func mergeSidecarOverlays(compileFiles []*ast.SourceFile, overlays map[string]string, state *sidecarBuildState, includeStageOverlays bool) (map[string]string, int) {
+	sidecarOverlays := maps.Clone(overlays)
+	if sidecarOverlays == nil {
+		sidecarOverlays = map[string]string{}
+	}
+	if state != nil {
+		if includeStageOverlays {
+			for path, text := range state.stageOverlays {
+				if _, ok := overlayByPath(sidecarOverlays, path); ok {
+					continue
+				}
+				sidecarOverlays[path] = text
+			}
+		}
+		if state.diskScanned {
+			return sidecarOverlays, 0
+		}
+	}
+	reads := 0
+	for _, sourceFile := range compileFiles {
+		if _, ok := overlayByPath(sidecarOverlays, sourceFile.FileName()); ok {
+			continue
+		}
+		onDisk, readErr := os.ReadFile(sourceFile.FileName())
+		reads++
+		if readErr != nil || sourceFile.Text() == string(onDisk) {
+			continue
+		}
+		sidecarOverlays[sourceFile.FileName()] = sourceFile.Text()
+	}
+	return sidecarOverlays, reads
+}
+
+func overlayByPath(overlays map[string]string, path string) (string, bool) {
+	if text, ok := overlays[path]; ok {
+		return text, true
+	}
+	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
+	key := normalizeOverlayPath(path, caseSensitive)
+	for existing, text := range overlays {
+		if normalizeOverlayPath(existing, caseSensitive) == key {
+			return text, true
+		}
+	}
+	return "", false
 }
 
 func sidecarEnv(projectDir, sidecarDir string) []string {

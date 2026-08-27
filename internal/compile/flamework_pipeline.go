@@ -100,12 +100,13 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}
 		return &compilePipelineResult{prepared: prepared}, nil, nil
 	}
+	state := newSidecarBuildState()
 	originalProgram := program
 	originalFiles := sourceFiles
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
 	if len(pipeline.prefix) > 0 {
-		prepared, stageDiags, err := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.prefix)
+		prepared, stageDiags, err := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
 		if err != nil {
 			return nil, stageDiags, err
 		}
@@ -120,24 +121,26 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 	program = prepared.program
 	currentFiles = prepared.sourceFiles
 	traces = prepared.sourceTraces
+	state.absorbSourceFiles(currentFiles)
 	if len(pipeline.suffix) > 0 {
-		next, stageDiags, stageErr := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.suffix)
+		next, stageDiags, stageErr := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.suffix, state)
 		if stageErr != nil {
 			return nil, stageDiags, stageErr
 		}
 		prepared = next
 	}
-	declarations, diags, err := runDeclarationTransformerStage(dir, originalProgram, originalFiles, overlays, pipeline.plugins)
+	declarations, diags, err := runDeclarationTransformerStage(dir, originalProgram, originalFiles, overlays, pipeline.plugins, state)
 	if err != nil {
 		return nil, diags, err
 	}
 	prepared.declarations = declarations
 	prepared.flamework = pipeline.config
+	state.applyTo(prepared)
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
 }
 
-func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitSources)
+func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitSources, state)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -160,11 +163,11 @@ func applyExternalTransformerStage(dir string, program *compiler.Program, source
 	return transformed, nil, nil
 }
 
-func runDeclarationTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []transformerPluginConfig) ([]sidecarOutputFile, []string, error) {
+func runDeclarationTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []transformerPluginConfig, state *sidecarBuildState) ([]sidecarOutputFile, []string, error) {
 	if len(plugins) == 0 && !declarationUsesPathAliases(program) {
 		return nil, nil, nil
 	}
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitDeclarations)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitDeclarations, state)
 	if err != nil {
 		return nil, diags, err
 	}

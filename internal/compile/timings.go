@@ -110,6 +110,9 @@ type BuildTimingCounts struct {
 	EffectiveWriteWorkers      int   `json:"effectiveWriteWorkers"`
 	SidecarRequestBytes        int64 `json:"sidecarRequestBytes,omitempty"`
 	SidecarResponseBytes       int64 `json:"sidecarResponseBytes,omitempty"`
+	SidecarStats               int   `json:"sidecarStats,omitempty"`
+	SidecarSourceReads         int   `json:"sidecarSourceReads,omitempty"`
+	SidecarChangedFiles        int   `json:"sidecarChangedFiles,omitempty"`
 	SidecarSpawns              int   `json:"sidecarSpawns,omitempty"`
 	SidecarRestarts            int   `json:"sidecarRestarts,omitempty"`
 	NodeWallMs                 int64 `json:"nodeWallMs,omitempty"`
@@ -317,6 +320,9 @@ func (timings *BuildTimings) recordPreparedTransformerProgram(prepared *prepared
 	timings.overlayProgramRecorded = timings.overlayProgramRecorded || prepared.overlayProgramRecorded
 	timings.Counts.SidecarRequestBytes += prepared.sidecarRequestBytes
 	timings.Counts.SidecarResponseBytes += prepared.sidecarResponseBytes
+	timings.Counts.SidecarStats += prepared.sidecarStats
+	timings.Counts.SidecarSourceReads += prepared.sidecarReads
+	timings.Counts.SidecarChangedFiles += prepared.sidecarChangedFiles
 	if prepared.sidecarSpawned {
 		timings.Counts.SidecarSpawns++
 	}
@@ -340,6 +346,9 @@ func (timings *BuildTimings) recordPreparedTransformerProgram(prepared *prepared
 		parent.overlayProgramRecorded = parent.overlayProgramRecorded || recordedOverlay
 		parent.Counts.SidecarRequestBytes += prepared.sidecarRequestBytes
 		parent.Counts.SidecarResponseBytes += prepared.sidecarResponseBytes
+		parent.Counts.SidecarStats += prepared.sidecarStats
+		parent.Counts.SidecarSourceReads += prepared.sidecarReads
+		parent.Counts.SidecarChangedFiles += prepared.sidecarChangedFiles
 		if prepared.sidecarSpawned {
 			parent.Counts.SidecarSpawns++
 		}

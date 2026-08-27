@@ -184,9 +184,7 @@ func TestTransformerPluginsChildOverride(t *testing.T) {
 	}
 	// The resolved list is empty, so the compile must not pay for a Node
 	// worker that would find nothing to run.
-	sidecarMu.Lock()
-	sessions := len(sidecarSessions)
-	sidecarMu.Unlock()
+	sessions := sidecarSlotCount()
 	if sessions != 0 {
 		t.Fatalf("spawned %d sidecar session(s) for a project with no resolved plugins", sessions)
 	}

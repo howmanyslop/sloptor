@@ -101,7 +101,7 @@ func TestDeclarationTransformerStageSkipsOrdinarySourceTransforms(t *testing.T) 
 	}}
 
 	// When: the declaration-only stage emits declarations for the project.
-	declarations, diags, err := runDeclarationTransformerStage(dir, program, projectSourceFiles(program), nil, plugins)
+	declarations, diags, err := runDeclarationTransformerStage(dir, program, projectSourceFiles(program), nil, plugins, nil)
 	if err != nil {
 		t.Fatalf("runDeclarationTransformerStage: %v (diags: %v)", err, diags)
 	}

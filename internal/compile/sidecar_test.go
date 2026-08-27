@@ -160,9 +160,7 @@ func TestBuildProjectNativeFlameworkDoesNotRequireNodeOrSidecar(t *testing.T) {
 	if result == nil || result.Outputs["out/main.luau"] == "" {
 		t.Fatalf("BuildProjectWithOptions result = %#v, want emitted Luau", result)
 	}
-	sidecarMu.Lock()
-	sessions := len(sidecarSessions)
-	sidecarMu.Unlock()
+	sessions := sidecarSlotCount()
 	if sessions != 0 {
 		t.Fatalf("native Flamework build spawned %d sidecar session(s)", sessions)
 	}
@@ -187,11 +185,11 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
 
 	// When: the prefix and suffix run as source-only stages.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, sidecarEmitSources)
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, sidecarEmitSources, nil)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, sidecarEmitSources)
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, sidecarEmitSources, nil)
 	// Then: each subset is applied in order without declaration emission.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
