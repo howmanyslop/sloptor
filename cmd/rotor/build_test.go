@@ -447,7 +447,7 @@ func assertTimingJSONShape(t *testing.T, data []byte) {
 	if err := json.Unmarshal(data, &value); err != nil {
 		t.Fatalf("decode timing JSON shape: %v", err)
 	}
-	for _, field := range []string{"schemaVersion", "ok", "totalMs", "stages", "counts"} {
+	for _, field := range []string{"schemaVersion", "ok", "totalMs", "stageSemantics", "stages", "counts", "metadata"} {
 		if _, ok := value[field]; !ok {
 			t.Errorf("timing JSON missing %q", field)
 		}

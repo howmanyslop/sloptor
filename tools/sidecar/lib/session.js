@@ -374,6 +374,21 @@ class SidecarServer {
   }
 
   handleRequest(request) {
+    const started = process.hrtime.bigint();
+    const cpuStarted = process.cpuUsage();
+    const response = this.handleRequestUnmetered(request);
+    const cpu = process.cpuUsage(cpuStarted);
+    const wallNs = process.hrtime.bigint() - started;
+    response.metrics = {
+      wallMs: Number(wallNs / 1000000n),
+      cpuUserUs: cpu.user,
+      cpuSystemUs: cpu.system,
+      nodeVersion: process.version,
+    };
+    return response;
+  }
+
+  handleRequestUnmetered(request) {
     const validationError = validateRequest(request);
     if (validationError) {
       return { diagnostics: [validationError], transformed: [] };

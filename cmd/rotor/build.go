@@ -389,6 +389,7 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	var timings *compile.BuildTimings
 	if parsed.timings != "" {
 		timings = compile.NewBuildTimings()
+		timings.SetProductVersion(version)
 	}
 	if parsed.build {
 		result, diags, elapsed, err = runBuildSolutionOnce(tsConfigPath, opts, timings)
@@ -621,6 +622,7 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 	var timings *compile.BuildTimings
 	if timingPath != "" {
 		timings = compile.NewBuildTimings()
+		timings.SetProductVersion(version)
 	}
 	if solution {
 		result, diags, elapsed, err = runBuildSolutionOnce(tsConfigPath, opts, timings)

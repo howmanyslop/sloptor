@@ -65,9 +65,32 @@ type sidecarChangedFile struct {
 }
 
 type sidecarResponse struct {
-	Diagnostics  []sidecarDiagnostic `json:"diagnostics"`
-	Transformed  []sidecarOutputFile `json:"transformed"`
-	Declarations []sidecarOutputFile `json:"declarations"`
+	Diagnostics  []sidecarDiagnostic     `json:"diagnostics"`
+	Transformed  []sidecarOutputFile     `json:"transformed"`
+	Declarations []sidecarOutputFile     `json:"declarations"`
+	Metrics      *sidecarResponseMetrics `json:"metrics,omitempty"`
+}
+
+type sidecarResponseMetrics struct {
+	WallMs      int64  `json:"wallMs"`
+	CPUUserUs   int64  `json:"cpuUserUs"`
+	CPUSystemUs int64  `json:"cpuSystemUs"`
+	NodeVersion string `json:"nodeVersion"`
+}
+
+type sidecarCallStats struct {
+	wait            time.Duration
+	prep            time.Duration
+	roundTrip       time.Duration
+	decode          time.Duration
+	requestBytes    int64
+	responseBytes   int64
+	spawned         bool
+	restarted       bool
+	nodeWallMs      int64
+	nodeCPUUserUs   int64
+	nodeCPUSystemUs int64
+	nodeVersion     string
 }
 
 type sidecarDiagnostic struct {
@@ -91,8 +114,19 @@ type preparedTransformerProgram struct {
 	flamework                *config.FlameworkConfig
 	declarations             []sidecarOutputFile
 	sourceTraces             diagnosticTraces
+	sidecarWaitDuration      time.Duration
+	sidecarPrepDuration      time.Duration
 	sidecarRoundTripDuration time.Duration
+	sidecarDecodeDuration    time.Duration
 	overlayProgramDuration   time.Duration
+	sidecarRequestBytes      int64
+	sidecarResponseBytes     int64
+	sidecarSpawned           bool
+	sidecarRestarted         bool
+	nodeWallMs               int64
+	nodeCPUUserUs            int64
+	nodeCPUSystemUs          int64
+	nodeVersion              string
 	sidecarRoundTripRecorded bool
 	overlayProgramRecorded   bool
 }
@@ -122,34 +156,20 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 		return nil, diags, err
 	}
 	if transformed.program == program {
-		return &preparedTransformerProgram{
-			program:                  program,
-			sourceFiles:              sourceFiles,
-			flamework:                flamework,
-			declarations:             transformed.declarations,
-			sourceTraces:             transformed.sourceTraces,
-			sidecarRoundTripDuration: transformed.sidecarRoundTripDuration,
-			overlayProgramDuration:   transformed.overlayProgramDuration,
-			sidecarRoundTripRecorded: transformed.sidecarRoundTripRecorded,
-			overlayProgramRecorded:   transformed.overlayProgramRecorded,
-		}, nil, nil
+		prepared := *transformed
+		prepared.sourceFiles = sourceFiles
+		prepared.flamework = flamework
+		return &prepared, nil, nil
 	}
 
 	remapped, err := remapProgramSourceFiles(transformed.program, sourceFiles)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &preparedTransformerProgram{
-		program:                  transformed.program,
-		sourceFiles:              remapped,
-		flamework:                flamework,
-		declarations:             transformed.declarations,
-		sourceTraces:             transformed.sourceTraces,
-		sidecarRoundTripDuration: transformed.sidecarRoundTripDuration,
-		overlayProgramDuration:   transformed.overlayProgramDuration,
-		sidecarRoundTripRecorded: transformed.sidecarRoundTripRecorded,
-		overlayProgramRecorded:   transformed.overlayProgramRecorded,
-	}, nil, nil
+	prepared := *transformed
+	prepared.sourceFiles = remapped
+	prepared.flamework = flamework
+	return &prepared, nil, nil
 }
 
 func declarationUsesPathAliases(program *compiler.Program) bool {
@@ -167,11 +187,9 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
-	sidecarStarted := time.Now()
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode)
+	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode)
 	sidecarRegion.End()
-	sidecarDuration := time.Since(sidecarStarted)
 	if err != nil {
 		return nil, []string{err.Error()}, err
 	}
@@ -188,6 +206,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	if len(errorDiags) > 0 {
 		return nil, errorDiags, errors.New("compile: transformer sidecar diagnostics")
 	}
+	decodeStarted := time.Now()
 	sourceTraces := make(diagnosticTraces)
 	for _, file := range response.Transformed {
 		if file.TraceMap == "" {
@@ -197,20 +216,16 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 		if original == nil {
 			return nil, nil, fmt.Errorf("compile: transformer trace source missing from program: %s", file.FileName)
 		}
-		trace, err := newSourceTraceMap(file.TraceMap, original.FileName(), original.Text())
+		fileTrace, err := newSourceTraceMap(file.TraceMap, original.FileName(), original.Text())
 		if err != nil {
 			return nil, nil, err
 		}
-		sourceTraces[normalizeSourceFilePath(file.FileName)] = trace
+		sourceTraces[normalizeSourceFilePath(file.FileName)] = fileTrace
 	}
+	stats.decode += time.Since(decodeStarted)
+	prepared := preparedFromSidecarStats(program, response.Declarations, sourceTraces, stats)
 	if len(response.Transformed) == 0 {
-		return &preparedTransformerProgram{
-			program:                  program,
-			declarations:             response.Declarations,
-			sourceTraces:             sourceTraces,
-			sidecarRoundTripDuration: sidecarDuration,
-			sidecarRoundTripRecorded: true,
-		}, nil, nil
+		return prepared, nil, nil
 	}
 
 	// The worker reports transformed text only for the files it was asked to
@@ -237,15 +252,31 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	if transformedProgram == nil {
 		return nil, nil, errors.New("compile: overlay Program update returned nil")
 	}
+	prepared.program = transformedProgram
+	prepared.overlayProgramDuration = overlayDuration
+	prepared.overlayProgramRecorded = true
+	return prepared, nil, nil
+}
+
+func preparedFromSidecarStats(program *compiler.Program, declarations []sidecarOutputFile, sourceTraces diagnosticTraces, stats sidecarCallStats) *preparedTransformerProgram {
 	return &preparedTransformerProgram{
-		program:                  transformedProgram,
-		declarations:             response.Declarations,
+		program:                  program,
+		declarations:             declarations,
 		sourceTraces:             sourceTraces,
-		sidecarRoundTripDuration: sidecarDuration,
-		overlayProgramDuration:   overlayDuration,
+		sidecarWaitDuration:      stats.wait,
+		sidecarPrepDuration:      stats.prep,
+		sidecarRoundTripDuration: stats.roundTrip,
+		sidecarDecodeDuration:    stats.decode,
+		sidecarRequestBytes:      stats.requestBytes,
+		sidecarResponseBytes:     stats.responseBytes,
+		sidecarSpawned:           stats.spawned,
+		sidecarRestarted:         stats.restarted,
+		nodeWallMs:               stats.nodeWallMs,
+		nodeCPUUserUs:            stats.nodeCPUUserUs,
+		nodeCPUSystemUs:          stats.nodeCPUSystemUs,
+		nodeVersion:              stats.nodeVersion,
 		sidecarRoundTripRecorded: true,
-		overlayProgramRecorded:   true,
-	}, nil, nil
+	}
 }
 
 type sidecarFileStamp struct {
@@ -373,12 +404,25 @@ type sidecarRoundTripResult struct {
 }
 
 func (s *sidecarSession) roundTrip(ctx context.Context, request sidecarRequest) (*sidecarResponse, error) {
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, s.fail(err)
+	}
+	line, err := s.writeAndRead(ctx, payload)
+	if err != nil {
+		return nil, err
+	}
+	var response sidecarResponse
+	if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
+		return nil, s.fail(err)
+	}
+	return &response, nil
+}
+
+func (s *sidecarSession) writeAndRead(ctx context.Context, payload []byte) ([]byte, error) {
 	result := make(chan sidecarRoundTripResult, 1)
 	go func() {
-		payload, err := json.Marshal(request)
-		if err == nil {
-			_, err = s.stdin.Write(append(payload, '\n'))
-		}
+		_, err := s.stdin.Write(append(payload, '\n'))
 		if err != nil {
 			result <- sidecarRoundTripResult{err: err}
 			return
@@ -387,21 +431,15 @@ func (s *sidecarSession) roundTrip(ctx context.Context, request sidecarRequest) 
 		result <- sidecarRoundTripResult{line: line, err: err}
 	}()
 
-	var line []byte
 	select {
 	case response := <-result:
 		if response.err != nil {
 			return nil, s.fail(response.err)
 		}
-		line = response.line
+		return response.line, nil
 	case <-ctx.Done():
 		return nil, s.fail(fmt.Errorf("transformer sidecar response timed out: %w", ctx.Err()))
 	}
-	var response sidecarResponse
-	if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
-		return nil, s.fail(err)
-	}
-	return &response, nil
 }
 
 func (s *sidecarSession) fail(err error) error {
@@ -539,21 +577,25 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*sidecarResponse, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode) (*sidecarResponse, sidecarCallStats, error) {
+	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 	timeout, err := sidecarResponseTimeout()
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
 
 	key := normalizeSourceFilePath(dir) + "|" + normalizeSourceFilePath(configPath)
+	waitStarted := time.Now()
 	sidecarMu.Lock()
+	stats.wait = time.Since(waitStarted)
 	defer sidecarMu.Unlock()
 
 	for attempt := 0; ; attempt++ {
+		prepStarted := time.Now()
 		session := sidecarSessions[key]
 		if session == nil || session.dead {
 			if session != nil {
@@ -561,9 +603,14 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			}
 			session, err = spawnSidecarSession(dir, sidecarDir)
 			if err != nil {
-				return nil, nodeRequirementError(err, configPath, plugins)
+				return nil, stats, nodeRequirementError(err, configPath, plugins)
 			}
 			sidecarSessions[key] = session
+			if attempt == 0 {
+				stats.spawned = true
+			} else {
+				stats.restarted = true
+			}
 		}
 
 		stampNames := make([]string, 0, len(stampFiles))
@@ -583,7 +630,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 		changedFiles, err := session.changedFilesFor(stampNames, sidecarOverlays)
 		if err != nil {
-			return nil, err
+			return nil, stats, err
 		}
 
 		request := sidecarRequest{
@@ -599,23 +646,44 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
 		}
+		payload, err := json.Marshal(request)
+		stats.prep += time.Since(prepStarted)
+		if err != nil {
+			return nil, stats, err
+		}
+		stats.requestBytes += int64(len(payload))
 
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		response, err := session.roundTrip(ctx, request)
+		roundStarted := time.Now()
+		line, err := session.writeAndRead(ctx, payload)
+		stats.roundTrip += time.Since(roundStarted)
 		cancel()
 		session.stderr.drainTo()
 		if err != nil {
 			delete(sidecarSessions, key)
 			session.close()
 			if errors.Is(err, context.DeadlineExceeded) {
-				return nil, err
+				return nil, stats, err
 			}
 			if attempt == 0 {
 				continue
 			}
-			return nil, err
+			return nil, stats, err
 		}
-		return response, nil
+		stats.responseBytes += int64(len(line))
+		decodeStarted := time.Now()
+		var response sidecarResponse
+		if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
+			return nil, stats, session.fail(err)
+		}
+		stats.decode += time.Since(decodeStarted)
+		if response.Metrics != nil {
+			stats.nodeWallMs = response.Metrics.WallMs
+			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
+			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
+			stats.nodeVersion = response.Metrics.NodeVersion
+		}
+		return &response, stats, nil
 	}
 }
 

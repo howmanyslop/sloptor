@@ -67,6 +67,13 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	if timings != nil {
 		defer timings.finish()
 		timings.setEffectiveWriteWorkers(writeWorkers())
+		if timings.configPath == "" {
+			if opts.TsConfigPath != "" {
+				timings.configPath = opts.TsConfigPath
+			} else {
+				timings.configPath = filepath.Join(projectDir, "tsconfig.json")
+			}
+		}
 	}
 	stopInitialProgram := timings.startStage(initialProgramStage)
 	dir, program, diags, err := newProjectProgramWithOptions(projectDir, opts.TsConfigPath, opts)
@@ -162,13 +169,13 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		return &BuildResult{Outputs: map[string]string{}, EmittedFiles: emitted}, nil, nil
 	}
 
-	stopSelectionCleanupCopy := timings.startStage(incrementalSelectionCleanupCopyStage)
+	stopSelection := timings.startStage(incrementalSelectionStage)
 	sourceOutputPaths := make([]string, len(sourceFiles))
 	for i, sourceFile := range sourceFiles {
 		sourceOutputPaths[i] = outputPathRelativeToDir(dir, pathTranslator.GetOutputPath(sourceFile.FileName()))
 	}
 	if err := rejectDuplicateOutputPaths(sourceOutputPaths); err != nil {
-		stopSelectionCleanupCopy()
+		stopSelection()
 		return nil, nil, err
 	}
 	rojoCache := loadRojoCachesPreBuild(dir, opts)
@@ -202,6 +209,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			}
 		}
 	}
+	stopSelection()
 
 	copyFilesGate := loadCopyFilesGatePreBuild(copyFilesGateInputs{
 		RootDirs:       getRootDirs(program),
@@ -210,21 +218,26 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		PathTranslator: pathTranslator,
 		Snapshot:       copyFilesChangedSnapshot(program, selectedFiles),
 	})
+	stopCleanup := timings.startStage(cleanupStage)
 	if !copyFilesGate.SkipCleanup {
 		cleanupOutputs(pathTranslator, program.Options().SourceMap.IsTrue())
 	}
+	stopCleanup()
 
+	stopIncludeCopy := timings.startStage(includeCopyStage)
 	if err := maybeCopyInclude(dir, opts); err != nil {
-		stopSelectionCleanupCopy()
+		stopIncludeCopy()
 		return nil, nil, err
 	}
+	stopIncludeCopy()
+	stopNonCompiledCopy := timings.startStage(nonCompiledCopyStage)
 	if !copyFilesGate.SkipCopyFiles {
 		if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program), opts.WriteOnlyChanged); err != nil {
-			stopSelectionCleanupCopy()
+			stopNonCompiledCopy()
 			return nil, nil, err
 		}
 	}
-	stopSelectionCleanupCopy()
+	stopNonCompiledCopy()
 	timings.setSourceCounts(len(sourceFiles), len(selectedFiles))
 
 	// rotor extension: detect $env usage on the already-loaded source text
@@ -282,9 +295,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		return nil, diags, err
 	}
 	pctx.sourceTraces = prepared.sourceTraces
-	stopNativeCompile := timings.startStage(nativeDiagnosticsTransformRenderStage)
 	outputs, sourceMaps, infos, err := compileProjectSourceFiles(dir, program, pctx, selectedFiles, opts)
-	stopNativeCompile()
 	if err != nil {
 		return &BuildResult{Diagnostics: infos}, diagnosticInfoMessages(infos), err
 	}

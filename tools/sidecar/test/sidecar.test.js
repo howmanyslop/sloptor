@@ -325,6 +325,25 @@ test("sidecar protocol requires explicit output modes", () => {
   assert.equal(response.diagnostics[0].message, "transformSources must be a boolean");
 });
 
+test("sidecar protocol responses include optional request metrics", () => {
+  const server = new sidecar.SidecarServer(ts);
+  const response = server.handleRequest({
+    protocol: 1,
+    projectDir,
+    tsConfigPath,
+    compileFileNames: [sourcePath],
+    changedFiles: [],
+    transformSources: true,
+    emitDeclarations: false,
+  });
+
+  assert.equal(typeof response.metrics.wallMs, "number");
+  assert.ok(response.metrics.wallMs >= 0);
+  assert.equal(typeof response.metrics.cpuUserUs, "number");
+  assert.equal(typeof response.metrics.cpuSystemUs, "number");
+  assert.equal(response.metrics.nodeVersion, process.version);
+});
+
 test("declaration path resolution reuses host probes within one declaration request", () => {
   const resolutionProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-resolution-cache-"));
   const sourceDir = path.join(resolutionProjectDir, "src");
