@@ -53,9 +53,9 @@ func TestApplyPatchesReproducesRotorEdits(t *testing.T) {
 	}
 	base := t.TempDir()
 	for _, rel := range files {
-		data, err := exec.Command("git", "show", "349e5f4:"+filepath.ToSlash(filepath.Join(outDir, rel))).Output()
+		data, err := os.ReadFile(filepath.Join(outDir, rel))
 		if err != nil {
-			t.Fatalf("git show baseline %s: %v", rel, err)
+			t.Fatalf("read checked-in %s: %v", rel, err)
 		}
 		target := filepath.Join(base, outDir, rel)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
@@ -63,6 +63,16 @@ func TestApplyPatchesReproducesRotorEdits(t *testing.T) {
 		}
 		if err := os.WriteFile(target, data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+	}
+	patches, err := filepath.Glob(filepath.Join(patchDir, "*.patch"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := len(patches) - 1; i >= 0; i-- {
+		cmd := exec.Command("git", "apply", "--reverse", "--unsafe-paths", "--directory", base, patches[i])
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("reverse %s: %v\n%s", patches[i], err, out)
 		}
 	}
 	if err := applyPatchesTo(base); err != nil {
