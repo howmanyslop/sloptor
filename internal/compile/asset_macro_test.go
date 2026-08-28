@@ -29,7 +29,7 @@ func TestAssetMacroModelCacheHitInlines(t *testing.T) {
 	files := compileRuntimeLibProject(t, "asset_model")
 
 	// main.ts references the same asset twice; both inline the cached id.
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"print(\"" + assetModelInlinedID + "\")\n" +
 		"print(\"" + assetModelInlinedID + "\")\n" +
 		"return nil\n"
