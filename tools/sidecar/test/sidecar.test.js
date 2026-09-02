@@ -344,6 +344,33 @@ test("sidecar protocol responses include optional request metrics", () => {
   assert.equal(response.metrics.nodeVersion, process.version);
 });
 
+test("sidecar protocol metrics split wall time per transformer plugin", () => {
+  const server = new sidecar.SidecarServer(ts);
+  const response = server.handleRequest({
+    protocol: 1,
+    projectDir,
+    tsConfigPath,
+    compileFileNames: [sourcePath],
+    changedFiles: [],
+    plugins: [
+      { transform: "./plugins/prefix-string.js", prefix: "first" },
+      { transform: "./plugins/prefix-string.js", prefix: "second" },
+    ],
+    transformSources: true,
+    emitDeclarations: false,
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.deepEqual(
+    response.metrics.plugins.map((plugin) => plugin.transform),
+    ["./plugins/prefix-string.js", "./plugins/prefix-string.js"],
+  );
+  for (const plugin of response.metrics.plugins) {
+    assert.equal(typeof plugin.ms, "number");
+    assert.ok(plugin.ms >= 0);
+  }
+});
+
 test("declaration path resolution reuses host probes within one declaration request", () => {
   const resolutionProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-resolution-cache-"));
   const sourceDir = path.join(resolutionProjectDir, "src");

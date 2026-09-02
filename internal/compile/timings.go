@@ -181,10 +181,39 @@ func (timings *BuildTimings) context() context.Context {
 }
 
 func (timings *BuildTimings) projectLabel() string {
-	if timings == nil || timings.configPath == "" {
+	if timings == nil {
 		return ""
 	}
-	return filepath.Base(filepath.Dir(timings.configPath))
+	return projectLabel(timings.configPath)
+}
+
+func projectLabel(configPath string) string {
+	if configPath == "" {
+		return ""
+	}
+	return filepath.Base(filepath.Dir(configPath))
+}
+
+// logStage emits the verbose start and completion lines for work whose
+// duration reaches BuildTimings later through
+// recordPreparedTransformerProgram; the returned stop reports the elapsed
+// time so callers keep a single measurement.
+func logStage(configPath string, stage buildTimingStage) func() time.Duration {
+	return logStageNamed(configPath, stage.traceName())
+}
+
+// logStageNamed is logStage under a caller-supplied name, for stages that
+// carry a detail suffix such as the transformer plugins a sidecar round trip
+// runs.
+func logStageNamed(configPath, name string) func() time.Duration {
+	label := projectLabel(configPath)
+	logservice.WriteStageStartIfVerbose(label, name)
+	started := time.Now()
+	return func() time.Duration {
+		elapsed := time.Since(started)
+		logservice.WriteStageDoneIfVerbose(label, name, elapsed)
+		return elapsed
+	}
 }
 
 func (timings *BuildTimings) startStage(stage buildTimingStage) func() {

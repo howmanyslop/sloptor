@@ -8,6 +8,7 @@ const {
 const {
   createTransformerList,
   flattenIntoTransformers,
+  pluginMetrics,
   getPluginConfigs,
   wrapTransformersWithParentFix,
 } = require("./plugins");
@@ -274,7 +275,7 @@ class SidecarProjectSession {
       }
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-      const { transforms, diagnostics: pluginDiagnostics } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
+      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       const sourceFiles = [];
@@ -288,7 +289,7 @@ class SidecarProjectSession {
       }
 
       if (sourceFiles.length === 0) {
-        return { diagnostics, transformed: [] };
+        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) } };
       }
 
       const transformResult = request.transformSources
@@ -301,6 +302,7 @@ class SidecarProjectSession {
         diagnostics: [...diagnostics, ...transformResult.diagnostics, ...declarationResult.diagnostics],
         transformed: transformResult.transformed,
         declarations: declarationResult.declarations,
+        metrics: { plugins: pluginMetrics(plugins) },
       };
     } catch (error) {
       return {
@@ -380,6 +382,7 @@ class SidecarServer {
     const cpu = process.cpuUsage(cpuStarted);
     const wallNs = process.hrtime.bigint() - started;
     response.metrics = {
+      ...response.metrics,
       wallMs: Number(wallNs / 1000000n),
       cpuUserUs: cpu.user,
       cpuSystemUs: cpu.system,

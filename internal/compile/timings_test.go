@@ -1,12 +1,16 @@
 package compile
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"rotor/internal/logservice"
 )
 
 func TestBuildTimings(t *testing.T) {
@@ -257,5 +261,95 @@ func TestSidecarMetricsJSONRoundTrip(t *testing.T) {
 	}
 	if metered.Metrics == nil || metered.Metrics.WallMs != 12 || metered.Metrics.NodeVersion != "v22.0.0" {
 		t.Fatalf("metrics = %+v", metered.Metrics)
+	}
+}
+
+func TestVerboseSidecarStages(t *testing.T) {
+	t.Run("transformer build prints every sidecar stage", func(t *testing.T) {
+		// Given
+		logged := buildVerboseTransformerProject(t)
+
+		// Then
+		for _, name := range []string{
+			sidecarSessionWaitStage.traceName(),
+			sidecarPreparationStage.traceName(),
+			sidecarRoundTripStage.traceName() + " (./plugins/prefix-string.js)",
+			sidecarResponseDecodeStage.traceName(),
+			overlayProgramStage.traceName(),
+		} {
+			assertStageLogged(t, logged, name)
+		}
+	})
+
+	t.Run("transformer build charges the round trip to its plugins", func(t *testing.T) {
+		// Given
+		logged := buildVerboseTransformerProject(t)
+
+		// Then
+		line := regexp.MustCompile(`(?m)^.*: transformer plugin \./plugins/prefix-string\.js \( \d+ ms \)$`)
+		if !line.MatchString(logged) {
+			t.Errorf("missing per-plugin line; log: %s", logged)
+		}
+	})
+}
+
+func buildVerboseTransformerProject(t *testing.T) string {
+	t.Helper()
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/verbose-sidecar", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", `{
+	"compilerOptions": {
+	"allowSyntheticDefaultImports": true,
+	"module": "CommonJS",
+	"moduleResolution": "Node",
+	"noLib": true,
+	"moduleDetection": "force",
+	"strict": true,
+	"target": "ESNext",
+	"types": [],
+	"typeRoots": ["node_modules/@rbxts"],
+	"rootDir": "src",
+	"outDir": "out",
+	"plugins": [{"transform": "./plugins/prefix-string.js", "prefix": "verbose"}]
+	},
+	"include": ["src"]
+}`)
+	if err := os.WriteFile(filepath.Join(dir, "plugins", "prefix-string.js"), []byte(prefixStringPlugin), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const value = \"value\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logged := captureVerboseLog(t)
+
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: NewBuildTimings()}); err != nil {
+		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	return logged.String()
+}
+
+func captureVerboseLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := &bytes.Buffer{}
+	previousOutput, previousVerbose := logservice.Output, logservice.Verbose
+	logservice.Output, logservice.Verbose = buf, true
+	t.Cleanup(func() {
+		logservice.Output, logservice.Verbose = previousOutput, previousVerbose
+	})
+	return buf
+}
+
+func assertStageLogged(t *testing.T, logged, name string) {
+	t.Helper()
+	quoted := regexp.QuoteMeta(name)
+	for pattern, want := range map[string]string{
+		`(?m)^(?:.*: )?` + quoted + `\.\.\.$`:        "start",
+		`(?m)^(?:.*: )?` + quoted + ` \( \d+ ms \)$`: "completion",
+	} {
+		if !regexp.MustCompile(pattern).MatchString(logged) {
+			t.Errorf("missing %s line for stage %q; log: %s", want, name, logged)
+		}
 	}
 }

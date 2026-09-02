@@ -520,3 +520,41 @@ func writeSidecarPluginFixture(t *testing.T, dir, baseTSConfig, rootTSConfig str
 		}
 	}
 }
+
+func TestSidecarEnv(t *testing.T) {
+	t.Run("NODE_PATH reaches the workspace root", func(t *testing.T) {
+		// Given
+		t.Setenv("NODE_PATH", "")
+		root := t.TempDir()
+		projectDir := filepath.Join(root, "packages", "topbar")
+		sidecarDir := filepath.Join(root, "sidecar")
+		for _, dir := range []string{
+			filepath.Join(root, "node_modules"),
+			filepath.Join(projectDir, "node_modules"),
+		} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// When
+		env := sidecarEnv(projectDir, sidecarDir)
+		// Then
+		want := strings.Join([]string{
+			filepath.Join(projectDir, "node_modules"),
+			filepath.Join(root, "node_modules"),
+		}, string(os.PathListSeparator))
+		if got := envValue(env, "NODE_PATH"); got != want {
+			t.Errorf("NODE_PATH = %q, want %q", got, want)
+		}
+	})
+}
+
+func envValue(env []string, name string) string {
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value
+		}
+	}
+	return ""
+}
