@@ -809,3 +809,106 @@ test("resolveTypeScript falls back to the sidecar's own typescript", () => {
   const resolved = sidecar.resolveTypeScript(emptyProjectDir);
   assert.equal(typeof resolved.transformNodes, "function");
 });
+
+// narrowRootsProject is a three-file project whose files do not import each
+// other, so the root set alone decides what lands in the worker's program.
+function narrowRootsProject() {
+  const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-roots-"));
+  const sourceDir = path.join(projectRoot, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(projectRoot, "tsconfig.json"),
+    JSON.stringify({
+      compilerOptions: {
+        module: "CommonJS",
+        moduleResolution: "Node",
+        noLib: true,
+        strict: true,
+        target: "ESNext",
+        rootDir: "src",
+        outDir: "out",
+      },
+      include: ["src"],
+    }),
+  );
+  const files = {};
+  for (const name of ["a", "b", "c"]) {
+    files[name] = path.join(sourceDir, `${name}.ts`);
+    fs.writeFileSync(files[name], `export const ${name} = 1;\n`);
+  }
+  files.globals = path.join(sourceDir, "globals.d.ts");
+  fs.writeFileSync(files.globals, "declare const ambient: number;\n");
+  const configPath = path.join(projectRoot, "tsconfig.json");
+  return { projectRoot, configPath, files };
+}
+
+function programFileNames(session) {
+  return session.service
+    .getProgram()
+    .getSourceFiles()
+    .map((sourceFile) => toSlash(sourceFile.fileName))
+    .sort();
+}
+
+function narrowRootsRequest(project, rootFileNames) {
+  return {
+    protocol: 1,
+    projectDir: project.projectRoot,
+    tsConfigPath: project.configPath,
+    compileFileNames: rootFileNames,
+    rootFileNames,
+    changedFiles: [],
+    transformSources: true,
+    emitDeclarations: false,
+  };
+}
+
+test("rootFileNames narrows the worker program to the files being compiled", () => {
+  const project = narrowRootsProject();
+  const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+
+  const response = session.handleRequest(narrowRootsRequest(project, [project.files.a, project.files.globals]));
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.globals)]);
+});
+
+// A watch session reuses one warm worker, so a narrowed root set has to be
+// stable across rebuilds: it only ever grows, and a request that sends no
+// limit widens it back to the whole project for good.
+test("the worker's root limit only ever widens within a session", () => {
+  const project = narrowRootsProject();
+  const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+
+  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+  const afterFirst = session.projectVersion;
+  session.handleRequest(narrowRootsRequest(project, [project.files.b]));
+  assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.b)]);
+
+  const afterSecond = session.projectVersion;
+  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+  assert.equal(session.projectVersion, afterSecond, "a subset request must not disturb the program");
+  assert.ok(afterSecond > afterFirst, "widening the root set must invalidate the program");
+
+  const full = narrowRootsRequest(project, [project.files.c]);
+  delete full.rootFileNames;
+  session.handleRequest(full);
+  assert.deepEqual(programFileNames(session), [
+    toSlash(project.files.a),
+    toSlash(project.files.b),
+    toSlash(project.files.c),
+    toSlash(project.files.globals),
+  ]);
+
+  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+  assert.equal(session.rootLimit, undefined, "a full build must switch narrowing off for the session");
+});
+
+test("rootFileNames must be an array of strings when present", () => {
+  const project = narrowRootsProject();
+  const server = new sidecar.SidecarServer(ts);
+  const response = server.handleRequest({ ...narrowRootsRequest(project, [project.files.a]), rootFileNames: [1] });
+
+  assert.equal(response.diagnostics.length, 1);
+  assert.match(response.diagnostics[0].message, /rootFileNames must be an array of strings/);
+});

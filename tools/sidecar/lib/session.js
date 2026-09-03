@@ -67,6 +67,15 @@ class SidecarProjectSession {
     this.versions = new Map();
     this.projectVersion = 0;
     this.configSignature = "";
+    // rootLimit is the canonical root set narrowed requests have asked for so
+    // far, or undefined for "every file the tsconfig names". TypeScript still
+    // pulls each root's import closure into the program, so a narrowed program
+    // answers the same questions about the files being compiled while parsing
+    // and binding far fewer of them.
+    this.rootLimit = undefined;
+    // rootLimitDisabled latches once a request arrives without a limit, which
+    // is what a full build sends. From then on the session stays unnarrowed.
+    this.rootLimitDisabled = false;
     this.parsed = undefined;
     this.service = undefined;
   }
@@ -123,11 +132,53 @@ class SidecarProjectSession {
   getScriptFileNames() {
     const fileNames = [];
     for (const [canonical, actualPath] of this.actualPaths.entries()) {
+      if (this.rootLimit && !this.rootLimit.has(canonical)) {
+        continue;
+      }
       if (this.overrides.has(canonical) || this.ts.sys.fileExists(actualPath)) {
         fileNames.push(actualPath);
       }
     }
     return fileNames;
+  }
+
+  // setRootLimit widens the LanguageService root set toward what this request
+  // needs. The limit only ever grows within a session, and a request that
+  // sends no limit drops it for good: a watch session rebuilds through the
+  // same warm worker, and shrinking the root set back down between rebuilds
+  // would throw away the program TypeScript had just built and force a fresh
+  // parse and bind of the files that came back. Growing it only adds files,
+  // which the incremental program update already handles.
+  //
+  // The project version has to move whenever the root set does: the
+  // compilation settings and every file version are unchanged, so nothing else
+  // would tell the service that its program is stale.
+  setRootLimit(rootFileNames) {
+    if (this.rootLimitDisabled) {
+      return;
+    }
+    if (!Array.isArray(rootFileNames) || rootFileNames.length === 0) {
+      this.rootLimitDisabled = true;
+      if (this.rootLimit) {
+        this.rootLimit = undefined;
+        this.projectVersion += 1;
+      }
+      return;
+    }
+    const next = this.rootLimit ?? new Set();
+    let widened = this.rootLimit === undefined;
+    for (const fileName of rootFileNames) {
+      const canonical = this.canonicalize(this.rememberFile(fileName));
+      if (!next.has(canonical)) {
+        next.add(canonical);
+        widened = true;
+      }
+    }
+    if (!widened) {
+      return;
+    }
+    this.rootLimit = next;
+    this.projectVersion += 1;
   }
 
   getScriptVersion(fileName) {
@@ -262,6 +313,7 @@ class SidecarProjectSession {
       }
 
       const parsedState = this.refreshParsedConfig();
+      this.setRootLimit(request.rootFileNames);
       if (!this.parsed) {
         return { diagnostics: parsedState.diagnostics, transformed: [] };
       }
@@ -350,6 +402,9 @@ function validateRequest(request) {
   }
   if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {
     return createRequestDiagnostic("compileFileNames must be an array of strings");
+  }
+  if (request.rootFileNames !== undefined && (!Array.isArray(request.rootFileNames) || !request.rootFileNames.every((fileName) => typeof fileName === "string"))) {
+    return createRequestDiagnostic("rootFileNames must be an array of strings when present");
   }
   if (!Array.isArray(request.changedFiles)) {
     return createRequestDiagnostic("changedFiles must be an array");

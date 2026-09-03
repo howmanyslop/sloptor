@@ -88,6 +88,10 @@ Each request must be a single JSON object with `protocol: 1`.
   "compileFileNames": [
     "C:/abs/project/src/example.ts"
   ],
+  "rootFileNames": [
+    "C:/abs/project/src/example.ts",
+    "C:/abs/project/src/globals.d.ts"
+  ],
   "changedFiles": [
     {
       "fileName": "C:/abs/project/src/example.ts",
@@ -96,6 +100,19 @@ Each request must be a single JSON object with `protocol: 1`.
   ]
 }
 ```
+
+`rootFileNames` is optional and narrows the worker's `LanguageService` root
+set for one request. Rotor sends it on an incremental round trip, naming the
+files being compiled plus every `.d.ts` in the project; TypeScript still pulls
+each root's import closure into the program, so a transformer asking the
+checker about a compiled file gets the same answers while the worker parses
+and binds far fewer files. Omitting it means "every file the tsconfig names",
+which is what a full build sends.
+
+Within a session the root limit only ever widens, and the first request that
+omits it drops the limit for good. A watch session rebuilds through the same
+warm worker, so a limit that shrank between rebuilds would throw the program
+away each time.
 
 Response shape:
 

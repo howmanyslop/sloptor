@@ -39,10 +39,16 @@ const defaultSidecarResponseTimeout = 10 * time.Minute
 const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 
 type sidecarRequest struct {
-	Protocol         int                  `json:"protocol"`
-	TsConfigPath     string               `json:"tsConfigPath"`
-	ProjectDir       string               `json:"projectDir"`
-	CompileFileNames []string             `json:"compileFileNames"`
+	Protocol         int      `json:"protocol"`
+	TsConfigPath     string   `json:"tsConfigPath"`
+	ProjectDir       string   `json:"projectDir"`
+	CompileFileNames []string `json:"compileFileNames"`
+	// RootFileNames narrows the worker's LanguageService root set. Empty means
+	// "every file the tsconfig names", which is what a full build wants. An
+	// incremental build that selected a handful of files pays for parsing and
+	// binding the whole project otherwise, and the worker's program is thrown
+	// away when the rotor process exits, so nothing amortizes it.
+	RootFileNames    []string             `json:"rootFileNames,omitempty"`
 	ChangedFiles     []sidecarChangedFile `json:"changedFiles"`
 	Plugins          []json.RawMessage    `json:"plugins,omitempty"`
 	TransformSources bool                 `json:"transformSources"`
@@ -802,6 +808,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
 		}
+		request.RootFileNames = narrowedSidecarRoots(compileFiles, stampFiles)
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
