@@ -72,8 +72,9 @@ class SidecarProjectSession {
     // answers the same questions about the files being compiled while parsing
     // and binding far fewer of them.
     this.rootLimit = undefined;
-    // rootLimitDisabled latches once a request arrives without a limit, which
-    // is what a full build sends. From then on the session stays unnarrowed.
+    // rootLimitDisabled records that the limit has already grown to every file
+    // the tsconfig names, which is what a request without a limit asks for.
+    // Nothing can widen it further, so later narrowed requests are no-ops.
     this.rootLimitDisabled = false;
     this.parsed = undefined;
     this.service = undefined;
@@ -142,12 +143,21 @@ class SidecarProjectSession {
   }
 
   // setRootLimit widens the LanguageService root set toward what this request
-  // needs. The limit only ever grows within a session, and a request that
-  // sends no limit drops it for good: a watch session rebuilds through the
-  // same warm worker, and shrinking the root set back down between rebuilds
-  // would throw away the program TypeScript had just built and force a fresh
-  // parse and bind of the files that came back. Growing it only adds files,
-  // which the incremental program update already handles.
+  // needs. The limit only ever grows within a session: a watch session rebuilds
+  // through the same warm worker, and shrinking the root set back down between
+  // rebuilds would throw away the program TypeScript had just built and force a
+  // fresh parse and bind of the files that came back. Growing it only adds
+  // files, which the incremental program update already handles.
+  //
+  // rootLimitDisabled is that same monotonicity, encoded cheaply for the one
+  // case where the limit has grown as far as it can go. A request with no limit
+  // means "every file the tsconfig names", so after it the effective root set
+  // IS the full remembered set — the widest this session can ever be. The latch
+  // says so in one boolean instead of materializing that set and re-checking it
+  // on every later request. It is not a separate policy, and dropping it alone
+  // would break the monotonicity rather than relax it: `rootLimit` is undefined
+  // once the limit is gone, so the next narrowed request would seed a fresh Set
+  // from its own file list and SHRINK the program to it.
   //
   // The project version has to move whenever the root set does: the
   // compilation settings and every file version are unchanged, so nothing else

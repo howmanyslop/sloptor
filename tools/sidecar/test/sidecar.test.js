@@ -652,3 +652,34 @@ test("a narrowed root whose file was deleted is dropped, not reported", () => {
   assert.ok(session.rootLimit.has(session.canonicalize(project.files.b)), "the limit should still name the deleted file");
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a)]);
 });
+
+// The root limit is monotonic, and a limitless request is its ceiling: after
+// one, the effective root set is every file the tsconfig names and no later
+// narrowed request may shrink it — nor disturb the program TypeScript built for
+// it.
+test("a narrowed request after a limitless one neither shrinks nor churns the program", () => {
+  const project = narrowRootsProject();
+  const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+  const everything = [
+    toSlash(project.files.a),
+    toSlash(project.files.b),
+    toSlash(project.files.c),
+    toSlash(project.files.globals),
+  ];
+
+  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+  assert.deepEqual(programFileNames(session), [toSlash(project.files.a)]);
+
+  const full = narrowRootsRequest(project, [project.files.a]);
+  delete full.rootFileNames;
+  session.handleRequest(full);
+  assert.deepEqual(programFileNames(session), everything);
+
+  const settled = session.projectVersion;
+  const response = session.handleRequest(narrowRootsRequest(project, [project.files.b]));
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.equal(session.rootLimit, undefined, "the limit is already the whole project");
+  assert.deepEqual(programFileNames(session), everything, "a narrowed request must not shrink the root set");
+  assert.equal(session.projectVersion, settled, "a narrowed request must not invalidate the program");
+});
