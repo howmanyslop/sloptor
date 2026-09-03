@@ -50,6 +50,9 @@ type BuildTimings struct {
 	preparedDirectories      map[string]struct{}
 	sidecarRoundTripRecorded bool
 	overlayProgramRecorded   bool
+	// nestedStageDebt is time a nested stage has already reported that the
+	// enclosing stage will otherwise count again (see reportNestedStage).
+	nestedStageDebt map[buildTimingStage]time.Duration
 }
 
 type ProjectBuildTimings struct {
@@ -245,7 +248,7 @@ func (timings *BuildTimings) startStage(stage buildTimingStage) func() {
 	started := time.Now()
 	return func() {
 		region.End()
-		duration := time.Since(started)
+		duration := timings.settleNestedStageDebt(stage, time.Since(started))
 		if timings != nil {
 			timings.addStageDuration(stage, duration)
 			pprof.SetGoroutineLabels(timings.context())
@@ -320,13 +323,45 @@ func (timings *BuildTimings) addStageDuration(stage buildTimingStage, duration t
 	}
 }
 
-// moveStageDuration reassigns time already charged to one stage to another.
+// reportNestedStage charges duration to the nested stage `to` and books it to
+// be taken back out of the enclosing stage `from` when that stage reports.
+//
 // Work measured inside an enclosing stage but reported on its own would
-// otherwise be counted twice, and a stage total that includes a nested stage
-// is not a stage total.
-func (timings *BuildTimings) moveStageDuration(from, to buildTimingStage, duration time.Duration) {
-	timings.addStageDuration(from, -duration)
+// otherwise be counted twice, and a stage total that includes a nested stage is
+// not a stage total. Subtracting it eagerly would instead leave the enclosing
+// stage transiently negative -- it has not reported yet -- so the debt is held
+// until the enclosing stage's own stop runs.
+func (timings *BuildTimings) reportNestedStage(from, to buildTimingStage, duration time.Duration) {
+	if timings == nil || duration <= 0 {
+		return
+	}
+	timings.mu.Lock()
+	if timings.nestedStageDebt == nil {
+		timings.nestedStageDebt = map[buildTimingStage]time.Duration{}
+	}
+	timings.nestedStageDebt[from] += duration
+	timings.mu.Unlock()
 	timings.addStageDuration(to, duration)
+}
+
+// settleNestedStageDebt removes from an enclosing stage's measured duration the
+// time its nested stages already reported. It never returns a negative
+// duration: the nested work happened inside this stage, so the debt cannot
+// exceed it by more than millisecond rounding.
+func (timings *BuildTimings) settleNestedStageDebt(stage buildTimingStage, measured time.Duration) time.Duration {
+	if timings == nil {
+		return measured
+	}
+	timings.mu.Lock()
+	debt := timings.nestedStageDebt[stage]
+	if debt > 0 {
+		delete(timings.nestedStageDebt, stage)
+	}
+	timings.mu.Unlock()
+	if debt >= measured {
+		return 0
+	}
+	return measured - debt
 }
 
 func (timings *BuildTimings) addStageLocked(stage buildTimingStage, duration time.Duration) {

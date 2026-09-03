@@ -3,12 +3,15 @@ package compile
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"rotor/tsgo/ast"
+	"rotor/tsgo/compiler"
 )
 
 func contentHash(text string) string {
@@ -223,5 +226,53 @@ func TestSelectByDeclarationSignatureRejectsAnIncompleteSelection(t *testing.T) 
 	_, _, err := selectByDeclarationSignature(files, changedSourcePaths(current, previous), current, previous, declarationSignatureSelection{})
 	if err == nil {
 		t.Fatal("selectByDeclarationSignature accepted a selection with no emitter")
+	}
+}
+
+// A wave whose declarations cannot be emitted is not a build failure: the write
+// path runs the same emit and reports the diagnostics with a file and a
+// position, so selection stands down to the reverse-closure rule instead of
+// failing the build on a message with neither.
+func TestNarrowSelectionStandsDownWhenTheSelectionEmitFails(t *testing.T) {
+	dir := writeProject(t, "@scope/signature-emit-failure", "")
+	enableDeclarationIncrementalBuilds(t, dir)
+	writeSignatureFixture(t, dir)
+	buildForSignatureTest(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "src", "util.ts"), []byte("export const VALUE = 1;\n// edited\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	pathTranslator := createPathTranslator(program, true)
+	sourceFiles := projectSourceFiles(program)
+	manifest := &incrementalManifest{Version: 2, Salt: "salt", Files: map[string]incrementalFileState{}, Outputs: map[string]string{"out/util.d.ts": "recorded"}}
+	previous := &incrementalManifest{Version: 2, Salt: "salt", Files: map[string]incrementalFileState{}, Outputs: map[string]string{}}
+	for _, sourceFile := range sourceFiles {
+		path := normalizeSourceFilePath(sourceFile.FileName())
+		manifest.Files[path] = incrementalFileState{Hash: "new"}
+		previous.Files[path] = incrementalFileState{Hash: "old"}
+	}
+
+	failing := func(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
+		return nil, errors.New("compile: declaration emit diagnostics")
+	}
+	restore := declarationTextsForSelection
+	declarationTextsForSelection = failing
+	t.Cleanup(func() { declarationTextsForSelection = restore })
+
+	selected, declarations, ok, err := narrowSelectionByDeclarationSignature(
+		dir, program, pathTranslator, sourceFiles, nil, manifest, previous, manifest.Outputs, nil,
+	)
+	if err != nil {
+		t.Fatalf("a failed selection emit became a build error: %v", err)
+	}
+	if ok {
+		t.Fatal("selection claimed a result it could not compute")
+	}
+	if selected != nil || declarations != nil {
+		t.Fatalf("selection returned %d files and %d declarations after standing down", len(selected), len(declarations))
 	}
 }

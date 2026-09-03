@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rotor/internal/logservice"
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
@@ -220,7 +221,7 @@ func narrowSelectionByDeclarationSignature(
 		return nil, nil, true, nil
 	}
 
-	selected, declarations, err := selectByDeclarationSignature(sourceFiles, seeds, current, previous, declarationSignatureSelection{
+	selection := declarationSignatureSelection{
 		projectDir:      filepath.Clean(filepath.FromSlash(dir)),
 		declarationPath: pathTranslator.GetOutputDeclarationPath,
 		previousOutputs: previousOutputs,
@@ -231,12 +232,23 @@ func narrowSelectionByDeclarationSignature(
 			// of its own bookkeeping.
 			stop := logStage(program.Options().ConfigFilePath, declarationEmitStage)
 			declarations, err := declarationTextsForSelection(program, files)
-			timings.moveStageDuration(incrementalSelectionStage, declarationEmitStage, stop())
+			timings.reportNestedStage(incrementalSelectionStage, declarationEmitStage, stop())
 			return declarations, err
 		},
-	})
+	}
+	if selection.emit == nil || selection.declarationPath == nil {
+		return nil, nil, false, errors.New("compile: declaration signature selection needs an emitter and a path mapping")
+	}
+
+	selected, declarations, err := selectByDeclarationSignature(sourceFiles, seeds, current, previous, selection)
 	if err != nil {
-		return nil, nil, false, err
+		// The emit that decides a signature is the same emit the write path
+		// runs, so whatever it could not produce here it cannot produce there
+		// either. Stand down to the reverse-closure rule and let the write path
+		// report the diagnostics through the channel that formats them, rather
+		// than failing the build here on a message with no file in it.
+		logservice.WriteLineIfVerbose("declaration signature selection stood down: " + err.Error())
+		return nil, nil, false, nil
 	}
 	return selected, declarations, true, nil
 }
@@ -247,7 +259,9 @@ func narrowSelectionByDeclarationSignature(
 // same original program. The bytes it returns are therefore the bytes the build
 // writes, which is what lets the rule compare them against the hash the
 // previous build recorded and then hand them straight to the writer.
-func declarationTextsForSelection(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
+// declarationTextsForSelection is a variable so a test can make the emit fail
+// and observe the fallback; nothing in the build ever reassigns it.
+var declarationTextsForSelection = func(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
 	emittable := make([]*ast.SourceFile, 0, len(files))
 	for _, sourceFile := range files {
 		if emitsDeclarationOutput(sourceFile) {
