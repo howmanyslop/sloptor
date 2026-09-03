@@ -20,11 +20,11 @@ import (
 func TestCompileProjectExportFromModel(t *testing.T) {
 	files := compileRuntimeLibProject(t, "exportfrom_model")
 
-	header := "-- Compiled with sloptor v2.3.3\n" +
+	header := "-- Compiled with sloptor v2.4.0\n" +
 		"local TS = require(script.Parent.include.RuntimeLib)\n"
 	wants := map[string]string{
 		// the re-exported module itself.
-		"out/_scratch_util.luau": "-- Compiled with sloptor v2.3.3\n" +
+		"out/_scratch_util.luau": "-- Compiled with sloptor v2.4.0\n" +
 			"local VALUE = 123\n" +
 			"local function greet(name)\n" +
 			"\treturn `Hello, {name}`\n" +
@@ -92,7 +92,7 @@ func TestCompileProjectExportFromModel(t *testing.T) {
 			"return exports\n",
 		// `export type { ... } from`: whole declaration elided — no import, no
 		// exports table, no runtime lib.
-		"out/_scratch_retypeonly.luau": "-- Compiled with sloptor v2.3.3\n" +
+		"out/_scratch_retypeonly.luau": "-- Compiled with sloptor v2.4.0\n" +
 			"local n = 5\n" +
 			"print(n)\n" +
 			"return nil\n",
@@ -103,20 +103,20 @@ func TestCompileProjectExportFromModel(t *testing.T) {
 			"return exports\n",
 		// `export =` a table literal as the file's final statement: direct
 		// return, no exports local.
-		"out/_scratch_eqtable.luau": "-- Compiled with sloptor v2.3.3\n" +
+		"out/_scratch_eqtable.luau": "-- Compiled with sloptor v2.4.0\n" +
 			"return {\n" +
 			"\ta = 1,\n" +
 			"\tb = \"two\",\n" +
 			"}\n",
 		// `export =` a function as the final statement: direct `return f`.
-		"out/_scratch_eqfunc.luau": "-- Compiled with sloptor v2.3.3\n" +
+		"out/_scratch_eqfunc.luau": "-- Compiled with sloptor v2.4.0\n" +
 			"local function f()\n" +
 			"\treturn 1\n" +
 			"end\n" +
 			"return f\n",
 		// `export =` NOT the final statement: `local exports = <expr>` at the
 		// statement position, handleExports appends `return exports`.
-		"out/_scratch_eqmid.luau": "-- Compiled with sloptor v2.3.3\n" +
+		"out/_scratch_eqmid.luau": "-- Compiled with sloptor v2.4.0\n" +
 			"local t = {\n" +
 			"\ta = 1,\n" +
 			"}\n" +

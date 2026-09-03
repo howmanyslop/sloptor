@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.3
+-- Compiled with sloptor v2.4.0
 local filled = table.create(4)
 filled[1] = 7
 local tags = {

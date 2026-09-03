@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.3
+-- Compiled with sloptor v2.4.0
 local function describe(n)
 	repeat
 		local _fallthrough = false

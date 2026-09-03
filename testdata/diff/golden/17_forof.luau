@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.3
+-- Compiled with sloptor v2.4.0
 local items = { 10, 20, 30 }
 local total = 0
 for _, item in items do

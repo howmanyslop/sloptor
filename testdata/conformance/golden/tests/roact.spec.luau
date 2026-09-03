@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.3
+-- Compiled with sloptor v2.4.0
 local TS = require(script.Parent.Parent.include.RuntimeLib)
 local Roact = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "roact", "src")
 local _result = game:GetService("ReplicatedStorage"):FindFirstChild("include")

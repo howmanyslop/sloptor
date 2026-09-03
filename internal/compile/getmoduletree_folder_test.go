@@ -31,7 +31,7 @@ func TestGetModuleTreeFolder(t *testing.T) {
 	//   "shared/systems"     — baseUrl-relative (paths rewrite) folder
 	//   "./systems2"         — source-file-relative folder
 	//   "src/shared/systems" — project-root-relative folder (addPaths style)
-	want := "-- Compiled with sloptor v2.3.3\n" +
+	want := "-- Compiled with sloptor v2.4.0\n" +
 		"print({ script.Parent, { \"shared\", \"systems\" } })\n" +
 		"print({ script.Parent, { \"systems2\" } })\n" +
 		"print({ script.Parent, { \"shared\", \"systems\" } })\n" +
