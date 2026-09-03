@@ -323,6 +323,18 @@ Successful builds may leave these generated or cached files. They are build stat
 | `.luau.map` | Adjacent Luau source map when `sourceMap` is enabled |
 | `*.rbxtsc.tsbuildinfo` | Rotor incremental build state; Rotor inserts `.rbxtsc` before `.tsbuildinfo` to avoid collisions |
 
+### Incremental rebuild selection
+
+Rotor records a manifest of every source file's content hash, its resolved references, and the content hash of every output it wrote. An incremental build starts from the files whose own text moved and walks the importer graph outwards.
+
+It does not walk the whole importer closure. A file's importers can only observe that file through its declaration output, so Rotor emits the `.d.ts` for each wave of the walk, compares it against the hash the previous build recorded for that same file, and pulls in the importers **only** of the files whose declaration moved. A comment edit, a renamed local, a changed function body — anything that leaves the declaration byte-identical — recompiles that one file and stops.
+
+**This is TypeScript's rule, not rbxtsc's.** It is the shape-signature reasoning `tsc --incremental` and the `BuilderProgram` behind it use to decide what an edit invalidates. rbxtsc has no equivalent and always rebuilds the whole importer closure, so Rotor selects strictly fewer files than rbxtsc for the same edit and writes the same bytes. Anything the rule cannot establish — a file that emits no declaration, a declaration with no recorded hash, a deleted file — propagates to the importers as before, so an incomplete manifest costs a wider rebuild and never a stale one.
+
+The manifest is invalidated wholesale by a salt over the compiler options, the Rojo and include topology, the native Flamework inputs, and each effective transformer plugin's tsconfig entry, resolved package version, and entry-file hash. **Upgrading or editing a transformer therefore forces one full rebuild**, which is the point: a transformer rewrites the output of every file it sees, and nothing else in the manifest would notice.
+
+**Hazard.** The rule assumes a transformer's output for a file is a function of that file and the types it can reach. A transformer that carries program-wide state — one that scans every source file to build a registry, and emits different code depending on what else it saw — can go stale, because the files it is handed on an incremental rebuild are only the selected ones. `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React-compiler applier and native Flamework are all per-file and unaffected. Delete the project's `*.rbxtsc.tsbuildinfo` to force a full rebuild for a transformer that is not.
+
 ### Concurrency controls
 
 `--checkers <n>` sets the number of type-checker workers per project. The default is 4, matching TypeScript 7. It applies to `sloptor build`, `sloptor check`, and both watch modes. A CLI value overrides each project's `compilerOptions.checkers`; omitting the flag leaves the project's own config in place. If a project sets `compilerOptions.singleThreaded: true`, it still forces one effective checker regardless of the CLI.

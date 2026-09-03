@@ -15,6 +15,29 @@ import (
 	"rotor/tsgo/compiler"
 )
 
+// incrementalManifest is what one build leaves behind for the next one to
+// select against.
+//
+// Files carries each source file's content hash and the project files it
+// resolved a reference to, which is the import graph selection walks.
+//
+// Outputs carries the content hash of every file this build wrote, keyed by
+// project-relative output path. It is what lets the writer skip a byte-identical
+// rewrite, and it doubles as the declaration SIGNATURE store: an incremental
+// build re-emits the `.d.ts` of a file it is considering, compares it against
+// the hash recorded here, and stops propagating to that file's importers when
+// the two agree (selectByDeclarationSignature).
+//
+// That is deliberately TypeScript's rule and not rbxtsc's: `tsc --incremental`
+// and the BuilderProgram behind it key a file's downstream invalidation on its
+// emitted declaration ("shape signature"), while rbxtsc always rebuilds the
+// whole importer closure. Rotor therefore selects strictly fewer files than
+// rbxtsc for the same edit and writes the same bytes.
+//
+// Salt invalidates the whole manifest at once. It covers the compiler options,
+// the Rojo/include topology, the native Flamework inputs, and each effective
+// transformer plugin's identity (incremental_salt.go), because none of those
+// show up as a source-file change.
 type incrementalManifest struct {
 	Version int                             `json:"version"`
 	Salt    string                          `json:"salt"`
