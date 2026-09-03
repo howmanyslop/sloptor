@@ -2,10 +2,14 @@ package flamework
 
 import "rotor/tsgo/ast"
 
-func transformFlameworkDeleteExpression(state *TransformState, node *ast.Node) (*ast.Node, error) {
+func transformFlameworkDeleteExpression(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
 	access := node.AsDeleteExpression().Expression
 	if !isFlameworkAttributesAccess(state, access) {
-		return transformFlameworkExpressionChildren(state, node)
+		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
-	return newFlameworkAttributeSetterCall(state, access, state.factory.NewIdentifier("undefined"), false)
+	setter, err := newFlameworkAttributeSetterCall(state, access, state.factory.NewIdentifier("undefined"), false)
+	if err != nil {
+		return expressionTransformResult{}, err
+	}
+	return expressionTransformResult{expression: setter}, nil
 }

@@ -2,11 +2,11 @@ package flamework
 
 import "rotor/tsgo/ast"
 
-func transformFlameworkUnaryExpression(state *TransformState, node *ast.Node) (*ast.Node, error) {
+func transformFlameworkUnaryExpression(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
 	operand, operator, postfix := flameworkUnaryParts(node)
 	binaryOperator, mutates := flameworkUnaryOperator(operator)
 	if !mutates || !isFlameworkAttributesAccess(state, operand) {
-		return transformFlameworkExpressionChildren(state, node)
+		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
 	value := state.factory.NewBinaryExpression(
 		nil,
@@ -15,7 +15,11 @@ func transformFlameworkUnaryExpression(state *TransformState, node *ast.Node) (*
 		state.factory.NewToken(binaryOperator),
 		state.factory.NewNumericLiteral("1", ast.TokenFlagsNone),
 	)
-	return newFlameworkAttributeSetterCall(state, operand, value, postfix)
+	setter, err := newFlameworkAttributeSetterCall(state, operand, value, postfix)
+	if err != nil {
+		return expressionTransformResult{}, err
+	}
+	return expressionTransformResult{expression: setter}, nil
 }
 
 func flameworkUnaryParts(node *ast.Node) (operand *ast.Node, operator ast.Kind, postfix bool) {
