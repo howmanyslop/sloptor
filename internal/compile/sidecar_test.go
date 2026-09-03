@@ -187,20 +187,17 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
 
 	// When: the prefix and suffix run as source-only stages.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, sidecarEmitSources)
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, sidecarEmitSources)
-	// Then: each subset is applied in order without declaration emission.
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix)
+	// Then: each subset is applied in order.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
 	}
-	if len(first.declarations) != 0 {
-		t.Fatalf("prefix declarations = %d, want 0", len(first.declarations))
-	}
-	if len(second.declarations) != 0 {
-		t.Fatalf("suffix declarations = %d, want 0", len(second.declarations))
+	if first.program == program {
+		t.Fatal("prefix transform did not produce a new program")
 	}
 	source := second.program.GetSourceFile(filepath.Join(dir, "src", "main.ts"))
 	if source == nil || !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
@@ -208,7 +205,10 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	}
 }
 
-func TestApplyTransformerSidecarPreservesCombinedSourceAndDeclarationOutput(t *testing.T) {
+// Declarations are emitted natively from the ORIGINAL program, so a source
+// transformer must never reach them: the sidecar rewrites the Luau surface
+// while the published `.d.ts` keeps describing the source the user wrote.
+func TestApplyTransformerSidecarLeavesDeclarationsToNativeEmit(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
 	dir := writeProject(t, "@scope/combined-sidecar", "")
@@ -233,11 +233,15 @@ func TestApplyTransformerSidecarPreservesCombinedSourceAndDeclarationOutput(t *t
 	if !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
 		t.Fatalf("combined source = %q, want suffix:prefix:start", source.Text())
 	}
-	if len(combined.declarations) != 1 {
-		t.Fatalf("combined declarations = %d, want 1", len(combined.declarations))
+	declarations, err := emitDeclarationTexts(program, projectSourceFiles(program))
+	if err != nil {
+		t.Fatalf("emitDeclarationTexts: %v", err)
 	}
-	if got, want := combined.declarations[0].Text, "export declare const phase = \"start\";\n"; got != want {
-		t.Fatalf("combined declaration = %q, want %q", got, want)
+	if len(declarations) != 1 {
+		t.Fatalf("declarations = %d, want 1", len(declarations))
+	}
+	if got, want := declarations[0].Text, "export declare const phase = \"start\";\n"; got != want {
+		t.Fatalf("declaration = %q, want %q", got, want)
 	}
 }
 

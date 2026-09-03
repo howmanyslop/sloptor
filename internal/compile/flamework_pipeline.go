@@ -100,8 +100,6 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}
 		return &compilePipelineResult{prepared: prepared}, nil, nil
 	}
-	originalProgram := program
-	originalFiles := sourceFiles
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
 	if len(pipeline.prefix) > 0 {
@@ -127,17 +125,12 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}
 		prepared = next
 	}
-	declarations, diags, err := runDeclarationTransformerStage(dir, originalProgram, originalFiles, overlays, pipeline.plugins)
-	if err != nil {
-		return nil, diags, err
-	}
-	prepared.declarations = declarations
 	prepared.flamework = pipeline.config
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
 }
 
 func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitSources)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins))
 	if err != nil {
 		return nil, diags, err
 	}
@@ -158,17 +151,6 @@ func applyExternalTransformerStage(dir string, program *compiler.Program, source
 	transformed.sourceFiles = remapped
 	transformed.sourceTraces = composed
 	return transformed, nil, nil
-}
-
-func runDeclarationTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []transformerPluginConfig) ([]sidecarOutputFile, []string, error) {
-	if len(plugins) == 0 && !declarationUsesPathAliases(program) {
-		return nil, nil, nil
-	}
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitDeclarations)
-	if err != nil {
-		return nil, diags, err
-	}
-	return transformed.declarations, nil, nil
 }
 
 func rawTransformerPlugins(plugins []transformerPluginConfig) []json.RawMessage {
