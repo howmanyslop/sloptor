@@ -236,9 +236,6 @@ func narrowSelectionByDeclarationSignature(
 			return declarations, err
 		},
 	}
-	if selection.emit == nil || selection.declarationPath == nil {
-		return nil, nil, false, errors.New("compile: declaration signature selection needs an emitter and a path mapping")
-	}
 
 	selected, declarations, err := selectByDeclarationSignature(sourceFiles, seeds, current, previous, selection)
 	if err != nil {
@@ -259,8 +256,9 @@ func narrowSelectionByDeclarationSignature(
 // same original program. The bytes it returns are therefore the bytes the build
 // writes, which is what lets the rule compare them against the hash the
 // previous build recorded and then hand them straight to the writer.
-// declarationTextsForSelection is a variable so a test can make the emit fail
-// and observe the fallback; nothing in the build ever reassigns it.
+//
+// It is a variable only so a test can make the emit fail and watch selection
+// stand down; nothing in the build ever reassigns it.
 var declarationTextsForSelection = func(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
 	emittable := make([]*ast.SourceFile, 0, len(files))
 	for _, sourceFile := range files {
