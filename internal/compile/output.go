@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,29 +183,36 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	opts.rojoCache = rojoCache
 
 	selectedFiles := sourceFiles
+	// signatureDeclarations is the declaration text the selection pass already
+	// emitted, handed to the pipeline so the build does not emit it twice.
+	var signatureDeclarations []sidecarOutputFile
 	if program.Options().IsIncremental() && pathTranslator.BuildInfoOutputPath != "" {
 		selectedFiles = selectIncrementalSourceFiles(sourceFiles, currentManifest, previousManifest)
 		if opts.forceFullBuild {
 			selectedFiles = sourceFiles
-		} else if len(previousOutputs) > 0 {
-			selectedPaths := make(map[string]struct{}, len(selectedFiles))
-			for _, sourceFile := range selectedFiles {
-				selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
+		} else {
+			recovered := recoveredInputPaths(dir, pathTranslator, previousOutputs, previousPresence)
+			narrowed, declarations, ok, err := narrowSelectionByDeclarationSignature(
+				dir, program, pathTranslator, sourceFiles, recovered,
+				currentManifest, previousManifest, previousOutputs, nativePipeline, timings,
+			)
+			if err != nil {
+				stopSelection()
+				return nil, nil, err
 			}
-			for outputPath := range previousOutputs {
-				if previousPresence.hasRegular(outputPath) {
-					continue
+			if ok {
+				selectedFiles, signatureDeclarations = narrowed, declarations
+			} else if len(previousOutputs) > 0 {
+				selectedPaths := make(map[string]struct{}, len(selectedFiles)+len(recovered))
+				for _, sourceFile := range selectedFiles {
+					selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
 				}
-				absolutePath := filepath.Join(filepath.FromSlash(dir), filepath.FromSlash(outputPath))
-				inputPath := strings.TrimSuffix(absolutePath, ".map")
-				for _, candidate := range pathTranslator.GetInputPaths(inputPath) {
-					selectedPaths[normalizeSourceFilePath(candidate)] = struct{}{}
-				}
-			}
-			selectedFiles = selectedFiles[:0]
-			for _, sourceFile := range sourceFiles {
-				if _, ok := selectedPaths[normalizeSourceFilePath(sourceFile.FileName())]; ok {
-					selectedFiles = append(selectedFiles, sourceFile)
+				maps.Copy(selectedPaths, recovered)
+				selectedFiles = selectedFiles[:0]
+				for _, sourceFile := range sourceFiles {
+					if _, ok := selectedPaths[normalizeSourceFilePath(sourceFile.FileName())]; ok {
+						selectedFiles = append(selectedFiles, sourceFile)
+					}
 				}
 			}
 		}
@@ -262,7 +270,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 
-	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
+	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline, signatureDeclarations)
 	if err != nil {
 		return nil, diags, err
 	}

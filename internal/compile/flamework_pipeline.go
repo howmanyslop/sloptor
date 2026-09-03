@@ -38,7 +38,7 @@ func prepareCompilePipeline(dir string, program *compiler.Program, sourceFiles [
 	if err != nil {
 		return nil, diags, err
 	}
-	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline)
+	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline, nil)
 }
 
 func prepareFlameworkPipeline(dir string, program *compiler.Program, opts ProjectOptions) (*flameworkPipeline, []string, error) {
@@ -92,11 +92,21 @@ func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program)
 	return nil
 }
 
-func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline) (*compilePipelineResult, []string, error) {
+// emittedDeclarations is the declaration text the declaration-signature
+// selection pass already produced for exactly these files, off exactly this
+// program. Re-emitting it would repeat the build's most expensive stage for no
+// new text. It is only ever non-nil when the pipeline is nil: a native
+// Flamework build emits its declarations from the overlaid program the
+// transform produced, which selection cannot have seen
+// (selectionDeclarationsMatchTheWritePath).
+func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline, emittedDeclarations []sidecarOutputFile) (*compilePipelineResult, []string, error) {
 	if pipeline == nil {
 		prepared, diags, err := prepareTransformerProgram(dir, program, sourceFiles, overlays)
 		if err != nil {
 			return nil, diags, err
+		}
+		if prepared.declarations == nil {
+			prepared.declarations = emittedDeclarations
 		}
 		return &compilePipelineResult{prepared: prepared}, nil, nil
 	}

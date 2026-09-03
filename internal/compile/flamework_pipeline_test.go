@@ -296,7 +296,7 @@ func TestRunCompilePipelineSkipsTheWorkerWhenNothingIsSelected(t *testing.T) {
 	missing := []transformerPluginConfig{{Transform: "rotor-transformer-that-does-not-exist"}}
 	pipeline := &flameworkPipeline{config: &config.FlameworkConfig{}, plugins: missing, prefix: missing, suffix: missing}
 
-	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline)
+	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline, nil)
 	if err != nil {
 		t.Fatalf("runCompilePipeline: %v (diags: %v)", err, diags)
 	}
