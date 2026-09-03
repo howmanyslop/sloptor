@@ -95,7 +95,7 @@ func TestCompareOutputTrees(t *testing.T) {
 		}
 	}
 
-	if err := os.WriteFile(filepath.Join(right, "out", "main.luau"), []byte("-- Compiled with sloptor v2.3.2\nprint(\"ok\")\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(right, "out", "main.luau"), []byte("-- Compiled with sloptor v2.3.3\nprint(\"ok\")\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -8,6 +8,17 @@ func ApplyCheckerOverride(options *core.CompilerOptions, checkers *int) {
 	}
 }
 
+func ApplySingleThreadedOverride(options *core.CompilerOptions, singleThreaded *bool) {
+	if singleThreaded == nil {
+		return
+	}
+	if *singleThreaded {
+		options.SingleThreaded = core.TSTrue
+		return
+	}
+	options.SingleThreaded = core.TSFalse
+}
+
 func applyCheckerOverride(options *core.CompilerOptions, checkers *int) {
 	ApplyCheckerOverride(options, checkers)
 }

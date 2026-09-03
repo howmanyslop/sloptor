@@ -447,7 +447,7 @@ func assertTimingJSONShape(t *testing.T, data []byte) {
 	if err := json.Unmarshal(data, &value); err != nil {
 		t.Fatalf("decode timing JSON shape: %v", err)
 	}
-	for _, field := range []string{"schemaVersion", "ok", "totalMs", "stages", "counts"} {
+	for _, field := range []string{"schemaVersion", "ok", "totalMs", "stageSemantics", "stages", "counts", "metadata"} {
 		if _, ok := value[field]; !ok {
 			t.Errorf("timing JSON missing %q", field)
 		}
@@ -508,6 +508,33 @@ func TestBuildModeArgs(t *testing.T) {
 			}
 			if got.build != tt.build || got.buildPath != tt.path || got.emitDeclarationOnly != tt.emit {
 				t.Errorf("parseBuildArgs(%v) = %+v", tt.args, got)
+			}
+		})
+	}
+}
+
+func TestParseBuildArgsSingleThreaded(t *testing.T) {
+	trueVal := true
+	falseVal := false
+	tests := []struct {
+		name string
+		args []string
+		want *bool
+	}{
+		{name: "omitted", args: nil},
+		{name: "bare", args: []string{"--singleThreaded"}, want: &trueVal},
+		{name: "equals true", args: []string{"--singleThreaded=true"}, want: &trueVal},
+		{name: "equals false", args: []string{"--singleThreaded=false"}, want: &falseVal},
+		{name: "negated", args: []string{"--no-singleThreaded"}, want: &falseVal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseBuildArgsForTest(t, tt.args)
+			if (got.singleThreaded == nil) != (tt.want == nil) {
+				t.Fatalf("singleThreaded = %v, want %v", got.singleThreaded, tt.want)
+			}
+			if got.singleThreaded != nil && *got.singleThreaded != *tt.want {
+				t.Fatalf("singleThreaded = %t, want %t", *got.singleThreaded, *tt.want)
 			}
 		})
 	}
@@ -644,6 +671,8 @@ func TestBuildHelpShowsConcurrencyControls(t *testing.T) {
 		"only with --build",
 		"--checkers <n>",
 		"build and check",
+		"--singleThreaded",
+		"tsgo-compatible",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("build --help does not contain %q", want)
@@ -668,17 +697,19 @@ func TestProjectCompileOptionsConcurrencyControls(t *testing.T) {
 	// Given
 	builders := 3
 	checkers := 3
+	singleThreaded := true
 	opts := projectOptions{
-		builders: &builders,
-		checkers: &checkers,
+		builders:       &builders,
+		checkers:       &checkers,
+		singleThreaded: &singleThreaded,
 	}
 
 	// When
 	got := projectCompileOptions("tsconfig.json", opts)
 
 	// Then
-	if got.Builders != opts.builders || got.Checkers != opts.checkers {
-		t.Fatalf("concurrency pointers = builders %p/checkers %p, want %p/%p", got.Builders, got.Checkers, opts.builders, opts.checkers)
+	if got.Builders != opts.builders || got.Checkers != opts.checkers || got.SingleThreaded != opts.singleThreaded {
+		t.Fatalf("concurrency pointers = builders %p/checkers %p/singleThreaded %p, want %p/%p/%p", got.Builders, got.Checkers, got.SingleThreaded, opts.builders, opts.checkers, opts.singleThreaded)
 	}
 	if *got.Builders != 3 || *got.Checkers != 3 {
 		t.Fatalf("concurrency values = builders %d/checkers %d, want 3/3", *got.Builders, *got.Checkers)

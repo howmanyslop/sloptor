@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.2
+-- Compiled with sloptor v2.3.3
 local a = Vector3.new(1, 2, 3)
 local b = Vector3.new(4, 5, 6)
 local c = Vector3.new(7, 8, 9)

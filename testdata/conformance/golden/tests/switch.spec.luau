@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.2
+-- Compiled with sloptor v2.3.3
 return function()
 	it("should support switch statements with fall through", function()
 		local function foo(s)

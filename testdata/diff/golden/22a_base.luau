@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.2
+-- Compiled with sloptor v2.3.3
 local alpha = 1
 local beta = 2
 local function gamma(n)

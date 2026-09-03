@@ -21,26 +21,32 @@ var flameworkAssignmentOperators = map[ast.Kind]ast.Kind{
 	ast.KindGreaterThanGreaterThanGreaterThanEqualsToken: ast.KindGreaterThanGreaterThanGreaterThanToken,
 }
 
-func transformFlameworkBinaryExpression(state *TransformState, node *ast.Node) (*ast.Node, error) {
+func transformFlameworkBinaryExpression(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
 	binary := node.AsBinaryExpression()
 	operator, mutates := flameworkAssignmentOperators[binary.OperatorToken.Kind]
 	if !mutates || !isFlameworkAttributesAccess(state, binary.Left) {
-		return transformFlameworkExpressionChildren(state, node)
+		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
 
-	right, err := transformFlameworkExpression(state, binary.Right)
+	right, err := transformFlameworkExpressionWithRuntime(state, binary.Right, runtime)
 	if err != nil {
-		return nil, err
+		return expressionTransformResult{}, err
 	}
-	value := right
+	value := right.expression
 	if operator != ast.KindEqualsToken {
 		value = state.factory.NewBinaryExpression(
 			nil,
 			binary.Left,
 			nil,
 			state.factory.NewToken(operator),
-			right,
+			right.expression,
 		)
 	}
-	return newFlameworkAttributeSetterCall(state, binary.Left, value, false)
+	setter, err := newFlameworkAttributeSetterCall(state, binary.Left, value, false)
+	if err != nil {
+		return expressionTransformResult{}, err
+	}
+	// The macro that produced `value` may have requested imports and hoisted
+	// statements; the setter call replaces the expression, not those.
+	return expressionTransformResult{expression: setter, prerequisites: right.prerequisites, imports: right.imports}, nil
 }

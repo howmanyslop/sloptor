@@ -1,5 +1,6 @@
 {
-  "captureCommand": "VerifyAndExtract(FindZip(repoRoot)); node \u003cextractDir\u003e/roblox-ts/dist/CLI/cli.cjs build --project \u003cfixtureDir\u003e [--build]",
+  "captureCommand": "VerifyAndExtract(FindZip(repoRoot)); node <extractDir>/roblox-ts/dist/CLI/cli.cjs build --project <fixtureDir> [--build]",
   "compilerVersion": "@isentinel/roblox-ts@4.0.11",
-  "zipDigest": "a0f097baefaa02ae411f18ea19a150c0076bfd2adbc6645dcef02e2c162cea5a"
+  "zipDigest": "a0f097baefaa02ae411f18ea19a150c0076bfd2adbc6645dcef02e2c162cea5a",
+  "transcriptRefreeze": "transformer-declarations/transcript.json was re-frozen when declaration emit moved from the Node sidecar to tsgo: an afterDeclarations transformer has no hook to run in, so the marker it injected is now forbidden in the .d.ts rather than required, and the one-per-project warning is asserted instead. See the project/transformer-declarations row of testdata/forkparity/divergence-ledger.json."
 }

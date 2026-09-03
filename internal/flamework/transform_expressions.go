@@ -40,24 +40,16 @@ func transformFlameworkExpressionWithRuntime(state *TransformState, node *ast.No
 	case ast.KindNewExpression:
 		return transformFlameworkNewExpression(state, node, runtime)
 	case ast.KindPrefixUnaryExpression, ast.KindPostfixUnaryExpression:
-		transformed, err := transformFlameworkUnaryExpression(state, node)
-		return expressionTransformResult{expression: transformed}, err
+		return transformFlameworkUnaryExpression(state, node, runtime)
 	case ast.KindBinaryExpression:
-		transformed, err := transformFlameworkBinaryExpression(state, node)
-		return expressionTransformResult{expression: transformed}, err
+		return transformFlameworkBinaryExpression(state, node, runtime)
 	case ast.KindElementAccessExpression, ast.KindPropertyAccessExpression:
 		return transformFlameworkAccessExpression(state, node, runtime)
 	case ast.KindDeleteExpression:
-		transformed, err := transformFlameworkDeleteExpression(state, node)
-		return expressionTransformResult{expression: transformed}, err
+		return transformFlameworkDeleteExpression(state, node, runtime)
 	default:
 		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
-}
-
-func transformFlameworkExpressionChildren(state *TransformState, node *ast.Node) (*ast.Node, error) {
-	result, err := transformFlameworkExpressionChildrenWithRuntime(state, node, defaultFlameworkMacroRuntime())
-	return result.expression, err
 }
 
 func transformFlameworkExpressionChildrenWithRuntime(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {

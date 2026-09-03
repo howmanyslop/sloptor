@@ -87,7 +87,7 @@ func TestPrependHeader(t *testing.T) {
 		list := luau.NewList[luau.Statement]()
 		list.Push(luau.NewReturn(luau.Nil()))
 		prependHeader(NewTestState(), list)
-		want := "-- Compiled with sloptor v2.3.2\nreturn nil\n"
+		want := "-- Compiled with sloptor v2.3.3\nreturn nil\n"
 		if got := render.RenderAST(list); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -99,7 +99,7 @@ func TestPrependHeader(t *testing.T) {
 		list.Push(luau.NewComment(" regular comment"))
 		list.Push(luau.NewReturn(luau.Nil()))
 		prependHeader(NewTestState(), list)
-		want := "--!strict\n-- Compiled with sloptor v2.3.2\n-- regular comment\nreturn nil\n"
+		want := "--!strict\n-- Compiled with sloptor v2.3.3\n-- regular comment\nreturn nil\n"
 		if got := render.RenderAST(list); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -115,7 +115,7 @@ func TestPrependHeader(t *testing.T) {
 		list.Push(luau.NewComment("!strict"))
 		list.Push(luau.NewReturn(luau.Nil()))
 		prependHeader(s, list)
-		want := "--!strict\n-- Compiled with sloptor v2.3.2\nlocal TS = _G[script]\nreturn nil\n"
+		want := "--!strict\n-- Compiled with sloptor v2.3.3\nlocal TS = _G[script]\nreturn nil\n"
 		if got := render.RenderAST(list); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}
@@ -127,7 +127,7 @@ func TestPrependHeader(t *testing.T) {
 		list.Push(luau.NewComment("!native")) // not at head: stays below the header
 		list.Push(luau.NewReturn(luau.Nil()))
 		prependHeader(NewTestState(), list)
-		want := "-- Compiled with sloptor v2.3.2\n-- leading\n--!native\nreturn nil\n"
+		want := "-- Compiled with sloptor v2.3.3\n-- leading\n--!native\nreturn nil\n"
 		if got := render.RenderAST(list); got != want {
 			t.Errorf("got %q, want %q", got, want)
 		}

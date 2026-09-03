@@ -58,6 +58,7 @@ func transformFlameworkClassWorker(state *TransformState, plan FilePlan, node *a
 			state.factory, metadataCall{analysis.name, "flamework:implements", stringArray(state.factory, analysis.implementedIDs)},
 		))
 	}
+	addSectionComment(state, staticStatements, analysis.name, "", "metadata")
 	reflectIdentifier := reflectIdentifierForNode(node)
 	members := make([]*ast.Node, 0, len(class.Members.Nodes)+1)
 	memberDecoratorStatements := make([]*ast.Node, 0)
@@ -71,6 +72,11 @@ func transformFlameworkClassWorker(state *TransformState, plan FilePlan, node *a
 		if reflectionErr != nil {
 			return nil, reflectionErr
 		}
+		propertyName := ""
+		if name := semanticMember.Name(); name != nil {
+			propertyName = ast.GetPropertyNameForPropertyNameNode(name)
+		}
+		addSectionComment(state, reflection, analysis.name, propertyName, "metadata")
 		staticStatements = append(staticStatements, reflection...)
 		updatedMember, statements, memberPrerequisites, memberImports, memberErr := transformFlameworkClassMember(
 			state, decoratorTarget{className: analysis.name, plan: classPlan}, member, semanticMember,
@@ -78,25 +84,13 @@ func transformFlameworkClassWorker(state *TransformState, plan FilePlan, node *a
 		if memberErr != nil {
 			return nil, memberErr
 		}
+		addSectionComment(state, statements, analysis.name, propertyName, "decorators")
 		members = append(members, updatedMember)
 		memberDecoratorStatements = append(memberDecoratorStatements, statements...)
 		prerequisites = append(prerequisites, memberPrerequisites...)
 		imports = append(imports, memberImports...)
 	}
-	if len(staticStatements) > 0 {
-		state.EmitContext().AddSyntheticLeadingComment(
-			staticStatements[0], ast.KindSingleLineCommentTrivia, fmt.Sprintf(" (Flamework) %s metadata", analysis.name), true,
-		)
-	}
-	if len(classDecoratorStatements) > 0 {
-		state.EmitContext().AddSyntheticLeadingComment(
-			classDecoratorStatements[0], ast.KindSingleLineCommentTrivia, fmt.Sprintf(" (Flamework) %s decorators", analysis.name), true,
-		)
-	} else if len(memberDecoratorStatements) > 0 {
-		state.EmitContext().AddSyntheticLeadingComment(
-			memberDecoratorStatements[0], ast.KindSingleLineCommentTrivia, fmt.Sprintf(" (Flamework) %s decorators", analysis.name), true,
-		)
-	}
+	addSectionComment(state, classDecoratorStatements, analysis.name, "", "decorators")
 	staticBlock := state.factory.NewClassStaticBlockDeclaration(
 		nil,
 		state.factory.NewBlock(state.factory.NewNodeList(rewriteReflectStatements(state.factory, staticStatements, reflectIdentifier)), true),
@@ -116,6 +110,23 @@ func transformFlameworkClassWorker(state *TransformState, plan FilePlan, node *a
 	statements = append(statements, classDecoratorStatements...)
 	statements = append(statements, memberDecoratorStatements...)
 	return state.factory.NewSyntaxList(statements), nil
+}
+
+// addSectionComment labels the first statement of one emitted group, mirroring
+// the reference addSectionComment. Groups are per declaration, not per class:
+// class-level statements are labelled with the class name, and each member's
+// statements with `Class.member`. An empty group is labelled with nothing.
+func addSectionComment(state *TransformState, statements []*ast.Node, className, propertyName, label string) {
+	if len(statements) == 0 {
+		return
+	}
+	element := className
+	if propertyName != "" {
+		element = className + "." + propertyName
+	}
+	state.EmitContext().AddSyntheticLeadingComment(
+		statements[0], ast.KindSingleLineCommentTrivia, fmt.Sprintf(" (Flamework) %s %s", element, label), true,
+	)
 }
 
 func originalClassNode(state *TransformState, node *ast.Node) *ast.Node {
