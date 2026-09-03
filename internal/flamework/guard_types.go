@@ -52,12 +52,22 @@ func (g *guardGenerator) buildUnion(typeValue *checker.Type) (*ast.Node, error) 
 		members []*checker.Type
 	}
 	enumGroups := make([]enumGroup, 0)
+	// A union carrying both boolean literals is a full `boolean`: emit it as one
+	// guard, ahead of the rest, and skip the individual literals. Only a pair
+	// counts -- `true | undefined` stays t.literal(true).
+	collapsesToBoolean := booleanLiteralCount(typeValue.Types()) == 2
+	if collapsesToBoolean {
+		guards = append(guards, guardField(g.state.factory, "t", "boolean"))
+	}
 	for _, member := range typeValue.Types() {
 		if member == g.state.checker.GetUndefinedType() || member == g.state.checker.GetVoidType() {
 			optional = true
 			continue
 		}
 		if member.Flags()&checker.TypeFlagsESSymbolLike != 0 {
+			continue
+		}
+		if collapsesToBoolean && member.Flags()&checker.TypeFlagsBooleanLiteral != 0 {
 			continue
 		}
 		literal, ok, err := g.literalValue(member)
@@ -231,4 +241,14 @@ func (g *guardGenerator) buildSet(typeValue *checker.Type) (*ast.Node, error) {
 		}
 	}
 	return guardCall(g.state.factory, "set", guard), nil
+}
+
+func booleanLiteralCount(types []*checker.Type) int {
+	count := 0
+	for _, member := range types {
+		if member.Flags()&checker.TypeFlagsBooleanLiteral != 0 {
+			count++
+		}
+	}
+	return count
 }
