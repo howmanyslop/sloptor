@@ -1,19 +1,19 @@
 {
-  "description": "afterDeclarations plugins affect declarations without leaking into Luau",
+  "description": "a tsconfig afterDeclarations transformer is reported and skipped; declarations are still emitted, natively, and carry no marker",
   "category": "plugin",
   "expectedExitCode": 0,
+  "expectedStdout": "afterDeclarations transformers are not supported; declarations are emitted natively",
   "artifactChecks": {
     "requireLuau": true,
     "requiredSuffixes": [
       ".d.ts"
     ],
-    "requiredTexts": [
+    "requiredTexts": [],
+    "forbiddenTexts": [
       {
         "suffix": ".d.ts",
         "text": "__DECLARATION_MARKER__"
-      }
-    ],
-    "forbiddenTexts": [
+      },
       {
         "suffix": ".luau",
         "text": "__DECLARATION_MARKER__"
