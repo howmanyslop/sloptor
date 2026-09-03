@@ -153,12 +153,13 @@ func plannedClassByName(plan FilePlan, name string) (ClassPlan, bool) {
 	return ClassPlan{}, false
 }
 
+// identifierForTransform mirrors the reference getNodeUid: a UID belongs to the
+// file that declares the symbol, never to the file currently being emitted.
+// The internalID on the input is only a fallback for nodes whose symbol cannot
+// be resolved to a declaration.
 func identifierForTransform(state *TransformState, input identifierTransformInput) (string, error) {
-	if declaration := declarationFromNode(state, input.node); declaration != nil {
-		file := ast.GetSourceFileOfNode(declaration)
-		if !pathWithin(state.project.PathTranslator().RootDir, file.FileName()) {
-			return declarationUID(state, declaration)
-		}
+	if declaration := declarationFromNode(state, input.node); declaration != nil && declarationFullName(declaration) != "" {
+		return declarationUID(state, declaration)
 	}
 	identifier, err := state.project.Identifier(DeclarationIdentity{
 		InternalID:      input.internalID,
