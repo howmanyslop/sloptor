@@ -69,6 +69,13 @@ func TestAfterDeclarationsTransformerWarns(t *testing.T) {
 	}
 }
 
+// resetAfterDeclarationsState clears the once-per-project sentinels so a test
+// that expects the warning is not silenced by an earlier test in the package.
+func resetAfterDeclarationsState() {
+	afterDeclarationsWarned = sync.Map{}
+	afterDeclarationsScanned = sync.Map{}
+}
+
 // captureCompilerLog redirects logservice output for the test's lifetime.
 func captureCompilerLog(t *testing.T) *bytes.Buffer {
 	t.Helper()
@@ -76,8 +83,8 @@ func captureCompilerLog(t *testing.T) *bytes.Buffer {
 	previous := logservice.Output
 	logservice.Output = buffer
 	t.Cleanup(func() { logservice.Output = previous })
-	afterDeclarationsWarned = sync.Map{}
-	t.Cleanup(func() { afterDeclarationsWarned = sync.Map{} })
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
 	return buffer
 }
 
@@ -204,4 +211,48 @@ func sidecarDeclarationConfig(plugins string) string {
 	},
 	"include": ["src"]
 }`
+}
+
+// The tsconfig-chain scan re-reads the whole `extends` graph, and the common
+// answer is zero, so it has to be claimed once per project: a watch session
+// round-trips on every keystroke.
+func TestAfterDeclarationsScanIsClaimedOnce(t *testing.T) {
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
+	const configPath = "C:/project/tsconfig.json"
+
+	if !takeAfterDeclarationsScan(configPath) {
+		t.Fatal("the first caller must own the scan")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if takeAfterDeclarationsScan(configPath) {
+			t.Fatalf("attempt %d re-ran the scan", attempt)
+		}
+	}
+	if !takeAfterDeclarationsScan("C:/other/tsconfig.json") {
+		t.Fatal("a different project must get its own scan")
+	}
+}
+
+// Once the warning is out there is nothing left for the scan to discover.
+func TestAfterDeclarationsScanIsSkippedAfterTheWarning(t *testing.T) {
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
+	log := captureCompilerLog(t)
+	const configPath = "C:/project/tsconfig.json"
+
+	warnUnsupportedAfterDeclarations(configPath, 1)
+	if !strings.Contains(log.String(), "afterDeclarations transformers are not supported") {
+		t.Fatalf("no warning in the compiler log:\n%s", log)
+	}
+	if takeAfterDeclarationsScan(configPath) {
+		t.Fatal("the scan ran after the warning was already out")
+	}
+
+	// And the warning itself is one line per project, not one per round trip.
+	before := log.Len()
+	warnUnsupportedAfterDeclarations(configPath, 2)
+	if log.Len() != before {
+		t.Fatalf("the warning repeated:\n%s", log)
+	}
 }
