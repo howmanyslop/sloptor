@@ -276,3 +276,31 @@ func TestNarrowSelectionStandsDownWhenTheSelectionEmitFails(t *testing.T) {
 		t.Fatalf("selection returned %d files and %d declarations after standing down", len(selected), len(declarations))
 	}
 }
+
+// The rule looks a declaration up in the manifest by the key the writer
+// recorded it under, so the two have to agree character for character. Windows
+// makes that a real question: a path can arrive with either slash and with
+// either drive-letter case.
+func TestSignatureOutputKeyMatchesTheWriterKey(t *testing.T) {
+	projectDir := filepath.FromSlash("D:/proj")
+	// The project directory need not exist: outputKey is pure path arithmetic,
+	// and useHashes would open the directory for its unrelated secure-root
+	// work.
+	writer := &outputWriter{projectDir: filepath.Clean(projectDir)}
+	selection := declarationSignatureSelection{projectDir: filepath.Clean(projectDir)}
+
+	for _, path := range []string{
+		"D:/proj/out/util.d.ts",
+		"D:\\proj\\out\\util.d.ts",
+		"D:\\proj\\out\\nested/deep.d.ts",
+		"D:/proj/out/./util.d.ts",
+		// A different drive-letter case is a different path to filepath.Rel, so
+		// both sides have to fall back the same way rather than one of them
+		// silently producing a relative key.
+		"d:\\proj\\out\\util.d.ts",
+	} {
+		if got, want := selection.outputKey(path), writer.outputKey(filepath.FromSlash(path)); got != want {
+			t.Fatalf("outputKey(%q) = %q, writer says %q", path, got, want)
+		}
+	}
+}

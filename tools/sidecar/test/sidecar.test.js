@@ -634,3 +634,21 @@ test("rootFileNames must be an array of strings when present", () => {
   assert.equal(response.diagnostics.length, 1);
   assert.match(response.diagnostics[0].message, /rootFileNames must be an array of strings/);
 });
+
+// The root limit never shrinks, so a file that leaves the project stays in it.
+// getScriptFileNames drops what is not on disk, so the stale root costs the
+// program nothing and never reaches TypeScript as a missing root.
+test("a narrowed root whose file was deleted is dropped, not reported", () => {
+  const project = narrowRootsProject();
+  const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+
+  session.handleRequest(narrowRootsRequest(project, [project.files.a, project.files.b]));
+  assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.b)]);
+
+  fs.rmSync(project.files.b);
+  const response = session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.ok(session.rootLimit.has(session.canonicalize(project.files.b)), "the limit should still name the deleted file");
+  assert.deepEqual(programFileNames(session), [toSlash(project.files.a)]);
+});
