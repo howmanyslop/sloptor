@@ -281,3 +281,32 @@ func transformerPluginNames(plugins []transformerPluginConfig) []string {
 }
 
 var _ = config.FlameworkConfig{}
+
+// An incremental build that selected nothing has nothing to transform and
+// nothing to emit, so the pipeline must not reach the worker at all: the
+// worker builds its whole LanguageService program before it can discover that
+// the compile list is empty. The plugin named here does not exist, so any
+// round trip fails loudly.
+func TestRunCompilePipelineSkipsTheWorkerWhenNothingIsSelected(t *testing.T) {
+	dir := writeProject(t, "@scope/empty-selection", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	missing := []transformerPluginConfig{{Transform: "rotor-transformer-that-does-not-exist"}}
+	pipeline := &flameworkPipeline{config: &config.FlameworkConfig{}, plugins: missing, prefix: missing, suffix: missing}
+
+	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline)
+	if err != nil {
+		t.Fatalf("runCompilePipeline: %v (diags: %v)", err, diags)
+	}
+	if len(result.prepared.sourceFiles) != 0 {
+		t.Fatalf("prepared %d source files, want none", len(result.prepared.sourceFiles))
+	}
+	if result.prepared.flamework != pipeline.config {
+		t.Fatal("the empty pipeline dropped the Flamework config the rest of the build reads")
+	}
+	if len(result.prepared.declarations) != 0 {
+		t.Fatalf("emitted %d declarations for an empty selection, want none", len(result.prepared.declarations))
+	}
+}

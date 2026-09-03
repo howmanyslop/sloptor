@@ -100,6 +100,19 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}
 		return &compilePipelineResult{prepared: prepared}, nil, nil
 	}
+	// An incremental build that selected nothing has no source to transform and
+	// no declaration to emit, so every stage below would hand the worker an
+	// empty compileFileNames list. The worker still builds its whole
+	// LanguageService program before discovering there is nothing to do (see
+	// tools/sidecar/lib/session.js handleRequest), which costs seconds per
+	// project. prepareTransformerProgram already short-circuits the same way
+	// for the non-Flamework route.
+	if len(sourceFiles) == 0 {
+		return &compilePipelineResult{
+			prepared:         &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: pipeline.config},
+			flameworkProject: pipeline.project,
+		}, nil, nil
+	}
 	state := newSidecarBuildState()
 	originalProgram := program
 	originalFiles := sourceFiles
