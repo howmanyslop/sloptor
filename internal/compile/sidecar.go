@@ -197,7 +197,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	}
 
 	emitsDeclarations := program.Options().GetEmitDeclarations()
-	if emitsDeclarations && afterDeclarationsWarningPending(configPath) {
+	if emitsDeclarations && takeAfterDeclarationsScan(configPath) {
 		configured := plugins
 		if configured == nil {
 			if effective, pluginErr := effectiveTransformerPlugins(configPath); pluginErr == nil {

@@ -114,6 +114,41 @@ func TestShiftDeclarationMapColumns(t *testing.T) {
 			want:  [][]int{{0, 26, 32}},
 		},
 		{
+			// Source-map columns count UTF-16 code units, so an astral
+			// character before the specifier is worth two columns, not one
+			// rune and not four bytes.
+			name:  "a non-BMP character before the specifier costs two columns",
+			text:  "/** \U0001F600 */ import \"@alias/value\";\n",
+			edits: []textEdit{{start: 12, end: 26, text: `"./value"`}},
+			input: [][]int{{0, 12, 26}},
+			want:  [][]int{{0, 12, 21}},
+		},
+		{
+			name:  "CRLF line endings do not shift the columns",
+			text:  "import \"@alias/value\";\r\nexport declare const value: number;\r\n",
+			edits: []textEdit{{start: 7, end: 21, text: `"./value"`}},
+			input: [][]int{{0, 7, 21}, {0, 7}},
+			want:  [][]int{{0, 7, 16}, {0, 7}},
+		},
+		{
+			name:  "empty generated lines are preserved",
+			text:  "import \"@alias/value\";\n\n\nexport declare const value: number;\n",
+			edits: []textEdit{{start: 7, end: 21, text: `"./value"`}},
+			input: [][]int{{0, 7, 21}, {}, {}, {0, 7}},
+			want:  [][]int{{0, 7, 16}, {}, {}, {0, 7}},
+		},
+		{
+			// A generated column may go BACKWARD within a line (tsgo emits
+			// out-of-order segments for a reprinted type), so the running
+			// column has to be tracked on both sides rather than assumed
+			// monotonic.
+			name:  "negative generated-column deltas survive the shift",
+			text:  "import \"@alias/value\";\n",
+			edits: []textEdit{{start: 7, end: 21, text: `"./value"`}},
+			input: [][]int{{0, 21, 7, 21, 0}},
+			want:  [][]int{{0, 16, 7, 16, 0}},
+		},
+		{
 			name:  "no edits leaves the map byte-identical",
 			text:  declText,
 			edits: nil,
@@ -172,4 +207,25 @@ func declarationMapMappings(t *testing.T, mapText string) string {
 		t.Fatalf("declaration map mappings field is unterminated: %s", mapText)
 	}
 	return mapText[start : start+end]
+}
+
+// The generated columns of a `.d.ts.map` must never point past the end of the
+// line they name; an over-shifted column lands an editor's cursor in nothing.
+func TestShiftDeclarationMapColumnsStaysInsideEveryLine(t *testing.T) {
+	const declText = "import { Value } from \"@alias/deeply/nested/value\";\nexport declare const value: Value;\n"
+	specifierStart := strings.Index(declText, `"@alias`)
+	specifierEnd := strings.Index(declText, `;`)
+	edits := []textEdit{{start: specifierStart, end: specifierEnd, text: `"./v"`}}
+	input := [][]int{{0, 7, 12, 14, 18, 20, specifierStart, specifierEnd, specifierEnd + 1}, {0, 7, 21}}
+
+	shifted := shiftDeclarationMapColumns(wrapMappings(encodeGeneratedColumns(input)), declText, edits)
+	rewritten := applyTextEdits(declText, edits)
+	lines := strings.Split(rewritten, "\n")
+	for lineIndex, columns := range decodeGeneratedColumns(t, declarationMapMappings(t, shifted)) {
+		for _, column := range columns {
+			if column < 0 || column > len(lines[lineIndex]) {
+				t.Fatalf("line %d column %d is outside %q", lineIndex, column, lines[lineIndex])
+			}
+		}
+	}
 }

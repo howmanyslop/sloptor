@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"rotor/internal/compile"
+	"rotor/internal/logservice"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
@@ -97,7 +98,7 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 	// --json: suppress styled chrome and emit exactly one result object on
 	// stdout (watch has no terminal "end", so it stays styled).
 	if args.jsonOut && !args.watch {
-		if cmdCheckJSON(streams.out, dir, args.checkers) != 0 {
+		if cmdCheckJSON(streams.out, streams.err, dir, args.checkers) != 0 {
 			return reportedFailure(errors.New("check failed"))
 		}
 		return nil
@@ -119,7 +120,14 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 // cmdCheckJSON runs a one-shot check and prints a single jsonResult object
 // (shared with `sloptor build --json`) built from the structured diagnostics.
 // Exit code is unchanged: 1 when any error diagnostic is present, else 0.
-func cmdCheckJSON(out io.Writer, dir string, checkers *int) int {
+func cmdCheckJSON(out, errOut io.Writer, dir string, checkers *int) int {
+	// stdout carries exactly one JSON object here, and LogService writes
+	// compiler warnings to stdout, so its channel moves to stderr for the
+	// duration: a warning must not corrupt what a CI/editor integration parses.
+	previousLog := logservice.Output
+	logservice.Output = errOut
+	defer func() { logservice.Output = previousLog }()
+
 	res := runCheckCollect(dir, checkers)
 	result := jsonResult{
 		Version:     version,
