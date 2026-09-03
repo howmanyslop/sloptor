@@ -262,6 +262,7 @@ func TestDeclarationSignatureSelectionRebuildsImportersOfChangedJSON(t *testing.
 		"src/other.ts":  "export const other = 1;\n",
 	})
 	buildForSignatureTest(t, dir)
+	touchOutputsIntoThePast(t, dir)
 
 	luauBefore := readOutput(t, dir, "main.luau")
 	writeFiles(t, dir, map[string]string{"src/data.json": "{\n\t\"value\": \"text\"\n}\n"})
