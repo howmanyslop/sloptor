@@ -614,6 +614,13 @@ func writeJSONResult(w io.Writer, res jsonResult) {
 // to out instead of the styled UI. Exit code is unchanged from the styled
 // path: 1 on any build error, 0 otherwise.
 func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectOptions, solution bool, timingPath string) int {
+	// stdout carries exactly one JSON object here, and LogService writes
+	// compiler warnings to stdout, so its channel moves to stderr for the
+	// duration: a warning must not corrupt what a CI/editor integration parses.
+	previousLog := logservice.Output
+	logservice.Output = errOut
+	defer func() { logservice.Output = previousLog }()
+
 	var result *compile.BuildResult
 	var diags []compile.DiagnosticInfo
 	var elapsed time.Duration
