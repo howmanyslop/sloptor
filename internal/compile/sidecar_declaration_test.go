@@ -1,11 +1,15 @@
 package compile
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"rotor/internal/logservice"
 )
 
 const declarationMarkerPlugin = `const ts = require("typescript");
@@ -32,27 +36,10 @@ module.exports = function () {
 };
 `
 
-const countedDeclarationPlugin = `const ts = require("typescript");
-
-let sourceTransformCalls = 0;
-
-module.exports = function () {
-	return {
-		before: () => (sourceFile) => {
-			sourceTransformCalls += 1;
-			return sourceFile;
-		},
-		afterDeclarations: (context) => (sourceFile) => {
-			const marker = context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
-				context.factory.createVariableDeclaration("__SOURCE_TRANSFORM_CALLS__", undefined, undefined, context.factory.createNumericLiteral(sourceTransformCalls)),
-			], ts.NodeFlags.Const));
-			return context.factory.updateSourceFile(sourceFile, sourceFile.statements.concat([marker]));
-		},
-	};
-};
-`
-
-func TestAfterDeclarationsOnly(t *testing.T) {
+// afterDeclarations transformers have nowhere to run now that declarations
+// are emitted natively by tsgo (which has no custom-transformer hook), so the
+// build must say so out loud rather than dropping the transform silently.
+func TestAfterDeclarationsTransformerWarns(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
 	dir := writeProject(t, "@scope/after-declarations-fixture", "")
@@ -61,58 +48,37 @@ func TestAfterDeclarationsOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugins", "declaration-marker.js"), []byte(declarationMarkerPlugin), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	log := captureCompilerLog(t)
 
 	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
 	if err != nil {
 		t.Fatalf("build: %v (diags: %v)", err, diags)
 	}
+	if !strings.Contains(log.String(), "afterDeclarations transformers are not supported") {
+		t.Fatalf("no afterDeclarations warning in compiler log:\n%s", log)
+	}
 	declaration, err := os.ReadFile(filepath.Join(dir, "out", "main.d.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(declaration), "__DECLARATION_MARKER__") {
-		t.Fatalf("declaration marker missing:\n%s", declaration)
+	if strings.Contains(string(declaration), "__DECLARATION_MARKER__") {
+		t.Fatalf("afterDeclarations transformer ran:\n%s", declaration)
 	}
 	if strings.Contains(result.Outputs["out/main.luau"], "__DECLARATION_MARKER__") {
 		t.Fatalf("declaration marker leaked into Luau:\n%s", result.Outputs["out/main.luau"])
 	}
 }
 
-func TestDeclarationTransformerStageSkipsOrdinarySourceTransforms(t *testing.T) {
-	// Given: one plugin that counts ordinary source transforms in a declaration marker.
-	setRepoSidecarPath(t)
-	closeSidecarSessions()
-	dir := writeProject(t, "@scope/declaration-only-transform-count", "")
-	t.Cleanup(closeSidecarSessions)
-	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[]`))
-	if err := os.WriteFile(filepath.Join(dir, "plugins", "counted-declaration.js"), []byte(countedDeclarationPlugin), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-	plugins := []transformerPluginConfig{{
-		Transform: "./plugins/counted-declaration.js",
-		raw:       json.RawMessage(`{"transform":"./plugins/counted-declaration.js"}`),
-	}}
-
-	// When: the declaration-only stage emits declarations for the project.
-	declarations, diags, err := runDeclarationTransformerStage(dir, program, projectSourceFiles(program), nil, plugins, nil)
-	if err != nil {
-		t.Fatalf("runDeclarationTransformerStage: %v (diags: %v)", err, diags)
-	}
-
-	// Then: the declaration marker proves source transforms did not run.
-	if len(declarations) != 1 {
-		t.Fatalf("declarations = %d, want 1", len(declarations))
-	}
-	if got, want := declarations[0].Text, "export declare const value = 1;\nconst __SOURCE_TRANSFORM_CALLS__ = 0;\n"; got != want {
-		t.Fatalf("declaration-only output = %q, want %q", got, want)
-	}
+// captureCompilerLog redirects logservice output for the test's lifetime.
+func captureCompilerLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	previous := logservice.Output
+	logservice.Output = buffer
+	t.Cleanup(func() { logservice.Output = previous })
+	afterDeclarationsWarned = sync.Map{}
+	t.Cleanup(func() { afterDeclarationsWarned = sync.Map{} })
+	return buffer
 }
 
 func TestTransformerParentFix(t *testing.T) {

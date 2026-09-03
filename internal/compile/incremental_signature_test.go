@@ -64,8 +64,8 @@ func signatureSelection(t *testing.T, declarationText map[string]string, recorde
 			return filepath.Join(filepath.FromSlash("/proj/out"), base+".d.ts")
 		},
 		previousOutputs: recorded,
-		emit: func(files []*ast.SourceFile) ([]sidecarOutputFile, error) {
-			produced := make([]sidecarOutputFile, 0, len(files))
+		emit: func(files []*ast.SourceFile) ([]declarationEmitFile, error) {
+			produced := make([]declarationEmitFile, 0, len(files))
 			for _, file := range files {
 				base := strings.TrimSuffix(filepath.Base(file.FileName()), ".ts")
 				emitted = append(emitted, base)
@@ -73,7 +73,7 @@ func signatureSelection(t *testing.T, declarationText map[string]string, recorde
 				if !ok {
 					continue
 				}
-				produced = append(produced, sidecarOutputFile{
+				produced = append(produced, declarationEmitFile{
 					FileName: filepath.Join(filepath.FromSlash("/proj/out"), base+".d.ts"),
 					Text:     text,
 				})

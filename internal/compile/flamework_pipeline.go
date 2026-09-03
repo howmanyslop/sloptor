@@ -38,7 +38,7 @@ func prepareCompilePipeline(dir string, program *compiler.Program, sourceFiles [
 	if err != nil {
 		return nil, diags, err
 	}
-	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline, nil)
+	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline)
 }
 
 func prepareFlameworkPipeline(dir string, program *compiler.Program, opts ProjectOptions) (*flameworkPipeline, []string, error) {
@@ -92,33 +92,24 @@ func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program)
 	return nil
 }
 
-// runCompilePipeline runs the transformer stages for one build.
-//
-// emittedDeclarations is the declaration text the declaration-signature
-// selection pass already produced for exactly these files, off exactly this
-// program; re-emitting it would repeat the build's most expensive stage for no
-// new text. It is only ever non-nil when the pipeline is nil, because a native
-// Flamework build emits its declarations from the overlaid program the
-// transform produced, which selection cannot have seen
-// (selectionDeclarationsMatchTheWritePath).
-func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline, emittedDeclarations []sidecarOutputFile) (*compilePipelineResult, []string, error) {
+// runCompilePipeline runs the transformer stages for one build. Declarations
+// are not among them: they are emitted natively from the original program
+// (emitDeclarationTexts), never from the overlaid program a transform
+// produces.
+func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline) (*compilePipelineResult, []string, error) {
 	if pipeline == nil {
 		prepared, diags, err := prepareTransformerProgram(dir, program, sourceFiles, overlays)
 		if err != nil {
 			return nil, diags, err
 		}
-		if prepared.declarations == nil {
-			prepared.declarations = emittedDeclarations
-		}
 		return &compilePipelineResult{prepared: prepared}, nil, nil
 	}
-	// An incremental build that selected nothing has no source to transform and
-	// no declaration to emit, so every stage below would hand the worker an
-	// empty compileFileNames list. The worker still builds its whole
-	// LanguageService program before discovering there is nothing to do (see
-	// tools/sidecar/lib/session.js handleRequest), which costs seconds per
-	// project. prepareTransformerProgram already short-circuits the same way
-	// for the non-Flamework route.
+	// An incremental build that selected nothing has no source to transform, so
+	// every stage below would hand the worker an empty compileFileNames list.
+	// The worker still builds its whole LanguageService program before
+	// discovering there is nothing to do (see tools/sidecar/lib/session.js
+	// handleRequest), which costs seconds per project. prepareTransformerProgram
+	// already short-circuits the same way for the non-Flamework route.
 	if len(sourceFiles) == 0 {
 		return &compilePipelineResult{
 			prepared:         &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: pipeline.config},
@@ -126,8 +117,6 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}, nil, nil
 	}
 	state := newSidecarBuildState()
-	originalProgram := program
-	originalFiles := sourceFiles
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
 	if len(pipeline.prefix) > 0 {
@@ -154,18 +143,13 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		}
 		prepared = next
 	}
-	declarations, diags, err := runDeclarationTransformerStage(dir, originalProgram, originalFiles, overlays, pipeline.plugins, state)
-	if err != nil {
-		return nil, diags, err
-	}
-	prepared.declarations = declarations
 	prepared.flamework = pipeline.config
 	state.applyTo(prepared)
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
 }
 
 func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitSources, state)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -186,17 +170,6 @@ func applyExternalTransformerStage(dir string, program *compiler.Program, source
 	transformed.sourceFiles = remapped
 	transformed.sourceTraces = composed
 	return transformed, nil, nil
-}
-
-func runDeclarationTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []transformerPluginConfig, state *sidecarBuildState) ([]sidecarOutputFile, []string, error) {
-	if len(plugins) == 0 && !declarationUsesPathAliases(program) {
-		return nil, nil, nil
-	}
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), sidecarEmitDeclarations, state)
-	if err != nil {
-		return nil, diags, err
-	}
-	return transformed.declarations, nil, nil
 }
 
 func rawTransformerPlugins(plugins []transformerPluginConfig) []json.RawMessage {

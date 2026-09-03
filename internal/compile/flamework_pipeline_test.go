@@ -144,8 +144,16 @@ func TestFlameworkPipelineUsesConfiguredAfterOnRealBuildPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(declaration), "prefix-declaration") != 1 || strings.Count(string(declaration), "suffix-declaration") != 1 || strings.Index(string(declaration), "prefix-declaration") > strings.Index(string(declaration), "suffix-declaration") {
-		t.Fatalf("declaration transforms did not run once in plugin order:\n%s", declaration)
+	// Declarations are emitted natively from the untransformed program, so
+	// neither the plugins' afterDeclarations markers nor their source-stage
+	// markers may appear in the published types.
+	for _, marker := range []string{"prefix-declaration", "suffix-declaration", "__PREFIX_STAGE__", "__SUFFIX_STAGE__"} {
+		if strings.Contains(string(declaration), marker) {
+			t.Fatalf("transformer output %q leaked into the declaration:\n%s", marker, declaration)
+		}
+	}
+	if !strings.Contains(string(declaration), "export declare class TestService") {
+		t.Fatalf("declaration does not describe the authored source:\n%s", declaration)
 	}
 }
 
@@ -296,7 +304,7 @@ func TestRunCompilePipelineSkipsTheWorkerWhenNothingIsSelected(t *testing.T) {
 	missing := []transformerPluginConfig{{Transform: "rotor-transformer-that-does-not-exist"}}
 	pipeline := &flameworkPipeline{config: &config.FlameworkConfig{}, plugins: missing, prefix: missing, suffix: missing}
 
-	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline, nil)
+	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline)
 	if err != nil {
 		t.Fatalf("runCompilePipeline: %v (diags: %v)", err, diags)
 	}
@@ -305,8 +313,5 @@ func TestRunCompilePipelineSkipsTheWorkerWhenNothingIsSelected(t *testing.T) {
 	}
 	if result.prepared.flamework != pipeline.config {
 		t.Fatal("the empty pipeline dropped the Flamework config the rest of the build reads")
-	}
-	if len(result.prepared.declarations) != 0 {
-		t.Fatalf("emitted %d declarations for an empty selection, want none", len(result.prepared.declarations))
 	}
 }

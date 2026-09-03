@@ -1,7 +1,6 @@
 package compile
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -24,11 +23,10 @@ type declarationSignatureSelection struct {
 	// previousOutputs is the last build's output-path -> content hash map,
 	// already validated against what is on disk.
 	previousOutputs map[string]string
-	// emit yields the declaration text a set of source files produces, as
-	// output-path/text pairs. It must be the same text the build will write:
-	// the comparison below is against the hash the previous build recorded for
-	// the file it wrote.
-	emit func(files []*ast.SourceFile) ([]sidecarOutputFile, error)
+	// emit yields the declaration text a set of source files produces. It must
+	// be the same text the build will write: the comparison below is against
+	// the hash the previous build recorded for the file it wrote.
+	emit func(files []*ast.SourceFile) ([]declarationEmitFile, error)
 }
 
 // selectByDeclarationSignature picks the files an incremental build has to
@@ -61,7 +59,7 @@ func selectByDeclarationSignature(
 	seeds map[string]struct{},
 	current, previous *incrementalManifest,
 	selection declarationSignatureSelection,
-) ([]*ast.SourceFile, []sidecarOutputFile, error) {
+) ([]*ast.SourceFile, []declarationEmitFile, error) {
 	if selection.emit == nil || selection.declarationPath == nil {
 		return nil, nil, errors.New("compile: declaration signature selection needs an emitter and a path mapping")
 	}
@@ -90,7 +88,7 @@ func selectByDeclarationSignature(
 		pending = append(pending, path)
 	}
 
-	var declarations []sidecarOutputFile
+	var declarations []declarationEmitFile
 	for len(pending) > 0 {
 		wave := make([]*ast.SourceFile, 0, len(pending))
 		for _, path := range pending {
@@ -192,11 +190,11 @@ func changedSourcePaths(current, previous *incrementalManifest) map[string]struc
 
 // narrowSelectionByDeclarationSignature applies the declaration-signature rule
 // when the build is in a position to trust it, and reports false when the
-// caller should keep today's reverse-closure selection.
+// caller should keep the plain reverse-closure selection.
 //
 // It needs a previous build to compare against (same salt, recorded output
-// hashes) and a project whose declaration text this pass can reproduce exactly
-// (selectionDeclarationsMatchTheWritePath).
+// hashes) and a project that emits declarations at all — with declarations off
+// there is no signature to compare.
 func narrowSelectionByDeclarationSignature(
 	dir string,
 	program *compiler.Program,
@@ -205,13 +203,12 @@ func narrowSelectionByDeclarationSignature(
 	extraSeeds map[string]struct{},
 	current, previous *incrementalManifest,
 	previousOutputs map[string]string,
-	pipeline *flameworkPipeline,
 	timings *BuildTimings,
-) ([]*ast.SourceFile, []sidecarOutputFile, bool, error) {
+) ([]*ast.SourceFile, []declarationEmitFile, bool, error) {
 	if previous == nil || current == nil || previous.Salt != current.Salt {
 		return nil, nil, false, nil
 	}
-	if len(previousOutputs) == 0 || !selectionDeclarationsMatchTheWritePath(program, pipeline) {
+	if len(previousOutputs) == 0 || !program.Options().GetEmitDeclarations() {
 		return nil, nil, false, nil
 	}
 
@@ -227,13 +224,14 @@ func narrowSelectionByDeclarationSignature(
 		projectDir:      filepath.Clean(filepath.FromSlash(dir)),
 		declarationPath: pathTranslator.GetOutputDeclarationPath,
 		previousOutputs: previousOutputs,
-		emit: func(files []*ast.SourceFile) ([]sidecarOutputFile, error) {
-			// This is a real declaration emit, not the bookkeeping the rest of
-			// incremental selection is, so it reports on its own stage rather
-			// than inflating that one.
-			stop := logStage(program.Options().ConfigFilePath, declarationSignatureEmitStage)
+		emit: func(files []*ast.SourceFile) ([]declarationEmitFile, error) {
+			// A wave's emit is a real tsgo declaration emit, so it is charged
+			// to declarationEmit like the write path's own emit and taken back
+			// out of incrementalSelection, which otherwise stops being a total
+			// of its own bookkeeping.
+			stop := logStage(program.Options().ConfigFilePath, declarationEmitStage)
 			declarations, err := declarationTextsForSelection(program, files)
-			timings.moveStageDuration(incrementalSelectionStage, declarationSignatureEmitStage, stop())
+			timings.moveStageDuration(incrementalSelectionStage, declarationEmitStage, stop())
 			return declarations, err
 		},
 	})
@@ -243,84 +241,20 @@ func narrowSelectionByDeclarationSignature(
 	return selected, declarations, true, nil
 }
 
-// selectionDeclarationsMatchTheWritePath reports whether the text
-// declarationTextsForSelection produces is byte-for-byte the declaration text
-// this build will write. The rule compares against the hash the previous build
-// recorded for the file it wrote, and the caller hands the emitted text
-// straight to the write path, so anything less is either a rule that never
-// fires or a build that writes the wrong declarations.
-//
-// TEMPORARY. Three routes still produce declaration text that this pass cannot
-// reproduce, and all three are being removed with the sidecar declaration
-// stage:
-//
-//   - a project with external transformer plugins, whose declarations go
-//     through the worker so an `afterDeclarations` transformer can see them;
-//   - a project with `paths`/`baseUrl`, whose declarations go through the
-//     worker for the module-specifier rewrite;
-//   - a native Flamework project, whose declarations are emitted from the
-//     overlaid program the transform produced rather than from this one.
-//
-// Once declaration emit is native (the paths rewrite included) and runs off
-// the same program for every project, this collapses to
-// `program.Options().GetEmitDeclarations()`.
-func selectionDeclarationsMatchTheWritePath(program *compiler.Program, pipeline *flameworkPipeline) bool {
-	if !program.Options().GetEmitDeclarations() {
-		return false
-	}
-	if pipeline != nil {
-		return false
-	}
-	return !projectUsesTransformerPlugins(program.CommandLine()) && !declarationUsesPathAliases(program)
-}
-
-// declarationTextsForSelection emits declaration output into memory with tsgo.
-//
-// SEAM. This is the one place the selection pass produces declaration text, and
-// it deliberately mirrors emitDeclarations' native branch step for step so the
-// two agree byte-for-byte. When the native declaration route lands (its
-// `paths` rewrite included), this is where its emitter plugs in, and
-// selectionDeclarationsMatchTheWritePath widens to every declaration-emitting
-// project.
-func declarationTextsForSelection(program *compiler.Program, files []*ast.SourceFile) ([]sidecarOutputFile, error) {
-	if !program.Options().GetEmitDeclarations() {
-		return nil, nil
-	}
-	ctx := context.Background()
-	emitted := make([][]sidecarOutputFile, len(files))
-	jobs := make([]func() error, 0, len(files))
-	for index, sourceFile := range files {
-		if sourceFile.IsDeclarationFile || !isCompilableFile(sourceFile.FileName()) {
-			continue
+// declarationTextsForSelection is the selection pass's half of the declaration
+// emit seam: it drops the files this project emits no `.d.ts` for and hands the
+// rest to emitDeclarationTexts, the same function the write path uses off the
+// same original program. The bytes it returns are therefore the bytes the build
+// writes, which is what lets the rule compare them against the hash the
+// previous build recorded and then hand them straight to the writer.
+func declarationTextsForSelection(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
+	emittable := make([]*ast.SourceFile, 0, len(files))
+	for _, sourceFile := range files {
+		if emitsDeclarationOutput(sourceFile) {
+			emittable = append(emittable, sourceFile)
 		}
-		jobs = append(jobs, func() error {
-			var produced []sidecarOutputFile
-			result := program.Emit(ctx, compiler.EmitOptions{
-				TargetSourceFile: sourceFile,
-				EmitOnly:         compiler.EmitOnlyDts,
-				WriteFile: func(fileName string, text string, _ *compiler.WriteFileData) error {
-					produced = append(produced, sidecarOutputFile{
-						FileName: filepath.FromSlash(fileName),
-						Text:     rewriteDeclarationTypeReferences(text),
-					})
-					return nil
-				},
-			})
-			emitted[index] = produced
-			if result != nil && len(result.Diagnostics) > 0 {
-				return errors.New("compile: declaration emit diagnostics")
-			}
-			return nil
-		})
 	}
-	if err := parallelize(writeWorkers(), jobs); err != nil {
-		return nil, err
-	}
-	var all []sidecarOutputFile
-	for _, produced := range emitted {
-		all = append(all, produced...)
-	}
-	return all, nil
+	return emitDeclarationTexts(program, emittable)
 }
 
 // recoveredInputPaths names the source files whose recorded outputs are no

@@ -52,19 +52,7 @@ type sidecarRequest struct {
 	ChangedFiles     []sidecarChangedFile `json:"changedFiles"`
 	Plugins          []json.RawMessage    `json:"plugins,omitempty"`
 	TransformSources bool                 `json:"transformSources"`
-	EmitDeclarations bool                 `json:"emitDeclarations"`
 }
-
-type sidecarEmitMode struct {
-	transformSources bool
-	emitDeclarations bool
-}
-
-var (
-	sidecarEmitSources      = sidecarEmitMode{transformSources: true}
-	sidecarEmitDeclarations = sidecarEmitMode{emitDeclarations: true}
-	sidecarEmitBoth         = sidecarEmitMode{transformSources: true, emitDeclarations: true}
-)
 
 type sidecarChangedFile struct {
 	FileName string `json:"fileName"`
@@ -72,10 +60,14 @@ type sidecarChangedFile struct {
 }
 
 type sidecarResponse struct {
-	Diagnostics  []sidecarDiagnostic     `json:"diagnostics"`
-	Transformed  []sidecarOutputFile     `json:"transformed"`
-	Declarations []sidecarOutputFile     `json:"declarations"`
-	Metrics      *sidecarResponseMetrics `json:"metrics,omitempty"`
+	Diagnostics []sidecarDiagnostic     `json:"diagnostics"`
+	Transformed []sidecarOutputFile     `json:"transformed"`
+	Metrics     *sidecarResponseMetrics `json:"metrics,omitempty"`
+	// AfterDeclarationsTransformers is how many `afterDeclarations`
+	// transformers the worker built for this project, after flattening. Rotor
+	// emits declarations natively and never runs them, so a non-zero count is
+	// a warning (see warnUnsupportedAfterDeclarations).
+	AfterDeclarationsTransformers int `json:"afterDeclarationsTransformers"`
 }
 
 type sidecarResponseMetrics struct {
@@ -132,7 +124,6 @@ type preparedTransformerProgram struct {
 	program                  *compiler.Program
 	sourceFiles              []*ast.SourceFile
 	flamework                *config.FlameworkConfig
-	declarations             []sidecarOutputFile
 	sourceTraces             diagnosticTraces
 	sidecarWaitDuration      time.Duration
 	sidecarPrepDuration      time.Duration
@@ -170,7 +161,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 	if len(sourceFiles) == 0 {
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
-	if !projectUsesTransformerPlugins(program.CommandLine()) && !declarationUsesPathAliases(program) {
+	if !projectUsesTransformerPlugins(program.CommandLine()) {
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
@@ -195,26 +186,35 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 	return &prepared, nil, nil
 }
 
-func declarationUsesPathAliases(program *compiler.Program) bool {
-	options := program.Options()
-	return options.GetEmitDeclarations() && (options.BaseUrl != "" || options.Paths != nil && options.Paths.Size() > 0)
-}
-
 func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
-	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, sidecarEmitBoth, nil)
+	return applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, nil)
 }
 
-func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
+func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
+	emitsDeclarations := program.Options().GetEmitDeclarations()
+	if emitsDeclarations && afterDeclarationsWarningPending(configPath) {
+		configured := plugins
+		if configured == nil {
+			if effective, pluginErr := effectiveTransformerPlugins(configPath); pluginErr == nil {
+				configured = rawTransformerPlugins(effective)
+			}
+		}
+		warnUnsupportedAfterDeclarations(configPath, countConfiguredAfterDeclarations(configured))
+	}
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, mode, state)
+	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, state)
 	sidecarRegion.End()
 	if err != nil {
 		return nil, []string{err.Error()}, err
+	}
+
+	if emitsDeclarations {
+		warnUnsupportedAfterDeclarations(configPath, response.AfterDeclarationsTransformers)
 	}
 
 	var errorDiags []string
@@ -249,10 +249,8 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	}
 	stats.decode += stopDecode()
 	state.addCall(stats)
-	if mode.transformSources {
-		state.absorbTransformed(response.Transformed)
-	}
-	prepared := preparedFromSidecarStats(program, response.Declarations, sourceTraces, stats)
+	state.absorbTransformed(response.Transformed)
+	prepared := preparedFromSidecarStats(program, sourceTraces, stats)
 	if len(response.Transformed) == 0 {
 		return prepared, nil, nil
 	}
@@ -287,10 +285,9 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	return prepared, nil, nil
 }
 
-func preparedFromSidecarStats(program *compiler.Program, declarations []sidecarOutputFile, sourceTraces diagnosticTraces, stats sidecarCallStats) *preparedTransformerProgram {
+func preparedFromSidecarStats(program *compiler.Program, sourceTraces diagnosticTraces, stats sidecarCallStats) *preparedTransformerProgram {
 	return &preparedTransformerProgram{
 		program:                  program,
-		declarations:             declarations,
 		sourceTraces:             sourceTraces,
 		sidecarWaitDuration:      stats.wait,
 		sidecarPrepDuration:      stats.prep,
@@ -734,7 +731,7 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed, reads, stats
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, mode sidecarEmitMode, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
@@ -783,7 +780,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		for _, sourceFile := range stampFiles {
 			stampNames = append(stampNames, sourceFile.FileName())
 		}
-		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, mode.transformSources)
+		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, true)
 		stats.reads += overlayReads
 		skipDiskScan := state != nil && state.diskScanned && len(session.stamps) > 0
 		changedFiles, ioStats, err := session.collectChangedFiles(stampNames, sidecarOverlays, skipDiskScan)
@@ -802,8 +799,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			CompileFileNames: make([]string, 0, len(compileFiles)),
 			ChangedFiles:     changedFiles,
 			Plugins:          plugins,
-			TransformSources: mode.transformSources,
-			EmitDeclarations: mode.emitDeclarations,
+			TransformSources: true,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))

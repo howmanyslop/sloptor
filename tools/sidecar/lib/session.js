@@ -12,7 +12,6 @@ const {
   getPluginConfigs,
   wrapTransformersWithParentFix,
 } = require("./plugins");
-const { createDeclarationTransformers } = require("./declarations");
 
 function createParseHost(session, ts) {
   return {
@@ -277,35 +276,6 @@ class SidecarProjectSession {
     }
   }
 
-  emitDeclarationFiles(program, sourceFiles, transforms) {
-    if (!program.getCompilerOptions().declaration || sourceFiles.length === 0) {
-      return { diagnostics: [], declarations: [] };
-    }
-
-    const declarations = [];
-    const afterDeclarations = [
-      ...wrapTransformersWithParentFix(this.ts, transforms.afterDeclarations),
-      // The service host is the module-resolution host too: every member
-      // ts.resolveModuleName asks for is on it, answered from this session's
-      // overrides. ts.sys would answer from disk, so an overlay that adds an
-      // import would resolve against a tree that does not have it.
-      ...createDeclarationTransformers(this.ts, program, createServiceHost(this, this.ts)),
-    ];
-    const customTransformers = { afterDeclarations };
-    const diagnostics = [];
-    for (const sourceFile of sourceFiles) {
-      const result = program.emit(
-        sourceFile,
-        (fileName, text) => declarations.push({ fileName, text }),
-        undefined,
-        true,
-        customTransformers,
-      );
-      diagnostics.push(...(result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)));
-    }
-    return { diagnostics, declarations };
-  }
-
   handleRequest(request) {
     try {
       for (const changedFile of request.changedFiles) {
@@ -341,26 +311,25 @@ class SidecarProjectSession {
       }
 
       if (sourceFiles.length === 0) {
-        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) } };
+        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length };
       }
 
       const transformResult = request.transformSources
         ? this.transformSourceFiles(program, sourceFiles, transforms)
         : { diagnostics: [], transformed: [] };
-      const declarationResult = request.emitDeclarations
-        ? this.emitDeclarationFiles(program, sourceFiles, transforms)
-        : { diagnostics: [], declarations: [] };
       return {
-        diagnostics: [...diagnostics, ...transformResult.diagnostics, ...declarationResult.diagnostics],
+        diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
-        declarations: declarationResult.declarations,
         metrics: { plugins: pluginMetrics(plugins) },
+        // Rotor emits declarations natively (tsgo has no afterDeclarations
+        // hook), so the count is reported rather than run: rotor turns a
+        // non-zero value into a one-shot warning for the project.
+        afterDeclarationsTransformers: transforms.afterDeclarations.length,
       };
     } catch (error) {
       return {
         diagnostics: [createInternalDiagnostic(error)],
         transformed: [],
-        declarations: [],
       };
     }
   }
@@ -416,9 +385,6 @@ function validateRequest(request) {
   }
   if (typeof request.transformSources !== "boolean") {
     return createRequestDiagnostic("transformSources must be a boolean");
-  }
-  if (typeof request.emitDeclarations !== "boolean") {
-    return createRequestDiagnostic("emitDeclarations must be a boolean");
   }
   return undefined;
 }

@@ -21,6 +21,9 @@ testdata/transformers/project/flamework.build
 dist/
 internal/compile/testdata/**/out/
 internal/compile/testdata/**/include/
+# ... except a fixture package's shipped `out`, which is INPUT to the test
+# (the rule above is meant for the trees a test build writes).
+!internal/compile/testdata/**/node_modules/**/out/
 
 # Per-project resolver/cache state written by rotor builds
 .rotor/

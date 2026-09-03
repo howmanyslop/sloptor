@@ -79,24 +79,33 @@ type BuildTimingMetadata struct {
 }
 
 type BuildTimingStages struct {
-	InitialProgramMs           int64 `json:"initialProgramMs"`
-	IncrementalSelectionMs     int64 `json:"incrementalSelectionMs"`
-	SelectionDeclarationEmitMs int64 `json:"selectionDeclarationEmitMs"`
-	CleanupMs                  int64 `json:"cleanupMs"`
-	IncludeCopyMs              int64 `json:"includeCopyMs"`
-	NonCompiledCopyMs          int64 `json:"nonCompiledCopyMs"`
-	SidecarSessionWaitMs       int64 `json:"sidecarSessionWaitMs"`
-	SidecarPreparationMs       int64 `json:"sidecarPreparationMs"`
-	SidecarRoundTripMs         int64 `json:"sidecarRoundTripMs"`
-	SidecarResponseDecodeMs    int64 `json:"sidecarResponseDecodeMs"`
-	OverlayProgramMs           int64 `json:"overlayProgramMs"`
-	ProjectContextMs           int64 `json:"projectContextMs"`
-	SemanticDiagnosticsMs      int64 `json:"semanticDiagnosticsMs"`
-	NativeTransformRenderMs    int64 `json:"nativeTransformRenderMs"`
-	CompiledOutputWritesMs     int64 `json:"compiledOutputWritesMs"`
-	DeclarationEmitWritesMs    int64 `json:"declarationEmitWritesMs"`
-	IncrementalManifestMs      int64 `json:"incrementalManifestMs"`
-	PersistenceMs              int64 `json:"persistenceMs"`
+	InitialProgramMs        int64 `json:"initialProgramMs"`
+	IncrementalSelectionMs  int64 `json:"incrementalSelectionMs"`
+	CleanupMs               int64 `json:"cleanupMs"`
+	IncludeCopyMs           int64 `json:"includeCopyMs"`
+	NonCompiledCopyMs       int64 `json:"nonCompiledCopyMs"`
+	SidecarSessionWaitMs    int64 `json:"sidecarSessionWaitMs"`
+	SidecarPreparationMs    int64 `json:"sidecarPreparationMs"`
+	SidecarRoundTripMs      int64 `json:"sidecarRoundTripMs"`
+	SidecarResponseDecodeMs int64 `json:"sidecarResponseDecodeMs"`
+	OverlayProgramMs        int64 `json:"overlayProgramMs"`
+	ProjectContextMs        int64 `json:"projectContextMs"`
+	SemanticDiagnosticsMs   int64 `json:"semanticDiagnosticsMs"`
+	NativeTransformRenderMs int64 `json:"nativeTransformRenderMs"`
+	CompiledOutputWritesMs  int64 `json:"compiledOutputWritesMs"`
+	DeclarationEmitWritesMs int64 `json:"declarationEmitWritesMs"`
+	// DeclarationEmitMs is every tsgo `.d.ts` emit in the build: the type
+	// checker run plus the paths rewrite, with the disk writes excluded.
+	// Declarations used to be emitted by the Node worker and were charged to
+	// SidecarRoundTripMs; this is where that time went.
+	//
+	// The write path's share is a SUBSET of DeclarationEmitWritesMs, not an
+	// addition to it. The declaration-signature selection pass emits too, and
+	// that share is taken back out of IncrementalSelectionMs instead, so no
+	// stage total counts it twice.
+	DeclarationEmitMs     int64 `json:"declarationEmitMs"`
+	IncrementalManifestMs int64 `json:"incrementalManifestMs"`
+	PersistenceMs         int64 `json:"persistenceMs"`
 }
 
 type BuildTimingCounts struct {
@@ -147,7 +156,6 @@ type buildTimingStage uint8
 const (
 	initialProgramStage buildTimingStage = iota
 	incrementalSelectionStage
-	declarationSignatureEmitStage
 	cleanupStage
 	includeCopyStage
 	nonCompiledCopyStage
@@ -161,6 +169,7 @@ const (
 	nativeTransformRenderStage
 	compiledOutputWritesStage
 	declarationEmitWritesStage
+	declarationEmitStage
 	incrementalManifestStage
 	persistenceStage
 )
@@ -253,8 +262,6 @@ func (stage buildTimingStage) traceName() string {
 		return "program creation and parse/load"
 	case incrementalSelectionStage:
 		return "incremental selection"
-	case declarationSignatureEmitStage:
-		return "selection declaration emit"
 	case cleanupStage:
 		return "cleanup"
 	case includeCopyStage:
@@ -281,6 +288,8 @@ func (stage buildTimingStage) traceName() string {
 		return "compiled output writes"
 	case declarationEmitWritesStage:
 		return "declaration emit/write"
+	case declarationEmitStage:
+		return "declaration emit"
 	case incrementalManifestStage:
 		return "incremental manifest"
 	case persistenceStage:
@@ -327,8 +336,6 @@ func (timings *BuildTimings) addStageLocked(stage buildTimingStage, duration tim
 		timings.Stages.InitialProgramMs += milliseconds
 	case incrementalSelectionStage:
 		timings.Stages.IncrementalSelectionMs += milliseconds
-	case declarationSignatureEmitStage:
-		timings.Stages.SelectionDeclarationEmitMs += milliseconds
 	case cleanupStage:
 		timings.Stages.CleanupMs += milliseconds
 	case includeCopyStage:
@@ -355,6 +362,8 @@ func (timings *BuildTimings) addStageLocked(stage buildTimingStage, duration tim
 		timings.Stages.CompiledOutputWritesMs += milliseconds
 	case declarationEmitWritesStage:
 		timings.Stages.DeclarationEmitWritesMs += milliseconds
+	case declarationEmitStage:
+		timings.Stages.DeclarationEmitMs += milliseconds
 	case incrementalManifestStage:
 		timings.Stages.IncrementalManifestMs += milliseconds
 	case persistenceStage:

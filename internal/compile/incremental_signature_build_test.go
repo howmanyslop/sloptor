@@ -134,8 +134,9 @@ func TestDeclarationSignatureSelectionSkipsImportersOnCommentOnlyEdit(t *testing
 	if !slices.Contains(wrote, "util.luau") {
 		t.Fatalf("wrote %v, expected the edited file to be recompiled", wrote)
 	}
-	if timings.Stages.SelectionDeclarationEmitMs < 0 {
-		t.Fatalf("selection declaration emit = %dms", timings.Stages.SelectionDeclarationEmitMs)
+	if timings.Stages.DeclarationEmitMs < 0 || timings.Stages.IncrementalSelectionMs < 0 {
+		t.Fatalf("stage totals went negative: declaration emit %dms, incremental selection %dms",
+			timings.Stages.DeclarationEmitMs, timings.Stages.IncrementalSelectionMs)
 	}
 
 	// A build of the same sources from scratch is the oracle: the narrowed
@@ -229,42 +230,6 @@ func TestDeclarationSignatureSelectionIsANoOpWithoutChanges(t *testing.T) {
 		if after[path] != hash {
 			t.Fatalf("output %s changed on a no-op build", path)
 		}
-	}
-}
-
-// The rule may only fire where this pass can reproduce the declaration text
-// the build writes. A `paths` project's declarations are rewritten by the
-// worker, so it has to keep the reverse-closure rule until declaration emit is
-// native.
-func TestDeclarationSignatureSelectionStandsDownWhereTheWorkerWritesDeclarations(t *testing.T) {
-	dir := writeProject(t, "@scope/signature-path-aliases", "")
-	enableDeclarationIncrementalBuilds(t, dir)
-	addPathAliases(t, dir)
-	writeSignatureFixture(t, dir)
-
-	_, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-	if selectionDeclarationsMatchTheWritePath(program, nil) {
-		t.Fatal("the signature rule claimed a `paths` project, whose declarations the worker rewrites")
-	}
-	if selectionDeclarationsMatchTheWritePath(program, &flameworkPipeline{}) {
-		t.Fatal("the signature rule claimed a native Flamework project, which emits declarations off the overlaid program")
-	}
-}
-
-func TestDeclarationSignatureSelectionClaimsAPlainDeclarationProject(t *testing.T) {
-	dir := writeProject(t, "@scope/signature-plain", "")
-	enableDeclarationIncrementalBuilds(t, dir)
-	writeSignatureFixture(t, dir)
-
-	_, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-	if !selectionDeclarationsMatchTheWritePath(program, nil) {
-		t.Fatal("the signature rule stood down on a project whose declarations tsgo writes directly")
 	}
 }
 
