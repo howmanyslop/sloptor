@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "description": "baseline byte contract for source maps, declarations, declaration maps, state, and stateful afterDeclarations ordering",
+  "description": "baseline byte contract for source maps, declarations, declaration maps, state, and per-source declaration emit order",
   "exitCode": 0,
   "diagnostics": [],
   "artifactPaths": [

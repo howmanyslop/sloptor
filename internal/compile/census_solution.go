@@ -167,7 +167,7 @@ func CompileSolutionDiagnostics(tsConfigPath string, entry ProjectOptions) (*Sol
 		censuses:       map[string]*ProjectDiagnostics{},
 		errs:           map[string]error{},
 	}
-	coordinator, err := newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry))
+	coordinator, err := newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 	if err != nil {
 		return solution, err
 	}

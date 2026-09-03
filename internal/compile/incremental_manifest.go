@@ -9,12 +9,37 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
+	"rotor/tsgo/tspath"
 )
 
+// incrementalManifest is what one build leaves behind for the next one to
+// select against.
+//
+// Files carries each source file's content hash and the project files it
+// resolved a reference to, which is the import graph selection walks.
+//
+// Outputs carries the content hash of every file this build wrote, keyed by
+// project-relative output path. It is what lets the writer skip a byte-identical
+// rewrite, and it doubles as the declaration SIGNATURE store: an incremental
+// build re-emits the `.d.ts` of a file it is considering, compares it against
+// the hash recorded here, and stops propagating to that file's importers when
+// the two agree (selectByDeclarationSignature).
+//
+// That is deliberately TypeScript's rule and not rbxtsc's: `tsc --incremental`
+// and the BuilderProgram behind it key a file's downstream invalidation on its
+// emitted declaration ("shape signature"), while rbxtsc always rebuilds the
+// whole importer closure. Rotor therefore selects strictly fewer files than
+// rbxtsc for the same edit and writes the same bytes.
+//
+// Salt invalidates the whole manifest at once. It covers the compiler options,
+// the Rojo/include topology, the native Flamework inputs, and each effective
+// transformer plugin's identity (incremental_salt.go), because none of those
+// show up as a source-file change.
 type incrementalManifest struct {
 	Version int                             `json:"version"`
 	Salt    string                          `json:"salt"`
@@ -84,15 +109,41 @@ func sameIncrementalManifest(a, b *incrementalManifest) bool {
 	return reflect.DeepEqual(a, b)
 }
 
+// resolvedDataFiles is the non-compiled input the program resolved: today that
+// is `resolveJsonModule` imports. They are hashed into the manifest like any
+// other input even though nothing compiles them, because an importer's
+// DECLARATION output carries their inferred type — `export declare const value:
+// number` comes straight out of a `.json`. Their Luau does not: an import of a
+// `.json` becomes a runtime require of the copied file, so a value change never
+// reaches the importer's Luau.
+//
+// A data file is never selected for compilation: selection builds its result
+// from the compilable source files, and this one is not among them. It is a
+// SEED, so a change to it rebuilds whoever imported it, which is what refreshes
+// their declarations.
+func resolvedDataFiles(program *compiler.Program) []*ast.SourceFile {
+	var files []*ast.SourceFile
+	for _, sourceFile := range program.SourceFiles() {
+		if program.IsSourceFromProjectReference(sourceFile.Path()) {
+			continue
+		}
+		if tspath.HasJSONFileExtension(sourceFile.FileName()) {
+			files = append(files, sourceFile)
+		}
+	}
+	return files
+}
+
 func buildIncrementalManifest(program *compiler.Program, sourceFiles []*ast.SourceFile, salt string, previous *incrementalManifest) (*incrementalManifest, error) {
+	dataFiles := resolvedDataFiles(program)
 	manifest := &incrementalManifest{
 		Version: 2,
 		Salt:    salt,
-		Files:   make(map[string]incrementalFileState, len(sourceFiles)),
+		Files:   make(map[string]incrementalFileState, len(sourceFiles)+len(dataFiles)),
 		Outputs: map[string]string{},
 	}
-	currentHashes := make(map[string]string, len(sourceFiles))
-	for _, sourceFile := range sourceFiles {
+	currentHashes := make(map[string]string, len(sourceFiles)+len(dataFiles))
+	for _, sourceFile := range slices.Concat(sourceFiles, dataFiles) {
 		path := normalizeSourceFilePath(sourceFile.FileName())
 		sum := sha256.Sum256([]byte(sourceFile.Text()))
 		currentHashes[path] = hex.EncodeToString(sum[:])
@@ -112,14 +163,19 @@ func buildIncrementalManifest(program *compiler.Program, sourceFiles []*ast.Sour
 			return manifest, nil
 		}
 	}
-	sourceSet := make(map[string]struct{}, len(sourceFiles))
-	for _, sourceFile := range sourceFiles {
-		sourceSet[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
+	sourceSet := make(map[string]struct{}, len(currentHashes))
+	for path := range currentHashes {
+		sourceSet[path] = struct{}{}
 	}
 	for _, sourceFile := range sourceFiles {
 		path := normalizeSourceFilePath(sourceFile.FileName())
 		refs := referencedProjectFiles(program, sourceFile, sourceSet)
 		manifest.Files[path] = incrementalFileState{Hash: currentHashes[path], Refs: refs}
+	}
+	// A data file references nothing, so it needs no reference walk of its own.
+	for _, sourceFile := range dataFiles {
+		path := normalizeSourceFilePath(sourceFile.FileName())
+		manifest.Files[path] = incrementalFileState{Hash: currentHashes[path]}
 	}
 	return manifest, nil
 }

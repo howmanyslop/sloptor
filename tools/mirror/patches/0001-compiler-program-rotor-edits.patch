@@ -1,0 +1,180 @@
+diff --git a/tsgo/compiler/program.go b/tsgo/compiler/program.go
+index 7084181..4989854 100644
+--- a/tsgo/compiler/program.go
++++ b/tsgo/compiler/program.go
+@@ -282,27 +282,63 @@ func NewProgram(opts ProgramOptions) *Program {
+ // createCheckerPool, if non-nil, overrides the CreateCheckerPool stored in the old program's options,
+ // ensuring each caller uses a fresh closure and avoiding data races on captured variables.
+ func (p *Program) UpdateProgram(changedFilePath tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool) (*Program, bool) {
++	return p.UpdateProgramFiles([]tspath.Path{changedFilePath}, newHost, createCheckerPool)
++}
++
++// UpdateProgramFiles applies multiple source-text changes from newHost in one Program reconstruction.
++// It reuses the existing file set when every changed file is shape-compatible, or only changes
++// imports that still resolve to modules already present in the program. Otherwise it rebuilds
++// once via NewProgram. createCheckerPool, if non-nil, overrides the stored pool factory.
++func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool) (*Program, bool) {
++	if len(changedFilePaths) == 0 {
++		return p, true
++	}
++
+ 	newOpts := p.opts
+ 	newOpts.Host = newHost
+ 	if createCheckerPool != nil {
+ 		newOpts.CreateCheckerPool = createCheckerPool
+ 	}
+
+-	oldFile := p.filesByPath[changedFilePath]
+-	newFile := newHost.GetSourceFile(oldFile.ParseOptions())
+-
+-	// If this file is part of a package redirect group (same package installed in multiple
+-	// node_modules locations), we need to rebuild the program because the redirect targets
+-	// might need recalculation.
+-	_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
+-	_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
+-	if inRedirectFiles || isRedirectTarget {
+-		return NewProgram(newOpts), false
++	type replacement struct {
++		path         tspath.Path
++		newFile      *ast.SourceFile
++		shapeChanged bool
++		resolutions  module.ModeAwareCache[*module.ResolvedModule]
+ 	}
+
+-	if !canReplaceFileInProgram(oldFile, newFile) {
+-		return NewProgram(newOpts), false
++	replacements := make([]replacement, 0, len(changedFilePaths))
++	for _, changedFilePath := range changedFilePaths {
++		// Package redirect groups need a full rebuild so redirect targets recalculate.
++		_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
++		_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
++		if inRedirectFiles || isRedirectTarget {
++			return NewProgram(newOpts), false
++		}
++
++		oldFile := p.filesByPath[changedFilePath]
++		if oldFile == nil {
++			return NewProgram(newOpts), false
++		}
++		newFile := newHost.GetSourceFile(oldFile.ParseOptions())
++		if newFile == nil {
++			return NewProgram(newOpts), false
++		}
++
++		entry := replacement{path: changedFilePath, newFile: newFile}
++		if canReplaceFileInProgram(oldFile, newFile) {
++			replacements = append(replacements, entry)
++			continue
++		}
++		resolutions, ok := p.resolutionsKeepingExistingFileSet(oldFile, newFile)
++		if !ok {
++			return NewProgram(newOpts), false
++		}
++		entry.shapeChanged = true
++		entry.resolutions = resolutions
++		replacements = append(replacements, entry)
+ 	}
++
+ 	// TODO: reverify compiler options when config has changed?
+ 	result := &Program{
+ 		opts:                        newOpts,
+@@ -315,16 +351,86 @@ func (p *Program) UpdateProgram(changedFilePath tspath.Path, newHost CompilerHos
+ 	result.unresolvedImports.tryReuse(&p.unresolvedImports)
+ 	result.knownSymlinks.tryReuse(&p.knownSymlinks)
+ 	result.packageNames.tryReuse(&p.packageNames)
+-	result.initCheckerPool()
+-	index := core.FindIndex(result.files, func(file *ast.SourceFile) bool { return file.Path() == newFile.Path() })
+ 	result.files = slices.Clone(result.files)
+-	result.files[index] = newFile
+ 	result.filesByPath = maps.Clone(result.filesByPath)
+-	result.filesByPath[newFile.Path()] = newFile
++
++	needsResolutionClone := false
++	for _, entry := range replacements {
++		if entry.shapeChanged {
++			needsResolutionClone = true
++			break
++		}
++	}
++	if needsResolutionClone {
++		result.resolvedModules = maps.Clone(p.resolvedModules)
++	}
++
++	for _, entry := range replacements {
++		index := core.FindIndex(result.files, func(file *ast.SourceFile) bool { return file.Path() == entry.path })
++		if index < 0 {
++			return NewProgram(newOpts), false
++		}
++		result.files[index] = entry.newFile
++		result.filesByPath[entry.path] = entry.newFile
++		if entry.shapeChanged {
++			result.resolvedModules[entry.path] = entry.resolutions
++		}
++	}
++	result.initCheckerPool()
+ 	updateFileIncludeProcessor(result)
+ 	return result, true
+ }
+
++// resolutionsKeepingExistingFileSet re-resolves imports for newFile when import shape changed.
++// It succeeds only when non-import shape fields still match and every successful resolution
++// already points at a SourceFile in this program. Unresolved imports are allowed.
++func (p *Program) resolutionsKeepingExistingFileSet(oldFile, newFile *ast.SourceFile) (module.ModeAwareCache[*module.ResolvedModule], bool) {
++	if !canReplaceFileIgnoringImports(oldFile, newFile) {
++		return nil, false
++	}
++
++	moduleNames := make([]*ast.Node, 0, len(newFile.Imports())+len(newFile.ModuleAugmentations))
++	moduleNames = append(moduleNames, newFile.Imports()...)
++	for _, augmentation := range newFile.ModuleAugmentations {
++		if augmentation.Kind == ast.KindStringLiteral {
++			moduleNames = append(moduleNames, augmentation)
++		}
++	}
++	resolutions := make(module.ModeAwareCache[*module.ResolvedModule], len(moduleNames))
++	for _, entry := range moduleNames {
++		moduleName := entry.Text()
++		if moduleName == "" {
++			continue
++		}
++		mode := p.GetModeForUsageLocation(newFile, entry)
++		resolved := p.ResolveModuleName(moduleName, newFile.FileName(), mode)
++		resolutions[module.ModeAwareCacheKey{Name: moduleName, Mode: mode}] = resolved
++		if resolved == nil || !resolved.IsResolved() {
++			continue
++		}
++		resolvedPath := p.toPath(resolved.ResolvedFileName)
++		if _, ok := p.filesByPath[resolvedPath]; !ok {
++			// Successful resolution to a file not already loaded requires a full rebuild.
++			return nil, false
++		}
++	}
++	return resolutions, true
++}
++
++// canReplaceFileIgnoringImports is canReplaceFileInProgram without import-list equality.
++func canReplaceFileIgnoringImports(file1, file2 *ast.SourceFile) bool {
++	return file2 != nil &&
++		file1 != nil &&
++		file1.ParseOptions() == file2.ParseOptions() &&
++		file1.UsesUriStyleNodeCoreModules == file2.UsesUriStyleNodeCoreModules &&
++		slices.EqualFunc(file1.ModuleAugmentations, file2.ModuleAugmentations, equalModuleAugmentationNames) &&
++		slices.Equal(file1.AmbientModuleNames, file2.AmbientModuleNames) &&
++		slices.EqualFunc(file1.ReferencedFiles, file2.ReferencedFiles, equalFileReferences) &&
++		slices.EqualFunc(file1.TypeReferenceDirectives, file2.TypeReferenceDirectives, equalFileReferences) &&
++		slices.EqualFunc(file1.LibReferenceDirectives, file2.LibReferenceDirectives, equalFileReferences) &&
++		equalCheckJSDirectives(file1.CheckJsDirective, file2.CheckJsDirective)
++}
++
+ func (p *Program) initCheckerPool() {
+ 	if !p.finishedProcessing {
+ 		panic("Program must finish processing files before initializing checker pool")
+@@ -2025,7 +2131,7 @@ func (p *Program) GetSymlinkCache() *symlinks.KnownSymlinks {
+ 					}
+ 				}
+
+-				if packageResolution := p.resolver.ResolvePackageDirectory(dep, packageJsonName, core.ResolutionModeCommonJS, nil); packageResolution.IsResolved() {
++				if packageResolution := p.resolver.ResolvePackageDirectory(dep, packageJsonName, core.ResolutionModeCommonJS, nil); packageResolution.IsResolved() && packageResolution.OriginalPath != "" {
+ 					knownSymlinks.ProcessResolution(
+ 						tspath.CombinePaths(packageResolution.OriginalPath, "package.json"),
+ 						tspath.CombinePaths(packageResolution.ResolvedFileName, "package.json"),

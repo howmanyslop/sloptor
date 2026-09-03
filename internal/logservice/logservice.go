@@ -88,6 +88,32 @@ func BenchmarkIfVerbose(name string, callback func()) {
 	WriteLine(fmt.Sprintf("%s ( %d ms )", name, time.Since(start).Milliseconds()))
 }
 
+// WriteStageStartIfVerbose emits a start-of-stage line before long work so
+// --verbose does not stay silent for the entire stage. Completion still uses
+// the upstream `name ( N ms )` shape via WriteStageDoneIfVerbose.
+func WriteStageStartIfVerbose(project, name string) {
+	if !Verbose {
+		return
+	}
+	WriteLine(stageLabel(project, name) + "...")
+}
+
+// WriteStageDoneIfVerbose emits the matching completion line for a verbose
+// stage started with WriteStageStartIfVerbose.
+func WriteStageDoneIfVerbose(project, name string, duration time.Duration) {
+	if !Verbose {
+		return
+	}
+	WriteLine(fmt.Sprintf("%s ( %d ms )", stageLabel(project, name), duration.Milliseconds()))
+}
+
+func stageLabel(project, name string) string {
+	if project == "" {
+		return name
+	}
+	return project + ": " + name
+}
+
 // yellow wraps s in kleur.yellow's SGR codes (\x1b[33m ... \x1b[39m) when
 // color is enabled for Output.
 func yellow(s string) string {
