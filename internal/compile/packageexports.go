@@ -11,6 +11,7 @@ import (
 )
 
 type packageManifest struct {
+	Version string          `json:"version"`
 	Main    string          `json:"main"`
 	Types   string          `json:"types"`
 	Typings string          `json:"typings"`

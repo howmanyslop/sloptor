@@ -73,6 +73,31 @@ function wrapWithShouldTransform(ts, transformer, shouldTransformSourceFile, pro
   };
 }
 
+// wrapWithTiming charges a plugin for the wall time its factory and every
+// node visit costs, so a slow round trip can be split across the plugins that
+// share it rather than reported as one opaque total.
+function wrapWithTiming(transformer, plugin) {
+  return (context) => {
+    const factoryStarted = process.hrtime.bigint();
+    const transform = transformer(context);
+    plugin.ns += process.hrtime.bigint() - factoryStarted;
+    return (node) => {
+      const started = process.hrtime.bigint();
+      try {
+        return transform(node);
+      } finally {
+        plugin.ns += process.hrtime.bigint() - started;
+      }
+    };
+  };
+}
+
+// pluginMetrics snapshots the accumulator createTransformerList hands back,
+// which only holds its final values once the transforms have run.
+function pluginMetrics(plugins) {
+  return plugins.map((plugin) => ({ transform: plugin.transform, ms: Number(plugin.ns / 1000000n) }));
+}
+
 function createTransformerList(ts, program, configs, baseDir) {
   const transforms = {
     before: [],
@@ -80,6 +105,7 @@ function createTransformerList(ts, program, configs, baseDir) {
     afterDeclarations: [],
   };
   const diagnostics = [];
+  const plugins = [];
 
   for (const config of configs) {
     if (!config.transform) {
@@ -103,24 +129,30 @@ function createTransformerList(ts, program, configs, baseDir) {
         continue;
       }
       const shouldTransformSourceFile = factoryModule.shouldTransformSourceFile;
+      const plugin = { transform: config.transform, ns: 0n };
+      plugins.push(plugin);
 
       if (transformer.afterDeclarations) {
         transforms.afterDeclarations.push(
-          wrapWithShouldTransform(ts, transformer.afterDeclarations, shouldTransformSourceFile, program, config),
+          wrapWithTiming(wrapWithShouldTransform(ts, transformer.afterDeclarations, shouldTransformSourceFile, program, config), plugin),
         );
       }
       if (transformer.after) {
-        transforms.after.push(wrapWithShouldTransform(ts, transformer.after, shouldTransformSourceFile, program, config));
+        transforms.after.push(
+          wrapWithTiming(wrapWithShouldTransform(ts, transformer.after, shouldTransformSourceFile, program, config), plugin),
+        );
       }
       if (transformer.before) {
-        transforms.before.push(wrapWithShouldTransform(ts, transformer.before, shouldTransformSourceFile, program, config));
+        transforms.before.push(
+          wrapWithTiming(wrapWithShouldTransform(ts, transformer.before, shouldTransformSourceFile, program, config), plugin),
+        );
       }
     } catch (error) {
       diagnostics.push(createPluginNotFoundDiagnostic(config.transform, error));
     }
   }
 
-  return { transforms, diagnostics };
+  return { transforms, diagnostics, plugins };
 }
 
 function flattenIntoTransformers(transforms) {
@@ -163,6 +195,7 @@ function wrapTransformersWithParentFix(ts, transformers) {
 
 module.exports = {
   createTransformerList,
+  pluginMetrics,
   flattenIntoTransformers,
   getPluginConfigs,
   wrapTransformersWithParentFix,

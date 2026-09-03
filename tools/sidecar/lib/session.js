@@ -8,10 +8,10 @@ const {
 const {
   createTransformerList,
   flattenIntoTransformers,
+  pluginMetrics,
   getPluginConfigs,
   wrapTransformersWithParentFix,
 } = require("./plugins");
-const { createDeclarationTransformers } = require("./declarations");
 
 function createParseHost(session, ts) {
   return {
@@ -66,6 +66,16 @@ class SidecarProjectSession {
     this.versions = new Map();
     this.projectVersion = 0;
     this.configSignature = "";
+    // rootLimit is the canonical root set narrowed requests have asked for so
+    // far, or undefined for "every file the tsconfig names". TypeScript still
+    // pulls each root's import closure into the program, so a narrowed program
+    // answers the same questions about the files being compiled while parsing
+    // and binding far fewer of them.
+    this.rootLimit = undefined;
+    // rootLimitDisabled records that the limit has already grown to every file
+    // the tsconfig names, which is what a request without a limit asks for.
+    // Nothing can widen it further, so later narrowed requests are no-ops.
+    this.rootLimitDisabled = false;
     this.parsed = undefined;
     this.service = undefined;
   }
@@ -122,11 +132,62 @@ class SidecarProjectSession {
   getScriptFileNames() {
     const fileNames = [];
     for (const [canonical, actualPath] of this.actualPaths.entries()) {
+      if (this.rootLimit && !this.rootLimit.has(canonical)) {
+        continue;
+      }
       if (this.overrides.has(canonical) || this.ts.sys.fileExists(actualPath)) {
         fileNames.push(actualPath);
       }
     }
     return fileNames;
+  }
+
+  // setRootLimit widens the LanguageService root set toward what this request
+  // needs. The limit only ever grows within a session: a watch session rebuilds
+  // through the same warm worker, and shrinking the root set back down between
+  // rebuilds would throw away the program TypeScript had just built and force a
+  // fresh parse and bind of the files that came back. Growing it only adds
+  // files, which the incremental program update already handles.
+  //
+  // rootLimitDisabled is that same monotonicity, encoded cheaply for the one
+  // case where the limit has grown as far as it can go. A request with no limit
+  // means "every file the tsconfig names", so after it the effective root set
+  // IS the full remembered set — the widest this session can ever be. The latch
+  // says so in one boolean instead of materializing that set and re-checking it
+  // on every later request. It is not a separate policy, and dropping it alone
+  // would break the monotonicity rather than relax it: `rootLimit` is undefined
+  // once the limit is gone, so the next narrowed request would seed a fresh Set
+  // from its own file list and SHRINK the program to it.
+  //
+  // The project version has to move whenever the root set does: the
+  // compilation settings and every file version are unchanged, so nothing else
+  // would tell the service that its program is stale.
+  setRootLimit(rootFileNames) {
+    if (this.rootLimitDisabled) {
+      return;
+    }
+    if (!Array.isArray(rootFileNames) || rootFileNames.length === 0) {
+      this.rootLimitDisabled = true;
+      if (this.rootLimit) {
+        this.rootLimit = undefined;
+        this.projectVersion += 1;
+      }
+      return;
+    }
+    const next = this.rootLimit ?? new Set();
+    let widened = this.rootLimit === undefined;
+    for (const fileName of rootFileNames) {
+      const canonical = this.canonicalize(this.rememberFile(fileName));
+      if (!next.has(canonical)) {
+        next.add(canonical);
+        widened = true;
+      }
+    }
+    if (!widened) {
+      return;
+    }
+    this.rootLimit = next;
+    this.projectVersion += 1;
   }
 
   getScriptVersion(fileName) {
@@ -225,35 +286,6 @@ class SidecarProjectSession {
     }
   }
 
-  emitDeclarationFiles(program, sourceFiles, transforms) {
-    if (!program.getCompilerOptions().declaration || sourceFiles.length === 0) {
-      return { diagnostics: [], declarations: [] };
-    }
-
-    const declarations = [];
-    const afterDeclarations = [
-      ...wrapTransformersWithParentFix(this.ts, transforms.afterDeclarations),
-      // The service host is the module-resolution host too: every member
-      // ts.resolveModuleName asks for is on it, answered from this session's
-      // overrides. ts.sys would answer from disk, so an overlay that adds an
-      // import would resolve against a tree that does not have it.
-      ...createDeclarationTransformers(this.ts, program, createServiceHost(this, this.ts)),
-    ];
-    const customTransformers = { afterDeclarations };
-    const diagnostics = [];
-    for (const sourceFile of sourceFiles) {
-      const result = program.emit(
-        sourceFile,
-        (fileName, text) => declarations.push({ fileName, text }),
-        undefined,
-        true,
-        customTransformers,
-      );
-      diagnostics.push(...(result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)));
-    }
-    return { diagnostics, declarations };
-  }
-
   handleRequest(request) {
     try {
       for (const changedFile of request.changedFiles) {
@@ -261,6 +293,7 @@ class SidecarProjectSession {
       }
 
       const parsedState = this.refreshParsedConfig();
+      this.setRootLimit(request.rootFileNames);
       if (!this.parsed) {
         return { diagnostics: parsedState.diagnostics, transformed: [] };
       }
@@ -274,7 +307,7 @@ class SidecarProjectSession {
       }
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-      const { transforms, diagnostics: pluginDiagnostics } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
+      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       const sourceFiles = [];
@@ -288,25 +321,25 @@ class SidecarProjectSession {
       }
 
       if (sourceFiles.length === 0) {
-        return { diagnostics, transformed: [] };
+        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length };
       }
 
       const transformResult = request.transformSources
         ? this.transformSourceFiles(program, sourceFiles, transforms)
         : { diagnostics: [], transformed: [] };
-      const declarationResult = request.emitDeclarations
-        ? this.emitDeclarationFiles(program, sourceFiles, transforms)
-        : { diagnostics: [], declarations: [] };
       return {
-        diagnostics: [...diagnostics, ...transformResult.diagnostics, ...declarationResult.diagnostics],
+        diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
-        declarations: declarationResult.declarations,
+        metrics: { plugins: pluginMetrics(plugins) },
+        // Rotor emits declarations natively (tsgo has no afterDeclarations
+        // hook), so the count is reported rather than run: rotor turns a
+        // non-zero value into a one-shot warning for the project.
+        afterDeclarationsTransformers: transforms.afterDeclarations.length,
       };
     } catch (error) {
       return {
         diagnostics: [createInternalDiagnostic(error)],
         transformed: [],
-        declarations: [],
       };
     }
   }
@@ -349,6 +382,9 @@ function validateRequest(request) {
   if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {
     return createRequestDiagnostic("compileFileNames must be an array of strings");
   }
+  if (request.rootFileNames !== undefined && (!Array.isArray(request.rootFileNames) || !request.rootFileNames.every((fileName) => typeof fileName === "string"))) {
+    return createRequestDiagnostic("rootFileNames must be an array of strings when present");
+  }
   if (!Array.isArray(request.changedFiles)) {
     return createRequestDiagnostic("changedFiles must be an array");
   }
@@ -359,9 +395,6 @@ function validateRequest(request) {
   }
   if (typeof request.transformSources !== "boolean") {
     return createRequestDiagnostic("transformSources must be a boolean");
-  }
-  if (typeof request.emitDeclarations !== "boolean") {
-    return createRequestDiagnostic("emitDeclarations must be a boolean");
   }
   return undefined;
 }
@@ -374,6 +407,22 @@ class SidecarServer {
   }
 
   handleRequest(request) {
+    const started = process.hrtime.bigint();
+    const cpuStarted = process.cpuUsage();
+    const response = this.handleRequestUnmetered(request);
+    const cpu = process.cpuUsage(cpuStarted);
+    const wallNs = process.hrtime.bigint() - started;
+    response.metrics = {
+      ...response.metrics,
+      wallMs: Number(wallNs / 1000000n),
+      cpuUserUs: cpu.user,
+      cpuSystemUs: cpu.system,
+      nodeVersion: process.version,
+    };
+    return response;
+  }
+
+  handleRequestUnmetered(request) {
     const validationError = validateRequest(request);
     if (validationError) {
       return { diagnostics: [validationError], transformed: [] };

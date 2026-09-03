@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 
+	"rotor/internal/logservice"
 	"rotor/tsgo/checker"
 )
 
@@ -354,4 +356,50 @@ func writeCheckerCheckProject(t *testing.T, compilerOptions string) string {
 		mustWrite(t, filepath.Join(dir, "src", name), "export {};\n")
 	}
 	return dir
+}
+
+// warnOnWriteWriter emits a compiler warning the first time anything is written
+// to it. For cmdCheckJSON that is the JSON result itself, which is written
+// while the stdout redirect is still in place — the same window a real warning
+// lands in.
+type warnOnWriteWriter struct {
+	buffer bytes.Buffer
+	warned bool
+}
+
+func (w *warnOnWriteWriter) Write(data []byte) (int, error) {
+	if !w.warned {
+		w.warned = true
+		logservice.Warn("probe warning")
+	}
+	return w.buffer.Write(data)
+}
+
+// `check --json` promises stdout carries exactly one JSON object. LogService
+// writes to stdout by default, so a single compiler warning would make the
+// output unparseable for the CI/editor integrations the flag exists for.
+func TestCmdCheckJSONKeepsCompilerWarningsOffStdout(t *testing.T) {
+	dir := writeCheckableProject(t, "")
+	previous := logservice.Output
+	t.Cleanup(func() { logservice.Output = previous })
+
+	out := &warnOnWriteWriter{}
+	var errOut bytes.Buffer
+	if code := cmdCheckJSON(out, &errOut, dir, nil); code != 0 {
+		t.Fatalf("cmdCheckJSON exit = %d, want 0; stdout:\n%s", code, out.buffer.String())
+	}
+
+	if !out.warned {
+		t.Fatal("the probe never fired, so the redirect was not exercised")
+	}
+	if !strings.Contains(errOut.String(), "probe warning") {
+		t.Fatalf("warning did not reach stderr; stderr:\n%s", errOut.String())
+	}
+	var res jsonResult
+	if err := json.Unmarshal(bytes.TrimSpace(out.buffer.Bytes()), &res); err != nil {
+		t.Fatalf("stdout is not a single JSON object: %v\nstdout:\n%s", err, out.buffer.String())
+	}
+	if logservice.Output != previous {
+		t.Fatal("cmdCheckJSON did not restore the compiler log channel")
+	}
 }

@@ -19,28 +19,38 @@ func outputManifestPath(projectDir, configPath string) string {
 	return filepath.Join(projectDir, ".rotor", "cache", "output-manifests", hex.EncodeToString(sum[:])+".json")
 }
 
-func incrementalSaltWithFlamework(program *compiler.Program, opts ProjectOptions, pathTranslatorBuildInfoPath string, flameworkInputs *FlameworkIncrementalInputs) (string, error) {
+func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts ProjectOptions, pathTranslatorBuildInfoPath string, flameworkInputs *FlameworkIncrementalInputs) (string, error) {
 	options := program.Options()
 	flameworkSalt, err := flameworkIncrementalSalt(flameworkInputs)
 	if err != nil {
 		return "", err
 	}
+	// External transformers rewrite the output of every file they see, and
+	// nothing else in this payload notices them: tsgo drops
+	// `compilerOptions.plugins` while parsing options, and the plugin code
+	// lives outside the project. Upgrading a transformer therefore has to
+	// invalidate the whole manifest.
+	plugins, err := transformerPluginFingerprints(dir, options.ConfigFilePath)
+	if err != nil {
+		return "", err
+	}
 	payload, err := tsjson.Marshal(struct {
-		Version              string                `json:"version"`
-		CompilerOptions      *core.CompilerOptions `json:"compilerOptions"`
-		ConfigFilePath       string                `json:"configFilePath"`
-		OutDir               string                `json:"outDir"`
-		TsBuildInfoFile      string                `json:"tsBuildInfoFile"`
-		PathTranslatorTarget string                `json:"pathTranslatorBuildInfoPath"`
-		Type                 string                `json:"type"`
-		RojoConfigPath       string                `json:"rojoConfigPath"`
-		IncludePath          string                `json:"includePath"`
-		LuaExtension         bool                  `json:"luaExtension"`
-		Declaration          bool                  `json:"declaration"`
-		EmitDeclarationOnly  bool                  `json:"emitDeclarationOnly"`
-		NoOptimizedLoops     bool                  `json:"noOptimizedLoops"`
-		MinifyOutput         bool                  `json:"minifyOutput"`
-		FlameworkSalt        string                `json:"flameworkSalt,omitempty"`
+		Version              string                         `json:"version"`
+		CompilerOptions      *core.CompilerOptions          `json:"compilerOptions"`
+		ConfigFilePath       string                         `json:"configFilePath"`
+		OutDir               string                         `json:"outDir"`
+		TsBuildInfoFile      string                         `json:"tsBuildInfoFile"`
+		PathTranslatorTarget string                         `json:"pathTranslatorBuildInfoPath"`
+		Type                 string                         `json:"type"`
+		RojoConfigPath       string                         `json:"rojoConfigPath"`
+		IncludePath          string                         `json:"includePath"`
+		LuaExtension         bool                           `json:"luaExtension"`
+		Declaration          bool                           `json:"declaration"`
+		EmitDeclarationOnly  bool                           `json:"emitDeclarationOnly"`
+		NoOptimizedLoops     bool                           `json:"noOptimizedLoops"`
+		MinifyOutput         bool                           `json:"minifyOutput"`
+		FlameworkSalt        string                         `json:"flameworkSalt,omitempty"`
+		TransformerPlugins   []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
 	}{
 		Version:              "rotor-incremental-v2",
 		CompilerOptions:      options,
@@ -57,6 +67,7 @@ func incrementalSaltWithFlamework(program *compiler.Program, opts ProjectOptions
 		NoOptimizedLoops:     opts.NoOptimizedLoops,
 		MinifyOutput:         opts.MinifyOutput,
 		FlameworkSalt:        flameworkSalt,
+		TransformerPlugins:   plugins,
 	})
 	if err != nil {
 		return "", err

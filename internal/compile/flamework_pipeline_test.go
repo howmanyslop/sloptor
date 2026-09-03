@@ -118,10 +118,17 @@ func TestFlameworkPipelineUsesConfiguredAfterOnRealBuildPath(t *testing.T) {
 	}
 
 	// When: the actual build surface runs.
-	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+	timings := NewBuildTimings()
+	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings})
 	// Then: both the prefix plugin and native stage reached emitted Luau.
 	if err != nil {
 		t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	if timings.Counts.SidecarStats == 0 {
+		t.Fatal("sidecar stats = 0, want a disk snapshot on the first stage")
+	}
+	if timings.Counts.TotalSources > 0 && timings.Counts.SidecarSourceReads > 2*timings.Counts.TotalSources+8 {
+		t.Fatalf("sidecar source reads = %d for %d sources, want at most one compile-file pass plus declaration reverts", timings.Counts.SidecarSourceReads, timings.Counts.TotalSources)
 	}
 	output := result.Outputs["out/main.luau"]
 	prefix := strings.Index(output, "prefix-stage")
@@ -137,8 +144,16 @@ func TestFlameworkPipelineUsesConfiguredAfterOnRealBuildPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(declaration), "prefix-declaration") != 1 || strings.Count(string(declaration), "suffix-declaration") != 1 || strings.Index(string(declaration), "prefix-declaration") > strings.Index(string(declaration), "suffix-declaration") {
-		t.Fatalf("declaration transforms did not run once in plugin order:\n%s", declaration)
+	// Declarations are emitted natively from the untransformed program, so
+	// neither the plugins' afterDeclarations markers nor their source-stage
+	// markers may appear in the published types.
+	for _, marker := range []string{"prefix-declaration", "suffix-declaration", "__PREFIX_STAGE__", "__SUFFIX_STAGE__"} {
+		if strings.Contains(string(declaration), marker) {
+			t.Fatalf("transformer output %q leaked into the declaration:\n%s", marker, declaration)
+		}
+	}
+	if !strings.Contains(string(declaration), "export declare class TestService") {
+		t.Fatalf("declaration does not describe the authored source:\n%s", declaration)
 	}
 }
 
@@ -274,3 +289,29 @@ func transformerPluginNames(plugins []transformerPluginConfig) []string {
 }
 
 var _ = config.FlameworkConfig{}
+
+// An incremental build that selected nothing has nothing to transform and
+// nothing to emit, so the pipeline must not reach the worker at all: the
+// worker builds its whole LanguageService program before it can discover that
+// the compile list is empty. The plugin named here does not exist, so any
+// round trip fails loudly.
+func TestRunCompilePipelineSkipsTheWorkerWhenNothingIsSelected(t *testing.T) {
+	dir := writeProject(t, "@scope/empty-selection", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	missing := []transformerPluginConfig{{Transform: "rotor-transformer-that-does-not-exist"}}
+	pipeline := &flameworkPipeline{config: &config.FlameworkConfig{}, plugins: missing, prefix: missing, suffix: missing}
+
+	result, diags, err := runCompilePipeline(projectDir, program, nil, nil, pipeline)
+	if err != nil {
+		t.Fatalf("runCompilePipeline: %v (diags: %v)", err, diags)
+	}
+	if len(result.prepared.sourceFiles) != 0 {
+		t.Fatalf("prepared %d source files, want none", len(result.prepared.sourceFiles))
+	}
+	if result.prepared.flamework != pipeline.config {
+		t.Fatal("the empty pipeline dropped the Flamework config the rest of the build reads")
+	}
+}
