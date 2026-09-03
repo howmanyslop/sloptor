@@ -102,7 +102,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		stopManifest()
 		return nil, nil, err
 	}
-	salt, err := incrementalSaltWithFlamework(program, opts, manifestPath, flameworkInputs)
+	salt, err := incrementalSaltWithFlamework(dir, program, opts, manifestPath, flameworkInputs)
 	if err != nil {
 		stopManifest()
 		return nil, nil, err
@@ -281,7 +281,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		if err != nil {
 			return nil, nil, fmt.Errorf("compile: refresh native Flamework incremental inputs: %w", err)
 		}
-		currentManifest.Salt, err = incrementalSaltWithFlamework(program, opts, manifestPath, finalFlameworkInputs)
+		currentManifest.Salt, err = incrementalSaltWithFlamework(dir, program, opts, manifestPath, finalFlameworkInputs)
 		if err != nil {
 			return nil, nil, err
 		}
