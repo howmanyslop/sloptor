@@ -23,13 +23,28 @@ import (
 // custom-transformer hook, so the rewrite is applied to the emitted text,
 // driven by a reparse of that text (never a regex).
 //
-// Deliberate divergence from the JS version, kept because it is a fix rather
-// than a difference of opinion: the JS transformer resolved specifiers through
-// a module-resolution cache that only ever saw the specifiers the program had
-// already resolved for that file, so `import("alias/x")` types synthesized by
-// the declaration emitter for INFERRED types kept their alias spelling and
-// shipped unresolvable. Here an unresolved specifier falls back to a real
-// resolver pass (resolveFresh), so those are rewritten too.
+// Three divergences from the JS version, all deliberate:
+//
+//   - An unresolved specifier falls back to a real resolver pass
+//     (resolveFresh). The JS transformer resolved specifiers through a
+//     module-resolution cache that only ever saw what the program had already
+//     resolved for that file, so `import("alias/x")` types synthesized by the
+//     declaration emitter for INFERRED types kept their alias spelling and
+//     shipped unresolvable. This is a fix, not a difference of opinion.
+//
+//   - The visitor recurses into NESTED `import()` types. The JS returned an
+//     updated ImportTypeNode without descending into its type arguments, so
+//     `import("@alias/a").T<import("@alias/b").U>` left the inner specifier
+//     alone. Here every specifier in the tree is visited, for the same reason
+//     as above: an alias spelling the runtime cannot resolve is a bug wherever
+//     it sits.
+//
+//   - rootDirs is applied unconditionally. This is INHERITED from rbxtsc, not
+//     a faithful port of tsc: upstream `transformPaths` reads
+//     `compilerOptions.rootDirs` directly, while tsc gates the equivalent
+//     collapse on a `useRootDirs` flag that declaration emit leaves off. It is
+//     kept because it is what the fork ships and what existing projects
+//     published their types against.
 type declarationPathRewriter struct {
 	program            *compiler.Program
 	options            *core.CompilerOptions
@@ -96,7 +111,28 @@ type textEdit struct {
 	text  string
 }
 
-// applyTextEdits splices edits (already sorted, non-overlapping) into text.
+// nonOverlappingTextEdits sorts edits by position and drops any that starts
+// inside the previous one. The text splice and the `.d.ts.map` column fixup
+// consume the SAME slice, so the filtering happens once, up front: dropping an
+// edit in only one of them would leave the two disagreeing about where the
+// text ended up.
+func nonOverlappingTextEdits(edits []textEdit) []textEdit {
+	if len(edits) < 2 {
+		return edits
+	}
+	sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+	kept := edits[:1]
+	for _, edit := range edits[1:] {
+		if edit.start < kept[len(kept)-1].end {
+			continue
+		}
+		kept = append(kept, edit)
+	}
+	return kept
+}
+
+// applyTextEdits splices edits into text. They must already be sorted and
+// non-overlapping, which is what nonOverlappingTextEdits returns.
 func applyTextEdits(text string, edits []textEdit) string {
 	if len(edits) == 0 {
 		return text
@@ -137,6 +173,14 @@ func (r *declarationPathRewriter) specifierEdits(originalFile *ast.SourceFile, d
 		return nil
 	}
 	resolutions := r.program.GetResolvedModules()[originalFile.Path()]
+	// The declaration text is a reparse, so its nodes carry no resolution
+	// metadata; the mode a specifier resolved under is the ORIGINAL file's
+	// default. Under `module: preserve` / `moduleResolution: bundler` one name
+	// can sit in the cache twice under different modes with different resolved
+	// files, and Go map iteration order is random, so picking by name alone
+	// would emit nondeterministic text and churn the incremental hash on every
+	// build.
+	mode := r.program.GetDefaultResolutionModeForFile(originalFile)
 	fileName := tspath.NormalizePath(originalFile.FileName())
 	fileDirectory := tspath.GetDirectoryPath(fileName)
 
@@ -145,7 +189,7 @@ func (r *declarationPathRewriter) specifierEdits(originalFile *ast.SourceFile, d
 		if literal == nil || !ast.IsStringLiteral(literal) {
 			return
 		}
-		replacement, ok := r.resolveSpecifier(resolutions, fileName, fileDirectory, literal.Text())
+		replacement, ok := r.resolveSpecifier(resolutions, mode, fileName, fileDirectory, literal.Text())
 		if !ok {
 			return
 		}
@@ -153,7 +197,7 @@ func (r *declarationPathRewriter) specifierEdits(originalFile *ast.SourceFile, d
 		if start >= literal.End() || declText[start] != '"' && declText[start] != '\'' {
 			return
 		}
-		edits = append(edits, textEdit{start: start, end: literal.End(), text: "\"" + replacement + "\""})
+		edits = append(edits, textEdit{start: start, end: literal.End(), text: quoteSpecifier(replacement)})
 	}
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
@@ -184,7 +228,6 @@ func (r *declarationPathRewriter) specifierEdits(originalFile *ast.SourceFile, d
 		return false
 	}
 	parsed.AsNode().ForEachChild(visit)
-	sort.Slice(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
 	return edits
 }
 
@@ -193,30 +236,48 @@ func (r *declarationPathRewriter) specifierEdits(originalFile *ast.SourceFile, d
 // need not appear in the source file's own import list. The JS transformer
 // reached ts.resolveModuleName for these; without it an `import("alias/x")`
 // ships unresolvable.
-func (r *declarationPathRewriter) resolveFresh(containingFile string, specifier string) *module.ResolvedModule {
+func (r *declarationPathRewriter) resolveFresh(containingFile string, specifier string, mode core.ResolutionMode) *module.ResolvedModule {
 	r.resolverMu.Lock()
 	defer r.resolverMu.Unlock()
 	if r.resolver == nil {
 		r.resolver = module.NewResolver(r.program.Host(), r.options, "", "")
 	}
-	resolved, _ := r.resolver.ResolveModuleName(specifier, containingFile, core.ResolutionModeNone, nil)
+	resolved, _ := r.resolver.ResolveModuleName(specifier, containingFile, mode, nil)
 	return resolved
+}
+
+// quoteSpecifier wraps a resolved path in a double-quoted TypeScript string
+// literal. A path may legitimately contain a quote or a backslash on a POSIX
+// filesystem, and splicing one in raw would produce a `.d.ts` that no longer
+// parses.
+func quoteSpecifier(specifier string) string {
+	if !strings.ContainsAny(specifier, "\"\\") {
+		return "\"" + specifier + "\""
+	}
+	var builder strings.Builder
+	builder.Grow(len(specifier) + 4)
+	builder.WriteByte('"')
+	for index := 0; index < len(specifier); index++ {
+		if specifier[index] == '"' || specifier[index] == '\\' {
+			builder.WriteByte('\\')
+		}
+		builder.WriteByte(specifier[index])
+	}
+	builder.WriteByte('"')
+	return builder.String()
 }
 
 // resolveSpecifier returns the relative spelling for specifier, or ok=false
 // when it must be left alone: an external-library import (a `@rbxts/*`
 // package), or anything that does not resolve at all — which is also how a URL
 // specifier survives untouched, since no lookup can ever answer it.
-func (r *declarationPathRewriter) resolveSpecifier(resolutions module.ModeAwareCache[*module.ResolvedModule], containingFile string, fileDirectory string, specifier string) (string, bool) {
-	var resolved *module.ResolvedModule
-	for key, candidate := range resolutions {
-		if key.Name == specifier {
-			resolved = candidate
-			break
-		}
+func (r *declarationPathRewriter) resolveSpecifier(resolutions module.ModeAwareCache[*module.ResolvedModule], mode core.ResolutionMode, containingFile string, fileDirectory string, specifier string) (string, bool) {
+	resolved := resolutions[module.ModeAwareCacheKey{Name: specifier, Mode: mode}]
+	if !resolved.IsResolved() && mode != core.ResolutionModeNone {
+		resolved = resolutions[module.ModeAwareCacheKey{Name: specifier, Mode: core.ResolutionModeNone}]
 	}
 	if !resolved.IsResolved() {
-		resolved = r.resolveFresh(containingFile, specifier)
+		resolved = r.resolveFresh(containingFile, specifier, mode)
 	}
 	if !resolved.IsResolved() || resolved.IsExternalLibraryImport {
 		return "", false
