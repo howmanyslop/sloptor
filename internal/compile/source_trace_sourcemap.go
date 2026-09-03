@@ -61,7 +61,6 @@ type emittedMapping struct {
 }
 
 func encodeEmittedMappings(mappings []emittedMapping) string {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 	var builder strings.Builder
 	lastGeneratedLine := 0
 	lastGeneratedColumn := 0
@@ -79,12 +78,12 @@ func encodeEmittedMappings(mappings []emittedMapping) string {
 		if !firstMappingOnLine {
 			builder.WriteByte(',')
 		}
-		appendVLQ(&builder, mapping.generatedColumn-lastGeneratedColumn, alphabet)
+		appendVLQ(&builder, mapping.generatedColumn-lastGeneratedColumn, base64VLQAlphabet)
 		lastGeneratedColumn = mapping.generatedColumn
 		if mapping.hasSource {
-			appendVLQ(&builder, 0, alphabet)
-			appendVLQ(&builder, mapping.sourceLine-lastSourceLine, alphabet)
-			appendVLQ(&builder, mapping.sourceColumn-lastSourceColumn, alphabet)
+			appendVLQ(&builder, 0, base64VLQAlphabet)
+			appendVLQ(&builder, mapping.sourceLine-lastSourceLine, base64VLQAlphabet)
+			appendVLQ(&builder, mapping.sourceColumn-lastSourceColumn, base64VLQAlphabet)
 			lastSourceLine = mapping.sourceLine
 			lastSourceColumn = mapping.sourceColumn
 		}

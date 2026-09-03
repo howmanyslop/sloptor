@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/pprof"
 	"strings"
 
 	"rotor/internal/assetresolve"
@@ -19,13 +20,10 @@ import (
 	"rotor/internal/rojo"
 	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
-	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
-	"rotor/tsgo/vfs"
-	"rotor/tsgo/vfs/cachedvfs"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -128,11 +126,12 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	// the sidecar builds its transformed-source program on. The unwrapped path
 	// stays the default so a build without overlays keeps exactly the previous
 	// filesystem stack.
-	var fs vfs.FS = cachedvfs.From(SanitizeFSWithConfigPath(bundled.WrapFS(osvfs.FS()), configPath))
+	overlays := map[string]string(nil)
 	if len(opts.Overlays) > 0 {
-		fs = newOverlayFS(osvfs.FS(), configPath, normalizeOverlays(opts.Overlays))
+		overlays = normalizeOverlays(opts.Overlays)
 	}
-	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers)
+	fs := solutionCacheFS(opts.compileCache, configPath, overlays)
+	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
 	if err != nil {
 		return "", nil, diags, err
 	}
@@ -473,6 +472,7 @@ type ProjectOptions struct {
 	crossProjectImportPathMap map[string]string
 	pendingSolutionPersists   *[]func() error
 	deferRojoCachePersist     bool
+	compileCache              *solutionCompileCache
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds
@@ -504,6 +504,11 @@ type ProjectOptions struct {
 	// Builders overrides the project builder count when set by the CLI. A nil
 	// value preserves the upstream default behavior.
 	Builders *int
+
+	// SingleThreaded overrides compilerOptions.singleThreaded when set by the
+	// CLI. A nil value preserves the parsed config. Effective true forces one
+	// solution builder and one checker per program.
+	SingleThreaded *bool
 
 	// RojoConfigPath is the --rojo override (createProjectData.ts L33-43):
 	// non-empty values are path.resolve'd and used verbatim; QUIRK verbatim
@@ -732,7 +737,8 @@ type precheckedProjectSourceFile struct {
 }
 
 func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *projectContext, sourceFiles []*ast.SourceFile, opts ProjectOptions) (map[string]string, map[string]string, []DiagnosticInfo, error) {
-	ctx := context.Background()
+	ctx := opts.Timings.context()
+	pprof.SetGoroutineLabels(ctx)
 
 	// A non-nil collector is what turns census mode on; nil is stock.
 	census := opts.census
@@ -740,11 +746,13 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 		census.traces = pctx.sourceTraces
 	}
 
+	stopDiagnostics := opts.Timings.startStage(semanticDiagnosticsStage)
 	// Gate 1 of 4. Program-level option diagnostics fail the compile before any
 	// file is transformed, mirroring CompileFile. Census mode records them as
 	// project-level diagnostics and carries on.
 	if tsDiags := program.GetProgramDiagnostics(); len(tsDiags) > 0 {
 		if census == nil {
+			stopDiagnostics()
 			return nil, nil, tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 		}
 		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags, pctx.sourceTraces))
@@ -762,6 +770,7 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	for _, group := range groups {
 		group := group
 		wg.Queue(func() {
+			pprof.SetGoroutineLabels(ctx)
 			// Deliberately unguarded: a recover() here would be worse than the
 			// crash it catches. GetSemanticDiagnostics takes the checker mutex
 			// and releases it without defer (tsgo/compiler/program.go,
@@ -785,9 +794,11 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	if census == nil {
 		for _, precheck := range prechecks {
 			if len(precheck.tsDiags) > 0 {
+				stopDiagnostics()
 				return nil, nil, tsDiagnosticInfos(precheck.tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 			}
 			if len(precheck.commentDiags) > 0 {
+				stopDiagnostics()
 				return nil, nil, stringDiagnostics(precheck.commentDiags), errors.New("compile: comment directive diagnostics")
 			}
 		}
@@ -797,15 +808,19 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	// and releases the checker mutex without defer.
 	if tsDiags := program.GetGlobalDiagnostics(ctx); len(tsDiags) > 0 {
 		if census == nil {
+			stopDiagnostics()
 			return nil, nil, tsDiagnosticInfos(tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
 		}
 		census.addProjectDiagnostics(tsDiagnosticInfos(tsDiags, pctx.sourceTraces))
 	}
+	stopDiagnostics()
 
+	stopTransform := opts.Timings.startStage(nativeTransformRenderStage)
 	wg = core.NewWorkGroup(program.SingleThreaded() || len(groups) <= 1)
 	for _, group := range groups {
 		group := group
 		wg.Queue(func() {
+			pprof.SetGoroutineLabels(ctx)
 			multi := transformer.NewMultiState()
 			for i, sourceFile := range group.files {
 				index := group.indices[i]
@@ -814,6 +829,7 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 		})
 	}
 	wg.RunAndWait()
+	stopTransform()
 
 	// Gate 4 of 4: the transform drain. Census mode accumulates every file's
 	// outcome instead of returning at the first error.

@@ -25,7 +25,7 @@ func TestCompileProjectBaseURLPathsRewrite(t *testing.T) {
 	files := compileRuntimeLibProject(t, "baseurl_model")
 
 	wants := map[string]string{
-		"out/main.luau": "-- Compiled with sloptor v2.3.2\n" +
+		"out/main.luau": "-- Compiled with sloptor v2.3.3\n" +
 			"local TS = require(script.Parent.include.RuntimeLib)\n" +
 			"local _mod = TS.import(script, script.Parent, \"shared\", \"mod\")\n" +
 			"local sharedFn = _mod.sharedFn\n" +
@@ -33,7 +33,7 @@ func TestCompileProjectBaseURLPathsRewrite(t *testing.T) {
 			"local dummy = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n" +
 			"print(sharedFn(), SHARED_VALUE, dummy())\n" +
 			"return nil\n",
-		"out/shared/mod.luau": "-- Compiled with sloptor v2.3.2\n" +
+		"out/shared/mod.luau": "-- Compiled with sloptor v2.3.3\n" +
 			"local SHARED_VALUE = 5\n" +
 			"local function sharedFn()\n" +
 			"\treturn SHARED_VALUE * 2\n" +

@@ -45,6 +45,7 @@ func TestDeclarationEmitRemainsPerSource(t *testing.T) {
 	// Given
 	fixture, transcript, _ := stagePerformanceOutputFixture(t)
 	t.Cleanup(closeSidecarSessions)
+	log := captureCompilerLog(t)
 
 	// When
 	result, diagnostics, err := BuildProjectWithOptions(fixture, ProjectOptions{})
@@ -56,20 +57,23 @@ func TestDeclarationEmitRemainsPerSource(t *testing.T) {
 	if got := normalizePerformancePaths(result.EmittedFiles, fixture); !slices.Equal(got, transcript.EmittedFiles) {
 		t.Fatalf("emitted files = %q, want %q", got, transcript.EmittedFiles)
 	}
-	declarationFiles := make([]string, 0, 2)
-	for _, path := range transcript.EmittedFiles {
-		if strings.HasSuffix(path, ".d.ts") {
-			declarationFiles = append(declarationFiles, filepath.Base(path))
-		}
+	// The fixture declares an afterDeclarations transformer. tsgo has no
+	// custom-transformer hook, so declarations are emitted natively and the
+	// transformer must be reported rather than silently skipped.
+	if !strings.Contains(log.String(), "afterDeclarations transformers are not supported") {
+		t.Fatalf("no afterDeclarations warning in compiler log:\n%s", log)
 	}
-	for index, file := range declarationFiles {
+	for _, path := range transcript.EmittedFiles {
+		if !strings.HasSuffix(path, ".d.ts") {
+			continue
+		}
+		file := filepath.Base(path)
 		declaration, readErr := os.ReadFile(filepath.Join(fixture, "out", file))
 		if readErr != nil {
 			t.Fatalf("read declaration %q: %v", file, readErr)
 		}
-		marker := fmt.Sprintf("__DECLARATION_EMIT_%d__", index+1)
-		if !bytes.Contains(declaration, []byte(marker)) {
-			t.Fatalf("declaration %q does not contain %q:\n%s", file, marker, declaration)
+		if bytes.Contains(declaration, []byte("__DECLARATION_EMIT_")) {
+			t.Fatalf("afterDeclarations transformer ran for %q:\n%s", file, declaration)
 		}
 	}
 	declarationEntries := make([]string, 0, 4)

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // capture redirects Output to a buffer for one test and resets the
@@ -145,5 +146,32 @@ func TestConcurrentBenchmarkIfVerboseAndWarn(t *testing.T) {
 	}
 	if strings.Contains(got, "Compiler Warning: parallel compile in progress (") {
 		t.Fatalf("warning glued to benchmark line: %q", got)
+	}
+}
+
+func TestStageVerboseEmitsStartBeforeWork(t *testing.T) {
+	buf := capture(t)
+	Verbose = true
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		WriteStageStartIfVerbose("child", "sidecar worker")
+		close(started)
+		<-release
+		WriteStageDoneIfVerbose("child", "sidecar worker", 5*time.Millisecond)
+	}()
+
+	<-started
+	got := buf.String()
+	if got != "child: sidecar worker...\n" {
+		t.Fatalf("start output = %q, want start line only", got)
+	}
+	close(release)
+	<-done
+	if !strings.HasSuffix(buf.String(), "child: sidecar worker ( 5 ms )\n") {
+		t.Fatalf("completion output = %q", buf.String())
 	}
 }

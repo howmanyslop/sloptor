@@ -160,9 +160,7 @@ func TestBuildProjectNativeFlameworkDoesNotRequireNodeOrSidecar(t *testing.T) {
 	if result == nil || result.Outputs["out/main.luau"] == "" {
 		t.Fatalf("BuildProjectWithOptions result = %#v, want emitted Luau", result)
 	}
-	sidecarMu.Lock()
-	sessions := len(sidecarSessions)
-	sidecarMu.Unlock()
+	sessions := sidecarSlotCount()
 	if sessions != 0 {
 		t.Fatalf("native Flamework build spawned %d sidecar session(s)", sessions)
 	}
@@ -187,20 +185,17 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
 
 	// When: the prefix and suffix run as source-only stages.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, sidecarEmitSources)
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, nil)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, sidecarEmitSources)
-	// Then: each subset is applied in order without declaration emission.
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, nil)
+	// Then: each subset is applied in order.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
 	}
-	if len(first.declarations) != 0 {
-		t.Fatalf("prefix declarations = %d, want 0", len(first.declarations))
-	}
-	if len(second.declarations) != 0 {
-		t.Fatalf("suffix declarations = %d, want 0", len(second.declarations))
+	if first.program == program {
+		t.Fatal("prefix transform did not produce a new program")
 	}
 	source := second.program.GetSourceFile(filepath.Join(dir, "src", "main.ts"))
 	if source == nil || !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
@@ -208,7 +203,10 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	}
 }
 
-func TestApplyTransformerSidecarPreservesCombinedSourceAndDeclarationOutput(t *testing.T) {
+// Declarations are emitted natively from the ORIGINAL program, so a source
+// transformer must never reach them: the sidecar rewrites the Luau surface
+// while the published `.d.ts` keeps describing the source the user wrote.
+func TestApplyTransformerSidecarLeavesDeclarationsToNativeEmit(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
 	dir := writeProject(t, "@scope/combined-sidecar", "")
@@ -233,11 +231,15 @@ func TestApplyTransformerSidecarPreservesCombinedSourceAndDeclarationOutput(t *t
 	if !strings.Contains(source.Text(), `"suffix:prefix:start"`) {
 		t.Fatalf("combined source = %q, want suffix:prefix:start", source.Text())
 	}
-	if len(combined.declarations) != 1 {
-		t.Fatalf("combined declarations = %d, want 1", len(combined.declarations))
+	declarations, err := emitDeclarationTexts(program, projectSourceFiles(program))
+	if err != nil {
+		t.Fatalf("emitDeclarationTexts: %v", err)
 	}
-	if got, want := combined.declarations[0].Text, "export declare const phase = \"start\";\n"; got != want {
-		t.Fatalf("combined declaration = %q, want %q", got, want)
+	if len(declarations) != 1 {
+		t.Fatalf("declarations = %d, want 1", len(declarations))
+	}
+	if got, want := declarations[0].Text, "export declare const phase = \"start\";\n"; got != want {
+		t.Fatalf("declaration = %q, want %q", got, want)
 	}
 }
 
@@ -521,4 +523,42 @@ func writeSidecarPluginFixture(t *testing.T, dir, baseTSConfig, rootTSConfig str
 			t.Fatal(err)
 		}
 	}
+}
+
+func TestSidecarEnv(t *testing.T) {
+	t.Run("NODE_PATH reaches the workspace root", func(t *testing.T) {
+		// Given
+		t.Setenv("NODE_PATH", "")
+		root := t.TempDir()
+		projectDir := filepath.Join(root, "packages", "topbar")
+		sidecarDir := filepath.Join(root, "sidecar")
+		for _, dir := range []string{
+			filepath.Join(root, "node_modules"),
+			filepath.Join(projectDir, "node_modules"),
+		} {
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		// When
+		env := sidecarEnv(projectDir, sidecarDir)
+		// Then
+		want := strings.Join([]string{
+			filepath.Join(projectDir, "node_modules"),
+			filepath.Join(root, "node_modules"),
+		}, string(os.PathListSeparator))
+		if got := envValue(env, "NODE_PATH"); got != want {
+			t.Errorf("NODE_PATH = %q, want %q", got, want)
+		}
+	})
+}
+
+func envValue(env []string, name string) string {
+	for _, entry := range env {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value
+		}
+	}
+	return ""
 }

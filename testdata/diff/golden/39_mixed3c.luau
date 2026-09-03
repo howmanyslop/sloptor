@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.2
+-- Compiled with sloptor v2.3.3
 local TS = require(script.Parent.include.RuntimeLib)
 -- Phase 3c interactions: decorated class components rendering JSX, spread
 -- props through table.clone, enum-keyed Map iteration feeding children,
