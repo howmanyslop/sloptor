@@ -112,30 +112,84 @@ func resolveTransformerPluginEntry(projectDir, transform string) (entryPath stri
 	if err != nil {
 		return "", "", "package.json unreadable"
 	}
-	entry := subpath
-	if entry == "" {
-		// resolvePackageExports already walks `exports` conditions and falls
-		// back to `main`, which is exactly the runtime entry a `require` of
-		// the bare package name lands on.
-		_, runtimePath, exportsErr := resolvePackageExports(packageDir, nil)
-		if exportsErr != nil || runtimePath == "" {
-			entry = manifest.Main
-		} else {
-			entry = runtimePath
+	// Candidates in the order Node would settle them, each only as good as the
+	// file it names: resolvePackageExports answers for the TYPES half of a
+	// package and declines a runtime-only `exports` map, so a miss there has to
+	// fall through rather than stop the search.
+	candidates := []string{subpath}
+	if subpath == "" {
+		exportsRuntimePath := ""
+		if _, runtimePath, exportsErr := resolvePackageExports(packageDir, nil); exportsErr == nil {
+			exportsRuntimePath = runtimePath
+		}
+		candidates = []string{
+			exportsRuntimePath,
+			packageExportsRuntimeEntry(manifest.Exports),
+			manifest.Main,
+			"index.js",
 		}
 	}
-	if entry == "" {
-		entry = "index.js"
+	for _, entry := range candidates {
+		if entry == "" {
+			continue
+		}
+		candidate := filepath.FromSlash(entry)
+		if !filepath.IsAbs(candidate) {
+			candidate = filepath.Join(packageDir, candidate)
+		}
+		if resolved, ok := resolveModuleFile(candidate); ok {
+			return resolved, manifest.Version, ""
+		}
 	}
-	candidate := filepath.FromSlash(entry)
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(packageDir, candidate)
+	return "", "", "entry not found"
+}
+
+// packageExportsRuntimeEntry reads the CommonJS target an `exports` field names
+// for the package root. Node's conditional-exports algorithm is far richer than
+// this; the shapes a transformer ships are a bare string, a subpath map, and a
+// condition map, and anything else falls through to `main`.
+func packageExportsRuntimeEntry(exports json.RawMessage) string {
+	if len(exports) == 0 {
+		return ""
 	}
-	resolved, ok := resolveModuleFile(candidate)
-	if !ok {
-		return "", "", "entry not found"
+	var text string
+	if json.Unmarshal(exports, &text) == nil {
+		return text
 	}
-	return resolved, manifest.Version, ""
+	var table map[string]json.RawMessage
+	if json.Unmarshal(exports, &table) != nil {
+		return ""
+	}
+	if target, ok := table["."]; ok {
+		if json.Unmarshal(target, &text) == nil {
+			return text
+		}
+		return packageExportsCondition(target)
+	}
+	return packageExportsCondition(exports)
+}
+
+// packageExportsCondition picks the first condition a `require` from rotor's
+// own worker would match, in Node's own precedence order.
+func packageExportsCondition(target json.RawMessage) string {
+	var conditions map[string]json.RawMessage
+	if json.Unmarshal(target, &conditions) != nil {
+		return ""
+	}
+	for _, condition := range []string{"require", "node", "default", "import"} {
+		raw, ok := conditions[condition]
+		if !ok {
+			continue
+		}
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			return text
+		}
+		if nested := packageExportsCondition(raw); nested != "" {
+			return nested
+		}
+	}
+	return ""
 }
 
 // splitPackageSpecifier separates `@scope/name/sub/path` into the package name
