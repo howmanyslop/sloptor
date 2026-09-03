@@ -106,3 +106,50 @@ func TestDeclarationMapColumnsFollowTheRewrittenSpecifier(t *testing.T) {
 		t.Fatal("no mapping covered the rewritten specifier")
 	}
 }
+
+// Replaces the sidecar-era JS test "declaration path resolution observes
+// filesystem mutations on the next request". The rewrite must resolve against
+// the text the build is actually compiling, not against what is on disk: an
+// import that exists only in a caller overlay still has to be rewritten.
+func TestDeclarationEmitRewritesOverlaidImports(t *testing.T) {
+	dir := t.TempDir()
+	copyDir(t, filepath.Join("testdata", "declpaths_model"), dir)
+	overlaid := filepath.Join(dir, "src", "main.ts")
+	overlay := "import type { Shared } from \"@alias/shared/mod\";\n" +
+		"export type Overlaid = Shared;\n"
+
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Overlays: map[string]string{overlaid: overlay}}); err != nil {
+		t.Fatalf("build: %v (diags: %v)", err, diags)
+	}
+
+	declaration := readDeclarationFixtureFile(t, dir, "main.d.ts")
+	if !strings.Contains(declaration, `from "./shared/mod"`) {
+		t.Fatalf("overlaid import was not rewritten:\n%s", declaration)
+	}
+	if strings.Contains(declaration, "@alias/") {
+		t.Fatalf("an alias spelling survived into the declaration:\n%s", declaration)
+	}
+	if !strings.Contains(declaration, "Overlaid") {
+		t.Fatalf("declaration was emitted from disk rather than from the overlay:\n%s", declaration)
+	}
+}
+
+// --emitDeclarationOnly still runs the transformer round trip even though it
+// throws the transformed sources away, so that a plugin which fails to load
+// still fails the build rather than silently publishing types.
+func TestEmitDeclarationOnlyStillReportsAFailingPlugin(t *testing.T) {
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/emit-declaration-only-plugin", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[{ "transform": "./plugins/does-not-exist.js" }]`))
+
+	_, diags, err := BuildProjectWithOptions(dir, ProjectOptions{EmitDeclarationOnly: true})
+	if err == nil {
+		t.Fatal("build succeeded with an unloadable transformer plugin")
+	}
+	joined := strings.Join(diags, "\n")
+	if !strings.Contains(joined, "does-not-exist.js") {
+		t.Fatalf("diagnostics do not name the failing plugin: %v", diags)
+	}
+}
