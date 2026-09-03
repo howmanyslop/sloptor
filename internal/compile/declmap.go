@@ -38,6 +38,11 @@ func shiftDeclarationMapColumns(mapText string, declText string, edits []textEdi
 	if len(shifts) == 0 {
 		return mapText
 	}
+	// tsgo writes the map by json.Marshal of sourcemap.RawSourceMap, so
+	// `mappings` is a plain JSON string whose value is base64 VLQ — an
+	// alphabet with nothing JSON has to escape. Splicing that one value keeps
+	// every other byte of the map (field order included) exactly as tsgo wrote
+	// it, which a decode/re-encode round trip would not.
 	const key = `"mappings":"`
 	start := strings.Index(mapText, key)
 	if start < 0 {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"rotor/internal/assets"
@@ -499,13 +498,16 @@ type declarationEmitFile struct {
 	Data     *compiler.WriteFileData
 }
 
-// emitDeclarationTexts is the declaration-emit seam. It runs tsgo's
-// `EmitOnlyDts` over files and returns finished text with rotor's declaration
-// rewrites already applied (the `@rbxts/types` reference scope, the `paths`
-// specifier rewrite, and the matching `.d.ts.map` column fixup). It writes
-// nothing and reads no writer state, so a caller that only needs the text — the
-// `.d.ts`-signature incremental rule — shares exactly the bytes the build
-// writes.
+// emitDeclarationTexts is the declaration-emit seam: given a program and a set
+// of its source files, it returns one entry per emitted artifact — the `.d.ts`
+// and, when `declarationMap` is on, its `.d.ts.map` — with rotor's declaration
+// rewrites already applied (the `@rbxts/types` reference rescope, the `paths`
+// specifier rewrite, and the matching map column fixup).
+//
+// It touches no disk and no writer state, and returns the same bytes the build
+// writes, so a caller that needs declaration TEXT rather than declaration FILES
+// can share it. Ordering is stable: files in the order given, and within a file
+// the order tsgo emitted them.
 //
 // program must be the ORIGINAL, untransformed program: declarations describe
 // the source the user wrote, never the output of a source transformer.
@@ -558,10 +560,10 @@ func rewriteDeclarationEmit(rewriter *declarationPathRewriter, sourceFile *ast.S
 		original := emitted[index].Text
 		edits := typeReferenceEdits(original)
 		edits = append(edits, rewriter.specifierEdits(sourceFile, emitted[index].FileName, original)...)
+		edits = nonOverlappingTextEdits(edits)
 		if len(edits) == 0 {
 			continue
 		}
-		sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
 		emitted[index].Text = applyTextEdits(original, edits)
 
 		mapName := emitted[index].FileName + ".map"
@@ -592,6 +594,11 @@ func declarationEmitSourceFiles(program *compiler.Program, selectedPaths map[str
 }
 
 func emitDeclarations(program *compiler.Program, selectedPaths map[string]struct{}, writeOnlyChanged bool, writer *outputWriter, timings *BuildTimings) ([]string, error) {
+	// Checked before the stage timer starts so a project that emits no
+	// declarations reports no declaration stage and prints no --verbose line.
+	if !program.Options().GetEmitDeclarations() {
+		return nil, nil
+	}
 	files := declarationEmitSourceFiles(program, selectedPaths)
 	if len(files) == 0 {
 		return nil, nil
