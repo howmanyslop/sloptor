@@ -247,3 +247,70 @@ func addPathAliases(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+// A `.json` module is copied, not compiled, so its value never reaches an
+// importer's Luau — but its inferred TYPE reaches the importer's declaration
+// output. Selection has to seed the importers of a changed data file, or that
+// declaration goes stale.
+func TestDeclarationSignatureSelectionRebuildsImportersOfChangedJSON(t *testing.T) {
+	dir := writeProject(t, "@scope/signature-json", "")
+	enableJSONModules(t, dir)
+	enableDeclarationIncrementalBuilds(t, dir)
+	writeFiles(t, dir, map[string]string{
+		"src/data.json": "{\n\t\"value\": 1\n}\n",
+		"src/main.ts":   "import data from \"./data.json\";\nexport const value = data.value;\n",
+		"src/other.ts":  "export const other = 1;\n",
+	})
+	buildForSignatureTest(t, dir)
+
+	luauBefore := readOutput(t, dir, "main.luau")
+	writeFiles(t, dir, map[string]string{"src/data.json": "{\n\t\"value\": \"text\"\n}\n"})
+	timings, _ := buildForSignatureTest(t, dir)
+
+	if timings.Counts.SelectedSources != 1 {
+		t.Fatalf("selected %d files, want the importer of the changed data file", timings.Counts.SelectedSources)
+	}
+	if got, want := readOutput(t, dir, "main.d.ts"), "export declare const value: string;\n"; got != want {
+		t.Fatalf("declaration = %q, want %q — the importer was not rebuilt for the changed JSON", got, want)
+	}
+	// The value itself is a runtime require of the copied file, so the Luau
+	// cannot have moved.
+	if got := readOutput(t, dir, "main.luau"); got != luauBefore {
+		t.Fatalf("a JSON value change moved the importer's Luau:\n%s\n%s", luauBefore, got)
+	}
+	if got, want := readOutput(t, dir, "data.json"), "{\n\t\"value\": \"text\"\n}\n"; got != want {
+		t.Fatalf("copied data file = %q, want %q", got, want)
+	}
+}
+
+func enableJSONModules(t *testing.T, dir string) {
+	t.Helper()
+	path := filepath.Join(dir, "tsconfig.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), `"rootDir": "src"`, `"rootDir": "src",
+		"resolveJsonModule": true`, 1)
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFiles(t *testing.T, dir string, files map[string]string) {
+	t.Helper()
+	for rel, text := range files {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func readOutput(t *testing.T, dir, name string) string {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join(dir, "out", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
