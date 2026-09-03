@@ -34,6 +34,12 @@ type BuildTimingStages struct {
 	NativeDiagnosticsTransformRenderMs int64 `json:"nativeDiagnosticsTransformRenderMs"`
 	CompiledOutputWritesMs             int64 `json:"compiledOutputWritesMs"`
 	DeclarationEmitWritesMs            int64 `json:"declarationEmitWritesMs"`
+	// DeclarationEmitMs is the tsgo `.d.ts` emit half of
+	// DeclarationEmitWritesMs (a SUBSET of it, not an addition): the type
+	// checker run plus the paths rewrite, with the disk writes excluded.
+	// Declarations used to be emitted by the Node worker and were charged to
+	// SidecarRoundTripMs; this is where that time went.
+	DeclarationEmitMs int64 `json:"declarationEmitMs"`
 	IncrementalManifestMs              int64 `json:"incrementalManifestMs"`
 	PersistenceMs                      int64 `json:"persistenceMs"`
 }
@@ -68,6 +74,7 @@ const (
 	nativeDiagnosticsTransformRenderStage
 	compiledOutputWritesStage
 	declarationEmitWritesStage
+	declarationEmitStage
 	incrementalManifestStage
 	persistenceStage
 )
@@ -105,6 +112,8 @@ func (stage buildTimingStage) traceName() string {
 		return "compiled output writes"
 	case declarationEmitWritesStage:
 		return "declaration emit/write"
+	case declarationEmitStage:
+		return "declaration emit"
 	case incrementalManifestStage:
 		return "incremental manifest"
 	case persistenceStage:
@@ -131,6 +140,8 @@ func (timings *BuildTimings) addStageDuration(stage buildTimingStage, duration t
 		timings.Stages.CompiledOutputWritesMs += milliseconds
 	case declarationEmitWritesStage:
 		timings.Stages.DeclarationEmitWritesMs += milliseconds
+	case declarationEmitStage:
+		timings.Stages.DeclarationEmitMs += milliseconds
 	case incrementalManifestStage:
 		timings.Stages.IncrementalManifestMs += milliseconds
 	case persistenceStage:

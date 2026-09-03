@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"rotor/internal/assets"
@@ -17,6 +18,7 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
+	"rotor/tsgo/tspath"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -136,13 +138,18 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			msg := "Option 'emitDeclarationOnly' cannot be specified without specifying option 'declaration' or option 'composite'."
 			return nil, []string{msg}, errors.New("compile: TypeScript diagnostics")
 		}
+		// Declarations are emitted from the ORIGINAL program: a source
+		// transformer changes the emitted Luau, never the types the project
+		// publishes. The transformer round trip still runs so a plugin that
+		// fails is still reported by an --emitDeclarationOnly build.
+		originalProgram := program
 		prepared, sidecarDiags, err := prepareTransformerProgram(dir, program, sourceFiles, opts.Overlays)
 		if err != nil {
 			return nil, sidecarDiags, err
 		}
 		timings.recordPreparedTransformerProgram(prepared)
 		stopDeclarations := timings.startStage(declarationEmitWritesStage)
-		emitted, err := emitDeclarations(prepared.program, nil, opts.WriteOnlyChanged, prepared.declarations, writer, timings)
+		emitted, err := emitDeclarations(originalProgram, nil, opts.WriteOnlyChanged, writer, timings)
 		stopDeclarations()
 		if err != nil {
 			return nil, nil, err
@@ -249,6 +256,9 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 
+	// Held across the pipeline because declaration emit reads it: declarations
+	// describe the source the user wrote, not the source transformers produced.
+	originalProgram := program
 	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
 	if err != nil {
 		return nil, diags, err
@@ -380,7 +390,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 
 	stopDeclarations := timings.startStage(declarationEmitWritesStage)
-	declFiles, err := emitDeclarations(program, selectedPaths, opts.WriteOnlyChanged, prepared.declarations, writer, timings)
+	declFiles, err := emitDeclarations(originalProgram, selectedPaths, opts.WriteOnlyChanged, writer, timings)
 	stopDeclarations()
 	if err != nil {
 		return nil, nil, err
@@ -481,22 +491,92 @@ func loadRojoCachesPreBuild(dir string, opts ProjectOptions) *rojo.RojoResolverC
 	return cache
 }
 
-func emitDeclarations(program *compiler.Program, selectedPaths map[string]struct{}, writeOnlyChanged bool, sidecarDeclarations []sidecarOutputFile, writer *outputWriter, timings *BuildTimings) ([]string, error) {
-	if !program.Options().GetEmitDeclarations() {
+// declarationEmitFile is one file tsgo's declaration emit produced for a
+// source file: the `.d.ts`, plus its `.d.ts.map` when `declarationMap` is on.
+type declarationEmitFile struct {
+	FileName string
+	Text     string
+	Data     *compiler.WriteFileData
+}
+
+// emitDeclarationTexts is the declaration-emit seam. It runs tsgo's
+// `EmitOnlyDts` over files and returns finished text with rotor's declaration
+// rewrites already applied (the `@rbxts/types` reference scope, the `paths`
+// specifier rewrite, and the matching `.d.ts.map` column fixup). It writes
+// nothing and reads no writer state, so a caller that only needs the text — the
+// `.d.ts`-signature incremental rule — shares exactly the bytes the build
+// writes.
+//
+// program must be the ORIGINAL, untransformed program: declarations describe
+// the source the user wrote, never the output of a source transformer.
+func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
+	if !program.Options().GetEmitDeclarations() || len(files) == 0 {
 		return nil, nil
 	}
-	if len(sidecarDeclarations) > 0 {
-		return writeSidecarDeclarations(sidecarDeclarations, writeOnlyChanged, writer, timings)
-	}
-
 	ctx := context.Background()
-	type declarationWrite struct {
-		path string
-		text string
-		data *compiler.WriteFileData
+	rewriter := newDeclarationPathRewriter(program)
+	perFile := make([][]declarationEmitFile, len(files))
+	jobs := make([]func() error, len(files))
+	for index, sourceFile := range files {
+		jobs[index] = func() error {
+			var pending []declarationEmitFile
+			result := program.Emit(ctx, compiler.EmitOptions{
+				TargetSourceFile: sourceFile,
+				EmitOnly:         compiler.EmitOnlyDts,
+				WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
+					pending = append(pending, declarationEmitFile{FileName: fileName, Text: text, Data: data})
+					return nil
+				},
+			})
+			if result != nil && len(result.Diagnostics) > 0 {
+				return errors.New("compile: declaration emit diagnostics")
+			}
+			rewriteDeclarationEmit(rewriter, sourceFile, pending)
+			perFile[index] = pending
+			return nil
+		}
 	}
-	var pendingByJob [][]declarationWrite
-	var jobs []func() error
+	if err := parallelize(writeWorkers(), jobs); err != nil {
+		return nil, err
+	}
+	var emitted []declarationEmitFile
+	for _, files := range perFile {
+		emitted = append(emitted, files...)
+	}
+	return emitted, nil
+}
+
+// rewriteDeclarationEmit applies rotor's post-emit rewrites to one source
+// file's declaration output in place. tsgo prints the `.d.ts.map` from the
+// pre-rewrite text, so the splices are collected first and handed to the map
+// fixup rather than applied and forgotten.
+func rewriteDeclarationEmit(rewriter *declarationPathRewriter, sourceFile *ast.SourceFile, emitted []declarationEmitFile) {
+	for index := range emitted {
+		if !strings.HasSuffix(emitted[index].FileName, tspath.ExtensionDts) {
+			continue
+		}
+		original := emitted[index].Text
+		edits := typeReferenceEdits(original)
+		edits = append(edits, rewriter.specifierEdits(sourceFile, emitted[index].FileName, original)...)
+		if len(edits) == 0 {
+			continue
+		}
+		sort.SliceStable(edits, func(i, j int) bool { return edits[i].start < edits[j].start })
+		emitted[index].Text = applyTextEdits(original, edits)
+
+		mapName := emitted[index].FileName + ".map"
+		for mapIndex := range emitted {
+			if emitted[mapIndex].FileName == mapName {
+				emitted[mapIndex].Text = shiftDeclarationMapColumns(emitted[mapIndex].Text, original, edits)
+			}
+		}
+	}
+}
+
+// declarationEmitSourceFiles is the project's compilable source files, narrowed
+// to selectedPaths when the incremental route supplied one.
+func declarationEmitSourceFiles(program *compiler.Program, selectedPaths map[string]struct{}) []*ast.SourceFile {
+	var files []*ast.SourceFile
 	for _, sourceFile := range program.SourceFiles() {
 		if sourceFile.IsDeclarationFile || !isCompilableFile(sourceFile.FileName()) {
 			continue
@@ -506,109 +586,86 @@ func emitDeclarations(program *compiler.Program, selectedPaths map[string]struct
 				continue
 			}
 		}
-		jobIndex := len(jobs)
-		pendingByJob = append(pendingByJob, nil)
-		jobs = append(jobs, func() error {
-			var pending []declarationWrite
-			result := program.Emit(ctx, compiler.EmitOptions{
-				TargetSourceFile: sourceFile,
-				EmitOnly:         compiler.EmitOnlyDts,
-				WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
-					text = rewriteDeclarationTypeReferences(text)
-					pending = append(pending, declarationWrite{path: filepath.FromSlash(fileName), text: text, data: data})
-					return nil
-				},
-			})
-			pendingByJob[jobIndex] = pending
-			if result == nil {
-				return nil
-			}
-			if len(result.Diagnostics) > 0 {
-				return errors.New("compile: declaration emit diagnostics")
-			}
-			return nil
-		})
+		files = append(files, sourceFile)
 	}
-	if err := parallelize(writeWorkers(), jobs); err != nil {
-		return nil, err
-	}
-	var pending []declarationWrite
-	for _, writes := range pendingByJob {
-		pending = append(pending, writes...)
-	}
-	paths := make([]string, len(pending))
-	for i, write := range pending {
-		paths[i] = write.path
-	}
-	if err := rejectDuplicateOutputPaths(paths); err != nil {
-		return nil, err
-	}
-	timings.addScheduledDeclarationWrites(len(pending))
-	if err := writer.prepare(paths); err != nil {
-		return nil, err
-	}
-	wrote := make([]bool, len(pending))
-	writeJobs := make([]func() error, len(pending))
-	for i, write := range pending {
-		writeJobs[i] = func() error {
-			var err error
-			wrote[i], err = writer.write(write.path, write.text, writeOnlyChanged)
-			timings.recordOutputWrite(write.path, wrote[i])
-			if !wrote[i] && write.data != nil {
-				write.data.SkippedDtsWrite = true
-			}
-			return err
-		}
-	}
-	if err := parallelize(writeWorkers(), writeJobs); err != nil {
-		return nil, err
-	}
-	emitted := make([]string, 0, len(pending))
-	for i, write := range pending {
-		if wrote[i] {
-			emitted = append(emitted, write.path)
-		}
-	}
-	return emitted, nil
+	return files
 }
 
-func writeSidecarDeclarations(declarations []sidecarOutputFile, writeOnlyChanged bool, writer *outputWriter, timings *BuildTimings) ([]string, error) {
-	paths := make([]string, len(declarations))
-	for i, declaration := range declarations {
-		paths[i] = filepath.FromSlash(declaration.FileName)
+func emitDeclarations(program *compiler.Program, selectedPaths map[string]struct{}, writeOnlyChanged bool, writer *outputWriter, timings *BuildTimings) ([]string, error) {
+	files := declarationEmitSourceFiles(program, selectedPaths)
+	if len(files) == 0 {
+		return nil, nil
+	}
+	var emitted []declarationEmitFile
+	var err error
+	stopEmit := timings.startStage(declarationEmitStage)
+	logservice.BenchmarkIfVerbose("declaration emit", func() {
+		emitted, err = emitDeclarationTexts(program, files)
+	})
+	stopEmit()
+	if err != nil {
+		return nil, err
+	}
+	return writeDeclarationFiles(emitted, writeOnlyChanged, writer, timings)
+}
+
+// writeDeclarationFiles is the write half of declaration emit, kept separate
+// from emitDeclarationTexts so the text can be produced without touching disk.
+func writeDeclarationFiles(emitted []declarationEmitFile, writeOnlyChanged bool, writer *outputWriter, timings *BuildTimings) ([]string, error) {
+	if len(emitted) == 0 {
+		return nil, nil
+	}
+	paths := make([]string, len(emitted))
+	for index, file := range emitted {
+		paths[index] = filepath.FromSlash(file.FileName)
 	}
 	if err := rejectDuplicateOutputPaths(paths); err != nil {
 		return nil, err
 	}
-	timings.addScheduledDeclarationWrites(len(declarations))
+	timings.addScheduledDeclarationWrites(len(emitted))
 	if err := writer.prepare(paths); err != nil {
 		return nil, err
 	}
-	wrote := make([]bool, len(declarations))
-	jobs := make([]func() error, len(declarations))
-	for i, declaration := range declarations {
-		jobs[i] = func() error {
+	wrote := make([]bool, len(emitted))
+	jobs := make([]func() error, len(emitted))
+	for index, file := range emitted {
+		jobs[index] = func() error {
 			var err error
-			path := filepath.FromSlash(declaration.FileName)
-			wrote[i], err = writer.write(path, declaration.Text, writeOnlyChanged)
-			timings.recordOutputWrite(path, wrote[i])
+			wrote[index], err = writer.write(paths[index], file.Text, writeOnlyChanged)
+			timings.recordOutputWrite(paths[index], wrote[index])
+			if !wrote[index] && file.Data != nil {
+				file.Data.SkippedDtsWrite = true
+			}
 			return err
 		}
 	}
 	if err := parallelize(writeWorkers(), jobs); err != nil {
 		return nil, err
 	}
-	emitted := make([]string, 0, len(declarations))
-	for i, declaration := range declarations {
-		if wrote[i] {
-			emitted = append(emitted, filepath.FromSlash(declaration.FileName))
+	written := make([]string, 0, len(emitted))
+	for index := range emitted {
+		if wrote[index] {
+			written = append(written, paths[index])
 		}
 	}
-	return emitted, nil
+	return written, nil
 }
 
-func rewriteDeclarationTypeReferences(text string) string {
-	return strings.ReplaceAll(text, `types="types"`, `types="@rbxts/types"`)
+// typeReferenceEdits rescopes the bare `types` triple-slash reference rbxtsc
+// emits to the `@rbxts/types` package it actually means.
+func typeReferenceEdits(text string) []textEdit {
+	const bare = `types="types"`
+	const scoped = `types="@rbxts/types"`
+	var edits []textEdit
+	for offset := 0; ; {
+		index := strings.Index(text[offset:], bare)
+		if index < 0 {
+			return edits
+		}
+		index += offset
+		edits = append(edits, textEdit{start: index, end: index + len(bare), text: scoped})
+		offset = index + len(bare)
+	}
 }
 
 // minifyOutputs rewrites every compiled .luau/.lua entry in outputs to its
