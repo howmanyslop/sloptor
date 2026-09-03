@@ -76,7 +76,8 @@ func declarationRewriterFixture(t *testing.T, options string, files map[string]s
 func rewriteDeclaration(t *testing.T, rewriter *declarationPathRewriter, entry *ast.SourceFile, declText string) string {
 	t.Helper()
 	declFileName := strings.TrimSuffix(entry.FileName(), ".ts") + ".d.ts"
-	return applyTextEdits(declText, rewriter.specifierEdits(entry, declFileName, declText))
+	// Mirrors rewriteDeclarationEmit: the filter is what orders the edits.
+	return applyTextEdits(declText, nonOverlappingTextEdits(rewriter.specifierEdits(entry, declFileName, declText)))
 }
 
 // Every syntax that can carry a module specifier into a `.d.ts`, plus the
