@@ -36,6 +36,7 @@ type SolutionCoordinator struct {
 	states               map[string]SolutionProjectState
 	waitOnlyDependencies map[string][]string
 	builders             int
+	timings              *BuildTimings
 }
 
 type solutionProjectVisit uint8
@@ -126,7 +127,7 @@ func NewSolutionCoordinator(tsConfigPath string, entry ProjectOptions) (*Solutio
 	}
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
 	drainer := &solutionBuildDrainer{importPathMap: importPathMap}
-	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry))
+	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
 func NewSolutionCoordinatorWithDrainer(tsConfigPath string, entry ProjectOptions, drainer SolutionProjectDrainer) (*SolutionCoordinator, error) {
@@ -138,13 +139,17 @@ func NewSolutionCoordinatorWithDrainer(tsConfigPath string, entry ProjectOptions
 		return nil, err
 	}
 	_, metadata := populateCrossProjectMetadata(graph)
-	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry))
+	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
-func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer, metadata solutionWriteMetadata, builders int) (*SolutionCoordinator, error) {
+func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer, metadata solutionWriteMetadata, builders int, timings *BuildTimings) (*SolutionCoordinator, error) {
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
 	for _, project := range graph.Projects {
 		states[project.ConfigPath] = SolutionProjectState{Project: project}
+	}
+	if timings != nil {
+		timings.initProjects(graph.Projects)
+		timings.setConcurrencyMetadata(builders, entryBuilders(graph), entryCheckers(graph))
 	}
 	return &SolutionCoordinator{
 		graph:                graph,
@@ -152,7 +157,22 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		states:               states,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
 		builders:             builders,
+		timings:              timings,
 	}, nil
+}
+
+func entryBuilders(graph *SolutionGraph) *int {
+	if graph == nil || len(graph.Projects) == 0 {
+		return nil
+	}
+	return graph.Projects[0].Options.Builders
+}
+
+func entryCheckers(graph *SolutionGraph) *int {
+	if graph == nil || len(graph.Projects) == 0 {
+		return nil
+	}
+	return graph.Projects[0].Options.Checkers
 }
 
 func (c *SolutionCoordinator) ProjectState(tsConfigPath string) (SolutionProjectState, bool) {

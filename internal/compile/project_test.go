@@ -56,7 +56,7 @@ func compileRuntimeLibProject(t *testing.T, name string) map[string]string {
 // output verbatim.
 func TestCompileProjectRuntimeLibModel(t *testing.T) {
 	files := compileRuntimeLibProject(t, "runtimelib_model")
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"local TS = require(script.Parent.include.RuntimeLib)\n" +
 		"local isFoo = TS.instanceof(inst, Foo)\n" +
 		"print(isFoo)\n" +
@@ -75,7 +75,7 @@ func TestCompileProjectRuntimeLibModel(t *testing.T) {
 // DataModel tree, also covering the inferProjectType Game branch).
 func TestCompileProjectRuntimeLibGame(t *testing.T) {
 	files := compileRuntimeLibProject(t, "runtimelib_game")
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n" +
 		"local isFoo = TS.instanceof(inst, Foo)\n" +
 		"print(isFoo)\n" +
@@ -91,7 +91,7 @@ func TestCompileProjectRuntimeLibGame(t *testing.T) {
 // rbxtsc output verbatim.
 func TestCompileProjectRuntimeLibPackage(t *testing.T) {
 	files := compileRuntimeLibProject(t, "runtimelib_package")
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"local TS = _G[script]\n" +
 		"local isFoo = TS.instanceof(inst, Foo)\n" +
 		"print(isFoo)\n" +
@@ -262,7 +262,7 @@ func TestCompileProjectObjectRestDestructuring(t *testing.T) {
 		t.Fatalf("diagnostics: %v", diags)
 	}
 
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"local change = props.Change\n" +
 		"local _extracted = {\n\t[\"Change\"] = true,\n}\n" +
 		"local _rest = {}\n" +
@@ -631,7 +631,7 @@ func TestCompileProjectTypeOverridePackageEmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompileProjectWithOptions: %v (diags: %v)", err, diags)
 	}
-	want := "-- Compiled with sloptor v2.3.2\n" +
+	want := "-- Compiled with sloptor v2.3.3\n" +
 		"local TS = _G[script]\n" +
 		"local isFoo = TS.instanceof(inst, Foo)\n" +
 		"print(isFoo)\n" +
@@ -681,6 +681,36 @@ func TestNewProjectProgramUsesMultipleCheckerGroups(t *testing.T) {
 	groups := groupSourceFilesByChecker(context.Background(), program, sourceFiles)
 	if len(groups) < 2 {
 		t.Fatalf("checker groups = %d, want at least 2 (source files=%d, singleThreaded=%v, options.checkers=%d)", len(groups), len(sourceFiles), program.SingleThreaded(), checkers)
+	}
+}
+
+func TestApplySingleThreadedOverride(t *testing.T) {
+	options := &core.CompilerOptions{SingleThreaded: core.TSUnknown}
+	ApplySingleThreadedOverride(options, nil)
+	if options.SingleThreaded != core.TSUnknown {
+		t.Fatalf("nil override changed singleThreaded: got %v", options.SingleThreaded)
+	}
+	enabled := true
+	ApplySingleThreadedOverride(options, &enabled)
+	if options.SingleThreaded != core.TSTrue {
+		t.Fatalf("true override = %v, want true", options.SingleThreaded)
+	}
+	disabled := false
+	ApplySingleThreadedOverride(options, &disabled)
+	if options.SingleThreaded != core.TSFalse {
+		t.Fatalf("false override = %v, want false", options.SingleThreaded)
+	}
+}
+
+func TestEffectiveSolutionBuildersSingleThreaded(t *testing.T) {
+	builders := 4
+	enabled := true
+	if got := EffectiveSolutionBuilders(ProjectOptions{Builders: &builders, SingleThreaded: &enabled}); got != 1 {
+		t.Fatalf("singleThreaded builders = %d, want 1", got)
+	}
+	disabled := false
+	if got := EffectiveSolutionBuilders(ProjectOptions{Builders: &builders, SingleThreaded: &disabled}); got != 4 {
+		t.Fatalf("singleThreaded=false builders = %d, want 4", got)
 	}
 }
 

@@ -498,7 +498,7 @@ func TestBuildResultCarriesStructuredDiagnostics(t *testing.T) {
 
 func TestRewriteDeclarationTypeReferences(t *testing.T) {
 	input := "/// <reference types=\"types\" />\n/// <reference types=\"other\" />\n"
-	got := rewriteDeclarationTypeReferences(input)
+	got := applyTextEdits(input, typeReferenceEdits(input))
 	if !strings.Contains(got, "/// <reference types=\"@rbxts/types\" />") {
 		t.Fatalf("got %q, want rewritten @rbxts/types reference", got)
 	}

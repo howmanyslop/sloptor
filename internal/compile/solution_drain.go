@@ -3,6 +3,7 @@ package compile
 import (
 	"fmt"
 	"path/filepath"
+	"runtime/trace"
 )
 
 type solutionBuildDrainer struct {
@@ -11,6 +12,9 @@ type solutionBuildDrainer struct {
 }
 
 func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
+	if c.timings != nil {
+		defer c.timings.finish()
+	}
 	result := &BuildResult{Outputs: map[string]string{}}
 	indexByConfigPath := make(map[string]int, len(c.graph.Projects))
 	for index, project := range c.graph.Projects {
@@ -40,12 +44,21 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 		persists  []func() error
 	}
 	outcomes := make([]drainOutcome, len(c.graph.Projects))
+	cache := newSolutionCompileCache()
+	if c.timings != nil {
+		defer func() {
+			c.timings.addParseCacheCounts(cache.hits.Load(), cache.misses.Load())
+		}()
+	}
 	RunSolutionTasks(tasks, c.builders, func(index int) error {
 		project := c.graph.Projects[index]
 		state := c.states[project.ConfigPath]
 		outcome := &outcomes[index]
 		if state.UpToDate {
 			outcome.skip = true
+			if c.timings != nil {
+				c.timings.setProjectStatus(project.ConfigPath, ProjectTimingStatusSkipped, "")
+			}
 			return nil
 		}
 		for _, predecessor := range tasks[index].predecessors {
@@ -54,21 +67,49 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 			}
 			outcome.blockedBy = c.graph.Projects[predecessor].ConfigPath
 			outcome.err = fmt.Errorf("compile: project %s blocked by failed dependency %s", project.ConfigPath, outcome.blockedBy)
+			if c.timings != nil {
+				c.timings.setProjectStatus(project.ConfigPath, ProjectTimingStatusBlocked, outcome.blockedBy)
+			}
 			return outcome.err
 		}
 
 		if state.forceFullBuild {
 			project.Options.forceFullBuild = true
 		}
+		var child *BuildTimings
+		if c.timings != nil {
+			child = c.timings.newProject(project.ConfigPath)
+		}
+		if child != nil {
+			ctx, task := trace.NewTask(child.context(), "solution project")
+			child.ctx = ctx
+			defer task.End()
+			project.Options.Timings = child
+		}
 		var persists []func() error
 		var dependencyPersists []func() error
 		project.Options.pendingSolutionPersists = &persists
 		project.Options.pendingSolutionDependencyPersists = &dependencyPersists
 		project.Options.deferRojoCachePersist = true
+		project.Options.compileCache = cache
 		built, messages, err := c.drainer.Drain(project)
 		outcome.result = built
 		outcome.messages = messages
 		outcome.err = err
+		if child != nil {
+			if err != nil {
+				child.setProjectStatus(project.ConfigPath, ProjectTimingStatusFailed, "")
+			}
+			if !child.finished {
+				child.finish()
+			}
+			for i, persist := range persists {
+				persists[i] = timedPersist(child, persist)
+			}
+			for i, persist := range dependencyPersists {
+				dependencyPersists[i] = timedPersist(child, persist)
+			}
+		}
 		outcome.persists = persists
 		if err == nil {
 			for _, persist := range dependencyPersists {
@@ -131,7 +172,14 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 	return result, nil, nil
 }
 
+func EffectiveSolutionBuilders(entry ProjectOptions) int {
+	return effectiveSolutionBuilders(entry)
+}
+
 func effectiveSolutionBuilders(entry ProjectOptions) int {
+	if entry.SingleThreaded != nil && *entry.SingleThreaded {
+		return 1
+	}
 	if entry.Builders == nil {
 		return 4
 	}

@@ -312,6 +312,53 @@ func solutionProjectNames(projects []SolutionProject) []string {
 	return names
 }
 
+func TestSolutionTimingsRecordsStatusesAndGraphOrder(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionConfig(t, root, "tsconfig.json", []string{"./left", "./right"}, true)
+	writeSolutionConfig(t, filepath.Join(root, "left"), "tsconfig.json", []string{"../shared"}, false)
+	writeSolutionConfig(t, filepath.Join(root, "right"), "tsconfig.json", []string{"../shared"}, false)
+	writeSolutionConfig(t, filepath.Join(root, "shared"), "tsconfig.json", nil, false)
+	drainer := &recordingSolutionDrainer{fail: filepath.Join(root, "shared", "tsconfig.json")}
+	timings := NewBuildTimings()
+	builders := 1
+	coordinator, err := NewSolutionCoordinatorWithDrainer(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders, Timings: timings}, drainer)
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err == nil {
+		t.Fatal("Drain succeeded, want shared failure")
+	}
+	if len(timings.Projects) != 3 {
+		t.Fatalf("projects = %d, want 3", len(timings.Projects))
+	}
+	if got := []string{filepath.Base(filepath.Dir(timings.Projects[0].ConfigPath)), filepath.Base(filepath.Dir(timings.Projects[1].ConfigPath)), filepath.Base(filepath.Dir(timings.Projects[2].ConfigPath))}; got[0] != "shared" || got[1] != "left" || got[2] != "right" {
+		t.Fatalf("project order = %v, want shared left right", got)
+	}
+	if timings.Projects[0].Status != ProjectTimingStatusFailed {
+		t.Fatalf("shared status = %q, want %q", timings.Projects[0].Status, ProjectTimingStatusFailed)
+	}
+	if timings.Projects[1].Status != ProjectTimingStatusBlocked || timings.Projects[2].Status != ProjectTimingStatusBlocked {
+		t.Fatalf("dependent statuses = %q %q, want blocked", timings.Projects[1].Status, timings.Projects[2].Status)
+	}
+
+	timings = NewBuildTimings()
+	coordinator, err = NewSolutionCoordinatorWithDrainer(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders, Timings: timings}, &recordingSolutionDrainer{})
+	if err != nil {
+		t.Fatalf("second coordinator: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err != nil {
+		t.Fatalf("second Drain: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err != nil {
+		t.Fatalf("repeat Drain: %v", err)
+	}
+	for _, project := range timings.Projects {
+		if project.Status != ProjectTimingStatusSkipped {
+			t.Fatalf("%s status = %q, want skipped on up-to-date drain", project.ConfigPath, project.Status)
+		}
+	}
+}
+
 func writeBuildableSolutionProject(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {

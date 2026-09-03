@@ -7,6 +7,9 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
+	"time"
+
+	"rotor/internal/logservice"
 )
 
 type buildProfiles struct {
@@ -83,6 +86,14 @@ func (profiles *buildProfiles) stop() error {
 	if profiles == nil {
 		return nil
 	}
+	logservice.WriteStageStartIfVerbose("", "finalize profiles")
+	started := time.Now()
+	err := profiles.stopBody()
+	logservice.WriteStageDoneIfVerbose("", "finalize profiles", time.Since(started))
+	return err
+}
+
+func (profiles *buildProfiles) stopBody() error {
 	if profiles.tracing {
 		trace.Stop()
 		profiles.tracing = false

@@ -803,13 +803,13 @@ func (s *State) GuessVirtualPath(fsPath string) string {
 //
 // CHECKER-IDENTITY CONTRACT: `aliasSymbolLinks.referenced` marks are stored on
 // the checker INSTANCE that semantically checked the file (markAliasReferenced,
-// tsgo checker.go:28500). tsgo's built-in pool spreads files round-robin over
-// up to 4 checkers and GetSemanticDiagnostics uses the file-associated one, so
-// s.Checker MUST be that same instance or elision queries silently return
-// false. rotor guarantees this by pinning the pool to a single checker
-// (compilerOptions.Checkers = 1 in compile.newProjectProgram) and running
-// program.GetSemanticDiagnostics(ctx, file) before transforming each file —
-// proven by TestCompileProjectImports's elision cases.
+// tsgo checker.go:28500). tsgo's pool spreads files across checkers and
+// GetSemanticDiagnostics uses the file-associated one, so s.Checker MUST be
+// that same instance or elision queries silently return false. rotor keeps the
+// precheck and transform workgroups affined to the same checker groups
+// (groupSourceFilesByChecker) and runs program.GetSemanticDiagnostics(ctx,
+// file) before transforming each file — proven by TestCompileProjectImports's
+// elision cases and the multi-checker grouping tests.
 func (s *State) EmitResolver() *checker.EmitResolver {
 	return s.Checker.GetEmitResolver()
 }

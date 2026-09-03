@@ -1,11 +1,15 @@
 package compile
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"rotor/internal/logservice"
 )
 
 const declarationMarkerPlugin = `const ts = require("typescript");
@@ -32,27 +36,10 @@ module.exports = function () {
 };
 `
 
-const countedDeclarationPlugin = `const ts = require("typescript");
-
-let sourceTransformCalls = 0;
-
-module.exports = function () {
-	return {
-		before: () => (sourceFile) => {
-			sourceTransformCalls += 1;
-			return sourceFile;
-		},
-		afterDeclarations: (context) => (sourceFile) => {
-			const marker = context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
-				context.factory.createVariableDeclaration("__SOURCE_TRANSFORM_CALLS__", undefined, undefined, context.factory.createNumericLiteral(sourceTransformCalls)),
-			], ts.NodeFlags.Const));
-			return context.factory.updateSourceFile(sourceFile, sourceFile.statements.concat([marker]));
-		},
-	};
-};
-`
-
-func TestAfterDeclarationsOnly(t *testing.T) {
+// afterDeclarations transformers have nowhere to run now that declarations
+// are emitted natively by tsgo (which has no custom-transformer hook), so the
+// build must say so out loud rather than dropping the transform silently.
+func TestAfterDeclarationsTransformerWarns(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
 	dir := writeProject(t, "@scope/after-declarations-fixture", "")
@@ -61,58 +48,44 @@ func TestAfterDeclarationsOnly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugins", "declaration-marker.js"), []byte(declarationMarkerPlugin), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	log := captureCompilerLog(t)
 
 	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
 	if err != nil {
 		t.Fatalf("build: %v (diags: %v)", err, diags)
 	}
+	if !strings.Contains(log.String(), "afterDeclarations transformers are not supported") {
+		t.Fatalf("no afterDeclarations warning in compiler log:\n%s", log)
+	}
 	declaration, err := os.ReadFile(filepath.Join(dir, "out", "main.d.ts"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(declaration), "__DECLARATION_MARKER__") {
-		t.Fatalf("declaration marker missing:\n%s", declaration)
+	if strings.Contains(string(declaration), "__DECLARATION_MARKER__") {
+		t.Fatalf("afterDeclarations transformer ran:\n%s", declaration)
 	}
 	if strings.Contains(result.Outputs["out/main.luau"], "__DECLARATION_MARKER__") {
 		t.Fatalf("declaration marker leaked into Luau:\n%s", result.Outputs["out/main.luau"])
 	}
 }
 
-func TestDeclarationTransformerStageSkipsOrdinarySourceTransforms(t *testing.T) {
-	// Given: one plugin that counts ordinary source transforms in a declaration marker.
-	setRepoSidecarPath(t)
-	closeSidecarSessions()
-	dir := writeProject(t, "@scope/declaration-only-transform-count", "")
-	t.Cleanup(closeSidecarSessions)
-	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[]`))
-	if err := os.WriteFile(filepath.Join(dir, "plugins", "counted-declaration.js"), []byte(countedDeclarationPlugin), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const value = 1;\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-	plugins := []transformerPluginConfig{{
-		Transform: "./plugins/counted-declaration.js",
-		raw:       json.RawMessage(`{"transform":"./plugins/counted-declaration.js"}`),
-	}}
+// resetAfterDeclarationsState clears the once-per-project sentinels so a test
+// that expects the warning is not silenced by an earlier test in the package.
+func resetAfterDeclarationsState() {
+	afterDeclarationsWarned = sync.Map{}
+	afterDeclarationsScanned = sync.Map{}
+}
 
-	// When: the declaration-only stage emits declarations for the project.
-	declarations, diags, err := runDeclarationTransformerStage(dir, program, projectSourceFiles(program), nil, plugins)
-	if err != nil {
-		t.Fatalf("runDeclarationTransformerStage: %v (diags: %v)", err, diags)
-	}
-
-	// Then: the declaration marker proves source transforms did not run.
-	if len(declarations) != 1 {
-		t.Fatalf("declarations = %d, want 1", len(declarations))
-	}
-	if got, want := declarations[0].Text, "export declare const value = 1;\nconst __SOURCE_TRANSFORM_CALLS__ = 0;\n"; got != want {
-		t.Fatalf("declaration-only output = %q, want %q", got, want)
-	}
+// captureCompilerLog redirects logservice output for the test's lifetime.
+func captureCompilerLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buffer := &bytes.Buffer{}
+	previous := logservice.Output
+	logservice.Output = buffer
+	t.Cleanup(func() { logservice.Output = previous })
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
+	return buffer
 }
 
 func TestTransformerParentFix(t *testing.T) {
@@ -238,4 +211,48 @@ func sidecarDeclarationConfig(plugins string) string {
 	},
 	"include": ["src"]
 }`
+}
+
+// The tsconfig-chain scan re-reads the whole `extends` graph, and the common
+// answer is zero, so it has to be claimed once per project: a watch session
+// round-trips on every keystroke.
+func TestAfterDeclarationsScanIsClaimedOnce(t *testing.T) {
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
+	const configPath = "C:/project/tsconfig.json"
+
+	if !takeAfterDeclarationsScan(configPath) {
+		t.Fatal("the first caller must own the scan")
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if takeAfterDeclarationsScan(configPath) {
+			t.Fatalf("attempt %d re-ran the scan", attempt)
+		}
+	}
+	if !takeAfterDeclarationsScan("C:/other/tsconfig.json") {
+		t.Fatal("a different project must get its own scan")
+	}
+}
+
+// Once the warning is out there is nothing left for the scan to discover.
+func TestAfterDeclarationsScanIsSkippedAfterTheWarning(t *testing.T) {
+	resetAfterDeclarationsState()
+	t.Cleanup(resetAfterDeclarationsState)
+	log := captureCompilerLog(t)
+	const configPath = "C:/project/tsconfig.json"
+
+	warnUnsupportedAfterDeclarations(configPath, 1)
+	if !strings.Contains(log.String(), "afterDeclarations transformers are not supported") {
+		t.Fatalf("no warning in the compiler log:\n%s", log)
+	}
+	if takeAfterDeclarationsScan(configPath) {
+		t.Fatal("the scan ran after the warning was already out")
+	}
+
+	// And the warning itself is one line per project, not one per round trip.
+	before := log.Len()
+	warnUnsupportedAfterDeclarations(configPath, 2)
+	if log.Len() != before {
+		t.Fatalf("the warning repeated:\n%s", log)
+	}
 }

@@ -33,8 +33,9 @@ type projectOptions struct {
 
 	emitDeclarationOnly bool
 
-	builders *int
-	checkers *int
+	builders       *int
+	checkers       *int
+	singleThreaded *bool
 }
 
 // defaultProjectOptions ports DEFAULT_PROJECT_OPTIONS (Shared/constants.ts

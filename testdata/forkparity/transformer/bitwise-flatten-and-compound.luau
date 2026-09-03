@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.3.2
+-- Compiled with sloptor v2.3.3
 local function flatAnd(a, b, c)
 	return bit32.band(a, b, c)
 end

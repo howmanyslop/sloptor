@@ -34,6 +34,7 @@ type buildArgs struct {
 	emitDeclarationOnly bool
 	builders            *int
 	checkers            *int
+	singleThreaded      *bool
 	jsonOut             bool   // rotor DX extension: emit a machine-readable result object
 	cpuprofile          string // rotor DX extension: write a pprof CPU profile here
 	traceOut            string
@@ -83,6 +84,7 @@ type buildFlags struct {
 	version                bool
 	builders               *int
 	checkers               *int
+	singleThreaded         bool
 }
 
 // registerBuildFlags registers the full rbxtsc-compatible build surface in
@@ -101,6 +103,8 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 	f.VarP(newPositiveIntValue(&flags.checkers), "checkers", "",
 		"number of checkers per project (default 4; build and check)")
 	setFlagPlaceholder(cmd, "checkers", "<n>")
+	addBoolFlag(cmd, &flags.singleThreaded, "singleThreaded", "", false,
+		"serialize builders and checkers (overrides --builders/--checkers; tsgo-compatible)")
 	addBoolFlag(cmd, &flags.emitDeclarationOnly, "emitDeclarationOnly", "", false,
 		"only emit declaration files for a solution build (requires --build)")
 	addBoolFlag(cmd, &flags.watch, "watch", "w", false, "enable watch mode")
@@ -196,6 +200,10 @@ func collectBuildArgs(f *pflag.FlagSet, argv []string, flags *buildFlags, ba *bu
 	}
 	ba.builders = flags.builders
 	ba.checkers = flags.checkers
+	if f.Changed("singleThreaded") {
+		v, _ := f.GetBool("singleThreaded")
+		ba.singleThreaded = &v
+	}
 	if f.Changed("clear") {
 		ba.clearScreen, _ = f.GetBool("clear")
 	}
@@ -329,6 +337,7 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	opts.emitDeclarationOnly = parsed.emitDeclarationOnly
 	opts.builders = parsed.builders
 	opts.checkers = parsed.checkers
+	opts.singleThreaded = parsed.singleThreaded
 	if parsed.timings != "" && opts.watch {
 		return usageFailure("--timings cannot be used with --watch")
 	}
@@ -340,6 +349,22 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 
 	// LogService.verbose = projectOptions.verbose === true (build.ts L132).
 	logservice.Verbose = opts.verbose
+	if opts.verbose {
+		builders := "n/a"
+		if parsed.build {
+			entry := compile.ProjectOptions{Builders: opts.builders, SingleThreaded: opts.singleThreaded}
+			builders = fmt.Sprintf("%d", compile.EffectiveSolutionBuilders(entry))
+		}
+		checkers := "default"
+		if opts.checkers != nil {
+			checkers = fmt.Sprintf("%d", *opts.checkers)
+		}
+		single := "unset"
+		if opts.singleThreaded != nil {
+			single = fmt.Sprintf("%t", *opts.singleThreaded)
+		}
+		logservice.WriteLineIfVerbose(fmt.Sprintf("concurrency: builders=%s checkers=%s singleThreaded=%s", builders, checkers, single))
+	}
 
 	// Upstream projectPath = path.dirname(tsConfigPath)
 	// (createProjectData.ts L13).
@@ -389,6 +414,7 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	var timings *compile.BuildTimings
 	if parsed.timings != "" {
 		timings = compile.NewBuildTimings()
+		timings.SetProductVersion(version)
 	}
 	if parsed.build {
 		result, diags, elapsed, err = runBuildSolutionOnce(tsConfigPath, opts, timings)
@@ -566,6 +592,7 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		EmitDeclarationOnly:    opts.emitDeclarationOnly,
 		Builders:               opts.builders,
 		Checkers:               opts.checkers,
+		SingleThreaded:         opts.singleThreaded,
 	}
 }
 
@@ -614,6 +641,13 @@ func writeJSONResult(w io.Writer, res jsonResult) {
 // to out instead of the styled UI. Exit code is unchanged from the styled
 // path: 1 on any build error, 0 otherwise.
 func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectOptions, solution bool, timingPath string) int {
+	// stdout carries exactly one JSON object here, and LogService writes
+	// compiler warnings to stdout, so its channel moves to stderr for the
+	// duration: a warning must not corrupt what a CI/editor integration parses.
+	previousLog := logservice.Output
+	logservice.Output = errOut
+	defer func() { logservice.Output = previousLog }()
+
 	var result *compile.BuildResult
 	var diags []compile.DiagnosticInfo
 	var elapsed time.Duration
@@ -621,6 +655,7 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 	var timings *compile.BuildTimings
 	if timingPath != "" {
 		timings = compile.NewBuildTimings()
+		timings.SetProductVersion(version)
 	}
 	if solution {
 		result, diags, elapsed, err = runBuildSolutionOnce(tsConfigPath, opts, timings)
