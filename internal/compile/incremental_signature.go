@@ -228,12 +228,13 @@ func narrowSelectionByDeclarationSignature(
 		declarationPath: pathTranslator.GetOutputDeclarationPath,
 		previousOutputs: previousOutputs,
 		emit: func(files []*ast.SourceFile) ([]sidecarOutputFile, error) {
-			// Charged to its own stage: this is a real declaration emit, and
-			// folding it into incrementalSelection would hide it inside a
-			// stage that is otherwise pure bookkeeping.
-			stop := timings.startStage(declarationSignatureEmitStage)
-			defer stop()
-			return declarationTextsForSelection(program, files)
+			// This is a real declaration emit, not the bookkeeping the rest of
+			// incremental selection is, so it reports on its own stage rather
+			// than inflating that one.
+			stop := logStage(program.Options().ConfigFilePath, declarationSignatureEmitStage)
+			declarations, err := declarationTextsForSelection(program, files)
+			timings.moveStageDuration(incrementalSelectionStage, declarationSignatureEmitStage, stop())
+			return declarations, err
 		},
 	})
 	if err != nil {

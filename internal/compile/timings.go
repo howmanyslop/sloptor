@@ -311,6 +311,15 @@ func (timings *BuildTimings) addStageDuration(stage buildTimingStage, duration t
 	}
 }
 
+// moveStageDuration reassigns time already charged to one stage to another.
+// Work measured inside an enclosing stage but reported on its own would
+// otherwise be counted twice, and a stage total that includes a nested stage
+// is not a stage total.
+func (timings *BuildTimings) moveStageDuration(from, to buildTimingStage, duration time.Duration) {
+	timings.addStageDuration(from, -duration)
+	timings.addStageDuration(to, duration)
+}
+
 func (timings *BuildTimings) addStageLocked(stage buildTimingStage, duration time.Duration) {
 	milliseconds := duration.Milliseconds()
 	switch stage {
