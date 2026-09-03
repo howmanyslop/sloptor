@@ -60,7 +60,10 @@ func TestDecoratorLowering_emitsExactAccessorStaticComponentAndImportOutput(t *t
 	wants := []string{
 		`// @rbxts-transform-debug`,
 		`import { Reflect as RuntimeReflect } from "@flamework/core";`,
-		`RuntimeReflect["decorate"](Counter, "fixture:service@Component", Decorators.Component, [{`,
+		// The UID carries every named ancestor of the declaration, so a decorator
+		// declared in `namespace Decorators` is `Decorators.Component`, matching
+		// the reference getDeclarationName.
+		`RuntimeReflect["decorate"](Counter, "fixture:service@Decorators.Component", Decorators.Component, [{`,
 		`"attributes": {`,
 		`"active": t["boolean"]`,
 		`Decorators.Member, [], "count", true`,
@@ -71,7 +74,10 @@ func TestDecoratorLowering_emitsExactAccessorStaticComponentAndImportOutput(t *t
 			t.Fatalf("transformed output missing %q:\n%s", want, printed)
 		}
 	}
-	if strings.Count(printed, `from "@flamework/core"`) != 1 || strings.Contains(printed, "@Decorators") {
+	// Match the decorator syntax itself; "@Decorators" alone now also matches
+	// the namespace-qualified UID string.
+	if strings.Count(printed, `from "@flamework/core"`) != 1 ||
+		strings.Contains(printed, "@Decorators.Component(") || strings.Contains(printed, "@Decorators.Member(") {
 		t.Fatalf("decorator import/stripping mismatch:\n%s", printed)
 	}
 	reparsed := parser.ParseSourceFile(ast.SourceFileParseOptions{FileName: "/output.ts", Path: tspath.Path("/output.ts")}, printed, core.ScriptKindTS)
