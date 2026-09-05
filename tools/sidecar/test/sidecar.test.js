@@ -327,6 +327,67 @@ test("intermediate transforms preserve comments when final emit removes them", (
   assert.match(response.transformed[0].text, /changed/);
 });
 
+// Catches a transformer assigning source identities outside the project when
+// an editor starts the sidecar through a symlinked project path. The expected
+// `out` comes from the configured output directory relative to that project,
+// which must be the same physical directory TypeScript used for its options.
+test("main.js keeps plugin project arguments aligned with canonical paths", (t) => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-project-path-"));
+  const aliasDir = path.join(path.dirname(fixtureDir), `${path.basename(fixtureDir)}-alias`);
+  t.after(() => {
+    fs.rmSync(aliasDir, { force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+  try {
+    fs.symlinkSync(fixtureDir, aliasDir, "dir");
+  } catch (error) {
+    t.skip(`cannot create project-path symlink: ${error.message}`);
+    return;
+  }
+  const sourceDir = path.join(fixtureDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  fs.writeFileSync(path.join(sourceDir, "main.ts"), "export const value = 1;\n");
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `const path = require("node:path");
+module.exports = (program, config, helpers) => (context) => (sourceFile) => {
+  const flag = process.argv.findIndex((value) => value === "-p" || value === "--project");
+  const projectDir = path.dirname(process.argv[flag + 1]);
+  const relativeOut = path.relative(projectDir, program.getCompilerOptions().outDir);
+  return helpers.ts.factory.updateSourceFile(sourceFile, [
+    ...sourceFile.statements,
+    helpers.ts.factory.createExpressionStatement(helpers.ts.factory.createStringLiteral(relativeOut)),
+  ]);
+};
+`);
+  fs.writeFileSync(path.join(fixtureDir, "tsconfig.json"), JSON.stringify({
+    compilerOptions: {
+      module: "CommonJS", moduleResolution: "Node", noLib: true,
+      target: "ESNext", rootDir: "src", outDir: "out",
+      plugins: [{ transform: "./plugin.js" }],
+    },
+    include: ["src"],
+  }));
+
+  const aliasConfigPath = path.join(aliasDir, "tsconfig.json");
+  const result = spawnSync(process.execPath, [mainPath, "--project", aliasConfigPath], {
+    input: `${JSON.stringify({
+      protocol: 1,
+      operation: "transform",
+      projectDir: aliasDir,
+      tsConfigPath: aliasConfigPath,
+      compileFileNames: [path.join(aliasDir, "src", "main.ts")],
+      changedFiles: [],
+    })}\n`,
+    encoding: "utf8",
+    cwd: aliasDir,
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const response = JSON.parse(result.stdout.trim());
+  assert.deepEqual(response.diagnostics, []);
+  assert.equal(response.transformed.length, 1);
+  assert.match(response.transformed[0].text, /"out"/);
+});
+
 // Catches declaration validation executing plugin code even though declaration
 // output never consumes transformed source. The absent marker is the plugin's
 // own observable side effect, and the valid factory export is the config oracle.
