@@ -40,6 +40,7 @@ const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 
 type sidecarRequest struct {
 	Protocol         int      `json:"protocol"`
+	Operation        string   `json:"operation"`
 	TsConfigPath     string   `json:"tsConfigPath"`
 	ProjectDir       string   `json:"projectDir"`
 	CompileFileNames []string `json:"compileFileNames"`
@@ -48,10 +49,9 @@ type sidecarRequest struct {
 	// incremental build that selected a handful of files pays for parsing and
 	// binding the whole project otherwise, and the worker's program is thrown
 	// away when the rotor process exits, so nothing amortizes it.
-	RootFileNames    []string             `json:"rootFileNames,omitempty"`
-	ChangedFiles     []sidecarChangedFile `json:"changedFiles"`
-	Plugins          []json.RawMessage    `json:"plugins,omitempty"`
-	TransformSources bool                 `json:"transformSources"`
+	RootFileNames []string             `json:"rootFileNames,omitempty"`
+	ChangedFiles  []sidecarChangedFile `json:"changedFiles"`
+	Plugins       []json.RawMessage    `json:"plugins,omitempty"`
 }
 
 type sidecarChangedFile struct {
@@ -231,11 +231,22 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	}
 	stopDecode := logStage(configPath, sidecarResponseDecodeStage)
 	sourceTraces := make(diagnosticTraces)
-	for _, file := range response.Transformed {
+	var canonicalSources map[string]*ast.SourceFile
+	for index := range response.Transformed {
+		file := &response.Transformed[index]
 		if file.TraceMap == "" {
 			continue
 		}
 		original := program.GetSourceFile(file.FileName)
+		if original == nil {
+			if canonicalSources == nil {
+				canonicalSources = make(map[string]*ast.SourceFile, len(program.SourceFiles()))
+				for _, candidate := range projectSourceFiles(program) {
+					canonicalSources[canonicalSidecarPath(candidate.FileName())] = candidate
+				}
+			}
+			original = canonicalSources[canonicalSidecarPath(file.FileName)]
+		}
 		if original == nil {
 			stopDecode()
 			return nil, nil, fmt.Errorf("compile: transformer trace source missing from program: %s", file.FileName)
@@ -245,6 +256,10 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 			stopDecode()
 			return nil, nil, err
 		}
+		// Keep the Go program's original spelling for downstream overlay and
+		// diagnostic lookups. The worker operates on physical paths, which can
+		// differ from this process's /var-style path through a symlink.
+		file.FileName = original.FileName()
 		sourceTraces[normalizeSourceFilePath(file.FileName)] = fileTrace
 	}
 	stats.decode += stopDecode()
@@ -260,7 +275,10 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	// project. Rebuilding on that alone would read every other file off disk
 	// and drop the caller's overlay on it, so the two layer: transformed text
 	// wins where it exists, the caller's overlay stands everywhere else.
-	programOverlays := normalizeOverlays(overlays)
+	// The caller may have spelled an existing overlay through a symlinked
+	// parent. Reuse the bounded setup mapping so the native overlay update sees
+	// the exact source-file keys held by this Program.
+	programOverlays, _ := rekeyOverlaysToProgram(program, overlays)
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	for _, file := range response.Transformed {
 		programOverlays[normalizeOverlayPath(file.FileName, caseSensitive)] = file.Text
@@ -749,7 +767,9 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 	}
 
-	key := normalizeSourceFilePath(dir) + "|" + normalizeSourceFilePath(configPath)
+	sidecarDirPath := canonicalSidecarPath(dir)
+	sidecarConfigPath := canonicalSidecarPath(configPath)
+	key := sidecarDirPath + "|" + sidecarConfigPath
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
@@ -763,7 +783,11 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			if session != nil {
 				session.close()
 			}
-			session, err = spawnSidecarSession(dir, sidecarDir)
+			// Plugins can derive project-relative paths from process.cwd(). Start
+			// Node in the same physical directory sent in the request so that
+			// cwd, tsconfig-derived options, and source-file paths agree on
+			// macOS symlink roots and Windows short-name aliases.
+			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
 			if err != nil {
 				stats.prep += stopPrep()
 				return nil, stats, nodeRequirementError(err, configPath, plugins)
@@ -794,12 +818,12 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 
 		request := sidecarRequest{
 			Protocol:         1,
-			TsConfigPath:     filepath.FromSlash(configPath),
-			ProjectDir:       filepath.FromSlash(dir),
+			Operation:        "transform",
+			TsConfigPath:     filepath.FromSlash(sidecarConfigPath),
+			ProjectDir:       filepath.FromSlash(sidecarDirPath),
 			CompileFileNames: make([]string, 0, len(compileFiles)),
 			ChangedFiles:     changedFiles,
 			Plugins:          plugins,
-			TransformSources: true,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
@@ -848,6 +872,136 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 		return &response, stats, nil
 	}
+}
+
+// validateTransformerSidecar verifies the configured transformer modules
+// without creating a JavaScript language-service program or invoking any
+// factory. Declaration emit uses the original Go program, so a transform round
+// trip would only allocate a discarded overlay program and execute arbitrary
+// plugin code that cannot affect the declarations.
+func validateTransformerSidecar(dir string, program *compiler.Program) ([]string, error) {
+	configPath := program.Options().ConfigFilePath
+	if configPath == "" {
+		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
+	}
+
+	response, _, err := runTransformerSidecarValidation(dir, configPath)
+	if err != nil {
+		return []string{err.Error()}, err
+	}
+	if response.AfterDeclarationsTransformers > 0 {
+		warnUnsupportedAfterDeclarations(configPath, response.AfterDeclarationsTransformers)
+	}
+
+	var errorDiags []string
+	for _, diag := range response.Diagnostics {
+		text := formatSidecarDiagnostic(diag)
+		if strings.EqualFold(diag.Category, "warning") {
+			logservice.Warn(text)
+			continue
+		}
+		errorDiags = append(errorDiags, text)
+	}
+	if len(errorDiags) > 0 {
+		return errorDiags, errors.New("compile: transformer sidecar diagnostics")
+	}
+	return nil, nil
+}
+
+func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
+	var stats sidecarCallStats
+	sidecarDir, err := resolveSidecarDir()
+	if err != nil {
+		return nil, stats, err
+	}
+	timeout, err := sidecarResponseTimeout()
+	if err != nil {
+		return nil, stats, err
+	}
+
+	sidecarDirPath := canonicalSidecarPath(dir)
+	sidecarConfigPath := canonicalSidecarPath(configPath)
+	key := sidecarDirPath + "|" + sidecarConfigPath
+	slot := sidecarSlotFor(key)
+	stopWait := logStage(configPath, sidecarSessionWaitStage)
+	slot.mu.Lock()
+	stats.wait = stopWait()
+	defer slot.mu.Unlock()
+
+	for attempt := 0; ; attempt++ {
+		stopPrep := logStage(configPath, sidecarPreparationStage)
+		session := slot.session
+		if session == nil || session.dead {
+			if session != nil {
+				session.close()
+			}
+			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
+			if err != nil {
+				stats.prep += stopPrep()
+				return nil, stats, nodeRequirementError(err, configPath, nil)
+			}
+			slot.session = session
+			if attempt == 0 {
+				stats.spawned = true
+			} else {
+				stats.restarted = true
+			}
+		}
+
+		request := sidecarRequest{
+			Protocol:     1,
+			Operation:    "validate",
+			TsConfigPath: filepath.FromSlash(sidecarConfigPath),
+			ProjectDir:   filepath.FromSlash(sidecarDirPath),
+		}
+		payload, err := json.Marshal(request)
+		stats.prep += stopPrep()
+		if err != nil {
+			return nil, stats, err
+		}
+		stats.requestBytes += int64(len(payload))
+
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		stopRoundTrip := logStageNamed(configPath, sidecarRoundTripStage.traceName())
+		line, err := session.writeAndRead(ctx, payload)
+		stats.roundTrip += stopRoundTrip()
+		cancel()
+		session.stderr.drainTo()
+		if err != nil {
+			session.close()
+			slot.session = nil
+			if errors.Is(err, context.DeadlineExceeded) || attempt > 0 {
+				return nil, stats, err
+			}
+			continue
+		}
+		stats.responseBytes += int64(len(line))
+		decodeStarted := time.Now()
+		var response sidecarResponse
+		if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
+			return nil, stats, session.fail(err)
+		}
+		stats.decode += time.Since(decodeStarted)
+		if response.Metrics != nil {
+			stats.nodeWallMs = response.Metrics.WallMs
+			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
+			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
+			stats.nodeVersion = response.Metrics.NodeVersion
+		}
+		return &response, stats, nil
+	}
+}
+
+// canonicalSidecarPath gives the Node worker the same physical root that its
+// resolver sees after chdir. On macOS, /var is a symlink to /private/var; a
+// lexical project path there otherwise makes transformer resolver roots differ
+// from TypeScript's source-file paths.
+func canonicalSidecarPath(path string) string {
+	cleaned := filepath.Clean(filepath.FromSlash(path))
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.ToSlash(resolved)
+	}
+	return filepath.ToSlash(cleaned)
 }
 
 func logPluginMetrics(configPath string, plugins []sidecarPluginMetric) {

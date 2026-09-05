@@ -1,4 +1,6 @@
-const { createPluginNotFoundDiagnostic } = require("./diagnostics");
+const fs = require("node:fs");
+const path = require("node:path");
+const { createPluginNotFoundDiagnostic, createProtocolDiagnostic } = require("./diagnostics");
 
 // getPluginConfigs reads the transformer list off the RESOLVED compiler
 // options — the value `tsc --showConfig` reports — rather than walking the
@@ -57,6 +59,76 @@ function getTransformerFromFactory(ts, factory, config, program) {
   return transformer;
 }
 
+function realpath(fileName) {
+  return fs.realpathSync.native?.(fileName) ?? fs.realpathSync(fileName);
+}
+
+function loadPluginDefinition(config, baseDir, tsModulePath) {
+  const modulePath = require.resolve(config.transform, { paths: [baseDir] });
+  const requiredModule = require(modulePath);
+  const factoryModule = typeof requiredModule === "function"
+    ? Object.assign({ default: requiredModule }, requiredModule)
+    : requiredModule;
+  const factory = factoryModule[config.import ?? "default"];
+
+  if (typeof factory !== "function") {
+    throw new Error("factory not a function");
+  }
+
+  if (tsModulePath) {
+    let pluginTypeScriptPath;
+    try {
+      pluginTypeScriptPath = realpath(require.resolve("typescript", { paths: [path.dirname(modulePath)] }));
+    } catch (error) {
+      if (error?.code !== "MODULE_NOT_FOUND") {
+        throw error;
+      }
+    }
+    if (pluginTypeScriptPath && pluginTypeScriptPath !== tsModulePath) {
+      return {
+        diagnostic: createProtocolDiagnostic(
+          "error",
+          "typescript-instance-mismatch",
+          `Transformer \`${config.transform}\` resolves TypeScript from ${pluginTypeScriptPath}, but the project uses ${tsModulePath}. Install one shared TypeScript copy so transformer nodes and the sidecar use the same module instance.`,
+        ),
+      };
+    }
+  }
+
+  return { modulePath, factoryModule, factory };
+}
+
+// validatePluginConfigs performs only the protocol's declaration-time checks:
+// resolve the configured module, load it, confirm its exported factory, and
+// ensure it shares the session's TypeScript installation. It deliberately does
+// not call a factory, including raw factories, because validation can run for a
+// declaration-only build where no source transformation is needed.
+function validatePluginConfigs(configs, baseDir, tsModulePath) {
+  const diagnostics = [];
+  let afterDeclarationsTransformers = 0;
+
+  for (const config of configs) {
+    if (!config.transform) {
+      continue;
+    }
+
+    try {
+      const loaded = loadPluginDefinition(config, baseDir, tsModulePath);
+      if (loaded.diagnostic) {
+        diagnostics.push(loaded.diagnostic);
+        continue;
+      }
+      if (config.afterDeclarations) {
+        afterDeclarationsTransformers += 1;
+      }
+    } catch (error) {
+      diagnostics.push(createPluginNotFoundDiagnostic(config.transform, error));
+    }
+  }
+
+  return { diagnostics, afterDeclarationsTransformers };
+}
+
 function wrapWithShouldTransform(ts, transformer, shouldTransformSourceFile, program, config) {
   if (typeof shouldTransformSourceFile !== "function") {
     return transformer;
@@ -98,7 +170,7 @@ function pluginMetrics(plugins) {
   return plugins.map((plugin) => ({ transform: plugin.transform, ms: Number(plugin.ns / 1000000n) }));
 }
 
-function createTransformerList(ts, program, configs, baseDir) {
+function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
   const transforms = {
     before: [],
     after: [],
@@ -113,23 +185,19 @@ function createTransformerList(ts, program, configs, baseDir) {
     }
 
     try {
-      const modulePath = require.resolve(config.transform, { paths: [baseDir] });
-      const requiredModule = require(modulePath);
-      const factoryModule = typeof requiredModule === "function"
-        ? Object.assign({ default: requiredModule }, requiredModule)
-        : requiredModule;
-      const factory = factoryModule[config.import ?? "default"];
-
-      if (typeof factory !== "function") {
-        throw new Error("factory not a function");
+      const loaded = loadPluginDefinition(config, baseDir, tsModulePath);
+      if (loaded.diagnostic) {
+        diagnostics.push(loaded.diagnostic);
+        continue;
       }
-
-      const transformer = getTransformerFromFactory(ts, factory, config, program);
+      const plugin = { transform: config.transform, ns: 0n };
+      const factoryStarted = process.hrtime.bigint();
+      const transformer = getTransformerFromFactory(ts, loaded.factory, config, program);
+      plugin.ns += process.hrtime.bigint() - factoryStarted;
       if (!transformer) {
         continue;
       }
-      const shouldTransformSourceFile = factoryModule.shouldTransformSourceFile;
-      const plugin = { transform: config.transform, ns: 0n };
+      const shouldTransformSourceFile = loaded.factoryModule.shouldTransformSourceFile;
       plugins.push(plugin);
 
       if (transformer.afterDeclarations) {
@@ -198,5 +266,6 @@ module.exports = {
   pluginMetrics,
   flattenIntoTransformers,
   getPluginConfigs,
+  validatePluginConfigs,
   wrapTransformersWithParentFix,
 };

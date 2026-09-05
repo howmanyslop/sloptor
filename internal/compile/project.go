@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/pprof"
+	"sort"
 	"strings"
 
 	"rotor/internal/assetresolve"
@@ -126,16 +127,25 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	// the sidecar builds its transformed-source program on. The unwrapped path
 	// stays the default so a build without overlays keeps exactly the previous
 	// filesystem stack.
-	overlays := map[string]string(nil)
-	if len(opts.Overlays) > 0 {
-		overlays = normalizeOverlays(opts.Overlays)
-	}
-	fs := solutionCacheFS(opts.compileCache, configPath, overlays)
+	var overlays map[string]string
+	fs := solutionCacheFS(opts.compileCache, configPath, nil)
 	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
 	if err != nil {
 		return "", nil, diags, err
 	}
 	if len(opts.Overlays) > 0 {
+		var unmatched []string
+		overlays, unmatched = rekeyOverlaysToProgram(program, opts.Overlays)
+		if len(unmatched) > 0 && opts.solutionOverlays == nil {
+			sort.Strings(unmatched)
+			err = fmt.Errorf("compile: overlay matches no file in the program: %s", strings.Join(unmatched, ", "))
+			return "", nil, []string{err.Error()}, err
+		}
+		fs = solutionCacheFS(opts.compileCache, configPath, overlays)
+		program, diags, err = newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
+		if err != nil {
+			return "", nil, diags, err
+		}
 		matched, err := matchProgramOverlays(program, opts)
 		if err != nil {
 			return "", nil, []string{err.Error()}, err
