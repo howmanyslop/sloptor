@@ -60,6 +60,10 @@ function normalizePath(fileName) {
   }
 }
 
+function inputPath(projectDir, fileName) {
+  return path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(projectDir, fileName)));
+}
+
 // Transformer packages read both cwd and `--project` directly. Keep those
 // process-level inputs aligned with the physical request paths before loading
 // a plugin: otherwise an alias such as /var or a Windows short-name path can
@@ -100,6 +104,7 @@ class SidecarProjectSession {
     this.deleted = new Set();
     this.actualPaths = new Map();
     this.pathAliases = new Map();
+    this.requestPaths = undefined;
     this.versions = new Map();
     this.baseRoots = new Map();
     this.currentFileNames = new Set();
@@ -124,28 +129,40 @@ class SidecarProjectSession {
   }
 
   canonicalize(fileName) {
-    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
-    const resolved = this.pathAliases.get(inputPath) ?? normalizePath(inputPath);
-    return this.ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+    const resolvedPath = inputPath(this.projectDir, fileName);
+    const resolved = this.pathAliases.get(resolvedPath) ?? normalizePath(resolvedPath);
+    return this.canonicalPath(resolved);
+  }
+
+  canonicalPath(fileName) {
+    return this.ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase();
   }
 
   rememberFile(fileName) {
-    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
+    const resolvedPath = inputPath(this.projectDir, fileName);
+    const requestPath = this.requestPaths?.get(resolvedPath);
+    if (requestPath !== undefined) {
+      return requestPath;
+    }
     // A deleted symlink target cannot be resolved again. Keep the physical
     // path we recorded while it existed so a deletion reaches the same
     // document and a retained result can still produce its trace map. A live
     // link may point somewhere new, so resolve it again for the next request.
-    const previousPath = this.pathAliases.get(inputPath);
-    const actualPath = previousPath !== undefined && !this.ts.sys.fileExists(inputPath)
+    const previousPath = this.pathAliases.get(resolvedPath);
+    const actualPath = previousPath !== undefined && !this.ts.sys.fileExists(resolvedPath)
       ? previousPath
-      : normalizePath(inputPath);
-    this.pathAliases.set(inputPath, actualPath);
-    const canonical = this.canonicalize(actualPath);
+      : normalizePath(resolvedPath);
+    this.pathAliases.set(resolvedPath, actualPath);
+    this.pathAliases.set(inputPath(this.projectDir, actualPath), actualPath);
+    const canonical = this.canonicalPath(actualPath);
     if (!this.actualPaths.has(canonical)) {
       this.actualPaths.set(canonical, actualPath);
       this.versions.set(canonical, 0);
     }
-    return this.actualPaths.get(canonical);
+    const rememberedPath = this.actualPaths.get(canonical);
+    this.requestPaths?.set(resolvedPath, rememberedPath);
+    this.requestPaths?.set(inputPath(this.projectDir, rememberedPath), rememberedPath);
+    return rememberedPath;
   }
 
   fileExists(fileName) {
@@ -173,24 +190,26 @@ class SidecarProjectSession {
   readConfigFile(fileName) {
     const actualPath = this.rememberFile(fileName);
     if (this.configSnapshot !== undefined) {
-      const text = this.configSnapshot.get(this.canonicalize(actualPath));
-      this.configReads?.set(this.canonicalize(actualPath), text);
+      const canonical = this.canonicalPath(actualPath);
+      const text = this.configSnapshot.get(canonical);
+      this.configReads?.set(canonical, text);
       return text;
     }
     const text = this.readFile(actualPath);
-    this.configReads?.set(this.canonicalize(actualPath), text);
+    this.configReads?.set(this.canonicalPath(actualPath), text);
     return text;
   }
 
   configFileExists(fileName) {
     const actualPath = this.rememberFile(fileName);
     if (this.configSnapshot !== undefined) {
-      const text = this.configSnapshot.get(this.canonicalize(actualPath));
-      this.configReads?.set(this.canonicalize(actualPath), text);
+      const canonical = this.canonicalPath(actualPath);
+      const text = this.configSnapshot.get(canonical);
+      this.configReads?.set(canonical, text);
       return text !== undefined;
     }
     const exists = this.fileExists(actualPath);
-    this.configReads?.set(this.canonicalize(actualPath), exists ? this.readFile(actualPath) : undefined);
+    this.configReads?.set(this.canonicalPath(actualPath), exists ? this.readFile(actualPath) : undefined);
     return exists;
   }
 
@@ -203,7 +222,7 @@ class SidecarProjectSession {
     const next = new Map();
     for (const [fileName, text] of Object.entries(files)) {
       const actualPath = this.rememberFile(fileName);
-      next.set(this.canonicalize(actualPath), text);
+      next.set(this.canonicalPath(actualPath), text);
     }
     this.configSnapshot = next;
     this.configSnapshotSignature = JSON.stringify([...next.entries()].sort(([left], [right]) => left.localeCompare(right)));
@@ -211,7 +230,7 @@ class SidecarProjectSession {
 
   updateFile(fileName, text) {
     const actualPath = this.rememberFile(fileName);
-    const canonical = this.canonicalize(actualPath);
+    const canonical = this.canonicalPath(actualPath);
     const unchanged = !this.deleted.has(canonical) && this.overrides.get(canonical) === text;
     this.deleted.delete(canonical);
     if (unchanged) {
@@ -225,7 +244,7 @@ class SidecarProjectSession {
 
   deleteFile(fileName) {
     const actualPath = this.rememberFile(fileName);
-    const canonical = this.canonicalize(actualPath);
+    const canonical = this.canonicalPath(actualPath);
     if (this.deleted.has(canonical)) {
       return;
     }
@@ -239,7 +258,7 @@ class SidecarProjectSession {
     const next = new Map();
     for (const fileName of fileNames) {
       const actualPath = this.rememberFile(fileName);
-      next.set(this.canonicalize(actualPath), actualPath);
+      next.set(this.canonicalPath(actualPath), actualPath);
     }
     const previousKeys = [...this.baseRoots.keys()];
     const changed = previousKeys.length !== next.size || previousKeys.some((key) => !next.has(key));
@@ -251,7 +270,7 @@ class SidecarProjectSession {
   }
 
   setCurrentFileNames(fileNames) {
-    this.currentFileNames = new Set(fileNames.map((fileName) => this.canonicalize(this.rememberFile(fileName))));
+    this.currentFileNames = new Set(fileNames.map((fileName) => this.canonicalPath(this.rememberFile(fileName))));
   }
 
   resetRootLimit() {
@@ -316,7 +335,7 @@ class SidecarProjectSession {
     let widened = this.rootLimit === undefined;
     for (const fileName of rootFileNames) {
       const actualPath = this.rememberFile(fileName);
-      const canonical = this.canonicalize(actualPath);
+      const canonical = this.canonicalPath(actualPath);
       if (!next.has(canonical)) {
         next.set(canonical, actualPath);
         widened = true;
@@ -402,7 +421,7 @@ class SidecarProjectSession {
 
   getSourceFile(program, fileName) {
     const actualPath = this.rememberFile(fileName);
-    return program.getSourceFile(actualPath) ?? program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === this.canonicalize(actualPath));
+    return program.getSourceFile(actualPath) ?? program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === this.canonicalPath(actualPath));
   }
 
   transformerList(program, configs) {
@@ -610,6 +629,10 @@ class SidecarProjectSession {
   }
 
   handleRequest(request) {
+    const previousRequestPaths = this.requestPaths;
+    if (request.operation === "transform") {
+      this.requestPaths = new Map();
+    }
     try {
       if (request.operation === "maps") {
         return this.mapResult(request.resultHandle, request.fileNames);
@@ -651,7 +674,10 @@ class SidecarProjectSession {
 
       const contentIdentities = request.fileContentIdentities === undefined
         ? undefined
-        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => [this.canonicalize(this.rememberFile(fileName)), digest]));
+        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => {
+          const canonical = this.canonicalPath(this.rememberFile(fileName));
+          return [canonical, digest];
+        }));
       this.verifyChangedFiles(request.changedFiles, contentIdentities);
       this.setConfigSnapshot(request.configSnapshot);
       this.refreshWarmFiles(request.changedFiles, contentIdentities);
@@ -717,6 +743,8 @@ class SidecarProjectSession {
       };
     } catch (error) {
       return { diagnostics: [createInternalDiagnostic(error)], transformed: [] };
+    } finally {
+      this.requestPaths = previousRequestPaths;
     }
   }
 }

@@ -10,7 +10,10 @@
 		"samples": [
 			{
 				"cycle": 0,
-				"memory": { "heapUsed": 23995512, "rss": 120815616 },
+				"memory": {
+					"heapUsed": 23995512,
+					"rss": 120815616
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -22,7 +25,10 @@
 			},
 			{
 				"cycle": 50,
-				"memory": { "heapUsed": 38992416, "rss": 165412864 },
+				"memory": {
+					"heapUsed": 38992416,
+					"rss": 165412864
+				},
 				"metadata": {
 					"actualPaths": 102,
 					"baseRoots": 1,
@@ -34,7 +40,10 @@
 			},
 			{
 				"cycle": 100,
-				"memory": { "heapUsed": 41945912, "rss": 168542208 },
+				"memory": {
+					"heapUsed": 41945912,
+					"rss": 168542208
+				},
 				"metadata": {
 					"actualPaths": 202,
 					"baseRoots": 1,
@@ -46,7 +55,10 @@
 			},
 			{
 				"cycle": 150,
-				"memory": { "heapUsed": 60154112, "rss": 183812096 },
+				"memory": {
+					"heapUsed": 60154112,
+					"rss": 183812096
+				},
 				"metadata": {
 					"actualPaths": 302,
 					"baseRoots": 1,
@@ -58,7 +70,10 @@
 			},
 			{
 				"cycle": 200,
-				"memory": { "heapUsed": 75643456, "rss": 200081408 },
+				"memory": {
+					"heapUsed": 75643456,
+					"rss": 200081408
+				},
 				"metadata": {
 					"actualPaths": 402,
 					"baseRoots": 1,
@@ -70,7 +85,10 @@
 			},
 			{
 				"cycle": 250,
-				"memory": { "heapUsed": 87936384, "rss": 216989696 },
+				"memory": {
+					"heapUsed": 87936384,
+					"rss": 216989696
+				},
 				"metadata": {
 					"actualPaths": 502,
 					"baseRoots": 1,
@@ -82,7 +100,10 @@
 			},
 			{
 				"cycle": 300,
-				"memory": { "heapUsed": 117254512, "rss": 234864640 },
+				"memory": {
+					"heapUsed": 117254512,
+					"rss": 234864640
+				},
 				"metadata": {
 					"actualPaths": 602,
 					"baseRoots": 1,
@@ -105,7 +126,10 @@
 		"samples": [
 			{
 				"cycle": 0,
-				"memory": { "heapUsed": 24130632, "rss": 119603200 },
+				"memory": {
+					"heapUsed": 24079768,
+					"rss": 119619584
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -117,7 +141,10 @@
 			},
 			{
 				"cycle": 50,
-				"memory": { "heapUsed": 29535688, "rss": 159498240 },
+				"memory": {
+					"heapUsed": 50694480,
+					"rss": 162660352
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -129,7 +156,10 @@
 			},
 			{
 				"cycle": 100,
-				"memory": { "heapUsed": 51682784, "rss": 174735360 },
+				"memory": {
+					"heapUsed": 50920856,
+					"rss": 174555136
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -141,7 +171,10 @@
 			},
 			{
 				"cycle": 150,
-				"memory": { "heapUsed": 75042712, "rss": 198803456 },
+				"memory": {
+					"heapUsed": 72659872,
+					"rss": 191184896
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -153,7 +186,10 @@
 			},
 			{
 				"cycle": 200,
-				"memory": { "heapUsed": 98347656, "rss": 222740480 },
+				"memory": {
+					"heapUsed": 94575432,
+					"rss": 217006080
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -165,7 +201,10 @@
 			},
 			{
 				"cycle": 250,
-				"memory": { "heapUsed": 121482184, "rss": 246710272 },
+				"memory": {
+					"heapUsed": 120249104,
+					"rss": 236503040
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -177,7 +216,10 @@
 			},
 			{
 				"cycle": 300,
-				"memory": { "heapUsed": 48910784, "rss": 247447552 },
+				"memory": {
+					"heapUsed": 41526408,
+					"rss": 250462208
+				},
 				"metadata": {
 					"actualPaths": 2,
 					"baseRoots": 1,
@@ -188,7 +230,7 @@
 				}
 			}
 		],
-		"sessionSourceSha256": "80a9218fbad508691f64b355d04b9b6fcc317915a9a615cdbbab201a098c56f6"
+		"sessionSourceSha256": "2d987471478f61a1a084579accb4eeda80782a520522a4894a3042d8f4dd8014"
 	},
 	"fixture": {
 		"forcedGc": false,

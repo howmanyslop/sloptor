@@ -203,6 +203,72 @@ test("a retargeted source link uses its current source after a result release", 
   assert.match(second.transformed[0].text, /value = "second"/);
 });
 
+test("a regular source replaced by a link uses the replacement source", (t) => {
+  const originalCwd = process.cwd();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-replaced-source-"));
+  const sourceDir = path.join(root, "src");
+  const replacementDir = path.join(root, "replacement");
+  const configPath = path.join(root, "tsconfig.json");
+  const sourcePath = path.join(sourceDir, "main.ts");
+  let server;
+  t.after(() => {
+    server?.close();
+    process.chdir(originalCwd);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  fs.mkdirSync(sourceDir);
+  fs.mkdirSync(replacementDir);
+  fs.writeFileSync(sourcePath, 'export const value = "first";\n');
+  fs.writeFileSync(path.join(replacementDir, "main.ts"), 'export const value = "replacement";\n');
+  fs.writeFileSync(path.join(root, "plugin.js"), `module.exports = () => (context) => (sourceFile) => context.factory.updateSourceFile(sourceFile, [
+  ...sourceFile.statements,
+  context.factory.createExpressionStatement(context.factory.createStringLiteral("changed")),
+]);\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: {
+      module: "CommonJS",
+      moduleResolution: "Node",
+      noLib: true,
+      target: "ESNext",
+      plugins: [{ transform: "./plugin.js" }],
+    },
+    files: ["src/main.ts"],
+  }));
+  const project = { requestRoot: root, requestConfig: configPath, configPath };
+  server = new SidecarServer(ts);
+  const first = server.handleRequest(transformRequest(project, [sourcePath]));
+  assertNoDiagnostics(first);
+  assert.equal(typeof first.resultHandle, "string");
+  assertNoDiagnostics(server.handleRequest({
+    protocol: 3,
+    operation: "release",
+    projectDir: root,
+    tsConfigPath: configPath,
+    resultHandle: first.resultHandle,
+    outcome: "success",
+  }));
+
+  fs.rmSync(sourceDir, { recursive: true, force: true });
+  try {
+    fs.symlinkSync(replacementDir, sourceDir, process.platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    if (error?.code === "EPERM" || error?.code === "EACCES") {
+      t.skip(`cannot replace source with a link: ${error.message}`);
+      return;
+    }
+    throw error;
+  }
+  const replacement = server.handleRequest(transformRequest(project, [sourcePath]));
+  assertNoDiagnostics(replacement);
+  const transformedSource = fs.statSync(replacement.transformed[0].fileName);
+  const currentSource = fs.statSync(sourcePath);
+  assert.deepEqual(
+    { device: transformedSource.dev, inode: transformedSource.ino },
+    { device: currentSource.dev, inode: currentSource.ino },
+  );
+  assert.match(replacement.transformed[0].text, /value = "replacement"/);
+});
+
 test("a config snapshot that removes a root removes it from later transformer programs", (t) => {
   const project = makeProject(t, {
     "a.ts": "export const a = 1;\n",

@@ -38,7 +38,7 @@ The recorded run used Node `v22.23.2` on macOS arm64. Its baseline session
 source SHA-256 is
 `d0343863bbc8b7dbc064098896d6b762d1255624f50c2f00b28b92b6bb90abef`; the
 candidate SHA-256 is
-`80a9218fbad508691f64b355d04b9b6fcc317915a9a615cdbbab201a098c56f6`.
+`2d987471478f61a1a084579accb4eeda80782a520522a4894a3042d8f4dd8014`.
 The script emits the source hash for every run. Compare it before treating a
 new candidate run as the same cohort.
 
