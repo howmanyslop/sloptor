@@ -15,10 +15,10 @@ import (
 
 func sidecarDaemonEndpoint(runtimeDir, id string) string {
 	name := shortSidecarDaemonHash(runtimeDir) + "-" + id + ".sock"
-	root := filepath.Join(os.TempDir(), fmt.Sprintf("rotor-%d", os.Geteuid()))
-	if len(filepath.Join(root, name)) > 100 {
-		root = filepath.Join("/tmp", fmt.Sprintf("rotor-%d", os.Geteuid()))
-	}
+	// The daemon registry is keyed by runtimeDir, so every client that shares
+	// that registry must derive the same socket. TMPDIR is process-local and
+	// would make a healthy daemon undiscoverable from another invocation.
+	root := filepath.Join("/tmp", fmt.Sprintf("rotor-%d", os.Geteuid()))
 	return filepath.Join(root, name)
 }
 

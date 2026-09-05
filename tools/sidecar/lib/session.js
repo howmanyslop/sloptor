@@ -102,10 +102,14 @@ class SidecarProjectSession {
     this.pathAliases = new Map();
     this.versions = new Map();
     this.baseRoots = new Map();
+    this.currentFileNames = new Set();
     this.projectVersion = 0;
     this.configSignature = "";
     this.configInputs = new Map();
     this.configReads = undefined;
+    this.configSnapshot = undefined;
+    this.configSnapshotSignature = undefined;
+    this.parsedConfigSnapshotSignature = undefined;
     this.fileSetSignature = "";
     this.parsedDiagnostics = [];
     this.parsed = undefined;
@@ -127,7 +131,14 @@ class SidecarProjectSession {
 
   rememberFile(fileName) {
     const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
-    const actualPath = normalizePath(inputPath);
+    // A deleted symlink target cannot be resolved again. Keep the physical
+    // path we recorded while it existed so a deletion reaches the same
+    // document and a retained result can still produce its trace map. A live
+    // link may point somewhere new, so resolve it again for the next request.
+    const previousPath = this.pathAliases.get(inputPath);
+    const actualPath = previousPath !== undefined && !this.ts.sys.fileExists(inputPath)
+      ? previousPath
+      : normalizePath(inputPath);
     this.pathAliases.set(inputPath, actualPath);
     const canonical = this.canonicalize(actualPath);
     if (!this.actualPaths.has(canonical)) {
@@ -161,6 +172,11 @@ class SidecarProjectSession {
 
   readConfigFile(fileName) {
     const actualPath = this.rememberFile(fileName);
+    if (this.configSnapshot !== undefined) {
+      const text = this.configSnapshot.get(this.canonicalize(actualPath));
+      this.configReads?.set(this.canonicalize(actualPath), text);
+      return text;
+    }
     const text = this.readFile(actualPath);
     this.configReads?.set(this.canonicalize(actualPath), text);
     return text;
@@ -168,9 +184,29 @@ class SidecarProjectSession {
 
   configFileExists(fileName) {
     const actualPath = this.rememberFile(fileName);
+    if (this.configSnapshot !== undefined) {
+      const text = this.configSnapshot.get(this.canonicalize(actualPath));
+      this.configReads?.set(this.canonicalize(actualPath), text);
+      return text !== undefined;
+    }
     const exists = this.fileExists(actualPath);
     this.configReads?.set(this.canonicalize(actualPath), exists ? this.readFile(actualPath) : undefined);
     return exists;
+  }
+
+  setConfigSnapshot(files) {
+    if (files === undefined) {
+      this.configSnapshot = undefined;
+      this.configSnapshotSignature = undefined;
+      return;
+    }
+    const next = new Map();
+    for (const [fileName, text] of Object.entries(files)) {
+      const actualPath = this.rememberFile(fileName);
+      next.set(this.canonicalize(actualPath), text);
+    }
+    this.configSnapshot = next;
+    this.configSnapshotSignature = JSON.stringify([...next.entries()].sort(([left], [right]) => left.localeCompare(right)));
   }
 
   updateFile(fileName, text) {
@@ -210,6 +246,50 @@ class SidecarProjectSession {
     this.baseRoots = next;
     if (changed) {
       this.projectVersion += 1;
+    }
+    return changed;
+  }
+
+  setCurrentFileNames(fileNames) {
+    this.currentFileNames = new Set(fileNames.map((fileName) => this.canonicalize(this.rememberFile(fileName))));
+  }
+
+  resetRootLimit() {
+    this.rootLimit = undefined;
+    this.rootLimitDisabled = false;
+  }
+
+  retainedSource(canonical) {
+    for (const retained of this.results.values()) {
+      if (retained.sources.has(canonical)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  pruneDeletedFiles() {
+    for (const canonical of [...this.deleted]) {
+      const actualPath = this.actualPaths.get(canonical);
+      if (
+        actualPath === undefined
+        || this.currentFileNames.has(canonical)
+        || this.ts.sys.fileExists(actualPath)
+        || this.retainedSource(canonical)
+      ) {
+        continue;
+      }
+      this.deleted.delete(canonical);
+      this.overrides.delete(canonical);
+      this.actualPaths.delete(canonical);
+      this.versions.delete(canonical);
+      this.baseRoots.delete(canonical);
+      this.rootLimit?.delete(canonical);
+      for (const [inputPath, aliasPath] of this.pathAliases) {
+        if (this.canonicalize(aliasPath) === canonical) {
+          this.pathAliases.delete(inputPath);
+        }
+      }
     }
   }
 
@@ -256,6 +336,9 @@ class SidecarProjectSession {
     if (!this.parsed) {
       return true;
     }
+    if (this.configSnapshot !== undefined) {
+      return this.configSnapshotSignature !== this.parsedConfigSnapshotSignature;
+    }
     for (const [canonical, previousText] of this.configInputs) {
       const actualPath = this.actualPaths.get(canonical) ?? canonical;
       if (this.readFile(actualPath) !== previousText) {
@@ -276,6 +359,7 @@ class SidecarProjectSession {
       const parsed = this.ts.getParsedCommandLineOfConfigFile(this.tsConfigPath, {}, createParseHost(this, this.ts));
       this.configInputs = this.configReads;
       this.configReads = undefined;
+      this.parsedConfigSnapshotSignature = this.configSnapshotSignature;
       if (!parsed) {
         this.parsed = undefined;
         this.parsedDiagnostics = [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)];
@@ -297,7 +381,9 @@ class SidecarProjectSession {
       }
       this.parsedDiagnostics = parsed.errors.map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic));
       this.fileSetSignature = requestedFileSet ?? JSON.stringify(parsed.fileNames.map((fileName) => this.canonicalize(fileName)).sort());
-      this.setBaseRoots(parsed.fileNames);
+      if (this.setBaseRoots(parsed.fileNames)) {
+        this.resetRootLimit();
+      }
     }
 
     if (createService && this.parsed && !this.service) {
@@ -407,6 +493,7 @@ class SidecarProjectSession {
     }
     retained.result.dispose?.();
     this.results.delete(resultHandle);
+    this.pruneDeletedFiles();
     return { diagnostics: [], transformed: [] };
   }
 
@@ -531,6 +618,7 @@ class SidecarProjectSession {
         return this.releaseResult(request.resultHandle);
       }
       if (request.operation === "validate") {
+        this.setConfigSnapshot(request.configSnapshot);
         const parsedState = this.refreshParsedConfig(false);
         if (!this.parsed) {
           return { diagnostics: parsedState.diagnostics, transformed: [] };
@@ -563,8 +651,9 @@ class SidecarProjectSession {
 
       const contentIdentities = request.fileContentIdentities === undefined
         ? undefined
-        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => [this.canonicalize(fileName), digest]));
+        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => [this.canonicalize(this.rememberFile(fileName)), digest]));
       this.verifyChangedFiles(request.changedFiles, contentIdentities);
+      this.setConfigSnapshot(request.configSnapshot);
       this.refreshWarmFiles(request.changedFiles, contentIdentities);
       for (const changedFile of request.changedFiles) {
         if (changedFile.deleted === true) {
@@ -573,6 +662,8 @@ class SidecarProjectSession {
           this.updateFile(changedFile.fileName, changedFile.text);
         }
       }
+      this.setCurrentFileNames(request.fileNames);
+      this.pruneDeletedFiles();
       const parsedState = this.refreshParsedConfig(true, request.fileNames);
       this.setRootLimit(request.rootFileNames);
       if (!this.parsed) {
@@ -660,12 +751,19 @@ function stringArray(value) {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function configSnapshot(value) {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.values(value).every((text) => typeof text === "string");
+}
+
 function validateRequest(request) {
   if (!request || typeof request !== "object") {
     return createRequestDiagnostic("request must be a JSON object");
   }
-  if (request.protocol !== 2) {
-    return createRequestDiagnostic("protocol must equal 2");
+  if (request.protocol !== 3) {
+    return createRequestDiagnostic("protocol must equal 3");
   }
   if (typeof request.projectDir !== "string" || request.projectDir.length === 0) {
     return createRequestDiagnostic("projectDir must be a non-empty string");
@@ -677,15 +775,18 @@ function validateRequest(request) {
     return createRequestDiagnostic("operation must equal \"warm\", \"transform\", \"maps\", \"release\", or \"validate\"");
   }
   if (["transformSources", "emitDeclarations"].some((field) => request[field] !== undefined)) {
-    return createRequestDiagnostic("protocol 2 does not accept protocol 1 request fields");
+    return createRequestDiagnostic("protocol 3 does not accept protocol 1 request fields");
   }
   if (request.operation === "warm") {
-    if (["fileNames", "rootFileNames", "compileFileNames", "fileContentIdentities", "changedFiles", "plugins"].some((field) => request[field] !== undefined)) {
+    if (["fileNames", "rootFileNames", "compileFileNames", "fileContentIdentities", "changedFiles", "plugins", "configSnapshot"].some((field) => request[field] !== undefined)) {
       return createRequestDiagnostic("warm requests cannot include roots, overlays, or plugins");
     }
     return undefined;
   }
   if (request.operation === "validate") {
+    if (!configSnapshot(request.configSnapshot)) {
+      return createRequestDiagnostic("validate requests must include a configSnapshot mapping paths to text");
+    }
     return undefined;
   }
   if (request.operation === "maps") {
@@ -717,6 +818,9 @@ function validateRequest(request) {
   }
   if (!Array.isArray(request.changedFiles)) {
     return createRequestDiagnostic("changedFiles must be an array");
+  }
+  if (!configSnapshot(request.configSnapshot)) {
+    return createRequestDiagnostic("transform requests must include a configSnapshot mapping paths to text");
   }
   if (
     request.fileContentIdentities === undefined

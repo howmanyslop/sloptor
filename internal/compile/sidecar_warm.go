@@ -26,6 +26,9 @@ type persistentSidecarWarmup struct {
 }
 
 func startPersistentSidecarWarmupIfCold(projectDir string, opts ProjectOptions) *persistentSidecarWarmup {
+	if !PersistentSidecarDaemonEnabled() || opts.EmitDeclarationOnly {
+		return nil
+	}
 	if sidecarIncrementalManifestExists(projectDir, opts.TsConfigPath) {
 		return nil
 	}
@@ -98,7 +101,7 @@ func applyManifestCompilerOptions(configPath string, active map[string]bool, opt
 		return false
 	}
 	for _, extended := range extendedConfigs {
-		parent, resolveErr := resolveExtendedConfig(absolute, extended)
+		parent, resolveErr := resolveExtendedConfig(absolute, extended, nil)
 		if resolveErr != nil || !applyManifestCompilerOptions(parent, active, options) {
 			return false
 		}

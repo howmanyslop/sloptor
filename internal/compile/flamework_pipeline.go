@@ -53,7 +53,7 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 		return nil, []string{err.Error()}, fmt.Errorf("compile: native Flamework incremental state: %w", err)
 	}
 
-	plugins, err := effectiveTransformerPlugins(program.Options().ConfigFilePath)
+	plugins, err := effectiveTransformerPluginsFromSnapshot(program.Options().ConfigFilePath, program.CommandLine().ConfigParseSnapshot())
 	if err != nil {
 		return nil, []string{err.Error()}, errors.New("compile: resolve effective transformer plugins")
 	}
@@ -101,7 +101,11 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		// Project setup already rejects unmatched overlays for a single project
 		// and leaves them for the solution-wide check otherwise. Transformer and
 		// native stages only need this Program's exact source-file spellings.
-		overlays, _ = rekeyOverlaysToProgram(program, overlays)
+		var err error
+		overlays, _, err = rekeyOverlaysToProgram(program, overlays)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	if pipeline == nil {
 		prepared, diags, err := prepareTransformerProgramForWorkspace(dir, program, sourceFiles, overlays, workspaceDir)

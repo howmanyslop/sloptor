@@ -31,9 +31,32 @@ function contentIdentity(text) {
   return crypto.createHash("sha256").update(text).digest("hex");
 }
 
+function captureConfigSnapshot(configPath) {
+  const files = {};
+  const host = Object.create(ts.sys);
+  host.readFile = (fileName) => {
+    const text = ts.sys.readFile(fileName);
+    if (text !== undefined) {
+      files[fileName] = text;
+    }
+    return text;
+  };
+  const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, host);
+  assert.ok(parsed, `expected config parse for ${configPath}`);
+  return files;
+}
+
 function transformRequest(request) {
-  if (request.operation !== "transform" || request.fileContentIdentities !== undefined) {
-    return request;
+  const protocolRequest = { ...request, protocol: 3 };
+  if (request.operation !== "transform") {
+    return protocolRequest;
+  }
+  const withConfigSnapshot = {
+    ...protocolRequest,
+    configSnapshot: request.configSnapshot ?? captureConfigSnapshot(request.tsConfigPath),
+  };
+  if (request.fileContentIdentities !== undefined) {
+    return withConfigSnapshot;
   }
   const changed = new Map((request.changedFiles ?? [])
     .filter((file) => typeof file.text === "string")
@@ -44,13 +67,22 @@ function transformRequest(request) {
     assert.notEqual(text, undefined, `expected authoritative text for ${fileName}`);
     fileContentIdentities[fileName] = contentIdentity(text);
   }
-  return { ...request, fileContentIdentities };
+  return {
+    ...withConfigSnapshot,
+    fileContentIdentities,
+  };
 }
 
 function createProtocolServer(typeScript = ts) {
   const server = new sidecar.SidecarServer(typeScript);
   const handleRequest = server.handleRequest.bind(server);
-  server.handleRequest = (request) => handleRequest(transformRequest(request));
+  server.handleRequest = (request) => {
+    const protocolRequest = { ...request, protocol: 3 };
+    if (protocolRequest.operation === "validate" && protocolRequest.configSnapshot === undefined) {
+      protocolRequest.configSnapshot = captureConfigSnapshot(protocolRequest.tsConfigPath);
+    }
+    return handleRequest(transformRequest(protocolRequest));
+  };
   return server;
 }
 
@@ -170,7 +202,7 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
   const configPath = path.join(projectDir, "tsconfig.no-plugins.json");
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath: configPath,
@@ -189,10 +221,11 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
 test("responses report the afterDeclarations transformer count", () => {
   const session = new sidecar.SidecarProjectSession(ts, projectDir, tsConfigPath);
   const response = session.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath,
+    configSnapshot: captureConfigSnapshot(tsConfigPath),
     fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
@@ -206,7 +239,7 @@ test("a project with no plugins reports no afterDeclarations transformers", () =
   const configPath = path.join(projectDir, "tsconfig.no-plugins.json");
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath: configPath,
@@ -227,7 +260,7 @@ test("checker plugins use the referenced source contract from rbxtsc", () => {
   assert.equal(expected, "1");
   const session = new sidecar.SidecarProjectSession(ts, checkerReferenceProjectDir, checkerReferenceConfigPath);
   const response = session.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: checkerReferenceProjectDir,
     tsConfigPath: checkerReferenceConfigPath,
@@ -307,7 +340,7 @@ test("transformSourceFiles omits source files whose transformers preserve identi
 test("sidecar protocol requires an explicit operation", () => {
   const server = createProtocolServer(ts);
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     projectDir,
     tsConfigPath,
     compileFileNames: [sourcePath],
@@ -324,10 +357,11 @@ test("sidecar protocol requires content identities and accepts an empty project"
   const originalCwd = process.cwd();
   const server = new sidecar.SidecarServer(ts);
   const missing = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath,
+    configSnapshot: captureConfigSnapshot(tsConfigPath),
     fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
@@ -340,10 +374,11 @@ test("sidecar protocol requires content identities and accepts an empty project"
   const emptyConfigPath = path.join(emptyProjectDir, "tsconfig.json");
   fs.writeFileSync(emptyConfigPath, JSON.stringify({ compilerOptions: { noLib: true }, files: [] }));
   const empty = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: emptyProjectDir,
     tsConfigPath: emptyConfigPath,
+    configSnapshot: captureConfigSnapshot(emptyConfigPath),
     fileNames: [],
     compileFileNames: [],
     fileContentIdentities: {},
@@ -382,7 +417,7 @@ test("intermediate transforms preserve comments when final emit removes them", (
   }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -439,7 +474,7 @@ module.exports = (program, config, helpers) => (context) => (sourceFile) => {
   const aliasConfigPath = path.join(aliasDir, "tsconfig.json");
   const result = spawnSync(process.execPath, [mainPath, "--project", aliasConfigPath], {
     input: `${JSON.stringify(transformRequest({
-      protocol: 2,
+      protocol: 3,
       operation: "transform",
       projectDir: aliasDir,
       tsConfigPath: aliasConfigPath,
@@ -472,10 +507,11 @@ module.exports = () => { fs.writeFileSync(${JSON.stringify(markerPath)}, "called
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { plugins: [{ transform: "./plugin.js" }, { transform: "./plugin.js", type: "raw" }] }, include: ["main.ts"] }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "validate",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
+    configSnapshot: captureConfigSnapshot(configPath),
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -501,7 +537,7 @@ test("validation rejects a plugin with a different TypeScript module instance", 
   const sessionTypeScriptPath = fs.realpathSync(require.resolve("typescript"));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath, sessionTypeScriptPath).handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "validate",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -537,7 +573,7 @@ test("plugin metrics include program and raw factory time", () => {
   }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -553,7 +589,7 @@ test("plugin metrics include program and raw factory time", () => {
 test("sidecar protocol responses include optional request metrics", () => {
   const server = createProtocolServer(ts);
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath,
@@ -572,7 +608,7 @@ test("sidecar protocol responses include optional request metrics", () => {
 test("sidecar protocol metrics split wall time per transformer plugin", () => {
   const server = createProtocolServer(ts);
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath,
@@ -644,7 +680,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
   try {
     const firstResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify(transformRequest({
-      protocol: 2,
+      protocol: 3,
       operation: "transform",
       projectDir,
       tsConfigPath,
@@ -660,7 +696,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
 
     const secondResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify(transformRequest({
-      protocol: 2,
+      protocol: 3,
       operation: "transform",
       projectDir,
       tsConfigPath,
@@ -753,7 +789,7 @@ module.exports.shouldTransformSourceFile = true;
 
   const result = spawnSync(process.execPath, [mainPath], {
     input: `${JSON.stringify(transformRequest({
-      protocol: 2,
+      protocol: 3,
       operation: "transform",
       projectDir: hookProjectDir,
       tsConfigPath: path.join(hookProjectDir, "tsconfig.json"),
@@ -805,7 +841,7 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
   fs.writeFileSync(noisyMainFile, 'export const phase = "start";\n');
 
   const request = JSON.stringify(transformRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     tsConfigPath: path.join(noisyProjectDir, "tsconfig.json"),
     projectDir: noisyProjectDir,
@@ -864,7 +900,7 @@ test("main.js preserves complete plugin logs when a plugin exits immediately", (
 
   const result = spawnSync(process.execPath, [mainPath], {
     input: `${JSON.stringify(transformRequest({
-      protocol: 2,
+      protocol: 3,
       operation: "transform",
       projectDir: fixtureDir,
       tsConfigPath: configPath,
@@ -945,7 +981,7 @@ function programFileNames(session) {
 
 function narrowRootsRequest(project, rootFileNames) {
   return {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: project.projectRoot,
     tsConfigPath: project.configPath,
@@ -1037,7 +1073,7 @@ test("warm accepts no roots or overlays and builds the tsconfig program", () => 
   const project = narrowRootsProject();
   const server = createProtocolServer(ts);
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "warm",
     projectDir: project.projectRoot,
     tsConfigPath: project.configPath,
@@ -1053,10 +1089,25 @@ test("warm accepts no roots or overlays and builds the tsconfig program", () => 
   server.close();
 });
 
+test("warm rejects a client config snapshot", () => {
+  const project = narrowRootsProject();
+  const server = createProtocolServer(ts);
+  const response = server.handleRequest({
+    protocol: 3,
+    operation: "warm",
+    projectDir: project.projectRoot,
+    tsConfigPath: project.configPath,
+    configSnapshot: captureConfigSnapshot(project.configPath),
+  });
+
+  assert.match(response.diagnostics[0].message, /warm requests cannot include roots, overlays, or plugins/);
+  server.close();
+});
+
 test("transform retains maps until an explicit release", () => {
   const server = createProtocolServer(ts);
   const transform = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir,
     tsConfigPath,
@@ -1070,7 +1121,7 @@ test("transform retains maps until an explicit release", () => {
   assert.equal("traceMap" in transform.transformed[0], false);
 
   const maps = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "maps",
     projectDir,
     tsConfigPath,
@@ -1082,7 +1133,7 @@ test("transform retains maps until an explicit release", () => {
   assert.doesNotThrow(() => JSON.parse(maps.traceMaps[0].traceMap));
 
   const release = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "release",
     projectDir,
     tsConfigPath,
@@ -1092,7 +1143,7 @@ test("transform retains maps until an explicit release", () => {
   assert.deepEqual(release.diagnostics, []);
 
   const afterRelease = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "maps",
     projectDir,
     tsConfigPath,
@@ -1119,7 +1170,7 @@ test("a cached transformer keeps its state for the same Program and exact config
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
   const server = createProtocolServer(ts);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1161,7 +1212,7 @@ test("editing an extended config changes the effective transformer config", () =
   fs.writeFileSync(configPath, JSON.stringify({ extends: "./base.json", files: ["main.ts"] }));
   const server = createProtocolServer(ts);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1176,6 +1227,52 @@ test("editing an extended config changes the effective transformer config", () =
 
   assert.match(first.transformed[0].text, /"from-base-one"/);
   assert.match(second.transformed[0].text, /"from-base-two"/);
+  server.close();
+});
+
+// The compiler owns one parsed root/extends graph. A disk edit after that
+// parse must not make Node combine Go's old source program with new plugin
+// configuration; the next compiler snapshot is the recovery boundary.
+test("a config snapshot keeps a raced root and extends graph together", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-config-snapshot-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const basePath = path.join(fixtureDir, "base.json");
+  const replacementPath = path.join(fixtureDir, "replacement.json");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(config.prefix)
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  const writeBase = (fileName, prefix) => fs.writeFileSync(fileName, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js", prefix }] },
+  }));
+  writeBase(basePath, "parsed-before-edit");
+  fs.writeFileSync(configPath, JSON.stringify({ extends: "./base.json", files: ["main.ts"] }));
+  const beforeEdit = captureConfigSnapshot(configPath);
+
+  writeBase(replacementPath, "parsed-after-edit");
+  fs.writeFileSync(configPath, JSON.stringify({ extends: "./replacement.json", files: ["main.ts"] }));
+  writeBase(basePath, "must-not-be-read");
+
+  const server = createProtocolServer(ts);
+  const request = {
+    protocol: 3,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+    configSnapshot: beforeEdit,
+  };
+  const preserved = server.handleRequest(request);
+  assert.match(preserved.transformed[0].text, /"parsed-before-edit"/);
+
+  const recovered = server.handleRequest({ ...request, configSnapshot: captureConfigSnapshot(configPath) });
+  assert.match(recovered.transformed[0].text, /"parsed-after-edit"/);
   server.close();
 });
 
@@ -1203,7 +1300,7 @@ test("editing a loaded plugin dependency is visible on the next transform", () =
   }));
   const server = createProtocolServer(sidecar.resolveTypeScript);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1233,7 +1330,7 @@ test("plugin console output is scoped to the response that produced it", () => {
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
   const server = createProtocolServer(ts);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1265,7 +1362,7 @@ module.exports = () => () => (source) => source;\n`);
   const server = createProtocolServer(ts);
 
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "warm",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1300,7 +1397,7 @@ test("a cold transform retries after the disk returns to its compiler snapshot",
   }));
   const server = createProtocolServer(ts);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1345,7 +1442,7 @@ test("the first transform refreshes a disk edit made after warm", (t) => {
     files: ["main.ts"],
   }));
   const server = createProtocolServer(ts);
-  const identity = { protocol: 2, projectDir: fixtureDir, tsConfigPath: configPath };
+  const identity = { protocol: 3, projectDir: fixtureDir, tsConfigPath: configPath };
 
   const warm = server.handleRequest({ ...identity, operation: "warm" });
   const beforeRewrite = fs.statSync(sourceFile);
@@ -1399,7 +1496,7 @@ test("editing the loaded TypeScript runtime is visible on the next transform", (
   loadTypeScript.modulePathFor = () => fs.realpathSync(runtimePath);
   const server = createProtocolServer(loadTypeScript);
   const request = {
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -1456,7 +1553,7 @@ module.exports = (program, config, helpers) => (context) => {
   const server = createProtocolServer(ts);
   t.after(() => server.close());
   const response = server.handleRequest({
-    protocol: 2,
+    protocol: 3,
     operation: "transform",
     projectDir: aliasProjectDir,
     tsConfigPath: path.join(aliasProjectDir, "tsconfig.json"),

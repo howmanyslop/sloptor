@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"rotor/internal/config"
@@ -82,18 +81,15 @@ func normalizeFlameworkProfilePath(path string) string {
 }
 
 func projectUsesLegacyFlameworkTransformer(parsed *tsoptions.ParsedCommandLine) bool {
-	if parsed == nil {
+	if parsed == nil || parsed.ConfigName() == "" {
 		return false
 	}
-	if configName := parsed.ConfigName(); configName != "" {
-		plugins, declared := configFileTransformerPlugins(normalizeSourceFilePath(configName))
-		if declared {
-			return slices.Contains(plugins, legacyFlameworkTransformer)
-		}
+	plugins, err := effectiveTransformerPluginsFromSnapshot(normalizeSourceFilePath(parsed.ConfigName()), parsed.ConfigParseSnapshot())
+	if err != nil {
+		return false
 	}
-	for _, configPath := range parsed.ExtendedSourceFiles() {
-		plugins, _ := configFileTransformerPlugins(normalizeSourceFilePath(configPath))
-		if slices.Contains(plugins, legacyFlameworkTransformer) {
+	for _, plugin := range plugins {
+		if plugin.Transform == legacyFlameworkTransformer {
 			return true
 		}
 	}

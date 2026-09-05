@@ -31,13 +31,20 @@ func TestMain(m *testing.M) {
 		fileName := filepath.Join(projectDir, "src", "main.ts")
 		text, _ := os.ReadFile(fileName)
 		contentIdentity := fmt.Sprintf("%x", sha256.Sum256(text))
+		configPath := filepath.Join(projectDir, "tsconfig.json")
+		configText, err := os.ReadFile(configPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		request, _ := json.Marshal(map[string]any{
-			"protocol": 2, "operation": "transform",
-			"projectDir": projectDir, "tsConfigPath": filepath.Join(projectDir, "tsconfig.json"),
+			"protocol": 3, "operation": "transform",
+			"projectDir": projectDir, "tsConfigPath": configPath,
 			"compileFileNames":      []string{fileName},
 			"fileNames":             []string{fileName},
 			"fileContentIdentities": map[string]string{fileName: contentIdentity},
 			"changedFiles":          []struct{}{},
+			"configSnapshot":        map[string]string{configPath: string(configText)},
 		})
 		result, err := compile.SidecarDaemonRoundTrip(context.Background(), compile.SidecarDaemonCall{
 			WorkspaceKey: projectDir,

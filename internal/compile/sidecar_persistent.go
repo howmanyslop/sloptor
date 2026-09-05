@@ -64,6 +64,7 @@ func persistentTransformerSidecar(
 	compileFiles, rootFiles, stampFiles []*ast.SourceFile,
 	overlays map[string]string,
 	plugins []json.RawMessage,
+	configSnapshot map[string]string,
 	state *sidecarBuildState,
 	timeout time.Duration,
 ) (*sidecarResponse, sidecarCallStats, error) {
@@ -93,6 +94,7 @@ func persistentTransformerSidecar(
 		ProjectDir:            filepath.FromSlash(identity.ProjectDir),
 		CompileFileNames:      make([]string, 0, len(compileFiles)),
 		FileNames:             append([]string(nil), stampNames...),
+		ConfigSnapshot:        configSnapshot,
 		Plugins:               plugins,
 		FileContentIdentities: &fileContentIdentities,
 	}
@@ -131,7 +133,7 @@ func persistentTransformerSidecar(
 	return response, stats, nil
 }
 
-func persistentSidecarValidation(dir, configPath, workspaceDir string, timeout time.Duration) (*sidecarResponse, sidecarCallStats, error) {
+func persistentSidecarValidation(dir, configPath, workspaceDir string, configSnapshot map[string]string, timeout time.Duration) (*sidecarResponse, sidecarCallStats, error) {
 	preparationStarted := time.Now()
 	identity, err := resolveSidecarWorkerIdentityForWorkspace(dir, configPath, workspaceDir)
 	if err != nil {
@@ -139,10 +141,11 @@ func persistentSidecarValidation(dir, configPath, workspaceDir string, timeout t
 	}
 	preparationDuration := time.Since(preparationStarted)
 	response, stats, err := persistentSidecarRequest(identity, sidecarRequest{
-		Protocol:     sidecarNodeProtocolVersion,
-		Operation:    "validate",
-		TsConfigPath: filepath.FromSlash(identity.ConfigPath),
-		ProjectDir:   filepath.FromSlash(identity.ProjectDir),
+		Protocol:       sidecarNodeProtocolVersion,
+		Operation:      "validate",
+		TsConfigPath:   filepath.FromSlash(identity.ConfigPath),
+		ProjectDir:     filepath.FromSlash(identity.ProjectDir),
+		ConfigSnapshot: configSnapshot,
 	}, nil, nil, timeout)
 	stats.prep += preparationDuration
 	if err == nil {

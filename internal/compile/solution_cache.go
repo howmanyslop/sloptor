@@ -99,14 +99,18 @@ func cacheableParseName(fileName string) bool {
 }
 
 func solutionCacheFS(cache *solutionCompileCache, configPath string, overlays map[string]string) vfs.FS {
+	return solutionCacheFSWithConfigRead(cache, configPath, overlays, nil)
+}
+
+func solutionCacheFSWithConfigRead(cache *solutionCompileCache, configPath string, overlays map[string]string, onConfigRead func(string, string)) vfs.FS {
 	base := osvfs.FS()
 	if cache != nil {
 		base = cache.fs
 	}
 	if len(overlays) > 0 {
-		return newOverlayFS(base, configPath, overlays)
+		return newOverlayFSWithConfigRead(base, configPath, overlays, onConfigRead)
 	}
-	fs := SanitizeFSWithConfigPath(bundled.WrapFS(base), configPath)
+	fs := SanitizeFSWithConfigRead(bundled.WrapFS(base), configPath, onConfigRead)
 	if cache == nil {
 		return cachedvfs.From(fs)
 	}

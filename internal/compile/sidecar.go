@@ -26,10 +26,10 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
-	"rotor/tsgo/core"
 	"rotor/tsgo/tsoptions"
 	"rotor/tsgo/vfs"
 	"rotor/tsgo/vfs/osvfs"
+	"rotor/tsgo/vfs/wrapvfs"
 )
 
 // defaultSidecarResponseTimeout is intentionally generous: upstream rbxtsc
@@ -53,6 +53,7 @@ type sidecarRequest struct {
 	// bind unrelated roots; the persistent session widens this limit when later
 	// requests select more files.
 	RootFileNames         []string              `json:"rootFileNames,omitempty"`
+	ConfigSnapshot        map[string]string     `json:"configSnapshot,omitempty"`
 	FileContentIdentities *map[string]string    `json:"fileContentIdentities,omitempty"`
 	ChangedFiles          *[]sidecarChangedFile `json:"changedFiles,omitempty"`
 	Plugins               []json.RawMessage     `json:"plugins,omitempty"`
@@ -244,14 +245,14 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	if emitsDeclarations && takeAfterDeclarationsScan(configPath) {
 		configured := plugins
 		if configured == nil {
-			if effective, pluginErr := effectiveTransformerPlugins(configPath); pluginErr == nil {
+			if effective, pluginErr := effectiveTransformerPluginsFromSnapshot(configPath, program.CommandLine().ConfigParseSnapshot()); pluginErr == nil {
 				configured = rawTransformerPlugins(effective)
 			}
 		}
 		warnUnsupportedAfterDeclarations(configPath, countConfiguredAfterDeclarations(configured))
 	}
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), program.SourceFiles(), overlays, plugins, state)
+	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), program.SourceFiles(), overlays, plugins, program.CommandLine().ConfigParseSnapshot(), state)
 	sidecarRegion.End()
 	if err != nil {
 		return nil, []string{err.Error()}, err
@@ -323,9 +324,9 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	prepared := preparedFromSidecarStats(program, sourceTraces, stats)
 	if response.lease != nil {
 		prepared.sidecarTraceLeases = []*sidecarTraceLease{response.lease}
-		leaseTransferred = true
 	}
 	if len(response.Transformed) == 0 {
+		leaseTransferred = true
 		return prepared, nil, nil
 	}
 
@@ -337,7 +338,10 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	// The caller may have spelled an existing overlay through a symlinked
 	// parent. Reuse the bounded setup mapping so the native overlay update sees
 	// the exact source-file keys held by this Program.
-	programOverlays, _ := rekeyOverlaysToProgram(program, overlays)
+	programOverlays, _, err := rekeyOverlaysToProgram(program, overlays)
+	if err != nil {
+		return nil, nil, err
+	}
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	for _, file := range response.Transformed {
 		programOverlays[normalizeOverlayPath(file.FileName, caseSensitive)] = file.Text
@@ -348,10 +352,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	overlayRegion.End()
 	overlayDuration := stopOverlay()
 	if err != nil {
-		transformedProgram, _, err = newProjectProgramWithOverlay(dir, configPath, programOverlays, program.Options().Checkers, singleThreadedFromOptions(program.Options()))
-		if err != nil {
-			return nil, nil, err
-		}
+		return nil, nil, err
 	}
 	if transformedProgram == nil {
 		return nil, nil, errors.New("compile: overlay Program update returned nil")
@@ -359,6 +360,7 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	prepared.program = transformedProgram
 	prepared.overlayProgramDuration = overlayDuration
 	prepared.overlayProgramRecorded = true
+	leaseTransferred = true
 	return prepared, nil, nil
 }
 
@@ -599,42 +601,58 @@ func sidecarSlotCount() int {
 
 // sidecarStderrTail collects the worker's stderr (plugin console output —
 // Flamework logs there after the stdout-protocol redirect) for two readers:
-// drainTo forwards new lines to the compiler log, and String keeps a tail
-// for error reporting. The reader goroutine only buffers; logservice is not
-// goroutine-safe, so forwarding happens on the calling goroutine after each
-// round trip.
+// drainTo forwards new entries to the compiler log, and String keeps a tail
+// for error reporting. Long lines are recorded in fixed-size chunks so one
+// diagnostic cannot stop the reader. The reader goroutine only buffers;
+// logservice is not goroutine-safe, so forwarding happens on the calling
+// goroutine after each round trip.
 type sidecarStderrTail struct {
 	mu      sync.Mutex
 	tail    []string
 	pending []string
 }
 
+const sidecarStderrLineLimit = 50
+
 func newSidecarStderrTail(pipe io.Reader) *sidecarStderrTail {
 	t := &sidecarStderrTail{}
 	go func() {
-		scanner := bufio.NewScanner(pipe)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
-			t.mu.Lock()
-			t.tail = append(t.tail, line)
-			if len(t.tail) > 50 {
-				t.tail = t.tail[len(t.tail)-50:]
+		reader := bufio.NewReaderSize(pipe, 64*1024)
+		for {
+			fragment, err := reader.ReadSlice('\n')
+			if len(fragment) > 0 {
+				line := strings.TrimSuffix(string(fragment), "\n")
+				line = strings.TrimSuffix(line, "\r")
+				t.mu.Lock()
+				t.tail = append(t.tail, line)
+				if len(t.tail) > sidecarStderrLineLimit {
+					t.tail = t.tail[len(t.tail)-sidecarStderrLineLimit:]
+				}
+				t.pending = append(t.pending, line)
+				t.mu.Unlock()
 			}
-			t.pending = append(t.pending, line)
-			t.mu.Unlock()
+			if err == nil || err == bufio.ErrBufferFull {
+				continue
+			}
+			return
 		}
 	}()
 	return t
 }
 
-// drainTo writes lines buffered since the last drain to the compiler log.
-func (t *sidecarStderrTail) drainTo() {
+// drain returns lines buffered since the last drain. Persistent brokers return
+// them to the requesting compiler process, whose log service owns stdout.
+func (t *sidecarStderrTail) drain() []string {
 	t.mu.Lock()
 	pending := t.pending
 	t.pending = nil
 	t.mu.Unlock()
-	for _, line := range pending {
+	return pending
+}
+
+// drainTo writes lines buffered since the last drain to the compiler log.
+func (t *sidecarStderrTail) drainTo() {
+	for _, line := range t.drain() {
 		logservice.WriteLine(line)
 	}
 }
@@ -646,17 +664,9 @@ func (t *sidecarStderrTail) String() string {
 }
 
 func spawnSidecarSession(dir, sidecarDir string) (*sidecarSession, error) {
-	nodeCommand := os.Getenv("ROTOR_NODE_PATH")
-	if nodeCommand != "" {
-		if _, err := os.Stat(nodeCommand); err != nil {
-			return nil, errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
-		}
-	} else {
-		nodeCommand = "node"
-	}
-	nodePath, err := exec.LookPath(nodeCommand)
+	nodePath, err := resolveSidecarNodePath()
 	if err != nil {
-		return nil, errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
+		return nil, err
 	}
 	return spawnSidecarSessionWithRuntime(dir, sidecarDir, nodePath, sidecarEnv(dir, sidecarDir))
 }
@@ -1018,7 +1028,7 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed, reads, stats, nil
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, configSnapshot map[string]string, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	if state == nil {
 		state = newSidecarBuildState("")
@@ -1032,12 +1042,12 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 		return nil, stats, err
 	}
 	if PersistentSidecarDaemonEnabled() {
-		return persistentTransformerSidecar(dir, configPath, compileFiles, rootFiles, stampFiles, overlays, plugins, state, timeout)
+		return persistentTransformerSidecar(dir, configPath, compileFiles, rootFiles, stampFiles, overlays, plugins, configSnapshot, state, timeout)
 	}
 
 	roundTripStage := sidecarRoundTripStage.traceName()
 	if logservice.Verbose {
-		if names := sidecarPluginNames(plugins, configPath); len(names) > 0 {
+		if names := sidecarPluginNames(plugins, configPath, configSnapshot); len(names) > 0 {
 			roundTripStage += " (" + strings.Join(names, ", ") + ")"
 		}
 	}
@@ -1106,6 +1116,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 			CompileFileNames:      make([]string, 0, len(compileFiles)),
 			ChangedFiles:          &changedFiles,
 			FileNames:             append([]string(nil), stampNames...),
+			ConfigSnapshot:        configSnapshot,
 			FileContentIdentities: &contentIdentities,
 			Plugins:               plugins,
 		}
@@ -1178,7 +1189,7 @@ func validateTransformerSidecar(dir string, program *compiler.Program, workspace
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
-	response, _, err := runTransformerSidecarValidation(dir, configPath, workspaceDir)
+	response, _, err := runTransformerSidecarValidation(dir, configPath, workspaceDir, program.CommandLine().ConfigParseSnapshot())
 	if err != nil {
 		return []string{err.Error()}, err
 	}
@@ -1201,7 +1212,7 @@ func validateTransformerSidecar(dir string, program *compiler.Program, workspace
 	return nil, nil
 }
 
-func runTransformerSidecarValidation(dir, configPath, workspaceDir string) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecarValidation(dir, configPath, workspaceDir string, configSnapshot map[string]string) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
@@ -1212,7 +1223,7 @@ func runTransformerSidecarValidation(dir, configPath, workspaceDir string) (*sid
 		return nil, stats, err
 	}
 	if PersistentSidecarDaemonEnabled() {
-		return persistentSidecarValidation(dir, configPath, workspaceDir, timeout)
+		return persistentSidecarValidation(dir, configPath, workspaceDir, configSnapshot, timeout)
 	}
 
 	sidecarDirPath := canonicalSidecarPath(dir)
@@ -1245,10 +1256,11 @@ func runTransformerSidecarValidation(dir, configPath, workspaceDir string) (*sid
 		}
 
 		request := sidecarRequest{
-			Protocol:     sidecarNodeProtocolVersion,
-			Operation:    "validate",
-			TsConfigPath: filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:   filepath.FromSlash(sidecarDirPath),
+			Protocol:       sidecarNodeProtocolVersion,
+			Operation:      "validate",
+			TsConfigPath:   filepath.FromSlash(sidecarConfigPath),
+			ProjectDir:     filepath.FromSlash(sidecarDirPath),
+			ConfigSnapshot: configSnapshot,
 		}
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
@@ -1460,33 +1472,104 @@ func sidecarEnv(projectDir, sidecarDir string) []string {
 	return append(env, "NODE_PATH="+nodePathValue)
 }
 
-func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[string]string, checkers *int, singleThreaded *bool) (*compiler.Program, []string, error) {
-	dir := filepath.ToSlash(projectDir)
-	if abs, err := filepath.Abs(projectDir); err == nil {
-		dir = filepath.ToSlash(abs)
-	}
-	configPath := filepath.ToSlash(tsConfigPath)
-	if abs, err := filepath.Abs(tsConfigPath); err == nil {
-		configPath = filepath.ToSlash(abs)
-	}
-
-	fs := newOverlayFS(osvfs.FS(), configPath, overlays)
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, checkers, singleThreaded, nil, overlays)
+// configParseSnapshot records only reads issued by the config parser. Program
+// construction receives the original filesystem, so source-file reads cannot
+// be copied into a sidecar request by accident.
+type configParseSnapshot struct {
+	files    map[string]string
+	rawFiles map[string]string
+	aliases  map[string]string
+	closed   bool
 }
 
-func singleThreadedFromOptions(options *core.CompilerOptions) *bool {
-	if options == nil || options.SingleThreaded == core.TSUnknown {
-		return nil
+func newConfigParseSnapshot() *configParseSnapshot {
+	return &configParseSnapshot{files: map[string]string{}, rawFiles: map[string]string{}, aliases: map[string]string{}}
+}
+
+func (s *configParseSnapshot) captureRaw(path, text string) {
+	if s.closed {
+		return
 	}
-	value := options.SingleThreaded.IsTrue()
-	return &value
+	s.record(s.rawFiles, path, text)
+}
+
+func (s *configParseSnapshot) parserFS(fs vfs.FS) vfs.FS {
+	return wrapvfs.Wrap(fs, wrapvfs.Replacements{
+		ReadFile: func(path string) (string, bool) {
+			text, ok := fs.ReadFile(path)
+			if ok {
+				s.rememberAlias(path, fs.Realpath(path))
+				s.record(s.files, path, text)
+			}
+			return text, ok
+		},
+		Realpath: func(path string) string {
+			realpath := fs.Realpath(path)
+			s.rememberAlias(path, realpath)
+			return realpath
+		},
+	})
+}
+
+func (s *configParseSnapshot) rememberAlias(path, realpath string) {
+	path = filepath.ToSlash(filepath.Clean(path))
+	realpath = filepath.ToSlash(filepath.Clean(realpath))
+	if path == realpath {
+		return
+	}
+	s.aliases[path] = realpath
+	for _, files := range []map[string]string{s.files, s.rawFiles} {
+		if text, ok := files[realpath]; ok {
+			files[path] = text
+		} else if text, ok := files[path]; ok {
+			files[realpath] = text
+		}
+	}
+}
+
+func (s *configParseSnapshot) record(files map[string]string, path, text string) {
+	path = filepath.ToSlash(filepath.Clean(path))
+	files[path] = text
+	if realpath, ok := s.aliases[path]; ok {
+		files[realpath] = text
+	}
+	for alias, realpath := range s.aliases {
+		if realpath == path {
+			files[alias] = text
+		}
+	}
+}
+
+func (s *configParseSnapshot) attach(parsed *tsoptions.ParsedCommandLine) error {
+	if parsed == nil || parsed.ConfigFile == nil || parsed.ConfigFile.SourceFile == nil {
+		return errors.New("compile: parsed tsconfig has no source file")
+	}
+
+	s.closed = true
+	files := maps.Clone(s.files)
+	root := parsed.ConfigFile.SourceFile
+	rootPath := filepath.ToSlash(filepath.Clean(root.FileName()))
+	if _, captured := files[rootPath]; !captured {
+		files[rootPath] = root.Text()
+	}
+	for path, text := range s.rawFiles {
+		files[path] = text
+	}
+	for _, extended := range parsed.ExtendedSourceFiles() {
+		key := filepath.ToSlash(filepath.Clean(extended))
+		if _, ok := files[key]; !ok {
+			return fmt.Errorf("compile: config parser did not capture extended config: %s", extended)
+		}
+	}
+	parsed.SetConfigParseSnapshot(files)
+	return nil
 }
 
 func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Program, []string, error) {
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil, nil, nil)
+	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil, nil, nil, nil)
 }
 
-func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string) (*compiler.Program, []string, error) {
+func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string, configSnapshot *configParseSnapshot) (*compiler.Program, []string, error) {
 	// rotor extension: serve the synthetic $env ambient declaration from an
 	// in-memory file next to the tsconfig (see envdecl.go for the parity
 	// rationale) ...
@@ -1502,6 +1585,10 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 	macroDecl := macroDeclPath(configPath)
 	fs = injectMacroDeclFS(fs, macroDecl)
 
+	if configSnapshot == nil {
+		configSnapshot = newConfigParseSnapshot()
+	}
+	parseHost := compiler.NewCompilerHost(dir, configSnapshot.parserFS(fs), bundled.LibPath(), nil, nil)
 	host := compiler.NewCompilerHost(dir, fs, bundled.LibPath(), nil, nil)
 	if cache != nil {
 		skip := syntheticDeclSkip(configPath)
@@ -1510,14 +1597,17 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 		}
 		host = cache.wrap(host, skip)
 	}
-	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(configPath, nil, nil, host, nil)
+	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(configPath, nil, nil, parseHost, nil)
 	if len(configDiags) > 0 {
 		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
+	}
+	if err := configSnapshot.attach(parsed); err != nil {
+		return nil, []string{err.Error()}, err
 	}
 	ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
 	ApplySingleThreadedOverride(parsed.CompilerOptions(), singleThreaded)
 
-	raw := readRawEnforcedOptions(filepath.FromSlash(configPath))
+	raw := readRawEnforcedOptionsFromSnapshot(filepath.FromSlash(configPath), parsed.ConfigParseSnapshot())
 	if msg := validateCompilerOptions(parsed.CompilerOptions(), dir, raw); msg != "" {
 		return nil, []string{msg}, errors.New("compile: invalid tsconfig.json configuration")
 	}
@@ -1566,68 +1656,25 @@ func remapProgramSourceFiles(program *compiler.Program, sourceFiles []*ast.Sourc
 	return remapped, nil
 }
 
-// projectUsesTransformerPlugins reports whether this project has a transformer
-// to run — the gate on spawning the Node sidecar at all.
-//
-// `plugins` is an array-valued compiler option, so `extends` REPLACES it rather
-// than merging: whichever config in the chain declares `plugins` last settles
-// the list, and `"plugins": []` drops an inherited transform entirely. That is
-// what `tsc --showConfig` reports, and it is what the sidecar runs (tools/
-// sidecar/lib/plugins.js). The project's own config therefore answers on its
-// own whenever it declares `plugins`, whatever its ancestors say.
-//
-// When it stays silent the list is inherited, and this cannot resolve it
-// exactly: tsgo drops `plugins` while parsing options (a language-service
-// option with no CompilerOptions field) and reports ExtendedSourceFiles sorted
-// by path rather than in chain order, so the nearest declaring ancestor is not
-// identifiable here. Asking whether ANY ancestor declares a transform is exact
-// unless two levels of one chain disagree, where it over-approximates: the
-// sidecar starts, resolves the list properly, and finds nothing to run. The
-// cost is a wasted worker, never a dropped transform.
+// projectUsesTransformerPlugins resolves the captured config graph so an
+// extends array's later plugins declaration replaces its earlier entries.
 func projectUsesTransformerPlugins(parsed *tsoptions.ParsedCommandLine) bool {
-	if parsed == nil {
+	if parsed == nil || parsed.ConfigName() == "" {
 		return false
 	}
-	if configName := parsed.ConfigName(); configName != "" {
-		if declaresTransform, declared := configFilePluginsDeclaration(normalizeSourceFilePath(configName)); declared {
-			return declaresTransform
-		}
-	}
-
-	seen := map[string]struct{}{}
-	for _, configPath := range parsed.ExtendedSourceFiles() {
-		if configPath == "" {
-			continue
-		}
-		path := normalizeSourceFilePath(configPath)
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-		if declaresTransform, _ := configFilePluginsDeclaration(path); declaresTransform {
-			return true
-		}
-	}
-	return false
-}
-
-// configFilePluginsDeclaration reports whether configPath's own
-// `compilerOptions.plugins` names a transform, and whether it declares the key
-// at all. The two answers differ for `"plugins": []`: declared, no transform —
-// an override that replaces whatever the config extends. A key that is present
-// but not an array is left undeclared so the caller falls back to the chain;
-// tsgo reports the malformed value as a config error of its own.
-func configFilePluginsDeclaration(configPath string) (declaresTransform bool, declared bool) {
-	plugins, declared := configFileTransformerPlugins(configPath)
-	return len(plugins) > 0, declared
+	plugins, err := effectiveTransformerPluginsFromSnapshot(normalizeSourceFilePath(parsed.ConfigName()), parsed.ConfigParseSnapshot())
+	return err != nil || len(plugins) > 0
 }
 
 func configFileTransformerPlugins(configPath string) ([]string, bool) {
-	data, err := os.ReadFile(configPath)
+	data, err := readTransformerConfig(configPath, nil)
 	if err != nil {
 		return nil, false
 	}
+	return transformerPluginsFromConfig(data)
+}
 
+func transformerPluginsFromConfig(data []byte) ([]string, bool) {
 	var root map[string]any
 	if json.Unmarshal([]byte(stripJSONC(string(data))), &root) != nil {
 		return nil, false
@@ -1655,7 +1702,7 @@ func configFileTransformerPlugins(configPath string) ([]string, bool) {
 // runs: the explicit plugin list when the caller supplies one, otherwise the
 // plugins the project's tsconfig chain declares (which is what the worker
 // loads for itself).
-func sidecarPluginNames(plugins []json.RawMessage, configPath string) []string {
+func sidecarPluginNames(plugins []json.RawMessage, configPath string, configSnapshot map[string]string) []string {
 	if len(plugins) > 0 {
 		names := make([]string, 0, len(plugins))
 		for _, entry := range plugins {
@@ -1668,7 +1715,7 @@ func sidecarPluginNames(plugins []json.RawMessage, configPath string) []string {
 		}
 		return names
 	}
-	declared, err := effectiveTransformerPlugins(configPath)
+	declared, err := effectiveTransformerPluginsFromSnapshot(configPath, configSnapshot)
 	if err != nil {
 		return nil
 	}

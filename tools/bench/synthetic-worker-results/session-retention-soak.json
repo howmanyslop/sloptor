@@ -1,0 +1,202 @@
+{
+	"baseline": {
+		"commit": "5ce06e9e07914e56cb7f727a403b3994d6bf56f8",
+		"protocol": 2,
+		"runtime": {
+			"arch": "arm64",
+			"node": "v22.23.2",
+			"platform": "darwin"
+		},
+		"samples": [
+			{
+				"cycle": 0,
+				"memory": { "heapUsed": 23995512, "rss": 120815616 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 3,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 50,
+				"memory": { "heapUsed": 38992416, "rss": 165412864 },
+				"metadata": {
+					"actualPaths": 102,
+					"baseRoots": 1,
+					"deleted": 50,
+					"pathAliases": 53,
+					"rootLimit": 51,
+					"versions": 102
+				}
+			},
+			{
+				"cycle": 100,
+				"memory": { "heapUsed": 41945912, "rss": 168542208 },
+				"metadata": {
+					"actualPaths": 202,
+					"baseRoots": 1,
+					"deleted": 100,
+					"pathAliases": 103,
+					"rootLimit": 101,
+					"versions": 202
+				}
+			},
+			{
+				"cycle": 150,
+				"memory": { "heapUsed": 60154112, "rss": 183812096 },
+				"metadata": {
+					"actualPaths": 302,
+					"baseRoots": 1,
+					"deleted": 150,
+					"pathAliases": 153,
+					"rootLimit": 151,
+					"versions": 302
+				}
+			},
+			{
+				"cycle": 200,
+				"memory": { "heapUsed": 75643456, "rss": 200081408 },
+				"metadata": {
+					"actualPaths": 402,
+					"baseRoots": 1,
+					"deleted": 200,
+					"pathAliases": 203,
+					"rootLimit": 201,
+					"versions": 402
+				}
+			},
+			{
+				"cycle": 250,
+				"memory": { "heapUsed": 87936384, "rss": 216989696 },
+				"metadata": {
+					"actualPaths": 502,
+					"baseRoots": 1,
+					"deleted": 250,
+					"pathAliases": 253,
+					"rootLimit": 251,
+					"versions": 502
+				}
+			},
+			{
+				"cycle": 300,
+				"memory": { "heapUsed": 117254512, "rss": 234864640 },
+				"metadata": {
+					"actualPaths": 602,
+					"baseRoots": 1,
+					"deleted": 300,
+					"pathAliases": 303,
+					"rootLimit": 301,
+					"versions": 602
+				}
+			}
+		],
+		"sessionSourceSha256": "d0343863bbc8b7dbc064098896d6b762d1255624f50c2f00b28b92b6bb90abef"
+	},
+	"candidate": {
+		"protocol": 3,
+		"runtime": {
+			"arch": "arm64",
+			"node": "v22.23.2",
+			"platform": "darwin"
+		},
+		"samples": [
+			{
+				"cycle": 0,
+				"memory": { "heapUsed": 24130632, "rss": 119603200 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 50,
+				"memory": { "heapUsed": 29535688, "rss": 159498240 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 100,
+				"memory": { "heapUsed": 51682784, "rss": 174735360 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 150,
+				"memory": { "heapUsed": 75042712, "rss": 198803456 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 200,
+				"memory": { "heapUsed": 98347656, "rss": 222740480 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 250,
+				"memory": { "heapUsed": 121482184, "rss": 246710272 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			},
+			{
+				"cycle": 300,
+				"memory": { "heapUsed": 48910784, "rss": 247447552 },
+				"metadata": {
+					"actualPaths": 2,
+					"baseRoots": 1,
+					"deleted": 0,
+					"pathAliases": 4,
+					"rootLimit": 1,
+					"versions": 2
+				}
+			}
+		],
+		"sessionSourceSha256": "80a9218fbad508691f64b355d04b9b6fcc317915a9a615cdbbab201a098c56f6"
+	},
+	"fixture": {
+		"forcedGc": false,
+		"plugins": false,
+		"sampleCycles": [0, 50, 100, 150, 200, 250, 300],
+		"sources": 1,
+		"transientCycles": 300
+	},
+	"schemaVersion": 1,
+	"scope": "Synthetic SidecarServer session metadata retention"
+}

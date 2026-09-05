@@ -27,6 +27,13 @@ func SanitizeFS(inner vfs.FS) vfs.FS {
 // every config file in its resolved extends chain. An empty configPath adds
 // nothing.
 func SanitizeFSWithConfigPath(inner vfs.FS, configPath string) vfs.FS {
+	return SanitizeFSWithConfigRead(inner, configPath, nil)
+}
+
+// SanitizeFSWithConfigRead is SanitizeFSWithConfigPath with a narrow hook for
+// consumers that must retain the raw config bytes that a sanitized parse used.
+// The hook runs only for config files, before TS7 compatibility rewriting.
+func SanitizeFSWithConfigRead(inner vfs.FS, configPath string, onConfigRead func(string, string)) vfs.FS {
 	chainPaths := make(map[string]struct{})
 	if configPath != "" {
 		_, paths, _ := ReadRbxtsOptionsWithChain(configPath)
@@ -46,6 +53,9 @@ func SanitizeFSWithConfigPath(inner vfs.FS, configPath string) vfs.FS {
 			path := filepath.ToSlash(rawPath)
 			_, inExtendsChain := chainPaths[path]
 			if isTSConfigPath(path) || (configPath != "" && path == filepath.ToSlash(configPath)) || inExtendsChain {
+				if onConfigRead != nil {
+					onConfigRead(rawPath, contents)
+				}
 				return SanitizeTSConfig(contents), true
 			}
 			if isCompilerTypesDTSPath(path) {

@@ -45,6 +45,7 @@ func readRbxtsOptions(tsConfigPath string, visited map[string]struct{}, chain *[
 		return nil, fmt.Errorf("tsconfig extends cycle at %s", normalized)
 	}
 	visited[normalized] = struct{}{}
+	defer delete(visited, normalized)
 	if chain != nil {
 		*chain = append(*chain, normalized)
 	}
@@ -63,14 +64,21 @@ func readRbxtsOptions(tsConfigPath string, visited map[string]struct{}, chain *[
 	}
 
 	var inherited *RbxtsOptions
-	if extends, ok := config["extends"].(string); ok {
-		parent, err := resolveExtendsPath(filepath.Dir(normalized), extends)
-		if err != nil {
-			return nil, err
-		}
-		inherited, err = readRbxtsOptions(parent, visited, chain)
-		if err != nil {
-			return nil, err
+	if extendsValue, present := config["extends"]; present && extendsValue != nil {
+		if extendsRaw, err := json.Marshal(extendsValue); err == nil {
+			if extends, parseErr := parseExtends(extendsRaw); parseErr == nil {
+				for _, extended := range extends {
+					parent, resolveErr := resolveExtendsPath(filepath.Dir(normalized), extended)
+					if resolveErr != nil {
+						return nil, resolveErr
+					}
+					base, readErr := readRbxtsOptions(parent, visited, chain)
+					if readErr != nil {
+						return nil, readErr
+					}
+					inherited = mergeRbxtsOptions(inherited, base)
+				}
+			}
 		}
 	}
 

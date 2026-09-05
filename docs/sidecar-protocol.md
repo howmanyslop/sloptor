@@ -86,19 +86,22 @@ failure before the request is accepted may retry daemon startup. Startup uses a
 private lock and handshake so concurrent compiler processes agree on one live
 daemon and recover artifacts whose owning process has exited.
 
-## Protocol v2
+## Protocol v3
 
-Each request is one JSON object with `protocol: 2`, `operation`, `projectDir`,
-and `tsConfigPath`. The protocol is a hard cutover; v1 fields are rejected.
+Each request is one JSON object with `protocol: 3`, `operation`, `projectDir`,
+and `tsConfigPath`. The protocol is a hard cutover; earlier versions are rejected.
 
 A source transform uses this shape:
 
 ```json
 {
-  "protocol": 2,
+  "protocol": 3,
   "operation": "transform",
   "tsConfigPath": "C:/abs/project/tsconfig.json",
   "projectDir": "C:/abs/project",
+  "configSnapshot": {
+    "C:/abs/project/tsconfig.json": "{\"files\":[\"src/example.ts\",\"src/globals.d.ts\"]}"
+  },
   "compileFileNames": ["C:/abs/project/src/example.ts"],
   "fileNames": [
     "C:/abs/project/src/example.ts",
@@ -125,6 +128,12 @@ A source transform uses this shape:
 }
 ```
 
+`configSnapshot` contains the original config text captured during the Go
+compiler's config parse, including resolved ancestors and package metadata
+read by that parse. Both transform and validation requests require it. The
+worker resolves configuration from this snapshot, so later disk edits cannot
+silently change compiler options or the plugin list for an existing Program.
+
 `fileNames` and `fileContentIdentities` form the complete source snapshot for
 freshness and config file-set invalidation. The identities are SHA-256 hashes
 of the source text already loaded by the compiler. They do not replace the
@@ -133,9 +142,10 @@ them to compare the warmed JavaScript Program with the Go Program; it reads
 only mismatched files and rejects a disk version that no longer matches the
 compiler snapshot.
 `rootFileNames` optionally narrows the worker program to files being compiled
-plus project declarations. Within one session the limit only widens, and the
-first transform that omits it or sends an empty list disables narrowing for the
-rest of that session.
+plus project declarations. While the parsed root set stays unchanged, the
+limit only widens, and omitting it or sending an empty list disables narrowing.
+A change to the parsed roots resets that decision so removed roots cannot
+remain in later transformer programs.
 
 The first response prints transformed text and retains the corresponding
 TypeScript transform result under an opaque handle. It does not generate trace
@@ -161,7 +171,7 @@ coordinates or a successful output source map needs composition:
 
 ```json
 {
-  "protocol": 2,
+  "protocol": 3,
   "operation": "maps",
   "projectDir": "C:/abs/project",
   "tsConfigPath": "C:/abs/project/tsconfig.json",
@@ -179,7 +189,7 @@ Every accepted result is released on success, error, or cancellation:
 
 ```json
 {
-  "protocol": 2,
+  "protocol": 3,
   "operation": "release",
   "projectDir": "C:/abs/project",
   "tsConfigPath": "C:/abs/project/tsconfig.json",
@@ -194,7 +204,7 @@ A worker session stays serialized and cannot be refreshed while one of its
 results is retained.
 
 `operation: "warm"` accepts only the common identity fields. `operation:
-"validate"` loads and validates configured modules for declaration-only builds
+"validate"` requires `configSnapshot` and validates configured modules for declaration-only builds
 without creating a language service or invoking a factory.
 
 `afterDeclarationsTransformers` reports how many such transformers the worker

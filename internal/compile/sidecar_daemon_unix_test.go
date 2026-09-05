@@ -3,16 +3,21 @@
 package compile
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 	"unicode/utf16"
+
+	"rotor/internal/logservice"
 )
 
 // Catches a later compiler invocation serving a stale source snapshot from a
@@ -259,7 +264,7 @@ func TestSidecarDaemonWarmDoesNotPopulateTheFirstTransformDelta(t *testing.T) {
 		WorkerKey:    "tsconfig",
 		ProjectDir:   projectDir,
 		SidecarDir:   t.TempDir(),
-		Payload:      []byte(`{"protocol":2,"operation":"warm"}`),
+		Payload:      []byte(`{"protocol":3,"operation":"warm"}`),
 	}
 	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err != nil {
 		t.Fatal(err)
@@ -350,7 +355,7 @@ func TestSidecarDaemonUsesEnvironmentSpecificWorkers(t *testing.T) {
 			SidecarDir:   identity.SidecarDir,
 			NodePath:     identity.NodePath,
 			ChildEnv:     identity.ChildEnv,
-			Payload:      []byte(`{"protocol":2,"operation":"transform"}`),
+			Payload:      []byte(`{"protocol":3,"operation":"transform"}`),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -401,6 +406,663 @@ func TestSidecarDaemonDoesNotReplaceLiveUnresponsiveMetadata(t *testing.T) {
 	}
 	if _, err := os.Stat(sidecarDaemonMetadataPath(runtimeDir, id)); err != nil {
 		t.Fatalf("live daemon metadata was removed: %v", err)
+	}
+}
+
+// Catches a later compiler invocation with a different TMPDIR treating a
+// daemon in the shared runtime registry as corrupt. The runtime directory is
+// the cross-process contract, so status must find the daemon regardless of a
+// caller's private temporary directory.
+func TestSidecarDaemonSharesRuntimeRegistryAcrossTMPDIRs(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	t.Setenv("TMPDIR", t.TempDir())
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	t.Setenv("TMPDIR", t.TempDir())
+	infos, err := SidecarDaemonStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].ID != id {
+		t.Fatalf("daemon status = %+v, want the registered daemon", infos)
+	}
+
+	stopped, err := StopSidecarDaemons(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped != 1 {
+		t.Fatalf("stopped = %d, want 1", stopped)
+	}
+}
+
+// Catches daemon stop reporting success while a worker keeps transforming.
+// A successful stop must cancel active client work and remove the daemon
+// registry before the command counts it as stopped.
+func TestSidecarDaemonStopCancelsActiveWorkerBeforeReportingSuccess(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 30*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	stateDir := t.TempDir()
+	sidecarDir := t.TempDir()
+	nodePath := writeBlockingNode(t)
+	childEnv := append(sidecarEnv(projectDir, sidecarDir), "SIDECAR_TEST_STATE="+stateDir)
+	requestDone := make(chan error, 1)
+	go func() {
+		_, callErr := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+			WorkspaceKey: projectDir,
+			WorkerKey:    "blocking-worker",
+			ProjectDir:   projectDir,
+			SidecarDir:   sidecarDir,
+			NodePath:     nodePath,
+			ChildEnv:     childEnv,
+			Payload:      []byte(`{"operation":"transform"}`),
+		})
+		requestDone <- callErr
+	}()
+	startedPath := filepath.Join(stateDir, "started")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(startedPath); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(startedPath); err != nil {
+		t.Fatalf("blocking worker did not start: %v", err)
+	}
+
+	stopContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	stopped, err := StopSidecarDaemons(stopContext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped != 1 {
+		t.Fatalf("stopped = %d, want 1", stopped)
+	}
+	select {
+	case requestErr := <-requestDone:
+		if requestErr == nil {
+			t.Fatal("active sidecar request succeeded after daemon stop")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active sidecar request did not finish after daemon stop")
+	}
+	if _, err := os.Stat(sidecarDaemonMetadataPath(runtimeDir, id)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stopped daemon metadata remains: %v", err)
+	}
+}
+
+// Catches a type-incompatible transform response leaving its Node stream alive
+// because it has no result handle. The abandoned request must recycle the
+// generation that produced it, while a delayed repeat must not close the
+// replacement generation serving later requests.
+func TestSidecarDaemonAbandonsTypeIncompatibleTransformWithoutKillingReplacement(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	call := SidecarDaemonCall{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "malformed-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   t.TempDir(),
+		NodePath:     writeInvalidTypedResponseThenGenerationNode(t),
+		LeaseOwner:   "malformed-response-client",
+		Payload:      []byte(`{"operation":"transform"}`),
+	}
+	typeIncompatible, err := SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	typeIncompatible.abandon()
+
+	replacement, err := SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation := workerGenerationFromResponse(t, replacement.Payload); generation != 2 {
+		t.Fatalf("replacement worker generation = %d, want 2", generation)
+	}
+
+	typeIncompatible.abandon()
+	continued, err := SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation := workerGenerationFromResponse(t, continued.Payload); generation != 2 {
+		t.Fatalf("stale abandon restarted replacement worker at generation %d", generation)
+	}
+}
+
+// Catches invalid Node JSON being embedded in the daemon envelope. The daemon
+// must return a protocol error and recycle the worker before a later request
+// can reuse it.
+func TestSidecarDaemonRecyclesInvalidJSONResponse(t *testing.T) {
+	projectDir := t.TempDir()
+	server := &sidecarDaemonServer{
+		id: "test", idleTimeout: time.Minute,
+		lastActive: time.Now(), idleDeadline: time.Now().Add(time.Minute),
+		context: context.Background(), workers: map[string]*sidecarDaemonWorker{},
+	}
+	t.Cleanup(server.closeWorkers)
+	call := sidecarDaemonMessage{
+		Protocol:   sidecarDaemonProtocol,
+		DaemonID:   "test",
+		Kind:       "roundTrip",
+		WorkerKey:  "invalid-json-worker",
+		ProjectDir: projectDir,
+		SidecarDir: t.TempDir(),
+		NodePath:   writeMalformedThenGenerationNode(t),
+		ChildEnv:   sidecarEnv(projectDir, t.TempDir()),
+		RequestID:  "invalid-json-request",
+		Payload:    json.RawMessage(`{"operation":"transform"}`),
+	}
+	reply := server.roundTrip(call, context.Background())
+	if reply.Error == "" {
+		t.Fatal("invalid Node JSON completed successfully")
+	}
+	var envelope bytes.Buffer
+	if err := writeSidecarDaemonReply(&envelope, reply); err != nil {
+		t.Fatalf("encode daemon protocol error: %v", err)
+	}
+	var decoded sidecarDaemonReply
+	if err := json.Unmarshal(envelope.Bytes(), &decoded); err != nil || decoded.Error == "" {
+		t.Fatalf("decode daemon protocol error = %+v, %v", decoded, err)
+	}
+	next := server.roundTrip(call, context.Background())
+	if next.Error != "" {
+		t.Fatal(next.Error)
+	}
+	if generation := workerGenerationFromResponse(t, next.Payload); generation != 2 {
+		t.Fatalf("replacement worker generation = %d, want 2", generation)
+	}
+}
+
+// Catches typed response decoding leaving a type-incompatible transform's
+// stream in service. The next transform must start a replacement worker after
+// the decoder abandons the unusable response.
+func TestPersistentSidecarRequestRecyclesTypeIncompatibleTransformResponse(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	sidecarDir := t.TempDir()
+	nodePath := writeInvalidTypedResponseThenGenerationNode(t)
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	identity := sidecarWorkerIdentity{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "typed-malformed-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   sidecarDir,
+		NodePath:     nodePath,
+		ChildEnv:     sidecarEnv(projectDir, sidecarDir),
+	}
+	request := sidecarRequest{
+		Protocol:   sidecarNodeProtocolVersion,
+		Operation:  "transform",
+		leaseOwner: "typed-malformed-client",
+	}
+	if _, _, err := persistentSidecarRequest(identity, request, nil, nil, time.Second); err == nil {
+		t.Fatal("type-incompatible transform response decoded successfully")
+	}
+
+	replacement, err := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: identity.WorkspaceKey,
+		WorkerKey:    identity.WorkerKey,
+		ProjectDir:   identity.ProjectDir,
+		SidecarDir:   identity.SidecarDir,
+		NodePath:     identity.NodePath,
+		ChildEnv:     identity.ChildEnv,
+		LeaseOwner:   request.leaseOwner,
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation := workerGenerationFromResponse(t, replacement.Payload); generation != 2 {
+		t.Fatalf("replacement worker generation = %d, want 2", generation)
+	}
+}
+
+// Catches validation leaving its type-incompatible worker response in the
+// shared stream. Validation has no result lease, but its next worker operation
+// must still use a replacement after typed decoding rejects the response.
+func TestPersistentSidecarRequestRecyclesTypeIncompatibleValidationResponse(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	sidecarDir := t.TempDir()
+	nodePath := writeInvalidTypedResponseThenGenerationNode(t)
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	identity := sidecarWorkerIdentity{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "typed-malformed-validation-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   sidecarDir,
+		NodePath:     nodePath,
+		ChildEnv:     sidecarEnv(projectDir, sidecarDir),
+	}
+	request := sidecarRequest{
+		Protocol:  sidecarNodeProtocolVersion,
+		Operation: "validate",
+	}
+	if _, _, err := persistentSidecarRequest(identity, request, nil, nil, time.Second); err == nil {
+		t.Fatal("type-incompatible validation response decoded successfully")
+	}
+
+	replacement, err := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: identity.WorkspaceKey,
+		WorkerKey:    identity.WorkerKey,
+		ProjectDir:   identity.ProjectDir,
+		SidecarDir:   identity.SidecarDir,
+		NodePath:     identity.NodePath,
+		ChildEnv:     identity.ChildEnv,
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation := workerGenerationFromResponse(t, replacement.Payload); generation != 2 {
+		t.Fatalf("replacement worker generation = %d, want 2", generation)
+	}
+}
+
+// Catches a type-incompatible release response leaving a worker alive after
+// its result handle has already been removed. A leased control request owns
+// its own cleanup token, so the next transform must use a replacement worker.
+func TestPersistentSidecarRequestRecyclesTypeIncompatibleReleaseResponse(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	sidecarDir := t.TempDir()
+	nodePath := writeMalformedReleaseThenGenerationNode(t)
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	identity := sidecarWorkerIdentity{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "typed-malformed-release-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   sidecarDir,
+		NodePath:     nodePath,
+		ChildEnv:     sidecarEnv(projectDir, sidecarDir),
+	}
+	transform := sidecarRequest{
+		Protocol:   sidecarNodeProtocolVersion,
+		Operation:  "transform",
+		leaseOwner: "typed-malformed-release-client",
+	}
+	response, _, err := persistentSidecarRequest(identity, transform, nil, nil, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ResultHandle != "leased" {
+		t.Fatalf("transform result handle = %q, want leased", response.ResultHandle)
+	}
+	release := sidecarRequest{
+		Protocol:     sidecarNodeProtocolVersion,
+		Operation:    "release",
+		ResultHandle: response.ResultHandle,
+		leaseOwner:   transform.leaseOwner,
+	}
+	if _, _, err := persistentSidecarRequest(identity, release, nil, nil, time.Second); err == nil {
+		t.Fatal("type-incompatible release response decoded successfully")
+	}
+
+	replacement, err := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: identity.WorkspaceKey,
+		WorkerKey:    identity.WorkerKey,
+		ProjectDir:   identity.ProjectDir,
+		SidecarDir:   identity.SidecarDir,
+		NodePath:     identity.NodePath,
+		ChildEnv:     identity.ChildEnv,
+		LeaseOwner:   transform.leaseOwner,
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation := workerGenerationFromResponse(t, replacement.Payload); generation != 2 {
+		t.Fatalf("replacement worker generation = %d, want 2", generation)
+	}
+}
+
+// Catches daemon status observing a half-reset worker while a worker exits
+// between requests. Status is a live command contract and must remain usable
+// while clients restart failed workers.
+func TestSidecarDaemonStatusDuringWorkerRestart(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	statusDone := make(chan error, 1)
+	go func() {
+		for range 100 {
+			infos, statusErr := SidecarDaemonStatus(context.Background())
+			if statusErr != nil {
+				statusDone <- statusErr
+				return
+			}
+			if len(infos) != 1 || infos[0].ID != id || infos[0].WorkerCount > 1 {
+				statusDone <- fmt.Errorf("status = %+v", infos)
+				return
+			}
+		}
+		statusDone <- nil
+	}()
+	sidecarDir := t.TempDir()
+	nodePath := writeOneShotNode(t)
+	for range 100 {
+		_, _ = SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+			WorkspaceKey: projectDir,
+			WorkerKey:    "restart-worker",
+			ProjectDir:   projectDir,
+			SidecarDir:   sidecarDir,
+			NodePath:     nodePath,
+			Payload:      []byte(`{"operation":"transform"}`),
+		})
+	}
+	if err := <-statusDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Catches a persistent worker's raw stderr being discarded by the broker.
+// The requesting compiler owns the log channel, so its log output must include
+// the diagnostic emitted before the worker's protocol response.
+func TestSidecarDaemonForwardsRawWorkerStderrToRequestClient(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	var output bytes.Buffer
+	previousOutput := logservice.Output
+	logservice.Output = &output
+	t.Cleanup(func() { logservice.Output = previousOutput })
+	_, err = SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "stderr-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   t.TempDir(),
+		NodePath:     writeStderrNode(t),
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "worker raw diagnostic\n") {
+		t.Fatalf("request log output = %q, want worker diagnostic", output.String())
+	}
+}
+
+// Catches the request log buffer silently dropping ordinary plugin output once
+// it exceeds the diagnostic tail. Every raw line produced before one protocol
+// response belongs to that requesting compiler, including the first and last
+// entries in a long request.
+func TestSidecarDaemonForwardsEveryRawWorkerLogForOneRequest(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	var output bytes.Buffer
+	previousOutput := logservice.Output
+	logservice.Output = &output
+	t.Cleanup(func() { logservice.Output = previousOutput })
+	_, err = SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "many-stderr-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   t.TempDir(),
+		NodePath:     writeManyStderrNode(t),
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "worker log 1\n") || !strings.Contains(output.String(), "worker log 75\n") {
+		t.Fatalf("request log output did not preserve the first and last raw worker logs: %q", output.String())
+	}
+}
+
+// Catches a failed worker reply discarding diagnostics that were emitted
+// before the protocol failure. Error replies are still replies to the
+// requesting compiler and must drain their raw stderr exactly once.
+func TestSidecarDaemonForwardsRawWorkerStderrOnRequestFailure(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	var output bytes.Buffer
+	previousOutput := logservice.Output
+	logservice.Output = &output
+	t.Cleanup(func() { logservice.Output = previousOutput })
+	_, err = SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "failing-stderr-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   t.TempDir(),
+		NodePath:     writeFailingStderrNode(t),
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err == nil {
+		t.Fatal("failed worker request succeeded")
+	}
+	if !strings.Contains(output.String(), "worker failure diagnostic\n") {
+		t.Fatalf("failed request log output = %q, want worker diagnostic", output.String())
+	}
+}
+
+// Catches one oversized raw diagnostic stopping the stderr reader and blocking
+// the worker before it can return its protocol response. The later marker is a
+// separate worker diagnostic, so its presence proves the whole raw stream was
+// drained by the requesting compiler.
+func TestSidecarDaemonDrainsOversizedRawWorkerStderr(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+		}
+	})
+
+	var output bytes.Buffer
+	previousOutput := logservice.Output
+	logservice.Output = &output
+	t.Cleanup(func() { logservice.Output = previousOutput })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = SidecarDaemonRoundTrip(ctx, SidecarDaemonCall{
+		WorkspaceKey: projectDir,
+		WorkerKey:    "oversized-stderr-worker",
+		ProjectDir:   projectDir,
+		SidecarDir:   t.TempDir(),
+		NodePath:     writeOversizedStderrNode(t),
+		Payload:      []byte(`{"operation":"transform"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "worker oversized diagnostic\n") {
+		t.Fatal("request log output did not contain the post-diagnostic marker")
+	}
+}
+
+// Catches a valid relative Node override being resolved after the child
+// changes into the project directory. The caller's relative executable must
+// still start and return the worker's independent echo response.
+func TestSpawnSidecarSessionResolvesRelativeNodeOverrideBeforeChangingDirectory(t *testing.T) {
+	nodePath := writeEchoNode(t)
+	workingDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeNodePath, err := filepath.Rel(workingDir, nodePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ROTOR_NODE_PATH", relativeNodePath)
+	session, err := spawnSidecarSession(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.close()
+	line, err := session.writeAndRead(context.Background(), []byte(`{"request":"works"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(line) != "{\"request\":\"works\"}\n" {
+		t.Fatalf("worker response = %q, want echoed request", line)
 	}
 }
 
@@ -483,7 +1145,7 @@ func TestSidecarDaemonPinsWorkerUntilResultRelease(t *testing.T) {
 		WorkerKey:    "tsconfig",
 		ProjectDir:   projectDir,
 		SidecarDir:   t.TempDir(),
-		Payload:      []byte(`{"protocol":2,"operation":"transform"}`),
+		Payload:      []byte(`{"protocol":3,"operation":"transform"}`),
 	})
 	cancelTransform()
 	if err != nil {
@@ -515,7 +1177,7 @@ func TestSidecarDaemonPinsWorkerUntilResultRelease(t *testing.T) {
 	}
 
 	releasePayload, err := json.Marshal(map[string]any{
-		"protocol": 2, "operation": "release",
+		"protocol": 3, "operation": "release",
 		"resultHandle": transformed.ResultHandle, "outcome": "success",
 	})
 	if err != nil {
@@ -581,7 +1243,7 @@ func TestSidecarDaemonSerializesTransformResultLifetimes(t *testing.T) {
 		WorkerKey:    "tsconfig",
 		ProjectDir:   projectDir,
 		SidecarDir:   t.TempDir(),
-		Payload:      []byte(`{"protocol":2,"operation":"transform"}`),
+		Payload:      []byte(`{"protocol":3,"operation":"transform"}`),
 		LeaseOwner:   "first-build",
 	}
 	first, err := SidecarDaemonRoundTrip(context.Background(), call)
@@ -624,7 +1286,7 @@ func TestSidecarDaemonSerializesTransformResultLifetimes(t *testing.T) {
 
 	release := call
 	release.Payload, err = json.Marshal(map[string]any{
-		"protocol": 2, "operation": "release",
+		"protocol": 3, "operation": "release",
 		"resultHandle": firstResponse.ResultHandle, "outcome": "success",
 	})
 	if err != nil {
@@ -639,7 +1301,7 @@ func TestSidecarDaemonSerializesTransformResultLifetimes(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 	release.Payload, err = json.Marshal(map[string]any{
-		"protocol": 2, "operation": "release",
+		"protocol": 3, "operation": "release",
 		"resultHandle": sameBuildResponse.ResultHandle, "outcome": "success",
 	})
 	if err != nil {
@@ -664,7 +1326,7 @@ func TestSidecarDaemonSerializesTransformResultLifetimes(t *testing.T) {
 		t.Fatal(err)
 	}
 	release.Payload, err = json.Marshal(map[string]any{
-		"protocol": 2, "operation": "release",
+		"protocol": 3, "operation": "release",
 		"resultHandle": secondResponse.ResultHandle, "outcome": "success",
 	})
 	if err != nil {
@@ -683,7 +1345,7 @@ func TestSidecarDaemonReleasesAnUndeliveredResult(t *testing.T) {
 	server := &sidecarDaemonServer{
 		id: "test", idleTimeout: time.Minute,
 		lastActive: time.Now(), idleDeadline: time.Now().Add(time.Minute),
-		workers: map[string]*sidecarDaemonWorker{},
+		context: context.Background(), workers: map[string]*sidecarDaemonWorker{},
 	}
 	t.Cleanup(server.closeWorkers)
 	serverConn, clientConn := net.Pipe()
@@ -703,7 +1365,8 @@ func TestSidecarDaemonReleasesAnUndeliveredResult(t *testing.T) {
 		NodePath:   writeResultHandleNode(t),
 		ChildEnv:   sidecarEnv(projectDir, t.TempDir()),
 		LeaseOwner: "first-build",
-		Payload:    json.RawMessage(`{"protocol":2,"operation":"transform"}`),
+		RequestID:  "undelivered-result",
+		Payload:    json.RawMessage(`{"protocol":3,"operation":"transform"}`),
 	}
 	if err := json.NewEncoder(clientConn).Encode(request); err != nil {
 		t.Fatal(err)
@@ -746,7 +1409,7 @@ func TestSidecarDaemonReleasesAnUndeliveredResult(t *testing.T) {
 		t.Fatal("later transform returned no result handle")
 	}
 	releasePayload, err := json.Marshal(map[string]any{
-		"protocol": 2, "operation": "release",
+		"protocol": 3, "operation": "release",
 		"resultHandle": response.ResultHandle, "outcome": "success",
 	})
 	if err != nil {
@@ -791,7 +1454,7 @@ func TestSidecarDaemonKeepsAtMostTwoIdleWorkers(t *testing.T) {
 		_, err := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
 			WorkspaceKey: projectDir, WorkerKey: workerKey,
 			ProjectDir: workerProjectDir, SidecarDir: t.TempDir(),
-			Payload: []byte(`{"protocol":2,"operation":"transform"}`),
+			Payload: []byte(`{"protocol":3,"operation":"transform"}`),
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -828,7 +1491,7 @@ type echoedChange struct {
 func daemonTransformPayload(t *testing.T, identities map[string]string) []byte {
 	t.Helper()
 	payload, err := json.Marshal(map[string]any{
-		"protocol":              2,
+		"protocol":              sidecarNodeProtocolVersion,
 		"operation":             "transform",
 		"fileContentIdentities": identities,
 	})
@@ -869,6 +1532,113 @@ func writeEchoNode(t *testing.T) string {
 	return path
 }
 
+func writeBlockingNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\ntouch \"$SIDECAR_TEST_STATE/started\"\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeStderrNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\nwhile IFS= read -r line; do\n  printf '%s\\n' 'worker raw diagnostic' >&2\n  sleep 0.05\n  printf '%s\\n' \"$line\"\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeOneShotNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\nIFS= read -r line\nprintf '%s\\n' \"$line\"\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeMalformedThenGenerationNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	statePath := filepath.Join(t.TempDir(), "generation")
+	contents := "#!/bin/sh\ngeneration=0\nif [ -f \"$SIDECAR_TEST_GENERATION\" ]; then generation=$(cat \"$SIDECAR_TEST_GENERATION\"); fi\ngeneration=$((generation + 1))\nprintf '%s' \"$generation\" > \"$SIDECAR_TEST_GENERATION\"\nwhile IFS= read -r line; do\n  if [ \"$generation\" -eq 1 ]; then\n    printf '%s\\n' 'not-json'\n  else\n    printf '{\"generation\":%s}\\n' \"$generation\"\n  fi\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIDECAR_TEST_GENERATION", statePath)
+	return path
+}
+
+func writeInvalidTypedResponseThenGenerationNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	statePath := filepath.Join(t.TempDir(), "generation")
+	contents := "#!/bin/sh\ngeneration=0\nif [ -f \"$SIDECAR_TEST_GENERATION\" ]; then generation=$(cat \"$SIDECAR_TEST_GENERATION\"); fi\ngeneration=$((generation + 1))\nprintf '%s' \"$generation\" > \"$SIDECAR_TEST_GENERATION\"\nwhile IFS= read -r line; do\n  if [ \"$generation\" -eq 1 ]; then\n    printf '%s\\n' '{\"transformed\":false}'\n  else\n    printf '{\"generation\":%s}\\n' \"$generation\"\n  fi\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIDECAR_TEST_GENERATION", statePath)
+	return path
+}
+
+func writeMalformedReleaseThenGenerationNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	statePath := filepath.Join(t.TempDir(), "generation")
+	contents := "#!/bin/sh\ngeneration=0\nif [ -f \"$SIDECAR_TEST_GENERATION\" ]; then generation=$(cat \"$SIDECAR_TEST_GENERATION\"); fi\ngeneration=$((generation + 1))\nprintf '%s' \"$generation\" > \"$SIDECAR_TEST_GENERATION\"\nrequest=0\nwhile IFS= read -r line; do\n  request=$((request + 1))\n  if [ \"$generation\" -eq 1 ] && [ \"$request\" -eq 1 ]; then\n    printf '%s\\n' '{\"resultHandle\":\"leased\"}'\n  elif [ \"$generation\" -eq 1 ]; then\n    printf '%s\\n' '{\"transformed\":false}'\n  else\n    printf '{\"generation\":%s}\\n' \"$generation\"\n  fi\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIDECAR_TEST_GENERATION", statePath)
+	return path
+}
+
+func workerGenerationFromResponse(t *testing.T, payload []byte) int {
+	t.Helper()
+	var response struct {
+		Generation int `json:"generation"`
+	}
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatal(err)
+	}
+	return response.Generation
+}
+
+func writeOversizedStderrNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\nwhile IFS= read -r line; do\n  dd if=/dev/zero bs=1024 count=1100 2>/dev/null | tr '\\000' x >&2\n  printf '\\nworker oversized diagnostic\\n' >&2\n  sleep 0.05\n  printf '%s\\n' \"$line\"\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeManyStderrNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\nwhile IFS= read -r line; do\n  count=1\n  while [ \"$count\" -le 75 ]; do\n    printf 'worker log %s\\n' \"$count\" >&2\n    count=$((count + 1))\n  done\n  sleep 0.05\n  printf '%s\\n' \"$line\"\ndone\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeFailingStderrNode(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "node")
+	contents := "#!/bin/sh\nIFS= read -r line\nprintf '%s\\n' 'worker failure diagnostic' >&2\nsleep 0.05\nexit 1\n"
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeConcurrencyNode(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "node")
@@ -896,7 +1666,7 @@ func runConcurrentCalls(t *testing.T, projectDir string, workerKeys ...string) {
 	for index, workerKey := range workerKeys {
 		go func() {
 			<-start
-			payload, _ := json.Marshal(map[string]any{"protocol": 2, "operation": "transform", "request": index})
+			payload, _ := json.Marshal(map[string]any{"protocol": 3, "operation": "transform", "request": index})
 			result, err := SidecarDaemonRoundTrip(context.Background(), SidecarDaemonCall{
 				WorkspaceKey: projectDir, WorkerKey: workerKey,
 				ProjectDir: projectDir, SidecarDir: projectDir, Payload: payload,

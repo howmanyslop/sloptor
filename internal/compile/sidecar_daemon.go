@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -23,11 +24,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"rotor/internal/logservice"
 	"rotor/tsgo/vfs/osvfs"
 )
 
 const (
-	sidecarDaemonProtocol    = 2
+	sidecarDaemonProtocol    = 3
 	sidecarDaemonIdleTimeout = 5 * time.Minute
 	sidecarDaemonStartWait   = 5 * time.Second
 	sidecarDaemonLockExpiry  = 15 * time.Second
@@ -96,14 +98,18 @@ type sidecarDaemonMessage struct {
 	InvalidatedFileNames []string          `json:"invalidatedFileNames,omitempty"`
 	Deadline             time.Time         `json:"deadline,omitempty"`
 	LeaseOwner           string            `json:"leaseOwner,omitempty"`
+	RequestID            string            `json:"requestId,omitempty"`
+	WorkerGeneration     uint64            `json:"workerGeneration,omitempty"`
 }
 
 type sidecarDaemonReply struct {
-	Protocol int                  `json:"protocol"`
-	Payload  json.RawMessage      `json:"payload,omitempty"`
-	Error    string               `json:"error,omitempty"`
-	Info     *SidecarDaemonInfo   `json:"info,omitempty"`
-	IO       sidecarDaemonReplyIO `json:"io,omitempty"`
+	Protocol         int                  `json:"protocol"`
+	Payload          json.RawMessage      `json:"payload,omitempty"`
+	Error            string               `json:"error,omitempty"`
+	Logs             []string             `json:"logs,omitempty"`
+	WorkerGeneration uint64               `json:"workerGeneration,omitempty"`
+	Info             *SidecarDaemonInfo   `json:"info,omitempty"`
+	IO               sidecarDaemonReplyIO `json:"io,omitempty"`
 }
 
 type sidecarDaemonReplyIO struct {
@@ -127,14 +133,19 @@ type sidecarDaemonWorker struct {
 	initialized bool
 	leases      map[string]sidecarDaemonLease
 	leaseDone   chan struct{}
-	recycle     bool
+	resident    atomic.Bool
+	recycle     atomic.Bool
+	requestID   string
+	generation  uint64
 }
 
 type sidecarDaemonLease struct {
-	owner           string
-	ownerPID        int
-	ownerGeneration string
-	retainedAt      time.Time
+	owner            string
+	ownerPID         int
+	ownerGeneration  string
+	requestID        string
+	workerGeneration uint64
+	retainedAt       time.Time
 }
 
 var persistentSidecarDaemonEnabled atomic.Bool
@@ -187,6 +198,10 @@ func SidecarDaemonRoundTrip(ctx context.Context, call SidecarDaemonCall) (*Sidec
 	if err != nil {
 		return nil, err
 	}
+	requestID, err := sidecarDaemonRequestID()
+	if err != nil {
+		return nil, err
+	}
 	message := sidecarDaemonMessage{
 		Protocol:             sidecarDaemonProtocol,
 		DaemonID:             id,
@@ -197,29 +212,26 @@ func SidecarDaemonRoundTrip(ctx context.Context, call SidecarDaemonCall) (*Sidec
 		NodePath:             call.NodePath,
 		ChildEnv:             call.ChildEnv,
 		LeaseOwner:           call.LeaseOwner,
+		RequestID:            requestID,
 		Payload:              json.RawMessage(call.Payload),
 		StampFileNames:       call.StampFileNames,
 		Overlays:             call.Overlays,
 		InvalidatedFileNames: call.InvalidatedFileNames,
 		Deadline:             deadlineFromContext(ctx),
 	}
-	var request struct {
-		Operation string `json:"operation"`
-	}
-	_ = json.Unmarshal(call.Payload, &request)
-	abandon := func() {}
-	if call.LeaseOwner != "" && request.Operation == "transform" {
-		abandon = func() {
-			sendSidecarDaemonAbandon(metadata.Endpoint, id, call.WorkerKey, call.LeaseOwner)
-		}
-	}
 	reply, err := exchangeSidecarDaemon(ctx, metadata.Endpoint, message)
+	for _, line := range reply.Logs {
+		logservice.WriteLine(line)
+	}
 	if err != nil {
-		abandon()
+		sendSidecarDaemonAbandon(metadata.Endpoint, id, call.WorkerKey, call.LeaseOwner, requestID, 0)
 		return nil, err
 	}
+	abandon := func() {
+		sendSidecarDaemonAbandon(metadata.Endpoint, id, call.WorkerKey, call.LeaseOwner, requestID, reply.WorkerGeneration)
+	}
 	return &SidecarDaemonResult{
-		Payload:      slices.Clone(reply.Payload),
+		Payload:      reply.Payload,
 		Stats:        reply.IO.Stats,
 		Reads:        reply.IO.Reads,
 		ChangedFiles: reply.IO.ChangedFiles,
@@ -259,7 +271,7 @@ func SidecarDaemonStatus(ctx context.Context) ([]SidecarDaemonInfo, error) {
 }
 
 // StopSidecarDaemons stops every live workspace daemon under the current
-// user's runtime root and returns the number that acknowledged the request.
+// user's runtime root and returns only daemons whose process has exited.
 func StopSidecarDaemons(ctx context.Context) (int, error) {
 	runtimeDir, err := sidecarDaemonRuntimeDir()
 	if err != nil {
@@ -278,6 +290,9 @@ func StopSidecarDaemons(ctx context.Context) (int, error) {
 				continue
 			}
 			return stopped, fmt.Errorf("stop sidecar daemon %d: %w", entry.PID, exchangeErr)
+		}
+		if err := waitForSidecarDaemonStop(ctx, runtimeDir, entry); err != nil {
+			return stopped, err
 		}
 		stopped++
 	}
@@ -319,10 +334,13 @@ func runSidecarDaemon(runtimeDir, id string, idleTimeout time.Duration) error {
 	}
 	_ = os.Remove(sidecarDaemonLockPath(runtimeDir, id))
 
+	serverContext, cancelServer := context.WithCancel(context.Background())
+	defer cancelServer()
 	server := &sidecarDaemonServer{
 		id: id, listener: listener, startedAt: startedAt,
 		lastActive: startedAt, idleDeadline: startedAt.Add(idleTimeout),
-		idleTimeout: idleTimeout, workers: map[string]*sidecarDaemonWorker{},
+		idleTimeout: idleTimeout, context: serverContext, cancel: cancelServer,
+		workers: map[string]*sidecarDaemonWorker{},
 	}
 	defer server.closeWorkers()
 	return server.serve()
@@ -333,6 +351,8 @@ type sidecarDaemonServer struct {
 	listener    net.Listener
 	startedAt   time.Time
 	idleTimeout time.Duration
+	context     context.Context
+	cancel      context.CancelFunc
 
 	mu           sync.Mutex
 	lastActive   time.Time
@@ -384,12 +404,12 @@ func (s *sidecarDaemonServer) maintain(done <-chan struct{}) {
 			return
 		case now := <-ticker.C:
 			s.mu.Lock()
-			s.expireIdleWorkersLocked(now)
+			workers := s.expireIdleWorkersLocked(now)
 			if !s.stopping && s.active == 0 && s.retainedResultCountLocked() == 0 && !now.Before(s.idleDeadline) {
-				s.stopping = true
-				_ = s.listener.Close()
+				s.stopLocked()
 			}
 			s.mu.Unlock()
+			closeSidecarWorkers(workers)
 		}
 	}
 }
@@ -419,23 +439,19 @@ func (s *sidecarDaemonServer) handleConnection(conn net.Conn) {
 	case "status":
 		now := time.Now().UTC()
 		s.mu.Lock()
-		s.expireIdleWorkersLocked(now)
+		workers := s.expireIdleWorkersLocked(now)
 		info := SidecarDaemonInfo{ID: s.id, PID: os.Getpid(), StartedAt: s.startedAt, LastActiveAt: s.lastActive, IdleDeadline: s.idleDeadline, WorkerCount: s.workerCountLocked()}
 		s.mu.Unlock()
+		closeSidecarWorkers(workers)
 		_ = writeSidecarDaemonReply(conn, sidecarDaemonReply{
 			Protocol: sidecarDaemonProtocol,
 			Info:     &info,
 		})
 	case "stop":
 		_ = writeSidecarDaemonReply(conn, sidecarDaemonReply{Protocol: sidecarDaemonProtocol})
-		s.mu.Lock()
-		if !s.stopping {
-			s.stopping = true
-			_ = s.listener.Close()
-		}
-		s.mu.Unlock()
+		s.stop()
 	case "roundTrip":
-		requestContext, cancel := context.WithCancel(context.Background())
+		requestContext, cancel := context.WithCancel(s.context)
 		clientClosed := make(chan struct{})
 		go func() {
 			_, _ = reader.ReadByte()
@@ -444,24 +460,24 @@ func (s *sidecarDaemonServer) handleConnection(conn net.Conn) {
 		}()
 		reply := s.roundTrip(request, requestContext)
 		cancel()
-		if err := writeSidecarDaemonReply(conn, reply); err != nil && request.LeaseOwner != "" {
-			s.abandonWorkerLeaseOwner(request.WorkerKey, request.LeaseOwner)
+		if err := writeSidecarDaemonReply(conn, reply); err != nil && request.RequestID != "" {
+			s.abandonWorkerRequest(request.WorkerKey, request.LeaseOwner, request.RequestID, reply.WorkerGeneration)
 		}
 		_ = conn.Close()
 		<-clientClosed
 	case "abandon":
-		if request.WorkerKey == "" || request.LeaseOwner == "" {
+		if request.WorkerKey == "" || request.RequestID == "" {
 			_ = writeSidecarDaemonReply(conn, sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: "incomplete abandoned-result request"})
 			return
 		}
-		s.abandonWorkerLeaseOwner(request.WorkerKey, request.LeaseOwner)
+		s.abandonWorkerRequest(request.WorkerKey, request.LeaseOwner, request.RequestID, request.WorkerGeneration)
 		_ = writeSidecarDaemonReply(conn, sidecarDaemonReply{Protocol: sidecarDaemonProtocol})
 	default:
 		_ = writeSidecarDaemonReply(conn, sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: "unknown daemon request"})
 	}
 }
 
-func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestContext context.Context) sidecarDaemonReply {
+func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestContext context.Context) (reply sidecarDaemonReply) {
 	if request.WorkerKey == "" || request.ProjectDir == "" || request.SidecarDir == "" || request.NodePath == "" || len(request.Payload) == 0 {
 		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: "incomplete round-trip request"}
 	}
@@ -479,16 +495,22 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 	}
 	worker := s.acquireWorker(request.WorkerKey)
 	defer s.releaseWorker(request.WorkerKey, worker)
+	defer func() {
+		if worker.session != nil {
+			reply.Logs = append(reply.Logs, worker.session.stderr.drain()...)
+		}
+	}()
 	if err := s.waitForWorkerLease(requestContext, worker, operation, request.LeaseOwner, request.Deadline); err != nil {
 		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: err.Error()}
 	}
-	if worker.recycle {
+	if worker.recycle.Load() {
 		if worker.session != nil {
 			worker.session.close()
 		}
 		worker.session = nil
+		worker.resident.Store(false)
 		worker.initialized = false
-		worker.recycle = false
+		worker.recycle.Store(false)
 	}
 
 	spawned := false
@@ -501,6 +523,8 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 			return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: err.Error()}
 		}
 		worker.session = session
+		worker.resident.Store(true)
+		worker.generation++
 		worker.initialized = false
 		s.mu.Lock()
 		s.clearWorkerLeasesLocked(worker)
@@ -528,21 +552,36 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 	if !request.Deadline.IsZero() {
 		roundTripContext, cancel = context.WithDeadline(roundTripContext, request.Deadline)
 	}
+	worker.requestID = request.RequestID
 	line, err := worker.session.writeAndRead(roundTripContext, payload)
 	cancel()
+	logs := worker.session.stderr.drain()
 	if err != nil {
 		worker.session.close()
 		worker.session = nil
+		worker.resident.Store(false)
 		worker.initialized = false
 		s.mu.Lock()
 		s.clearWorkerLeasesLocked(worker)
 		s.mu.Unlock()
-		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: err.Error()}
+		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: err.Error(), Logs: logs}
 	}
 	var nodeResponse struct {
 		ResultHandle string `json:"resultHandle"`
 	}
-	_ = json.Unmarshal(bytes.TrimSpace(line), &nodeResponse)
+	responsePayload := bytes.TrimSpace(line)
+	if !json.Valid(responsePayload) {
+		worker.session.close()
+		worker.session = nil
+		worker.resident.Store(false)
+		worker.initialized = false
+		worker.requestID = ""
+		s.mu.Lock()
+		s.clearWorkerLeasesLocked(worker)
+		s.mu.Unlock()
+		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: "transformer sidecar returned invalid JSON", Logs: logs}
+	}
+	_ = json.Unmarshal(responsePayload, &nodeResponse)
 	if operation == "transform" && nodeResponse.ResultHandle != "" {
 		ownerPID := sidecarLeaseOwnerPID(request.LeaseOwner)
 		s.mu.Lock()
@@ -550,10 +589,12 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 			worker.leaseDone = make(chan struct{})
 		}
 		worker.leases[nodeResponse.ResultHandle] = sidecarDaemonLease{
-			owner:           request.LeaseOwner,
-			ownerPID:        ownerPID,
-			ownerGeneration: sidecarProcessGeneration(ownerPID),
-			retainedAt:      time.Now().UTC(),
+			owner:            request.LeaseOwner,
+			ownerPID:         ownerPID,
+			ownerGeneration:  sidecarProcessGeneration(ownerPID),
+			requestID:        request.RequestID,
+			workerGeneration: worker.generation,
+			retainedAt:       time.Now().UTC(),
 		}
 		s.mu.Unlock()
 	}
@@ -571,10 +612,27 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 		worker.initialized = true
 	}
 	return sidecarDaemonReply{
-		Protocol: sidecarDaemonProtocol,
-		Payload:  json.RawMessage(strings.TrimSpace(string(line))),
-		IO:       sidecarDaemonReplyIO{Stats: ioStats.stats, Reads: ioStats.reads, ChangedFiles: len(changedFiles), Spawned: spawned},
+		Protocol:         sidecarDaemonProtocol,
+		Payload:          json.RawMessage(responsePayload),
+		Logs:             logs,
+		WorkerGeneration: worker.generation,
+		IO:               sidecarDaemonReplyIO{Stats: ioStats.stats, Reads: ioStats.reads, ChangedFiles: len(changedFiles), Spawned: spawned},
 	}
+}
+
+func (s *sidecarDaemonServer) stop() {
+	s.mu.Lock()
+	s.stopLocked()
+	s.mu.Unlock()
+}
+
+func (s *sidecarDaemonServer) stopLocked() {
+	if s.stopping {
+		return
+	}
+	s.stopping = true
+	s.cancel()
+	_ = s.listener.Close()
 }
 
 func (s *sidecarDaemonServer) waitForWorkerLease(ctx context.Context, worker *sidecarDaemonWorker, operation, owner string, deadline time.Time) error {
@@ -772,67 +830,66 @@ func (s *sidecarDaemonServer) releaseWorker(key string, worker *sidecarDaemonWor
 	worker.lastUsed = now
 	s.lastActive = now
 	s.idleDeadline = now.Add(s.idleTimeout)
-	if worker.session == nil && worker.refs == 0 {
+	if !worker.resident.Load() && worker.refs == 0 {
 		delete(s.workers, key)
 	}
-	s.trimIdleWorkersLocked()
+	workers := s.trimIdleWorkersLocked()
 	s.mu.Unlock()
 	worker.mu.Unlock()
+	closeSidecarWorkers(workers)
 }
 
-func (s *sidecarDaemonServer) abandonWorkerLeaseOwner(key, owner string) {
+func (s *sidecarDaemonServer) abandonWorkerRequest(key, owner, requestID string, generation uint64) {
+	if requestID == "" {
+		return
+	}
 	worker := s.acquireWorker(key)
 	defer s.releaseWorker(key, worker)
 	s.mu.Lock()
-	owned := false
+	matched := worker.requestID == requestID && (generation == 0 || worker.generation == generation)
 	for _, lease := range worker.leases {
-		if lease.owner == owner {
-			owned = true
+		if lease.owner == owner && lease.requestID == requestID && (generation == 0 || lease.workerGeneration == generation) {
+			matched = true
 			break
 		}
 	}
-	if owned {
+	if matched {
 		s.clearWorkerLeasesLocked(worker)
 	}
 	s.mu.Unlock()
-	if !owned {
+	if !matched {
 		return
 	}
 	if worker.session != nil {
 		worker.session.close()
 	}
 	worker.session = nil
+	worker.resident.Store(false)
 	worker.initialized = false
+	worker.requestID = ""
 }
 
-func (s *sidecarDaemonServer) expireIdleWorkersLocked(now time.Time) {
+func (s *sidecarDaemonServer) expireIdleWorkersLocked(now time.Time) []*sidecarDaemonWorker {
+	var workers []*sidecarDaemonWorker
 	for key, worker := range s.workers {
 		for handle, lease := range worker.leases {
 			ownerExited := sidecarLeaseOwnerExited(lease)
 			unownedExpired := lease.ownerPID == 0 && now.Sub(lease.retainedAt) >= sidecarResultExpiry
 			if ownerExited || unownedExpired {
 				delete(worker.leases, handle)
-				worker.recycle = true
+				worker.recycle.Store(true)
 			}
 		}
 		if len(worker.leases) == 0 {
 			s.signalWorkerLeasesDoneLocked(worker)
 		}
-		if worker.recycle && worker.refs == 0 {
-			if worker.session != nil {
-				worker.session.close()
-			}
-			worker.session = nil
-			worker.initialized = false
-			worker.recycle = false
-		}
-		if worker.refs == 0 && len(worker.leases) == 0 && !worker.lastUsed.IsZero() && now.Sub(worker.lastUsed) >= s.idleTimeout {
-			if worker.session != nil {
-				worker.session.close()
-			}
+		idleExpired := !worker.lastUsed.IsZero() && now.Sub(worker.lastUsed) >= s.idleTimeout
+		if worker.refs == 0 && len(worker.leases) == 0 && (worker.recycle.Load() || idleExpired) {
+			workers = append(workers, worker)
 			delete(s.workers, key)
 		}
 	}
+	return workers
 }
 
 func sidecarLeaseOwnerExited(lease sidecarDaemonLease) bool {
@@ -858,12 +915,13 @@ func (s *sidecarDaemonServer) signalWorkerLeasesDoneLocked(worker *sidecarDaemon
 	}
 }
 
-func (s *sidecarDaemonServer) trimIdleWorkersLocked() {
+func (s *sidecarDaemonServer) trimIdleWorkersLocked() []*sidecarDaemonWorker {
+	var workers []*sidecarDaemonWorker
 	for s.idleWorkerCountLocked() > 2 {
 		var oldestKey string
 		var oldest time.Time
 		for key, worker := range s.workers {
-			if worker.refs != 0 || worker.session == nil || len(worker.leases) != 0 {
+			if worker.refs != 0 || !worker.resident.Load() || len(worker.leases) != 0 {
 				continue
 			}
 			if oldestKey == "" || worker.lastUsed.Before(oldest) {
@@ -872,15 +930,16 @@ func (s *sidecarDaemonServer) trimIdleWorkersLocked() {
 			}
 		}
 		worker := s.workers[oldestKey]
-		worker.session.close()
+		workers = append(workers, worker)
 		delete(s.workers, oldestKey)
 	}
+	return workers
 }
 
 func (s *sidecarDaemonServer) idleWorkerCountLocked() int {
 	count := 0
 	for _, worker := range s.workers {
-		if worker.refs == 0 && worker.session != nil && len(worker.leases) == 0 {
+		if worker.refs == 0 && worker.resident.Load() && len(worker.leases) == 0 {
 			count++
 		}
 	}
@@ -890,7 +949,7 @@ func (s *sidecarDaemonServer) idleWorkerCountLocked() int {
 func (s *sidecarDaemonServer) workerCountLocked() int {
 	count := 0
 	for _, worker := range s.workers {
-		if worker.session != nil {
+		if worker.resident.Load() {
 			count++
 		}
 	}
@@ -907,13 +966,28 @@ func (s *sidecarDaemonServer) retainedResultCountLocked() int {
 
 func (s *sidecarDaemonServer) closeWorkers() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var workers []*sidecarDaemonWorker
 	for key, worker := range s.workers {
 		s.clearWorkerLeasesLocked(worker)
-		if worker.session != nil {
-			worker.session.close()
-		}
+		workers = append(workers, worker)
 		delete(s.workers, key)
+	}
+	s.mu.Unlock()
+	closeSidecarWorkers(workers)
+}
+
+func closeSidecarWorkers(workers []*sidecarDaemonWorker) {
+	for _, worker := range workers {
+		worker.mu.Lock()
+		session := worker.session
+		worker.session = nil
+		worker.resident.Store(false)
+		worker.initialized = false
+		worker.recycle.Store(false)
+		worker.mu.Unlock()
+		if session != nil {
+			session.close()
+		}
 	}
 }
 
@@ -939,29 +1013,50 @@ func exchangeSidecarDaemon(ctx context.Context, endpoint string, request sidecar
 		return sidecarDaemonReply{}, errors.New("sidecar daemon protocol mismatch")
 	}
 	if reply.Error != "" {
-		return sidecarDaemonReply{}, errors.New(reply.Error)
+		return reply, errors.New(reply.Error)
 	}
 	return reply, nil
 }
 
-func sendSidecarDaemonAbandon(endpoint, daemonID, workerKey, owner string) {
+func waitForSidecarDaemonStop(ctx context.Context, runtimeDir string, metadata sidecarDaemonMetadata) error {
+	for {
+		if _, err := os.Stat(sidecarDaemonMetadataPath(runtimeDir, metadata.ID)); errors.Is(err, os.ErrNotExist) {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("inspect stopped sidecar daemon %d: %w", metadata.PID, err)
+		}
+		if !sidecarProcessAlive(metadata.PID) {
+			removeSidecarDaemonArtifacts(runtimeDir, metadata.ID)
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for sidecar daemon %d to stop: %w", metadata.PID, ctx.Err())
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func sendSidecarDaemonAbandon(endpoint, daemonID, workerKey, owner, requestID string, generation uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	conn, err := dialSidecarDaemon(ctx, endpoint)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	if deadline, ok := ctx.Deadline(); ok {
-		_ = conn.SetWriteDeadline(deadline)
-	}
-	_ = json.NewEncoder(conn).Encode(sidecarDaemonMessage{
-		Protocol:   sidecarDaemonProtocol,
-		DaemonID:   daemonID,
-		Kind:       "abandon",
-		WorkerKey:  workerKey,
-		LeaseOwner: owner,
+	_, _ = exchangeSidecarDaemon(ctx, endpoint, sidecarDaemonMessage{
+		Protocol:         sidecarDaemonProtocol,
+		DaemonID:         daemonID,
+		Kind:             "abandon",
+		WorkerKey:        workerKey,
+		LeaseOwner:       owner,
+		RequestID:        requestID,
+		WorkerGeneration: generation,
 	})
+}
+
+func sidecarDaemonRequestID() (string, error) {
+	var nonce [16]byte
+	if _, err := cryptorand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate sidecar daemon request identity: %w", err)
+	}
+	return hex.EncodeToString(nonce[:]), nil
 }
 
 func deadlineFromContext(ctx context.Context) time.Time {

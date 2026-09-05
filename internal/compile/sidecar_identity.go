@@ -17,7 +17,7 @@ import (
 	"rotor/tsgo/vfs/osvfs"
 )
 
-const sidecarNodeProtocolVersion = 2
+const sidecarNodeProtocolVersion = 3
 
 // sidecarWorkerIdentity names the workspace daemon and the exact Node worker
 // that can serve a build. The canonical paths are also the paths the caller
@@ -182,21 +182,9 @@ func sidecarContentIdentity(sidecarDir string) (string, error) {
 }
 
 func resolveSidecarNodeIdentity() (string, sidecarNodeIdentity, error) {
-	nodeCommand := os.Getenv("ROTOR_NODE_PATH")
-	if nodeCommand != "" {
-		if _, err := os.Stat(nodeCommand); err != nil {
-			return "", sidecarNodeIdentity{}, errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
-		}
-	} else {
-		nodeCommand = "node"
-	}
-	nodePath, err := exec.LookPath(nodeCommand)
+	canonicalNodePath, err := resolveSidecarNodePath()
 	if err != nil {
-		return "", sidecarNodeIdentity{}, errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
-	}
-	canonicalNodePath, err := canonicalSidecarIdentityPath(nodePath)
-	if err != nil {
-		return "", sidecarNodeIdentity{}, fmt.Errorf("canonicalize Node executable: %w", err)
+		return "", sidecarNodeIdentity{}, err
 	}
 	contentHash, err := sidecarNodeContentHash(canonicalNodePath)
 	if err != nil {
@@ -206,6 +194,29 @@ func resolveSidecarNodeIdentity() (string, sidecarNodeIdentity, error) {
 		Path:        canonicalNodePath,
 		ContentHash: contentHash,
 	}, nil
+}
+
+// resolveSidecarNodePath resolves a Node override before a sidecar changes into
+// the project directory. A relative ROTOR_NODE_PATH is relative to the caller,
+// just like exec.LookPath validates it, rather than to a later child cwd.
+func resolveSidecarNodePath() (string, error) {
+	nodeCommand := os.Getenv("ROTOR_NODE_PATH")
+	if nodeCommand != "" {
+		if _, err := os.Stat(nodeCommand); err != nil {
+			return "", errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
+		}
+	} else {
+		nodeCommand = "node"
+	}
+	nodePath, err := exec.LookPath(nodeCommand)
+	if err != nil {
+		return "", errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
+	}
+	canonicalNodePath, err := canonicalSidecarIdentityPath(nodePath)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize Node executable: %w", err)
+	}
+	return canonicalNodePath, nil
 }
 
 func sidecarNodeContentHash(path string) (string, error) {

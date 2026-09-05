@@ -276,7 +276,8 @@ func task7ClassRunSidecar(t *testing.T, root string, compileFiles []string) task
 	if err != nil {
 		t.Fatalf("resolve sidecar: %v", err)
 	}
-	request := map[string]any{"protocol": 2, "operation": "transform", "tsConfigPath": filepath.Join(root, "tsconfig.json"), "projectDir": root, "compileFileNames": compileFiles, "fileNames": compileFiles, "fileContentIdentities": task7SidecarContentIdentities(t, compileFiles), "changedFiles": []struct{}{}}
+	configPath := filepath.Join(root, "tsconfig.json")
+	request := map[string]any{"protocol": 3, "operation": "transform", "tsConfigPath": configPath, "projectDir": root, "compileFileNames": compileFiles, "fileNames": compileFiles, "fileContentIdentities": task7SidecarContentIdentities(t, compileFiles), "changedFiles": []struct{}{}, "configSnapshot": task7ConfigSnapshot(t, configPath)}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)
