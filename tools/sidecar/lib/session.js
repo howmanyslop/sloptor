@@ -62,11 +62,25 @@ function normalizePath(fileName) {
   }
 }
 
+// Transformer packages read both cwd and `--project` directly. Keep those
+// process-level inputs aligned with the physical request paths before loading
+// a plugin: otherwise an alias such as /var or a Windows short-name path can
+// be compared with TypeScript's canonical source and output paths.
+function syncProjectProcessPaths(projectDir, tsConfigPath) {
+  process.chdir(projectDir);
+  for (let index = 0; index < process.argv.length - 1; index += 1) {
+    if (process.argv[index] === "-p" || process.argv[index] === "--project") {
+      process.argv[index + 1] = tsConfigPath;
+    }
+  }
+}
+
 class SidecarProjectSession {
   constructor(ts, projectDir, tsConfigPath, tsModulePath) {
     this.ts = ts;
     this.projectDir = normalizePath(projectDir);
     this.tsConfigPath = normalizePath(tsConfigPath);
+    syncProjectProcessPaths(this.projectDir, this.tsConfigPath);
     this.tsModulePath = tsModulePath;
     this.documentRegistry = ts.createDocumentRegistry(ts.sys.useCaseSensitiveFileNames);
     this.overrides = new Map();
