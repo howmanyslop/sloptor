@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -16,11 +17,12 @@ const defaultRunTimeout = time.Minute
 
 // Runner configures fork and Rotor compiler invocations.
 type Runner struct {
-	ForkCLIPath  string
-	RotorBinPath string
-	FixtureDir   string
-	OutputDir    string
-	Timeout      time.Duration
+	ForkCLIPath      string
+	RotorBinPath     string
+	FixtureDir       string
+	OutputDir        string
+	Timeout          time.Duration
+	DaemonRuntimeDir string
 }
 
 // RunResult contains the observable result of one compiler invocation.
@@ -43,6 +45,7 @@ type commandSpec struct {
 	name string
 	args []string
 	dir  string
+	env  []string
 }
 
 // RunFork compiles fixtureDir with the archived fork and captures outDir.
@@ -82,6 +85,7 @@ func (r Runner) RunRotorWithArgs(ctx context.Context, run RotorRun) (*RunResult,
 			name: run.Binary,
 			args: args,
 			dir:  run.FixtureDir,
+			env:  rotorDaemonEnvironment(r.DaemonRuntimeDir),
 		},
 		run.OutputDir,
 	)
@@ -107,6 +111,9 @@ func (r Runner) run(ctx context.Context, spec commandSpec, outDir string) (*RunR
 
 	cmd := exec.CommandContext(ctx, spec.name, spec.args...)
 	cmd.Dir = spec.dir
+	if spec.env != nil {
+		cmd.Env = spec.env
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -126,6 +133,53 @@ func (r Runner) run(ctx context.Context, spec commandSpec, outDir string) (*RunR
 	}
 	result.OutputTree = tree
 	return result, nil
+}
+
+func stopRotorDaemons(ctx context.Context, binary, runtimeDir string) error {
+	if runtimeDir == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	stop := exec.CommandContext(ctx, binary, "daemon", "stop")
+	stop.Env = rotorDaemonEnvironment(runtimeDir)
+	if output, err := stop.CombinedOutput(); err != nil {
+		return fmt.Errorf("stop Rotor daemon: %w\n%s", err, output)
+	}
+	var lastStatusErr error
+	var lastStatusOutput []byte
+	for {
+		status := exec.CommandContext(ctx, binary, "daemon", "status")
+		status.Env = rotorDaemonEnvironment(runtimeDir)
+		output, err := status.CombinedOutput()
+		if err != nil {
+			lastStatusErr = err
+			lastStatusOutput = output
+		} else if strings.TrimSpace(string(output)) == "no sidecar daemons running" {
+			return nil
+		}
+		if ctx.Err() != nil {
+			if lastStatusErr != nil {
+				return fmt.Errorf("wait for Rotor daemon shutdown: %w\n%s", lastStatusErr, lastStatusOutput)
+			}
+			return fmt.Errorf("wait for Rotor daemon shutdown: %w\n%s", ctx.Err(), output)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func rotorDaemonEnvironment(runtimeDir string) []string {
+	if runtimeDir == "" {
+		return nil
+	}
+	environment := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "ROTOR_DAEMON_RUNTIME_DIR" {
+			environment = append(environment, entry)
+		}
+	}
+	return append(environment, "ROTOR_DAEMON_RUNTIME_DIR="+runtimeDir)
 }
 
 func exitCode(err error) int {

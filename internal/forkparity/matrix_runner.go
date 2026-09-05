@@ -3,18 +3,21 @@ package forkparity
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"time"
 )
 
 type MatrixRunner struct {
-	RepoRoot     string
-	ReportDir    string
-	RotorBinPath string
+	RepoRoot         string
+	ReportDir        string
+	RotorBinPath     string
+	DaemonRuntimeDir string
 }
 
 type MatrixReport struct {
@@ -40,7 +43,7 @@ type MatrixRowResult struct {
 	Drifts               []MatrixDrift     `json:"drifts"`
 }
 
-func (r MatrixRunner) Run(ctx context.Context) (MatrixReport, error) {
+func (r MatrixRunner) Run(ctx context.Context) (report MatrixReport, runErr error) {
 	transformerFixtures, err := LoadTransformerFixtures(r.RepoRoot)
 	if err != nil {
 		return MatrixReport{}, err
@@ -72,11 +75,31 @@ func (r MatrixRunner) Run(ctx context.Context) (MatrixReport, error) {
 	if err != nil {
 		return MatrixReport{}, err
 	}
+	if r.DaemonRuntimeDir == "" {
+		r.DaemonRuntimeDir, err = os.MkdirTemp("", "forkparity-daemon-*")
+		if err != nil {
+			return MatrixReport{}, fmt.Errorf("create Rotor daemon runtime directory: %w", err)
+		}
+		defer func() {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			stopErr := stopRotorDaemons(cleanupCtx, rotorBin, r.DaemonRuntimeDir)
+			cancel()
+			if stopErr != nil {
+				report = MatrixReport{}
+				runErr = errors.Join(runErr, fmt.Errorf("clean up Rotor daemon runtime: %w", stopErr))
+				return
+			}
+			if removeErr := os.RemoveAll(r.DaemonRuntimeDir); removeErr != nil {
+				report = MatrixReport{}
+				runErr = errors.Join(runErr, fmt.Errorf("remove Rotor daemon runtime directory: %w", removeErr))
+			}
+		}()
+	}
 	projectNodeModules, err := r.rotorNodeModules()
 	if err != nil {
 		return MatrixReport{}, err
 	}
-	report := MatrixReport{
+	report = MatrixReport{
 		SchemaVersion:   1,
 		ZipDigest:       committedZipDigest,
 		ArchiveVerified: true,
