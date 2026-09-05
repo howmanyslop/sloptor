@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"rotor/internal/assets"
 	"rotor/internal/includefiles"
@@ -64,7 +65,7 @@ type BuildResult struct {
 // compiled outputs. CompileProject remains the pure library API; this is the
 // writing entry point for the CLI and future watch/incremental layers.
 func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResult, []string, error) {
-	warmup := startPersistentSidecarWarmup(projectDir, opts)
+	warmup := startPersistentSidecarWarmupIfCold(projectDir, opts)
 	defer warmup.stop()
 	writer := newOutputWriter()
 	timings := opts.Timings
@@ -291,7 +292,10 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 	prepared := pipeline.prepared
 	releaseOutcome := "error"
-	defer func() { releaseSidecarTraceLeases(prepared.sidecarTraceLeases, releaseOutcome) }()
+	defer func() {
+		releaseSidecarTraceLeases(prepared.sidecarTraceLeases, releaseOutcome)
+		timings.recordSidecarCall(takeSidecarTraceLeaseStats(prepared.sidecarTraceLeases))
+	}()
 	timings.recordPreparedTransformerProgram(prepared)
 	program = prepared.program
 	selectedFiles = prepared.sourceFiles
@@ -334,6 +338,40 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			return nil, nil, err
 		}
 	}
+	sourceFilesByOutput := make(map[string]*ast.SourceFile, len(selectedFiles))
+	for _, sourceFile := range selectedFiles {
+		relOut := outputPathRelativeToDir(dir, pathTranslator.GetOutputPath(sourceFile.FileName()))
+		sourceFilesByOutput[relOut] = sourceFile
+	}
+	requiredTraceFiles := make([]string, 0, len(sourceMaps))
+	for _, sourceFile := range selectedFiles {
+		relOut := outputPathRelativeToDir(dir, pathTranslator.GetOutputPath(sourceFile.FileName()))
+		if _, hasOutput := outputs[relOut]; !hasOutput {
+			continue
+		}
+		if _, hasSourceMap := sourceMaps[relOut+".map"]; hasSourceMap {
+			requiredTraceFiles = append(requiredTraceFiles, sourceFile.FileName())
+		}
+	}
+	if err := prefetchSidecarTraceMaps(prepared.sidecarTraceLeases, requiredTraceFiles); err != nil {
+		return nil, nil, err
+	}
+	if len(prepared.sidecarTraceLeases) > 0 && len(requiredTraceFiles) > 0 {
+		decodeStarted := time.Now()
+		var decodeErr error
+		for _, fileName := range requiredTraceFiles {
+			if trace := prepared.sourceTraces[normalizeSourceFilePath(fileName)]; trace != nil {
+				if err := trace.resolve(); err != nil {
+					decodeErr = err
+					break
+				}
+			}
+		}
+		timings.recordSidecarCall(sidecarCallStats{decode: time.Since(decodeStarted)})
+		if decodeErr != nil {
+			return nil, nil, decodeErr
+		}
+	}
 
 	stopCompiledOutputWrites := timings.startStage(compiledOutputWritesStage)
 	emittedFiles := make([]string, 0, len(outputs))
@@ -351,11 +389,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	wrote := make([]bool, len(relOuts))
 	jobs := make([]func() error, len(relOuts))
 	writePaths := make([]string, 0, len(relOuts)*2)
-	sourceFilesByOutput := make(map[string]*ast.SourceFile, len(selectedFiles))
-	for _, sourceFile := range selectedFiles {
-		relOut := outputPathRelativeToDir(dir, pathTranslator.GetOutputPath(sourceFile.FileName()))
-		sourceFilesByOutput[relOut] = sourceFile
-	}
 	for i, relOut := range relOuts {
 		sourceMap, hasSourceMap := sourceMaps[relOut+".map"]
 		if hasSourceMap {

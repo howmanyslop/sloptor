@@ -118,6 +118,26 @@ type sidecarCallStats struct {
 	nodeVersion     string
 }
 
+func (s *sidecarCallStats) add(other sidecarCallStats) {
+	s.wait += other.wait
+	s.prep += other.prep
+	s.roundTrip += other.roundTrip
+	s.decode += other.decode
+	s.requestBytes += other.requestBytes
+	s.responseBytes += other.responseBytes
+	s.stats += other.stats
+	s.reads += other.reads
+	s.changedFiles += other.changedFiles
+	s.spawned = s.spawned || other.spawned
+	s.restarted = s.restarted || other.restarted
+	s.nodeWallMs += other.nodeWallMs
+	s.nodeCPUUserUs += other.nodeCPUUserUs
+	s.nodeCPUSystemUs += other.nodeCPUSystemUs
+	if other.nodeVersion != "" {
+		s.nodeVersion = other.nodeVersion
+	}
+}
+
 type sidecarDiagnostic struct {
 	Category string `json:"category"`
 	Code     string `json:"code"`
@@ -187,7 +207,8 @@ func prepareTransformerProgramForWorkspace(dir string, program *compiler.Program
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, newSidecarBuildState(workspaceDir))
+	state := newSidecarBuildState(workspaceDir)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, state)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -283,11 +304,13 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 			stopDecode()
 			return nil, nil, errors.New("compile: transformer response omitted its result handle")
 		}
+		workerFileName := file.FileName
 		// Keep the Go program's original spelling for downstream overlay and
 		// diagnostic lookups. The worker operates on physical paths, which can
 		// differ from this process's /var-style path through a symlink.
 		file.FileName = original.FileName()
 		traceFileName := file.FileName
+		response.lease.rememberFile(traceFileName, workerFileName)
 		sourceTraces[normalizeSourceFilePath(traceFileName)] = newDeferredSourceTraceMap(
 			original.FileName(),
 			original.Text(),
@@ -523,23 +546,7 @@ func (s *sidecarBuildState) addCall(stats sidecarCallStats) {
 	if s == nil {
 		return
 	}
-	s.call.wait += stats.wait
-	s.call.prep += stats.prep
-	s.call.roundTrip += stats.roundTrip
-	s.call.decode += stats.decode
-	s.call.requestBytes += stats.requestBytes
-	s.call.responseBytes += stats.responseBytes
-	s.call.stats += stats.stats
-	s.call.reads += stats.reads
-	s.call.changedFiles += stats.changedFiles
-	s.call.spawned = s.call.spawned || stats.spawned
-	s.call.restarted = s.call.restarted || stats.restarted
-	s.call.nodeWallMs += stats.nodeWallMs
-	s.call.nodeCPUUserUs += stats.nodeCPUUserUs
-	s.call.nodeCPUSystemUs += stats.nodeCPUSystemUs
-	if stats.nodeVersion != "" {
-		s.call.nodeVersion = stats.nodeVersion
-	}
+	s.call.add(stats)
 }
 
 func (s *sidecarBuildState) applyTo(prepared *preparedTransformerProgram) {
@@ -1147,7 +1154,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 		if response.ResultHandle != "" {
 			handle := response.ResultHandle
 			slot.retainResult(handle, state.leaseOwner)
-			response.lease = newSidecarTraceLease(handle, func(control sidecarRequest) (*sidecarResponse, error) {
+			response.lease = newSidecarTraceLease(handle, func(control sidecarRequest) (*sidecarResponse, sidecarCallStats, error) {
 				if control.Operation == "release" {
 					defer slot.releaseResult(handle)
 				}

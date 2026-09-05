@@ -13,34 +13,50 @@ import (
 	"rotor/tsgo/ast"
 )
 
-func localSidecarControlRequest(key string, request sidecarRequest, timeout time.Duration) (*sidecarResponse, error) {
+func localSidecarControlRequest(key string, request sidecarRequest, timeout time.Duration) (*sidecarResponse, sidecarCallStats, error) {
+	var stats sidecarCallStats
 	slot := sidecarSlotFor(key)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 	if slot.session == nil || slot.session.dead {
-		return nil, errors.New("transformer result worker is no longer available")
+		return nil, stats, errors.New("transformer result worker is no longer available")
 	}
+	started := time.Now()
 	payload, err := json.Marshal(request)
+	stats.prep = time.Since(started)
 	if err != nil {
-		return nil, err
+		return nil, stats, err
 	}
+	stats.requestBytes = int64(len(payload))
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	roundTripStarted := time.Now()
 	line, err := slot.session.writeAndRead(ctx, payload)
+	stats.roundTrip = time.Since(roundTripStarted)
 	cancel()
 	slot.session.stderr.drainTo()
 	if err != nil {
 		slot.session.close()
 		slot.session = nil
-		return nil, err
+		return nil, stats, err
 	}
+	stats.responseBytes = int64(len(line))
+	decodeStarted := time.Now()
 	var response sidecarResponse
-	if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
-		return nil, slot.session.fail(err)
+	decodeErr := json.Unmarshal(bytes.TrimSpace(line), &response)
+	stats.decode = time.Since(decodeStarted)
+	if decodeErr != nil {
+		return nil, stats, slot.session.fail(decodeErr)
 	}
 	for _, logLine := range response.Logs {
 		logservice.WriteLine(logLine)
 	}
-	return &response, nil
+	if response.Metrics != nil {
+		stats.nodeWallMs = response.Metrics.WallMs
+		stats.nodeCPUUserUs = response.Metrics.CPUUserUs
+		stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
+		stats.nodeVersion = response.Metrics.NodeVersion
+	}
+	return &response, stats, nil
 }
 
 func persistentTransformerSidecar(
@@ -99,15 +115,16 @@ func persistentTransformerSidecar(
 		state.diskScanned = true
 	}
 	if response.ResultHandle != "" {
-		response.lease = newSidecarTraceLease(response.ResultHandle, func(control sidecarRequest) (*sidecarResponse, error) {
+		response.lease = newSidecarTraceLease(response.ResultHandle, func(control sidecarRequest) (*sidecarResponse, sidecarCallStats, error) {
 			control.TsConfigPath = filepath.FromSlash(identity.ConfigPath)
 			control.ProjectDir = filepath.FromSlash(identity.ProjectDir)
 			control.leaseOwner = request.leaseOwner
-			result, _, err := persistentSidecarRequest(identity, control, nil, nil, timeout)
+			result, controlStats, err := persistentSidecarRequest(identity, control, nil, nil, timeout)
+			absorbPersistentSidecarMetrics(&controlStats, result, configPath, false)
 			if err != nil {
 				response.abandon()
 			}
-			return result, err
+			return result, controlStats, err
 		})
 	}
 	absorbPersistentSidecarMetrics(&stats, response, configPath, true)
@@ -175,12 +192,13 @@ func persistentSidecarRequestContext(parent context.Context, identity sidecarWor
 
 	decodeStarted := time.Now()
 	var response sidecarResponse
-	if err := json.Unmarshal(bytes.TrimSpace(result.Payload), &response); err != nil {
+	decodeErr := json.Unmarshal(bytes.TrimSpace(result.Payload), &response)
+	stats.decode = time.Since(decodeStarted)
+	if decodeErr != nil {
 		result.abandon()
-		return nil, stats, fmt.Errorf("decode transformer sidecar response: %w", err)
+		return nil, stats, fmt.Errorf("decode transformer sidecar response: %w", decodeErr)
 	}
 	response.abandon = result.abandon
-	stats.decode = time.Since(decodeStarted)
 	for _, line := range response.Logs {
 		logservice.WriteLine(line)
 	}
