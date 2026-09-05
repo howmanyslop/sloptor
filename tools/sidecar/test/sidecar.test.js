@@ -765,6 +765,60 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
   assert.deepEqual(response.logs, ["plugin chatter on stdout"]);
 });
 
+test("main.js preserves complete plugin logs when a plugin exits immediately", (t) => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-exit-log-"));
+  t.after(() => fs.rmSync(fixtureDir, { recursive: true, force: true }));
+  const sourceDir = path.join(fixtureDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const sourcePath = path.join(sourceDir, "main.ts");
+  const diagnostic = `plugin diagnostic begins\n${"x".repeat(256 * 1024)}\nplugin diagnostic ends\n`;
+  fs.writeFileSync(sourcePath, "export const value = 1;\n");
+  fs.writeFileSync(
+    path.join(fixtureDir, "exit-plugin.js"),
+    `module.exports = function () {
+  process.stderr.write(${JSON.stringify(diagnostic)});
+  process.exit(17);
+};
+`,
+  );
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      compilerOptions: {
+        module: "CommonJS",
+        moduleResolution: "Node",
+        noLib: true,
+        target: "ESNext",
+        rootDir: "src",
+        outDir: "out",
+        plugins: [{ transform: "./exit-plugin.js" }],
+      },
+      include: ["src"],
+    }),
+  );
+
+  const result = spawnSync(process.execPath, [mainPath], {
+    input: `${JSON.stringify({
+      protocol: 2,
+      operation: "transform",
+      projectDir: fixtureDir,
+      tsConfigPath: configPath,
+      fileNames: [sourcePath],
+      compileFileNames: [sourcePath],
+      changedFiles: [],
+    })}\n`,
+    encoding: "utf8",
+    cwd: fixtureDir,
+  });
+
+  assert.equal(result.status, 17);
+  assert.equal(result.stdout, "");
+  assert.equal(result.stderr.length, diagnostic.length);
+  assert.ok(result.stderr.startsWith("plugin diagnostic begins\n"));
+  assert.ok(result.stderr.endsWith("\nplugin diagnostic ends\n"));
+});
+
 test("resolveTypeScript prefers the project's typescript copy", () => {
   const stubProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-ts-"));
   const stubDir = path.join(stubProjectDir, "node_modules", "typescript");

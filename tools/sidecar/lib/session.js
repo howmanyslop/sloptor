@@ -684,7 +684,29 @@ function captureRequestLogs(run) {
   // The normal response carries captured logs, but an immediate exit has no
   // response, so preserve those lines on the worker's stderr failure path.
   const flushOnExit = () => {
-    stderrWrite.call(process.stderr, chunks.join(""));
+    try {
+      const output = Buffer.from(chunks.join(""));
+      if (output.length > 0 && typeof process.stderr.fd === "number") {
+        let offset = 0;
+        while (offset < output.length) {
+          let written;
+          try {
+            written = fs.writeSync(process.stderr.fd, output, offset, output.length - offset);
+          } catch (error) {
+            if (error?.code === "EAGAIN" || error?.code === "EWOULDBLOCK" || error?.code === "EINTR") {
+              continue;
+            }
+            throw error;
+          }
+          if (written <= 0) {
+            break;
+          }
+          offset += written;
+        }
+      }
+    } catch {
+      // Exit handlers cannot recover from a broken stderr descriptor.
+    }
   };
   process.once("exit", flushOnExit);
   const capture = (chunk, encoding, callback) => {
