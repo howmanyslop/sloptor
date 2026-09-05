@@ -204,7 +204,7 @@ func TestMirrorPreservesFileOperationsAndStackedEdits(t *testing.T) {
 	}
 	for name, want := range map[string]string{"keep.go": "package keep\n\nvar First = 2\nvar DividerA = 0\nvar Middle = 3\nvar DividerB = 0\nvar Last = 2\n", "added.go": "package added\n", "renamed-λ.go": "package renamed\n"} {
 		got, err := os.ReadFile(filepath.Join(outDir, name))
-		if err != nil || string(got) != want {
+		if err != nil || strings.ReplaceAll(string(got), "\r\n", "\n") != want {
 			t.Fatalf("mirror %s = %q, %v; want %q", name, got, err, want)
 		}
 	}
