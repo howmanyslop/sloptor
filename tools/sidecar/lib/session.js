@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -7,10 +8,12 @@ const {
   toProtocolDiagnostic,
 } = require("./diagnostics");
 const {
+  collectRequireClosure,
   createTransformerList,
   flattenIntoTransformers,
-  pluginMetrics,
   getPluginConfigs,
+  pluginMetrics,
+  resetPluginMetrics,
   validatePluginConfigs,
   wrapTransformersWithParentFix,
 } = require("./plugins");
@@ -19,8 +22,8 @@ function createParseHost(session, ts) {
   return {
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
     readDirectory: ts.sys.readDirectory,
-    fileExists: (fileName) => session.fileExists(fileName),
-    readFile: (fileName) => session.readFile(fileName),
+    fileExists: (fileName) => session.configFileExists(fileName),
+    readFile: (fileName) => session.readConfigFile(fileName),
     getCurrentDirectory: () => session.projectDir,
     onUnRecoverableConfigFileDiagnostic: () => undefined,
   };
@@ -38,11 +41,7 @@ function createServiceHost(session, ts) {
     getScriptFileNames: () => session.getScriptFileNames(),
     getScriptSnapshot: (fileName) => {
       const text = session.readFile(fileName);
-      if (text === undefined) {
-        return undefined;
-      }
-
-      return ts.ScriptSnapshot.fromString(text);
+      return text === undefined ? undefined : ts.ScriptSnapshot.fromString(text);
     },
     getScriptVersion: (fileName) => String(session.getScriptVersion(fileName)),
     readDirectory: ts.sys.readDirectory,
@@ -61,6 +60,10 @@ function normalizePath(fileName) {
   }
 }
 
+function inputPath(projectDir, fileName) {
+  return path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(projectDir, fileName)));
+}
+
 // Transformer packages read both cwd and `--project` directly. Keep those
 // process-level inputs aligned with the physical request paths before loading
 // a plugin: otherwise an alias such as /var or a Windows short-name path can
@@ -74,6 +77,21 @@ function syncProjectProcessPaths(projectDir, tsConfigPath) {
   }
 }
 
+function fileDigest(fileName) {
+  try {
+    return crypto.createHash("sha256").update(fs.readFileSync(fileName)).digest("hex");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function textDigest(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
 class SidecarProjectSession {
   constructor(ts, projectDir, tsConfigPath, tsModulePath) {
     this.ts = ts;
@@ -83,69 +101,139 @@ class SidecarProjectSession {
     this.tsModulePath = tsModulePath;
     this.documentRegistry = ts.createDocumentRegistry(ts.sys.useCaseSensitiveFileNames);
     this.overrides = new Map();
+    this.deleted = new Set();
     this.actualPaths = new Map();
     this.pathAliases = new Map();
+    this.requestPaths = undefined;
     this.versions = new Map();
+    this.baseRoots = new Map();
+    this.currentFileNames = new Set();
     this.projectVersion = 0;
     this.configSignature = "";
-    // rootLimit is the canonical root set narrowed requests have asked for so
-    // far, or undefined for "every file the tsconfig names". TypeScript still
-    // pulls each root's import closure into the program, so a narrowed program
-    // answers the same questions about the files being compiled while parsing
-    // and binding far fewer of them.
-    this.rootLimit = undefined;
-    // rootLimitDisabled records that the limit has already grown to every file
-    // the tsconfig names, which is what a request without a limit asks for.
-    // Nothing can widen it further, so later narrowed requests are no-ops.
-    this.rootLimitDisabled = false;
+    this.configInputs = new Map();
+    this.configReads = undefined;
+    this.configSnapshot = undefined;
+    this.configSnapshotSignature = undefined;
+    this.parsedConfigSnapshotSignature = undefined;
+    this.fileSetSignature = "";
+    this.parsedDiagnostics = [];
     this.parsed = undefined;
     this.service = undefined;
+    this.rootLimit = undefined;
+    this.rootLimitDisabled = false;
+    this.transformerCache = new WeakMap();
+    this.results = new Map();
+    this.moduleFiles = new Map();
+    this.warmFiles = undefined;
+    this.verifiedSourceIdentities = new WeakMap();
   }
 
   canonicalize(fileName) {
-    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
-    const resolved = this.pathAliases.get(inputPath) ?? normalizePath(inputPath);
-    return this.ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
+    const resolvedPath = inputPath(this.projectDir, fileName);
+    const resolved = this.pathAliases.get(resolvedPath) ?? normalizePath(resolvedPath);
+    return this.canonicalPath(resolved);
+  }
+
+  canonicalPath(fileName) {
+    return this.ts.sys.useCaseSensitiveFileNames ? fileName : fileName.toLowerCase();
   }
 
   rememberFile(fileName) {
-    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
-    const actualPath = normalizePath(inputPath);
-    this.pathAliases.set(inputPath, actualPath);
-    const canonical = this.canonicalize(actualPath);
+    const resolvedPath = inputPath(this.projectDir, fileName);
+    const requestPath = this.requestPaths?.get(resolvedPath);
+    if (requestPath !== undefined) {
+      return requestPath;
+    }
+    // A deleted symlink target cannot be resolved again. Keep the physical
+    // path we recorded while it existed so a deletion reaches the same
+    // document and a retained result can still produce its trace map. A live
+    // link may point somewhere new, so resolve it again for the next request.
+    const previousPath = this.pathAliases.get(resolvedPath);
+    const actualPath = previousPath !== undefined && !this.ts.sys.fileExists(resolvedPath)
+      ? previousPath
+      : normalizePath(resolvedPath);
+    this.pathAliases.set(resolvedPath, actualPath);
+    this.pathAliases.set(inputPath(this.projectDir, actualPath), actualPath);
+    const canonical = this.canonicalPath(actualPath);
     if (!this.actualPaths.has(canonical)) {
       this.actualPaths.set(canonical, actualPath);
       this.versions.set(canonical, 0);
-      this.projectVersion += 1;
     }
-
-    return this.actualPaths.get(canonical);
+    const rememberedPath = this.actualPaths.get(canonical);
+    this.requestPaths?.set(resolvedPath, rememberedPath);
+    this.requestPaths?.set(inputPath(this.projectDir, rememberedPath), rememberedPath);
+    return rememberedPath;
   }
 
   fileExists(fileName) {
     const canonical = this.canonicalize(fileName);
+    if (this.deleted.has(canonical)) {
+      return false;
+    }
     if (this.overrides.has(canonical)) {
       return true;
     }
-
-    const actualPath = this.actualPaths.get(canonical) ?? normalizePath(fileName);
-    return this.ts.sys.fileExists(actualPath);
+    return this.ts.sys.fileExists(this.actualPaths.get(canonical) ?? normalizePath(fileName));
   }
 
   readFile(fileName) {
     const canonical = this.canonicalize(fileName);
+    if (this.deleted.has(canonical)) {
+      return undefined;
+    }
     if (this.overrides.has(canonical)) {
       return this.overrides.get(canonical);
     }
+    return this.ts.sys.readFile(this.actualPaths.get(canonical) ?? normalizePath(fileName));
+  }
 
-    const actualPath = this.actualPaths.get(canonical) ?? normalizePath(fileName);
-    return this.ts.sys.readFile(actualPath);
+  readConfigFile(fileName) {
+    const actualPath = this.rememberFile(fileName);
+    if (this.configSnapshot !== undefined) {
+      const canonical = this.canonicalPath(actualPath);
+      const text = this.configSnapshot.get(canonical);
+      this.configReads?.set(canonical, text);
+      return text;
+    }
+    const text = this.readFile(actualPath);
+    this.configReads?.set(this.canonicalPath(actualPath), text);
+    return text;
+  }
+
+  configFileExists(fileName) {
+    const actualPath = this.rememberFile(fileName);
+    if (this.configSnapshot !== undefined) {
+      const canonical = this.canonicalPath(actualPath);
+      const text = this.configSnapshot.get(canonical);
+      this.configReads?.set(canonical, text);
+      return text !== undefined;
+    }
+    const exists = this.fileExists(actualPath);
+    this.configReads?.set(this.canonicalPath(actualPath), exists ? this.readFile(actualPath) : undefined);
+    return exists;
+  }
+
+  setConfigSnapshot(files) {
+    if (files === undefined) {
+      this.configSnapshot = undefined;
+      this.configSnapshotSignature = undefined;
+      return;
+    }
+    const next = new Map();
+    for (const [fileName, text] of Object.entries(files)) {
+      const actualPath = this.rememberFile(fileName);
+      next.set(this.canonicalPath(actualPath), text);
+    }
+    this.configSnapshot = next;
+    this.configSnapshotSignature = JSON.stringify([...next.entries()].sort(([left], [right]) => left.localeCompare(right)));
   }
 
   updateFile(fileName, text) {
     const actualPath = this.rememberFile(fileName);
-    const canonical = this.canonicalize(actualPath);
-    if (this.overrides.get(canonical) === text) {
+    const canonical = this.canonicalPath(actualPath);
+    const unchanged = !this.deleted.has(canonical) && this.overrides.get(canonical) === text;
+    this.deleted.delete(canonical);
+    if (unchanged) {
       return actualPath;
     }
     this.overrides.set(canonical, text);
@@ -154,39 +242,83 @@ class SidecarProjectSession {
     return actualPath;
   }
 
-  getScriptFileNames() {
-    const fileNames = [];
-    for (const [canonical, actualPath] of this.actualPaths.entries()) {
-      if (this.rootLimit && !this.rootLimit.has(canonical)) {
-        continue;
-      }
-      if (this.overrides.has(canonical) || this.ts.sys.fileExists(actualPath)) {
-        fileNames.push(actualPath);
-      }
+  deleteFile(fileName) {
+    const actualPath = this.rememberFile(fileName);
+    const canonical = this.canonicalPath(actualPath);
+    if (this.deleted.has(canonical)) {
+      return;
     }
-    return fileNames;
+    this.overrides.delete(canonical);
+    this.deleted.add(canonical);
+    this.versions.set(canonical, (this.versions.get(canonical) ?? 0) + 1);
+    this.projectVersion += 1;
   }
 
-  // setRootLimit widens the LanguageService root set toward what this request
-  // needs. The limit only ever grows within a session: a watch session rebuilds
-  // through the same warm worker, and shrinking the root set back down between
-  // rebuilds would throw away the program TypeScript had just built and force a
-  // fresh parse and bind of the files that came back. Growing it only adds
-  // files, which the incremental program update already handles.
-  //
-  // rootLimitDisabled is that same monotonicity, encoded cheaply for the one
-  // case where the limit has grown as far as it can go. A request with no limit
-  // means "every file the tsconfig names", so after it the effective root set
-  // IS the full remembered set — the widest this session can ever be. The latch
-  // says so in one boolean instead of materializing that set and re-checking it
-  // on every later request. It is not a separate policy, and dropping it alone
-  // would break the monotonicity rather than relax it: `rootLimit` is undefined
-  // once the limit is gone, so the next narrowed request would seed a fresh Set
-  // from its own file list and SHRINK the program to it.
-  //
-  // The project version has to move whenever the root set does: the
-  // compilation settings and every file version are unchanged, so nothing else
-  // would tell the service that its program is stale.
+  setBaseRoots(fileNames) {
+    const next = new Map();
+    for (const fileName of fileNames) {
+      const actualPath = this.rememberFile(fileName);
+      next.set(this.canonicalPath(actualPath), actualPath);
+    }
+    const previousKeys = [...this.baseRoots.keys()];
+    const changed = previousKeys.length !== next.size || previousKeys.some((key) => !next.has(key));
+    this.baseRoots = next;
+    if (changed) {
+      this.projectVersion += 1;
+    }
+    return changed;
+  }
+
+  setCurrentFileNames(fileNames) {
+    this.currentFileNames = new Set(fileNames.map((fileName) => this.canonicalPath(this.rememberFile(fileName))));
+  }
+
+  resetRootLimit() {
+    this.rootLimit = undefined;
+    this.rootLimitDisabled = false;
+  }
+
+  retainedSource(canonical) {
+    for (const retained of this.results.values()) {
+      if (retained.sources.has(canonical)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  pruneDeletedFiles() {
+    for (const canonical of [...this.deleted]) {
+      const actualPath = this.actualPaths.get(canonical);
+      if (
+        actualPath === undefined
+        || this.currentFileNames.has(canonical)
+        || this.ts.sys.fileExists(actualPath)
+        || this.retainedSource(canonical)
+      ) {
+        continue;
+      }
+      this.deleted.delete(canonical);
+      this.overrides.delete(canonical);
+      this.actualPaths.delete(canonical);
+      this.versions.delete(canonical);
+      this.baseRoots.delete(canonical);
+      this.rootLimit?.delete(canonical);
+      for (const [inputPath, aliasPath] of this.pathAliases) {
+        if (this.canonicalize(aliasPath) === canonical) {
+          this.pathAliases.delete(inputPath);
+        }
+      }
+    }
+  }
+
+  getScriptFileNames() {
+    const roots = this.rootLimit ?? this.baseRoots;
+    return [...roots.entries()]
+      .filter(([canonical, actualPath]) => !this.deleted.has(canonical) && (this.overrides.has(canonical) || this.ts.sys.fileExists(actualPath)))
+      .map(([, actualPath]) => actualPath);
+  }
+
   setRootLimit(rootFileNames) {
     if (this.rootLimitDisabled) {
       return;
@@ -199,90 +331,122 @@ class SidecarProjectSession {
       }
       return;
     }
-    const next = this.rootLimit ?? new Set();
+    const next = this.rootLimit ?? new Map();
     let widened = this.rootLimit === undefined;
     for (const fileName of rootFileNames) {
-      const canonical = this.canonicalize(this.rememberFile(fileName));
+      const actualPath = this.rememberFile(fileName);
+      const canonical = this.canonicalPath(actualPath);
       if (!next.has(canonical)) {
-        next.add(canonical);
+        next.set(canonical, actualPath);
         widened = true;
       }
     }
-    if (!widened) {
-      return;
+    if (widened) {
+      this.rootLimit = next;
+      this.projectVersion += 1;
     }
-    this.rootLimit = next;
-    this.projectVersion += 1;
   }
 
   getScriptVersion(fileName) {
-    const canonical = this.canonicalize(fileName);
-    return this.versions.get(canonical) ?? 0;
+    return this.versions.get(this.canonicalize(fileName)) ?? 0;
   }
 
-  refreshParsedConfig(createService = true) {
-    const parsed = this.ts.getParsedCommandLineOfConfigFile(
-      this.tsConfigPath,
-      {},
-      createParseHost(this, this.ts),
-    );
-    if (!parsed) {
-      return {
-        diagnostics: [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)],
-      };
+  configInputsChanged() {
+    if (!this.parsed) {
+      return true;
+    }
+    if (this.configSnapshot !== undefined) {
+      return this.configSnapshotSignature !== this.parsedConfigSnapshotSignature;
+    }
+    for (const [canonical, previousText] of this.configInputs) {
+      const actualPath = this.actualPaths.get(canonical) ?? canonical;
+      if (this.readFile(actualPath) !== previousText) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  refreshParsedConfig(createService = true, requestedFileNames) {
+    const requestedFileSet = Array.isArray(requestedFileNames)
+      ? JSON.stringify(requestedFileNames.map((fileName) => this.canonicalize(fileName)).sort())
+      : undefined;
+    const shouldParse = this.configInputsChanged() || (requestedFileSet !== undefined && requestedFileSet !== this.fileSetSignature);
+
+    if (shouldParse) {
+      this.configReads = new Map();
+      const parsed = this.ts.getParsedCommandLineOfConfigFile(this.tsConfigPath, {}, createParseHost(this, this.ts));
+      this.configInputs = this.configReads;
+      this.configReads = undefined;
+      this.parsedConfigSnapshotSignature = this.configSnapshotSignature;
+      if (!parsed) {
+        this.parsed = undefined;
+        this.parsedDiagnostics = [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)];
+        return { diagnostics: this.parsedDiagnostics };
+      }
+
+      const configSignature = JSON.stringify({
+        fileNames: parsed.fileNames.map((fileName) => this.canonicalize(fileName)).sort(),
+        options: parsed.options,
+        projectReferences: (parsed.projectReferences ?? []).map((reference) => reference.path),
+      });
+      if (!this.parsed || this.configSignature !== configSignature) {
+        this.parsed = parsed;
+        this.configSignature = configSignature;
+        this.discardProgram();
+        this.projectVersion += 1;
+      } else {
+        this.parsed = parsed;
+      }
+      this.parsedDiagnostics = parsed.errors.map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic));
+      this.fileSetSignature = requestedFileSet ?? JSON.stringify(parsed.fileNames.map((fileName) => this.canonicalize(fileName)).sort());
+      if (this.setBaseRoots(parsed.fileNames)) {
+        this.resetRootLimit();
+      }
     }
 
-    for (const fileName of parsed.fileNames) {
-      this.rememberFile(fileName);
-    }
-
-    const configSignature = JSON.stringify({
-      fileNames: [...parsed.fileNames].sort(),
-      options: parsed.options,
-      projectReferences: (parsed.projectReferences ?? []).map((reference) => reference.path),
-    });
-
-    if (!this.parsed || this.configSignature !== configSignature) {
-      this.parsed = parsed;
-      this.configSignature = configSignature;
-      this.service = undefined;
-      this.projectVersion += 1;
-    }
-
-    if (createService && !this.service) {
+    if (createService && this.parsed && !this.service) {
       this.service = this.ts.createLanguageService(createServiceHost(this, this.ts), this.documentRegistry);
     }
+    return { diagnostics: this.parsedDiagnostics, parsed: this.parsed };
+  }
 
-    return {
-      diagnostics: parsed.errors.map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)),
-      parsed,
-    };
+  discardProgram() {
+    this.service?.dispose();
+    this.service = undefined;
+    this.transformerCache = new WeakMap();
+    this.verifiedSourceIdentities = new WeakMap();
+    this.warmFiles = undefined;
   }
 
   getSourceFile(program, fileName) {
     const actualPath = this.rememberFile(fileName);
-    const direct = program.getSourceFile(actualPath);
-    if (direct) {
-      return direct;
-    }
+    return program.getSourceFile(actualPath) ?? program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === this.canonicalPath(actualPath));
+  }
 
-    const canonical = this.canonicalize(actualPath);
-    return program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === canonical);
+  transformerList(program, configs) {
+    const key = JSON.stringify(configs);
+    let byConfig = this.transformerCache.get(program);
+    if (!byConfig) {
+      byConfig = new Map();
+      this.transformerCache.set(program, byConfig);
+    }
+    let cached = byConfig.get(key);
+    if (!cached) {
+      cached = createTransformerList(this.ts, program, configs, this.projectDir, this.tsModulePath);
+      byConfig.set(key, cached);
+      this.trackModuleFiles(cached.moduleFiles);
+    } else {
+      resetPluginMetrics(cached.plugins);
+    }
+    return cached;
   }
 
   transformSourceFiles(program, sourceFiles, transforms) {
     const transformerList = wrapTransformersWithParentFix(this.ts, flattenIntoTransformers(transforms));
-    // rbxtsc uses a bare intermediate printer. Compiler emit settings belong
-    // to final emit, not to the text handed from one transformer to the next.
-    const printer = this.ts.createPrinter();
-
     if (transformerList.length === 0) {
-      return {
-        diagnostics: [],
-        transformed: [],
-      };
+      return { diagnostics: [], transformed: [] };
     }
-
     if (typeof this.ts.transformNodes !== "function") {
       return {
         diagnostics: [createProtocolDiagnostic("error", "transform-nodes-missing", "typescript.transformNodes is unavailable")],
@@ -299,33 +463,192 @@ class SidecarProjectSession {
       transformerList,
       false,
     );
+    const originalSourceFiles = new Set(sourceFiles);
+    const transformedSourceFiles = result.transformed.filter((node) => this.ts.isSourceFile(node) && !originalSourceFiles.has(node));
+    if (transformedSourceFiles.length === 0) {
+      const diagnostics = (result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic));
+      result.dispose?.();
+      return { diagnostics, transformed: [] };
+    }
 
-    try {
-      return {
-        diagnostics: (result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)),
-        transformed: result.transformed
-          .filter((node) => this.ts.isSourceFile(node) && !sourceFiles.includes(node))
-          .map((sourceFile) => ({
-            fileName: sourceFile.fileName,
-            ...printSourceFileWithTraceMap(this.ts, printer, sourceFile),
-          })),
-      };
-    } finally {
-      if (typeof result.dispose === "function") {
-        result.dispose();
+    const printer = this.ts.createPrinter();
+    const sources = new Map();
+    const transformed = transformedSourceFiles.map((sourceFile) => {
+      sources.set(this.canonicalize(sourceFile.fileName), sourceFile);
+      return { fileName: sourceFile.fileName, text: printSourceFile(this.ts, printer, sourceFile) };
+    });
+    const resultHandle = crypto.randomBytes(16).toString("hex");
+    this.results.set(resultHandle, { printer, result, sources });
+    return {
+      diagnostics: (result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)),
+      transformed,
+      resultHandle,
+    };
+  }
+
+  mapResult(resultHandle, fileNames) {
+    const retained = this.results.get(resultHandle);
+    if (!retained) {
+      return invalidResultHandle(resultHandle);
+    }
+    const requested = fileNames ?? [...retained.sources.values()].map((sourceFile) => sourceFile.fileName);
+    const diagnostics = [];
+    const traceMaps = [];
+    for (const fileName of requested) {
+      const sourceFile = retained.sources.get(this.canonicalize(fileName));
+      if (!sourceFile) {
+        diagnostics.push(createProtocolDiagnostic("error", "result-file-missing", `Result ${resultHandle} does not contain ${fileName}`));
+        continue;
+      }
+      traceMaps.push({ fileName: sourceFile.fileName, traceMap: printTraceMap(this.ts, retained.printer, sourceFile) });
+    }
+    return { diagnostics, transformed: [], traceMaps };
+  }
+
+  releaseResult(resultHandle) {
+    const retained = this.results.get(resultHandle);
+    if (!retained) {
+      return invalidResultHandle(resultHandle);
+    }
+    retained.result.dispose?.();
+    this.results.delete(resultHandle);
+    this.pruneDeletedFiles();
+    return { diagnostics: [], transformed: [] };
+  }
+
+  trackModuleFiles(fileNames) {
+    for (const fileName of fileNames ?? []) {
+      if (!this.moduleFiles.has(fileName)) {
+        this.moduleFiles.set(fileName, fileDigest(fileName));
       }
     }
   }
 
+  hasStaleModules() {
+    for (const [fileName, digest] of this.moduleFiles) {
+      if (fileDigest(fileName) !== digest) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  rememberWarmFiles(program) {
+    this.warmFiles = new Map();
+    for (const sourceFile of program.getSourceFiles()) {
+      const fileName = this.rememberFile(sourceFile.fileName);
+      const canonical = this.canonicalize(fileName);
+      const digest = textDigest(sourceFile.text);
+      this.warmFiles.set(canonical, { fileName, digest });
+      this.verifiedSourceIdentities.set(sourceFile, digest);
+    }
+  }
+
+  refreshWarmFiles(changedFiles, contentIdentities) {
+    if (!this.warmFiles) {
+      return;
+    }
+    if (!contentIdentities) {
+      throw new Error("the first transform after warm must include fileContentIdentities");
+    }
+    const changed = new Set(changedFiles.map((file) => this.canonicalize(file.fileName)));
+    const updates = [];
+    for (const [canonical, warmed] of this.warmFiles) {
+      if (changed.has(canonical)) {
+        continue;
+      }
+      const expectedDigest = contentIdentities.get(canonical);
+      if (expectedDigest === undefined) {
+        updates.push({ fileName: warmed.fileName, deleted: true });
+        continue;
+      }
+      if (expectedDigest === warmed.digest) {
+        continue;
+      }
+      const text = this.ts.sys.readFile(warmed.fileName);
+      if (text === undefined || textDigest(text) !== expectedDigest) {
+        throw new Error(`source changed after the compiler snapshot: ${warmed.fileName}`);
+      }
+      updates.push({ fileName: warmed.fileName, text });
+    }
+    for (const update of updates) {
+      if (update.deleted === true) {
+        this.deleteFile(update.fileName);
+      } else {
+        this.updateFile(update.fileName, update.text);
+      }
+    }
+    this.warmFiles = undefined;
+  }
+
+  verifyChangedFiles(changedFiles, contentIdentities) {
+    if (!contentIdentities) {
+      return;
+    }
+    for (const changedFile of changedFiles) {
+      const expectedDigest = contentIdentities.get(this.canonicalize(changedFile.fileName));
+      if (expectedDigest === undefined) {
+        continue;
+      }
+      if (changedFile.deleted === true || textDigest(changedFile.text) !== expectedDigest) {
+        throw new Error(`source changed after the compiler snapshot: ${changedFile.fileName}`);
+      }
+    }
+  }
+
+  verifyProgramContentIdentities(program, contentIdentities) {
+    if (!contentIdentities) {
+      return;
+    }
+    for (const sourceFile of program.getSourceFiles()) {
+      const canonical = this.canonicalize(sourceFile.fileName);
+      const expectedDigest = contentIdentities.get(canonical);
+      if (expectedDigest === undefined) {
+        continue;
+      }
+      if (this.verifiedSourceIdentities.get(sourceFile) !== expectedDigest && textDigest(sourceFile.text) !== expectedDigest) {
+        this.discardProgram();
+        throw new Error(`source changed after the compiler snapshot: ${sourceFile.fileName}`);
+      }
+      this.verifiedSourceIdentities.set(sourceFile, expectedDigest);
+    }
+  }
+
+  clearModuleCache() {
+    for (const fileName of this.moduleFiles.keys()) {
+      delete require.cache[fileName];
+    }
+  }
+
+  dispose() {
+    for (const retained of this.results.values()) {
+      retained.result.dispose?.();
+    }
+    this.results.clear();
+    this.discardProgram();
+  }
+
   handleRequest(request) {
+    const previousRequestPaths = this.requestPaths;
+    if (request.operation === "transform") {
+      this.requestPaths = new Map();
+    }
     try {
+      if (request.operation === "maps") {
+        return this.mapResult(request.resultHandle, request.fileNames);
+      }
+      if (request.operation === "release") {
+        return this.releaseResult(request.resultHandle);
+      }
       if (request.operation === "validate") {
+        this.setConfigSnapshot(request.configSnapshot);
         const parsedState = this.refreshParsedConfig(false);
         if (!this.parsed) {
           return { diagnostics: parsedState.diagnostics, transformed: [] };
         }
         const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
         const validation = validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath);
+        this.trackModuleFiles(validation.moduleFiles);
         return {
           diagnostics: [...parsedState.diagnostics, ...validation.diagnostics],
           transformed: [],
@@ -333,16 +656,45 @@ class SidecarProjectSession {
         };
       }
 
-      for (const changedFile of request.changedFiles) {
-        this.updateFile(changedFile.fileName, changedFile.text);
+      if (request.operation === "warm") {
+        const parsedState = this.refreshParsedConfig(true);
+        if (!this.parsed) {
+          return { diagnostics: parsedState.diagnostics, transformed: [] };
+        }
+        const program = this.service.getProgram();
+        if (!program) {
+          return {
+            diagnostics: [...parsedState.diagnostics, createProtocolDiagnostic("error", "program-missing", "Language service did not return a program")],
+            transformed: [],
+          };
+        }
+        this.rememberWarmFiles(program);
+        return { diagnostics: parsedState.diagnostics, transformed: [] };
       }
 
-      const parsedState = this.refreshParsedConfig();
+      const contentIdentities = request.fileContentIdentities === undefined
+        ? undefined
+        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => {
+          const canonical = this.canonicalPath(this.rememberFile(fileName));
+          return [canonical, digest];
+        }));
+      this.verifyChangedFiles(request.changedFiles, contentIdentities);
+      this.setConfigSnapshot(request.configSnapshot);
+      this.refreshWarmFiles(request.changedFiles, contentIdentities);
+      for (const changedFile of request.changedFiles) {
+        if (changedFile.deleted === true) {
+          this.deleteFile(changedFile.fileName);
+        } else {
+          this.updateFile(changedFile.fileName, changedFile.text);
+        }
+      }
+      this.setCurrentFileNames(request.fileNames);
+      this.pruneDeletedFiles();
+      const parsedState = this.refreshParsedConfig(true, request.fileNames);
       this.setRootLimit(request.rootFileNames);
       if (!this.parsed) {
         return { diagnostics: parsedState.diagnostics, transformed: [] };
       }
-
       const program = this.service.getProgram();
       if (!program) {
         return {
@@ -350,71 +702,96 @@ class SidecarProjectSession {
           transformed: [],
         };
       }
+      this.verifyProgramContentIdentities(program, contentIdentities);
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath);
-
+      const transformerState = this.transformerList(program, pluginConfigs);
+      const { transforms, diagnostics: pluginDiagnostics, plugins } = transformerState;
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       const sourceFiles = [];
       for (const fileName of request.compileFileNames) {
         const sourceFile = this.getSourceFile(program, fileName);
-        if (!sourceFile) {
+        if (sourceFile) {
+          sourceFiles.push(sourceFile);
+        } else {
           diagnostics.push(createProtocolDiagnostic("error", "source-file-missing", `Source file not found in program: ${fileName}`));
-          continue;
         }
-        sourceFiles.push(sourceFile);
       }
-
       if (sourceFiles.length === 0) {
-        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length };
+        return {
+          diagnostics,
+          transformed: [],
+          metrics: { plugins: pluginMetrics(plugins) },
+          afterDeclarationsTransformers: transforms.afterDeclarations.length,
+        };
       }
 
-      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms);
+      let transformResult;
+      try {
+        transformResult = this.transformSourceFiles(program, sourceFiles, transforms);
+      } finally {
+        for (const modulePath of transformerState.modulePaths) {
+          this.trackModuleFiles(collectRequireClosure(modulePath));
+        }
+      }
       return {
         diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
+        resultHandle: transformResult.resultHandle,
         metrics: { plugins: pluginMetrics(plugins) },
-        // Rotor emits declarations natively (tsgo has no afterDeclarations
-        // hook), so the count is reported rather than run: rotor turns a
-        // non-zero value into a one-shot warning for the project.
         afterDeclarationsTransformers: transforms.afterDeclarations.length,
       };
     } catch (error) {
-      return {
-        diagnostics: [createInternalDiagnostic(error)],
-        transformed: [],
-      };
+      return { diagnostics: [createInternalDiagnostic(error)], transformed: [] };
+    } finally {
+      this.requestPaths = previousRequestPaths;
     }
   }
 }
 
-// The trace map is not an emit artifact — rotor needs it to put every position
-// this reprint produces (diagnostics included) back into the coordinates of the
-// file on disk. So it is generated whether or not the project emits source
-// maps; a project that turned sourceMap off would otherwise report every
-// diagnostic at an offset into text nobody can see.
-function printSourceFileWithTraceMap(ts, printer, sourceFile) {
+function printSourceFile(ts, printer, sourceFile) {
+  const writer = ts.createTextWriter("\n");
+  printer.writeFile(sourceFile, writer);
+  return writer.getText();
+}
+
+function printTraceMap(ts, printer, sourceFile) {
   const writer = ts.createTextWriter("\n");
   const generator = ts.createSourceMapGenerator(
-    {
-      getCurrentDirectory: () => "",
-      getCanonicalFileName: (fileName) => fileName,
-    },
+    { getCurrentDirectory: () => "", getCanonicalFileName: (fileName) => fileName },
     sourceFile.fileName,
     "",
     "",
     {},
   );
   printer.writeFile(sourceFile, writer, generator);
-  return { text: writer.getText(), traceMap: JSON.stringify(generator.toJSON()) };
+  return JSON.stringify(generator.toJSON());
+}
+
+function invalidResultHandle(resultHandle) {
+  return {
+    diagnostics: [createProtocolDiagnostic("error", "invalid-result-handle", `Unknown or expired result handle: ${resultHandle}`)],
+    transformed: [],
+  };
+}
+
+function stringArray(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function configSnapshot(value) {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.values(value).every((text) => typeof text === "string");
 }
 
 function validateRequest(request) {
   if (!request || typeof request !== "object") {
     return createRequestDiagnostic("request must be a JSON object");
   }
-  if (request.protocol !== 1) {
-    return createRequestDiagnostic("protocol must equal 1");
+  if (request.protocol !== 3) {
+    return createRequestDiagnostic("protocol must equal 3");
   }
   if (typeof request.projectDir !== "string" || request.projectDir.length === 0) {
     return createRequestDiagnostic("projectDir must be a non-empty string");
@@ -422,27 +799,137 @@ function validateRequest(request) {
   if (typeof request.tsConfigPath !== "string" || request.tsConfigPath.length === 0) {
     return createRequestDiagnostic("tsConfigPath must be a non-empty string");
   }
-  if (request.operation !== "transform" && request.operation !== "validate") {
-    return createRequestDiagnostic("operation must equal \"transform\" or \"validate\"");
+  if (!["warm", "transform", "maps", "release", "validate"].includes(request.operation)) {
+    return createRequestDiagnostic("operation must equal \"warm\", \"transform\", \"maps\", \"release\", or \"validate\"");
   }
-  if (request.operation === "validate") {
+  if (["transformSources", "emitDeclarations"].some((field) => request[field] !== undefined)) {
+    return createRequestDiagnostic("protocol 3 does not accept protocol 1 request fields");
+  }
+  if (request.operation === "warm") {
+    if (["fileNames", "rootFileNames", "compileFileNames", "fileContentIdentities", "changedFiles", "plugins", "configSnapshot"].some((field) => request[field] !== undefined)) {
+      return createRequestDiagnostic("warm requests cannot include roots, overlays, or plugins");
+    }
     return undefined;
   }
-  if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {
+  if (request.operation === "validate") {
+    if (!configSnapshot(request.configSnapshot)) {
+      return createRequestDiagnostic("validate requests must include a configSnapshot mapping paths to text");
+    }
+    return undefined;
+  }
+  if (request.operation === "maps") {
+    if (typeof request.resultHandle !== "string" || request.resultHandle.length === 0) {
+      return createRequestDiagnostic("maps requests must include a non-empty resultHandle");
+    }
+    if (request.fileNames !== undefined && !stringArray(request.fileNames)) {
+      return createRequestDiagnostic("maps fileNames must be an array of strings when present");
+    }
+    return undefined;
+  }
+  if (request.operation === "release") {
+    if (typeof request.resultHandle !== "string" || request.resultHandle.length === 0) {
+      return createRequestDiagnostic("release requests must include a non-empty resultHandle");
+    }
+    if (!["success", "error", "cancel"].includes(request.outcome)) {
+      return createRequestDiagnostic("release outcome must equal \"success\", \"error\", or \"cancel\"");
+    }
+    return undefined;
+  }
+  if (!stringArray(request.fileNames)) {
+    return createRequestDiagnostic("fileNames must be a complete array of project source file names");
+  }
+  if (!stringArray(request.compileFileNames)) {
     return createRequestDiagnostic("compileFileNames must be an array of strings");
   }
-  if (request.rootFileNames !== undefined && (!Array.isArray(request.rootFileNames) || !request.rootFileNames.every((fileName) => typeof fileName === "string"))) {
+  if (request.rootFileNames !== undefined && !stringArray(request.rootFileNames)) {
     return createRequestDiagnostic("rootFileNames must be an array of strings when present");
   }
   if (!Array.isArray(request.changedFiles)) {
     return createRequestDiagnostic("changedFiles must be an array");
   }
+  if (!configSnapshot(request.configSnapshot)) {
+    return createRequestDiagnostic("transform requests must include a configSnapshot mapping paths to text");
+  }
+  if (
+    request.fileContentIdentities === undefined
+    || request.fileContentIdentities === null
+    || Array.isArray(request.fileContentIdentities)
+    || typeof request.fileContentIdentities !== "object"
+    || Object.values(request.fileContentIdentities).some((digest) => typeof digest !== "string" || digest.length === 0)
+  ) {
+    return createRequestDiagnostic("fileContentIdentities must map file names to non-empty strings");
+  }
+  if (request.fileNames.some((fileName) => request.fileContentIdentities[fileName] === undefined)) {
+    return createRequestDiagnostic("fileContentIdentities must include every fileNames entry");
+  }
   for (const changedFile of request.changedFiles) {
-    if (!changedFile || typeof changedFile.fileName !== "string" || typeof changedFile.text !== "string") {
-      return createRequestDiagnostic("each changedFiles item must include string fileName and text");
+    const hasText = typeof changedFile?.text === "string";
+    const isDeleted = changedFile?.deleted === true;
+    if (!changedFile || typeof changedFile.fileName !== "string" || hasText === isDeleted) {
+      return createRequestDiagnostic("each changedFiles item must include string fileName and either string text or deleted: true");
     }
   }
   return undefined;
+}
+
+function captureRequestLogs(run) {
+  const stdoutWrite = process.stdout.write;
+  const stderrWrite = process.stderr.write;
+  const chunks = [];
+
+  // A plugin may terminate the process after printing its own diagnostic.
+  // The normal response carries captured logs, but an immediate exit has no
+  // response, so preserve those lines on the worker's stderr failure path.
+  const flushOnExit = () => {
+    try {
+      const output = Buffer.from(chunks.join(""));
+      if (output.length > 0 && typeof process.stderr.fd === "number") {
+        let offset = 0;
+        while (offset < output.length) {
+          let written;
+          try {
+            written = fs.writeSync(process.stderr.fd, output, offset, output.length - offset);
+          } catch (error) {
+            if (error?.code === "EAGAIN" || error?.code === "EWOULDBLOCK" || error?.code === "EINTR") {
+              continue;
+            }
+            throw error;
+          }
+          if (written <= 0) {
+            break;
+          }
+          offset += written;
+        }
+      }
+    } catch {
+      // Exit handlers cannot recover from a broken stderr descriptor.
+    }
+  };
+  process.once("exit", flushOnExit);
+  const capture = (chunk, encoding, callback) => {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === "string" ? encoding : undefined) : String(chunk));
+    if (typeof encoding === "function") {
+      encoding();
+    } else if (typeof callback === "function") {
+      callback();
+    }
+    return true;
+  };
+  process.stdout.write = capture;
+  process.stderr.write = capture;
+  try {
+    let response;
+    try {
+      response = run();
+    } catch (error) {
+      response = { diagnostics: [createInternalDiagnostic(error)], transformed: [] };
+    }
+    return { response, logs: chunks.join("").split(/\r?\n/).filter(Boolean) };
+  } finally {
+    process.removeListener("exit", flushOnExit);
+    process.stdout.write = stdoutWrite;
+    process.stderr.write = stderrWrite;
+  }
 }
 
 class SidecarServer {
@@ -455,12 +942,12 @@ class SidecarServer {
   handleRequest(request) {
     const started = process.hrtime.bigint();
     const cpuStarted = process.cpuUsage();
-    const response = this.handleRequestUnmetered(request);
+    const { response, logs } = captureRequestLogs(() => this.handleRequestUnmetered(request));
     const cpu = process.cpuUsage(cpuStarted);
-    const wallNs = process.hrtime.bigint() - started;
+    response.logs = logs;
     response.metrics = {
       ...response.metrics,
-      wallMs: Number(wallNs / 1000000n),
+      wallMs: Number((process.hrtime.bigint() - started) / 1000000n),
       cpuUserUs: cpu.user,
       cpuSystemUs: cpu.system,
       nodeVersion: process.version,
@@ -475,37 +962,58 @@ class SidecarServer {
     }
 
     const sessionKey = `${normalizePath(request.projectDir)}\u0000${normalizePath(request.tsConfigPath)}`;
+    const requiresFreshnessCheck = request.operation === "warm" || request.operation === "transform" || request.operation === "validate";
+    if (this.session && this.sessionKey === sessionKey && requiresFreshnessCheck && this.session.hasStaleModules()) {
+      this.session.clearModuleCache();
+      this.session.dispose();
+      this.session = undefined;
+      this.sessionKey = "";
+    }
+
+    if (request.operation === "maps" || request.operation === "release") {
+      if (!this.session || this.sessionKey !== sessionKey) {
+        return invalidResultHandle(request.resultHandle);
+      }
+      return this.session.handleRequest(request);
+    }
+
     if (!this.session || this.sessionKey !== sessionKey) {
+      this.session?.clearModuleCache();
+      this.session?.dispose();
       let ts;
       let tsModulePath;
       try {
         ts = this.loadTypeScript(request.projectDir);
-        if (typeof this.loadTypeScript.modulePathFor === "function") {
-          tsModulePath = this.loadTypeScript.modulePathFor(request.projectDir);
-        }
+        tsModulePath = typeof this.loadTypeScript.modulePathFor === "function"
+          ? this.loadTypeScript.modulePathFor(request.projectDir)
+          : undefined;
       } catch (error) {
         return {
-          diagnostics: [
-            createProtocolDiagnostic(
-              "error",
-              "typescript-not-found",
-              `Could not resolve the \`typescript\` package from ${request.projectDir}.\n` +
-                `Transformer plugins require typescript in the project's node_modules (roblox-ts projects pin ~5.5.3).\n` +
-                `More info: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-          ],
+          diagnostics: [createProtocolDiagnostic(
+            "error",
+            "typescript-not-found",
+            `Could not resolve the \`typescript\` package from ${request.projectDir}.\n` +
+              `Transformer plugins require typescript in the project's node_modules (roblox-ts projects pin ~5.5.3).\n` +
+              `More info: ${error instanceof Error ? error.message : String(error)}`,
+          )],
           transformed: [],
         };
       }
       this.session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath);
+      if (tsModulePath) {
+        this.session.trackModuleFiles(collectRequireClosure(tsModulePath));
+      }
       this.sessionKey = sessionKey;
     }
-
     return this.session.handleRequest(request);
+  }
+
+  close() {
+    this.session?.clearModuleCache();
+    this.session?.dispose();
+    this.session = undefined;
+    this.sessionKey = "";
   }
 }
 
-module.exports = {
-  SidecarProjectSession,
-  SidecarServer,
-};
+module.exports = { SidecarProjectSession, SidecarServer };

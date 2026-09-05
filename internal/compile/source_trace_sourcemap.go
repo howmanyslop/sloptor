@@ -10,6 +10,9 @@ import (
 )
 
 func rewriteSourceMapWithTrace(raw string, trace *sourceTraceMap) (string, error) {
+	if err := trace.resolve(); err != nil {
+		return "", err
+	}
 	var sourceMap rawSourceMap
 	if err := json.Unmarshal([]byte(raw), &sourceMap); err != nil {
 		return "", fmt.Errorf("parse Luau source map: %w", err)

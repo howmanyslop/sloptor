@@ -114,6 +114,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	for _, configPath := range postOrderProjectPaths(rootPath, projects) {
 		project := projects[configPath]
 		if !project.Coordinator {
+			project.Options.sidecarWorkspaceDir = filepath.Dir(rootPath)
 			graph.Projects = append(graph.Projects, project)
 		}
 	}

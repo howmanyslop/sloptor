@@ -169,6 +169,34 @@ func TestChangedFilesForRevertsAnOverlayThatWentAway(t *testing.T) {
 	}
 }
 
+func TestChangedFilesForForgetsADeletedDiskFile(t *testing.T) {
+	fileName, nativePath := writeOverlaySourceFile(t, "first\n")
+	session := newOverlayTestSession()
+	if _, err := session.changedFilesFor([]string{fileName}, nil); err != nil {
+		t.Fatalf("first round trip: %v", err)
+	}
+	if err := os.WriteFile(nativePath, []byte("second\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := session.changedFilesFor([]string{fileName}, nil)
+	if err != nil {
+		t.Fatalf("edited round trip: %v", err)
+	}
+	if len(changed) != 1 || changed[0].Text != "second\n" || changed[0].Deleted {
+		t.Fatalf("edited changedFiles = %#v", changed)
+	}
+	if err := os.Remove(nativePath); err != nil {
+		t.Fatal(err)
+	}
+	changed, err = session.changedFilesFor(nil, nil)
+	if err != nil {
+		t.Fatalf("deleted round trip: %v", err)
+	}
+	if len(changed) != 1 || changed[0].FileName != nativePath || !changed[0].Deleted || changed[0].Text != "" {
+		t.Fatalf("deleted changedFiles = %#v", changed)
+	}
+}
+
 // TestCompileProjectDiagnosticsCensusesAPluginProjectUnderOverlays is the
 // product case the refusal used to block: `sloptor diagnostics` over a real
 // build tsconfig, plugins and all, reporting on the caller's text.

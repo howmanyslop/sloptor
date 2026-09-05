@@ -36,9 +36,11 @@ func TestRunnerCapturesArtifacts(t *testing.T) {
 
 	forkFixture := writeCompilerFixture(t, nodeModules)
 	rotorFixture := writeCompilerFixture(t, nodeModules)
+	runtimeDir := testRotorDaemonRuntime(t, rotorBin)
 	runner := Runner{
-		ForkCLIPath:  filepath.Join(extractDir, "roblox-ts", "dist", "CLI", "cli.cjs"),
-		RotorBinPath: rotorBin,
+		ForkCLIPath:      filepath.Join(extractDir, "roblox-ts", "dist", "CLI", "cli.cjs"),
+		RotorBinPath:     rotorBin,
+		DaemonRuntimeDir: runtimeDir,
 	}
 
 	// When
@@ -73,6 +75,17 @@ func TestRunnerCapturesArtifacts(t *testing.T) {
 	if !hasOutputWithSuffix(rotorResult.OutputTree, ".luau") {
 		t.Fatalf("rotor output tree = %v, want a .luau artifact", outputPaths(rotorResult.OutputTree))
 	}
+}
+
+func testRotorDaemonRuntime(t *testing.T, rotorBin string) string {
+	t.Helper()
+	runtimeDir := t.TempDir()
+	t.Cleanup(func() {
+		if err := stopRotorDaemons(context.Background(), rotorBin, runtimeDir); err != nil {
+			t.Error(err)
+		}
+	})
+	return runtimeDir
 }
 
 func TestNormalizerBoundaries(t *testing.T) {

@@ -119,7 +119,7 @@ func envDeclPath(configPath string) string {
 // injectEnvDeclFS wraps fs so the synthetic declaration file exists at
 // declPath. Stat-level calls go through FileExists/ReadFile in tsgo's
 // compiler host, so those two interceptions suffice (same shape as the
-// sidecar overlay FS in newProjectProgramWithOverlay).
+// source overlay FS in newOverlayFS).
 func injectEnvDeclFS(inner vfs.FS, declPath string) vfs.FS {
 	matches := func(path string) bool {
 		if inner.UseCaseSensitiveFileNames() {

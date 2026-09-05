@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"rotor/tsgo/ast"
 )
 
 // repoSidecarDir returns tools/sidecar in this repo checkout. Synthetic
@@ -183,13 +185,14 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	}
 	prefix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"prefix"}`)}
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
+	state := newSidecarBuildState("")
 
 	// When: the prefix and suffix run as source-only stages.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, nil)
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, state)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, nil)
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, state)
 	// Then: each subset is applied in order.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)
@@ -474,7 +477,7 @@ func TestTransformerWarmSession(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte(tsconfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const tag = \"BUILD_COUNT\";\nexport const phase = \"first\";\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("\xef\xbb\xbfexport const tag = \"BUILD_COUNT\";\nexport const phase = \"first\";\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -487,7 +490,15 @@ func TestTransformerWarmSession(t *testing.T) {
 		t.Fatalf("first build output unexpected:\n%s", got)
 	}
 
-	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("export const tag = \"BUILD_COUNT\";\nexport const phase = \"second\";\n"), 0o644); err != nil {
+	sourcePath := filepath.Join(dir, "src", "main.ts")
+	beforeRewrite, err := os.Stat(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("\xef\xbb\xbfexport const tag = \"BUILD_COUNT\";\nexport const phase = \"second\";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(sourcePath, beforeRewrite.ModTime(), beforeRewrite.ModTime()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -501,6 +512,102 @@ func TestTransformerWarmSession(t *testing.T) {
 	}
 	if !strings.Contains(got, `local phase = "second"`) {
 		t.Fatalf("warm sidecar served a stale snapshot (changedFiles overlay broken):\n%s", got)
+	}
+}
+
+func TestLocalSidecarRetriesDroppedOverlayAfterSnapshotMismatch(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "main.ts")
+	if err := os.WriteFile(fileName, []byte("disk-one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session := &sidecarSession{
+		stamps:   make(map[string]sidecarFileStamp),
+		overlaid: make(map[string]string),
+	}
+	if _, _, err := session.collectChangedFilesWithContent(
+		[]string{fileName},
+		map[string]string{fileName: "overlay!\n"},
+		map[string]string{fileName: sidecarTextContentIdentity("overlay!\n")},
+		false,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	identities := map[string]string{fileName: sidecarTextContentIdentity("disk-two\n")}
+	if _, _, err := session.collectChangedFilesWithContent([]string{fileName}, nil, identities, false); err == nil {
+		t.Fatal("dropped overlay with mismatched disk text succeeded")
+	}
+	if err := os.WriteFile(fileName, []byte("disk-two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, _, err := session.collectChangedFilesWithContent([]string{fileName}, nil, identities, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 1 || changed[0].FileName != fileName || changed[0].Text != "disk-two\n" || changed[0].Deleted {
+		t.Fatalf("dropped overlay retry changes = %+v", changed)
+	}
+
+	missingPath := filepath.Join(t.TempDir(), "restored.ts")
+	missingSession := &sidecarSession{
+		stamps:   make(map[string]sidecarFileStamp),
+		overlaid: make(map[string]string),
+	}
+	missingIdentities := map[string]string{missingPath: sidecarTextContentIdentity("restored\n")}
+	if _, _, err := missingSession.collectChangedFilesWithContent([]string{missingPath}, nil, missingIdentities, false); err == nil {
+		t.Fatal("source missing from the compiler snapshot succeeded")
+	}
+	if err := os.WriteFile(missingPath, []byte("restored\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed, _, err = missingSession.collectChangedFilesWithContent([]string{missingPath}, nil, missingIdentities, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("restored fresh source changes = %+v, want worker disk read", changed)
+	}
+}
+
+func TestCompilerTypesIdentityRejectsDiskEditsAfterProgramSnapshot(t *testing.T) {
+	fileName := filepath.Join(t.TempDir(), "node_modules", "@rbxts", "compiler-types", "types", "Iterable.d.ts")
+	parserFileName := filepath.ToSlash(fileName)
+	if err := os.MkdirAll(filepath.Dir(fileName), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := "interface Iterable<T> {}\n"
+	after := "interface Iterable<T> { next(): void }\n"
+	if err := os.WriteFile(fileName, []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	programFile := parseSourceFile(parserFileName, RewriteIterableArity(before))
+	if err := os.WriteFile(fileName, []byte(after), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := sidecarSourceContentIdentities([]*ast.SourceFile{programFile}, nil); err == nil {
+		t.Fatal("compiler-types disk edit after the Program snapshot succeeded")
+	}
+
+	currentFile := parseSourceFile(parserFileName, RewriteIterableArity(after))
+	identities, reads, err := sidecarSourceContentIdentities([]*ast.SourceFile{currentFile}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 1 || identities[parserFileName] != sidecarTextContentIdentity(after) {
+		t.Fatalf("current compiler-types identity = %q, reads = %d", identities[parserFileName], reads)
+	}
+
+	overlay := "interface Iterable<T> { overlay(): void }\n"
+	if err := os.Remove(fileName); err != nil {
+		t.Fatal(err)
+	}
+	overlayFile := parseSourceFile(parserFileName, overlay)
+	identities, reads, err = sidecarSourceContentIdentities([]*ast.SourceFile{overlayFile}, map[string]string{fileName: overlay})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reads != 0 || identities[parserFileName] != sidecarTextContentIdentity(overlay) {
+		t.Fatalf("virtual compiler-types overlay identity = %q, reads = %d", identities[parserFileName], reads)
 	}
 }
 

@@ -152,7 +152,7 @@ func overlayKeysInProgram(program *compiler.Program, overlays map[string]string)
 // rekeyOverlaysToProgram turns caller spellings into the exact file names the
 // already-parsed program reads. This is a bounded setup step for an overlay
 // build, so the virtual filesystem can keep every subsequent probe lexical.
-func rekeyOverlaysToProgram(program *compiler.Program, overlays map[string]string) (map[string]string, []string) {
+func rekeyOverlaysToProgram(program *compiler.Program, overlays map[string]string) (map[string]string, []string, error) {
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	inProgram := make(map[string]string, len(program.SourceFiles()))
 	for _, sourceFile := range program.SourceFiles() {
@@ -160,9 +160,16 @@ func rekeyOverlaysToProgram(program *compiler.Program, overlays map[string]strin
 	}
 
 	resolved := make(map[string]string, len(overlays))
+	origins := make(map[string]string, len(overlays))
 	var canonicalProgram map[string]string
 	var unmatched []string
-	for path, text := range overlays {
+	paths := make([]string, 0, len(overlays))
+	for path := range overlays {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		text := overlays[path]
 		fileName, found := inProgram[normalizeOverlayPath(path, caseSensitive)]
 		if !found {
 			if physical, ok := canonicalExistingOverlayPath(path, caseSensitive); ok {
@@ -181,13 +188,22 @@ func rekeyOverlaysToProgram(program *compiler.Program, overlays map[string]strin
 			unmatched = append(unmatched, path)
 			continue
 		}
-		resolved[normalizeOverlayPath(fileName, caseSensitive)] = text
+		key := normalizeOverlayPath(fileName, caseSensitive)
+		if previous, exists := resolved[key]; exists && previous != text {
+			return nil, nil, fmt.Errorf("compile: conflicting overlays name the same file: %s and %s", origins[key], path)
+		}
+		resolved[key] = text
+		origins[key] = path
 	}
-	return resolved, unmatched
+	return resolved, unmatched, nil
 }
 
 func newOverlayFS(rawBase vfs.FS, configPath string, overlays map[string]string) vfs.FS {
-	baseFS := cachedvfs.From(SanitizeFSWithConfigPath(bundled.WrapFS(rawBase), configPath))
+	return newOverlayFSWithConfigRead(rawBase, configPath, overlays, nil)
+}
+
+func newOverlayFSWithConfigRead(rawBase vfs.FS, configPath string, overlays map[string]string, onConfigRead func(string, string)) vfs.FS {
+	baseFS := cachedvfs.From(SanitizeFSWithConfigRead(bundled.WrapFS(rawBase), configPath, onConfigRead))
 	caseSensitive := baseFS.UseCaseSensitiveFileNames()
 	aliases := overlayAliases(overlays, configPath, caseSensitive)
 	return wrapvfs.Wrap(baseFS, wrapvfs.Replacements{

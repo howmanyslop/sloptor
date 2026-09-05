@@ -156,6 +156,8 @@ func TestDeclarationPathRewrite(t *testing.T) {
 }
 
 func TestTransformerSourceMapOriginalContent(t *testing.T) {
+	// Catches batched transformer maps being assigned to the wrong emitted
+	// source. Each map must still point to its independently authored text.
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
 	dir := writeProject(t, "@scope/transformer-source-map-fixture", "")
@@ -165,30 +167,42 @@ func TestTransformerSourceMapOriginalContent(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "plugins", "insert.js"), []byte(insertStatementPlugin), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	original := "export const value = \"start\";\n"
-	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte(original), 0o644); err != nil {
-		t.Fatal(err)
+	originals := map[string]string{
+		"main":  "export const value = \"start\";\n",
+		"extra": "export const extra = \"second\";\n",
+	}
+	for name, original := range originals {
+		if err := os.WriteFile(filepath.Join(dir, "src", name+".ts"), []byte(original), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+	buildDir := dir
+	alias := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(dir, alias); err == nil {
+		buildDir = alias
+	}
+	if _, diags, err := BuildProjectWithOptions(buildDir, ProjectOptions{}); err != nil {
 		t.Fatalf("build: %v (diags: %v)", err, diags)
 	}
-	mapBytes, err := os.ReadFile(filepath.Join(dir, "out", "main.luau.map"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sourceMap struct {
-		SourcesContent []string `json:"sourcesContent"`
-		Mappings       string   `json:"mappings"`
-	}
-	if err := json.Unmarshal(mapBytes, &sourceMap); err != nil {
-		t.Fatal(err)
-	}
-	if len(sourceMap.SourcesContent) != 1 || sourceMap.SourcesContent[0] != original {
-		t.Fatalf("sourcesContent = %q, want original source %q", sourceMap.SourcesContent, original)
-	}
-	if sourceMap.Mappings == "" {
-		t.Fatal("transformed source map has no mappings")
+	for name, original := range originals {
+		mapBytes, err := os.ReadFile(filepath.Join(dir, "out", name+".luau.map"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sourceMap struct {
+			SourcesContent []string `json:"sourcesContent"`
+			Mappings       string   `json:"mappings"`
+		}
+		if err := json.Unmarshal(mapBytes, &sourceMap); err != nil {
+			t.Fatal(err)
+		}
+		if len(sourceMap.SourcesContent) != 1 || sourceMap.SourcesContent[0] != original {
+			t.Fatalf("%s sourcesContent = %q, want original source %q", name, sourceMap.SourcesContent, original)
+		}
+		if sourceMap.Mappings == "" {
+			t.Fatalf("%s transformed source map has no mappings", name)
+		}
 	}
 }
 

@@ -45,6 +45,11 @@ func TestSolutionGraph(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("project order = %v, want %v", got, want)
 	}
+	for _, project := range graph.Projects {
+		if project.Options.sidecarWorkspaceDir != root {
+			t.Fatalf("project %s sidecar workspace = %q, want %q", project.ConfigPath, project.Options.sidecarWorkspaceDir, root)
+		}
+	}
 }
 
 func TestSolutionCoordinator(t *testing.T) {

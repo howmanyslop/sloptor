@@ -38,7 +38,7 @@ func prepareCompilePipeline(dir string, program *compiler.Program, sourceFiles [
 	if err != nil {
 		return nil, diags, err
 	}
-	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline)
+	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline, opts.sidecarWorkspaceDir)
 }
 
 func prepareFlameworkPipeline(dir string, program *compiler.Program, opts ProjectOptions) (*flameworkPipeline, []string, error) {
@@ -53,7 +53,7 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 		return nil, []string{err.Error()}, fmt.Errorf("compile: native Flamework incremental state: %w", err)
 	}
 
-	plugins, err := effectiveTransformerPlugins(program.Options().ConfigFilePath)
+	plugins, err := effectiveTransformerPluginsFromSnapshot(program.Options().ConfigFilePath, program.CommandLine().ConfigParseSnapshot())
 	if err != nil {
 		return nil, []string{err.Error()}, errors.New("compile: resolve effective transformer plugins")
 	}
@@ -96,15 +96,19 @@ func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program)
 // are not among them: they are emitted natively from the original program
 // (emitDeclarationTexts), never from the overlaid program a transform
 // produces.
-func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline) (*compilePipelineResult, []string, error) {
+func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline, workspaceDir string) (*compilePipelineResult, []string, error) {
 	if len(overlays) > 0 {
 		// Project setup already rejects unmatched overlays for a single project
 		// and leaves them for the solution-wide check otherwise. Transformer and
 		// native stages only need this Program's exact source-file spellings.
-		overlays, _ = rekeyOverlaysToProgram(program, overlays)
+		var err error
+		overlays, _, err = rekeyOverlaysToProgram(program, overlays)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	if pipeline == nil {
-		prepared, diags, err := prepareTransformerProgram(dir, program, sourceFiles, overlays)
+		prepared, diags, err := prepareTransformerProgramForWorkspace(dir, program, sourceFiles, overlays, workspaceDir)
 		if err != nil {
 			return nil, diags, err
 		}
@@ -122,9 +126,10 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 			flameworkProject: pipeline.project,
 		}, nil, nil
 	}
-	state := newSidecarBuildState()
+	state := newSidecarBuildState(workspaceDir)
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
+	var leases []*sidecarTraceLease
 	if len(pipeline.prefix) > 0 {
 		prepared, stageDiags, err := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
 		if err != nil {
@@ -133,9 +138,11 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		program = prepared.program
 		currentFiles = prepared.sourceFiles
 		traces = prepared.sourceTraces
+		leases = append(leases, prepared.sidecarTraceLeases...)
 	}
 	prepared, infos, err := applyNativeFlameworkTransform(dir, program, currentFiles, overlays, traces, pipeline.project)
 	if err != nil {
+		releaseSidecarTraceLeases(leases, "error")
 		return nil, diagnosticInfoMessages(infos), err
 	}
 	program = prepared.program
@@ -145,10 +152,13 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 	if len(pipeline.suffix) > 0 {
 		next, stageDiags, stageErr := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.suffix, state)
 		if stageErr != nil {
+			releaseSidecarTraceLeases(leases, "error")
 			return nil, stageDiags, stageErr
 		}
+		leases = append(leases, next.sidecarTraceLeases...)
 		prepared = next
 	}
+	prepared.sidecarTraceLeases = leases
 	prepared.flamework = pipeline.config
 	state.applyTo(prepared)
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
@@ -163,6 +173,7 @@ func applyExternalTransformerStage(dir string, program *compiler.Program, source
 	if transformed.program != program {
 		remapped, err = remapProgramSourceFiles(transformed.program, sourceFiles)
 		if err != nil {
+			releaseSidecarTraceLeases(transformed.sidecarTraceLeases, "error")
 			return nil, nil, err
 		}
 	}

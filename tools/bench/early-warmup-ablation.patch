@@ -1,0 +1,13 @@
+diff --git a/internal/compile/sidecar_warm.go b/internal/compile/sidecar_warm.go
+--- a/internal/compile/sidecar_warm.go
++++ b/internal/compile/sidecar_warm.go
+@@ -26,8 +26,5 @@ type persistentSidecarWarmup struct {
+ }
+
+ func startPersistentSidecarWarmupIfCold(projectDir string, opts ProjectOptions) *persistentSidecarWarmup {
+-	if sidecarIncrementalManifestExists(projectDir, opts.TsConfigPath) {
+-		return nil
+-	}
+-	return startPersistentSidecarWarmup(projectDir, opts)
++	return nil
+ }
