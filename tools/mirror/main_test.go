@@ -118,6 +118,103 @@ func TestMirrorPreservesDestinationAndConflictWorkspace(t *testing.T) {
 	}
 }
 
+func TestMirrorPreservesFileOperationsAndStackedEdits(t *testing.T) {
+	// File additions and deletions are part of the patch contract. Git creates
+	// the patch from authored trees, independently of the mirror implementation.
+	// Both stacked edits and the independent upstream edit must survive.
+	root := t.TempDir()
+	t.Chdir(root)
+	for _, dir := range []string{patchDir, overlayDir, "source/internal", "patch-source/tsgo", outDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{"source/internal", "patch-source/tsgo"} {
+		for name, contents := range map[string]string{"keep.go": "package keep\n\nvar First = 1\nvar DividerA = 0\nvar Middle = 1\nvar DividerB = 0\nvar Last = 1\n", "removed.go": "package removed\n", "original-λ.go": "package renamed\n"} {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(contents), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := os.WriteFile("source/LICENSE", []byte("fixture license\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"source", "patch-source"} {
+		if err := run(dir, "git", "init", "-q"); err != nil {
+			t.Fatal(err)
+		}
+		if err := run(dir, "git", "add", "."); err != nil {
+			t.Fatal(err)
+		}
+		if err := run(dir, "git", "-c", "user.name=mirror-test", "-c", "user.email=mirror-test@example.invalid", "commit", "-qm", "original fixture"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Remove("patch-source/tsgo/removed.go"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename("patch-source/tsgo/original-λ.go", "patch-source/tsgo/renamed-λ.go"); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"patch-source/tsgo", outDir} {
+		if err := os.WriteFile(filepath.Join(dir, "added.go"), []byte("package added\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "keep.go"), []byte("package keep\n\nvar First = 2\nvar DividerA = 0\nvar Middle = 1\nvar DividerB = 0\nvar Last = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outDir, "renamed-λ.go"), []byte("package renamed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("patch-source/tsgo/keep.go", []byte("package keep\n\nvar First = 2\nvar DividerA = 0\nvar Middle = 1\nvar DividerB = 0\nvar Last = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("patch-source", "git", "add", "."); err != nil {
+		t.Fatal(err)
+	}
+	patch, err := output("patch-source", "git", "diff", "--cached", "--binary", "--find-renames")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(patchDir, "0001-files.patch"), []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("patch-source", "git", "-c", "user.name=mirror-test", "-c", "user.email=mirror-test@example.invalid", "commit", "-qm", "first patch"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("patch-source/tsgo/keep.go", []byte("package keep\n\nvar First = 2\nvar DividerA = 0\nvar Middle = 1\nvar DividerB = 0\nvar Last = 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	patch, err = output("patch-source", "git", "diff", "--binary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(patchDir, "0002-edit.patch"), []byte(patch), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("source/internal/keep.go", []byte("package keep\n\nvar First = 1\nvar DividerA = 0\nvar Middle = 3\nvar DividerB = 0\nvar Last = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run("source", "git", "-c", "user.name=mirror-test", "-c", "user.email=mirror-test@example.invalid", "commit", "-qam", "upstream context edit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := mirror(filepath.Join(root, "source"), "HEAD", outDir); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{"keep.go": "package keep\n\nvar First = 2\nvar DividerA = 0\nvar Middle = 3\nvar DividerB = 0\nvar Last = 2\n", "added.go": "package added\n", "renamed-λ.go": "package renamed\n"} {
+		got, err := os.ReadFile(filepath.Join(outDir, name))
+		if err != nil || string(got) != want {
+			t.Fatalf("mirror %s = %q, %v; want %q", name, got, err, want)
+		}
+	}
+	for _, name := range []string{"removed.go", "original-λ.go"} {
+		if _, err := os.Stat(filepath.Join(outDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("old file %s remains in mirror: %v", name, err)
+		}
+	}
+}
+
 func TestReplaceOutputRestoresOriginalWhenCandidateMoveFails(t *testing.T) {
 	// Catches a failed final move leaving the established mirror unavailable.
 	// The expected old content is authored here because the recovery contract is
