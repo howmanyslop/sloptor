@@ -604,7 +604,7 @@ try {
 			"Lua and declaration bytes match exactly. Source maps compare every JSON field after replacing only absolute file, sourceRoot, and sources paths contained within each isolated fixture root with <project> paths. Mappings, names, source content, relative paths, and external absolute paths remain unchanged.",
 		method: "clientUserSeconds, clientSystemSeconds, and clientPeakRssBytes are macOS time measurements. nodeRequestCpu* values are per-request sidecar timing counters. daemonProcesses liveRssBytes and instantCpuPercent are post-run ps samples, not request CPU.",
 		baselineDaemonMode:
-			"By default, owned daemon cleanup and reuse checks apply only to the candidate. --baseline-daemon true enables the same controls for the baseline when comparing two protocol-2 binaries.",
+			"By default, owned daemon cleanup and reuse checks apply only to the candidate. --baseline-daemon true enables the same controls for the baseline when comparing two persistent-worker binaries.",
 		workerResidency:
 			"One project deliberately measures reuse and does not test the daemon-wide retained-two-idle-worker eviction policy.",
 		noChangeLimit:
