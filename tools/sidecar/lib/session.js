@@ -1,3 +1,4 @@
+const fs = require("node:fs");
 const path = require("node:path");
 const {
   createInternalDiagnostic,
@@ -10,6 +11,7 @@ const {
   flattenIntoTransformers,
   pluginMetrics,
   getPluginConfigs,
+  validatePluginConfigs,
   wrapTransformersWithParentFix,
 } = require("./plugins");
 
@@ -51,17 +53,24 @@ function createServiceHost(session, ts) {
 }
 
 function normalizePath(fileName) {
-  return path.normalize(path.resolve(fileName));
+  const resolved = path.normalize(path.resolve(fileName));
+  try {
+    return fs.realpathSync.native?.(resolved) ?? fs.realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
 }
 
 class SidecarProjectSession {
-  constructor(ts, projectDir, tsConfigPath) {
+  constructor(ts, projectDir, tsConfigPath, tsModulePath) {
     this.ts = ts;
     this.projectDir = normalizePath(projectDir);
     this.tsConfigPath = normalizePath(tsConfigPath);
+    this.tsModulePath = tsModulePath;
     this.documentRegistry = ts.createDocumentRegistry(ts.sys.useCaseSensitiveFileNames);
     this.overrides = new Map();
     this.actualPaths = new Map();
+    this.pathAliases = new Map();
     this.versions = new Map();
     this.projectVersion = 0;
     this.configSignature = "";
@@ -80,12 +89,15 @@ class SidecarProjectSession {
   }
 
   canonicalize(fileName) {
-    const resolved = normalizePath(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName));
+    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
+    const resolved = this.pathAliases.get(inputPath) ?? normalizePath(inputPath);
     return this.ts.sys.useCaseSensitiveFileNames ? resolved : resolved.toLowerCase();
   }
 
   rememberFile(fileName) {
-    const actualPath = normalizePath(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName));
+    const inputPath = path.normalize(path.resolve(path.isAbsolute(fileName) ? fileName : path.join(this.projectDir, fileName)));
+    const actualPath = normalizePath(inputPath);
+    this.pathAliases.set(inputPath, actualPath);
     const canonical = this.canonicalize(actualPath);
     if (!this.actualPaths.has(canonical)) {
       this.actualPaths.set(canonical, actualPath);
@@ -194,7 +206,7 @@ class SidecarProjectSession {
     return this.versions.get(canonical) ?? 0;
   }
 
-  refreshParsedConfig() {
+  refreshParsedConfig(createService = true) {
     const parsed = this.ts.getParsedCommandLineOfConfigFile(
       this.tsConfigPath,
       {},
@@ -219,8 +231,12 @@ class SidecarProjectSession {
     if (!this.parsed || this.configSignature !== configSignature) {
       this.parsed = parsed;
       this.configSignature = configSignature;
-      this.service = this.ts.createLanguageService(createServiceHost(this, this.ts), this.documentRegistry);
+      this.service = undefined;
       this.projectVersion += 1;
+    }
+
+    if (createService && !this.service) {
+      this.service = this.ts.createLanguageService(createServiceHost(this, this.ts), this.documentRegistry);
     }
 
     return {
@@ -242,7 +258,9 @@ class SidecarProjectSession {
 
   transformSourceFiles(program, sourceFiles, transforms) {
     const transformerList = wrapTransformersWithParentFix(this.ts, flattenIntoTransformers(transforms));
-    const printer = this.ts.createPrinter({ removeComments: program.getCompilerOptions().removeComments });
+    // rbxtsc uses a bare intermediate printer. Compiler emit settings belong
+    // to final emit, not to the text handed from one transformer to the next.
+    const printer = this.ts.createPrinter();
 
     if (transformerList.length === 0) {
       return {
@@ -287,6 +305,20 @@ class SidecarProjectSession {
 
   handleRequest(request) {
     try {
+      if (request.operation === "validate") {
+        const parsedState = this.refreshParsedConfig(false);
+        if (!this.parsed) {
+          return { diagnostics: parsedState.diagnostics, transformed: [] };
+        }
+        const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
+        const validation = validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath);
+        return {
+          diagnostics: [...parsedState.diagnostics, ...validation.diagnostics],
+          transformed: [],
+          afterDeclarationsTransformers: validation.afterDeclarationsTransformers,
+        };
+      }
+
       for (const changedFile of request.changedFiles) {
         this.updateFile(changedFile.fileName, changedFile.text);
       }
@@ -306,7 +338,7 @@ class SidecarProjectSession {
       }
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir);
+      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath);
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       const sourceFiles = [];
@@ -323,9 +355,7 @@ class SidecarProjectSession {
         return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length };
       }
 
-      const transformResult = request.transformSources
-        ? this.transformSourceFiles(program, sourceFiles, transforms)
-        : { diagnostics: [], transformed: [] };
+      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms);
       return {
         diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
@@ -378,6 +408,12 @@ function validateRequest(request) {
   if (typeof request.tsConfigPath !== "string" || request.tsConfigPath.length === 0) {
     return createRequestDiagnostic("tsConfigPath must be a non-empty string");
   }
+  if (request.operation !== "transform" && request.operation !== "validate") {
+    return createRequestDiagnostic("operation must equal \"transform\" or \"validate\"");
+  }
+  if (request.operation === "validate") {
+    return undefined;
+  }
   if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {
     return createRequestDiagnostic("compileFileNames must be an array of strings");
   }
@@ -391,9 +427,6 @@ function validateRequest(request) {
     if (!changedFile || typeof changedFile.fileName !== "string" || typeof changedFile.text !== "string") {
       return createRequestDiagnostic("each changedFiles item must include string fileName and text");
     }
-  }
-  if (typeof request.transformSources !== "boolean") {
-    return createRequestDiagnostic("transformSources must be a boolean");
   }
   return undefined;
 }
@@ -430,8 +463,12 @@ class SidecarServer {
     const sessionKey = `${normalizePath(request.projectDir)}\u0000${normalizePath(request.tsConfigPath)}`;
     if (!this.session || this.sessionKey !== sessionKey) {
       let ts;
+      let tsModulePath;
       try {
         ts = this.loadTypeScript(request.projectDir);
+        if (typeof this.loadTypeScript.modulePathFor === "function") {
+          tsModulePath = this.loadTypeScript.modulePathFor(request.projectDir);
+        }
       } catch (error) {
         return {
           diagnostics: [
@@ -446,7 +483,7 @@ class SidecarServer {
           transformed: [],
         };
       }
-      this.session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath);
+      this.session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath);
       this.sessionKey = sessionKey;
     }
 

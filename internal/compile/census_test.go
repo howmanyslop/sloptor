@@ -82,6 +82,30 @@ func TestCompileProjectOverlaysLeaveDiskUntouched(t *testing.T) {
 	}
 }
 
+// Catches an editor overlay spelled through a symlinked project parent being
+// ignored because the compiler records the source through its physical path.
+// The emitted identifier is the required observable result of replacing an
+// existing source file; an absent target remains an unmatched-overlay error.
+func TestCompileProjectOverlaysFollowSymlinkedParent(t *testing.T) {
+	dir := writeCensusProject(t, map[string]string{"main.ts": "export const fromDisk = 1;\n"})
+	alias := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(filepath.Dir(dir), alias); err != nil {
+		t.Skipf("cannot create parent symlink: %v", err)
+	}
+	overlayPath := filepath.Join(alias, filepath.Base(dir), "src", "main.ts")
+
+	outputs, diags, err := CompileProjectWithOptions(dir, ProjectOptions{
+		Overlays: map[string]string{overlayPath: "export const fromOverlay = 2;\n"},
+	})
+	if err != nil {
+		t.Fatalf("CompileProjectWithOptions: %v (diags: %v)", err, diags)
+	}
+	text := outputs["out/main.luau"]
+	if !strings.Contains(text, "fromOverlay") || strings.Contains(text, "fromDisk") {
+		t.Fatalf("symlinked-parent overlay did not replace the emitted source:\n%s", text)
+	}
+}
+
 // transformStateForFile builds the transform-stage State for one project file
 // without going through the pre-emit gates, so a deliberately type-broken file
 // can be pushed into the transformer the way census mode pushes it.

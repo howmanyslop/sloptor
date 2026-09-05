@@ -19,7 +19,11 @@ const checkerReferenceSourcePath = path.join(checkerReferenceProjectDir, "src", 
 // TypeScript reports file names with forward slashes on every platform, so
 // comparisons against host paths must be slash-normalized to hold on Windows.
 function toSlash(value) {
-  return value.replace(/\\/g, "/");
+  try {
+    return fs.realpathSync.native?.(value).replace(/\\/g, "/") ?? fs.realpathSync(value).replace(/\\/g, "/");
+  } catch {
+    return value.replace(/\\/g, "/");
+  }
 }
 
 function resolveOptions(configPath) {
@@ -139,11 +143,11 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
     protocol: 1,
+    operation: "transform",
     projectDir,
     tsConfigPath: configPath,
     compileFileNames: [sourcePath],
     changedFiles: [],
-    transformSources: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -157,11 +161,11 @@ test("responses report the afterDeclarations transformer count", () => {
   const session = new sidecar.SidecarProjectSession(ts, projectDir, tsConfigPath);
   const response = session.handleRequest({
     protocol: 1,
+    operation: "transform",
     projectDir,
     tsConfigPath,
     compileFileNames: [sourcePath],
     changedFiles: [],
-    transformSources: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -173,11 +177,11 @@ test("a project with no plugins reports no afterDeclarations transformers", () =
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
     protocol: 1,
+    operation: "transform",
     projectDir,
     tsConfigPath: configPath,
     compileFileNames: [sourcePath],
     changedFiles: [],
-    transformSources: true,
   });
 
   assert.equal(response.afterDeclarationsTransformers, 0);
@@ -268,7 +272,7 @@ test("transformSourceFiles omits source files whose transformers preserve identi
   assert.deepEqual(result.transformed, []);
 });
 
-test("sidecar protocol requires explicit output modes", () => {
+test("sidecar protocol requires an explicit operation", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
     protocol: 1,
@@ -281,18 +285,148 @@ test("sidecar protocol requires explicit output modes", () => {
   assert.deepEqual(response.transformed, []);
   assert.equal(response.diagnostics.length, 1);
   assert.equal(response.diagnostics[0].code, "invalid-request");
-  assert.equal(response.diagnostics[0].message, "transformSources must be a boolean");
+  assert.equal(response.diagnostics[0].message, 'operation must equal "transform" or "validate"');
+});
+
+// Catches comment-driven compiler directives disappearing before later
+// transformers can observe the reprinted source. The expected comment comes
+// from the upstream intermediate-printer contract described by issue #39.
+test("intermediate transforms preserve comments when final emit removes them", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-comments-"));
+  const sourceDir = path.join(fixtureDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const fileName = path.join(sourceDir, "main.ts");
+  fs.writeFileSync(fileName, "// transformer-directive\nexport const phase = \"start\";\n");
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral("changed")
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (sourceFile) => helpers.ts.visitNode(sourceFile, visit);
+};\n`);
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: {
+      module: "CommonJS", moduleResolution: "Node", noLib: true,
+      removeComments: true, target: "ESNext", rootDir: "src", outDir: "out",
+      plugins: [{ transform: "./plugin.js" }],
+    },
+    include: ["src"],
+  }));
+
+  const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
+    protocol: 1,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    compileFileNames: [fileName],
+    changedFiles: [],
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.match(response.transformed[0].text, /\/\/ transformer-directive/);
+  assert.match(response.transformed[0].text, /changed/);
+});
+
+// Catches declaration validation executing plugin code even though declaration
+// output never consumes transformed source. The absent marker is the plugin's
+// own observable side effect, and the valid factory export is the config oracle.
+test("validate loads plugin exports without invoking program or raw factories", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-validate-"));
+  fs.writeFileSync(path.join(fixtureDir, "main.ts"), "export {};\n");
+  const markerPath = path.join(fixtureDir, "factory-ran");
+  const pluginPath = path.join(fixtureDir, "plugin.js");
+  fs.writeFileSync(pluginPath, `const fs = require("node:fs");
+module.exports = () => { fs.writeFileSync(${JSON.stringify(markerPath)}, "called"); throw new Error("must not run"); };\n`);
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { plugins: [{ transform: "./plugin.js" }, { transform: "./plugin.js", type: "raw" }] }, include: ["main.ts"] }));
+
+  const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
+    protocol: 1,
+    operation: "validate",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.deepEqual(response.transformed, []);
+  assert.equal(fs.existsSync(markerPath), false);
+});
+
+// Catches a plugin constructing compiler nodes with a separate TypeScript copy.
+// The diagnostic code is the protocol contract; the two physical module paths
+// are created independently so the test does not derive its expectation from implementation details.
+test("validation rejects a plugin with a different TypeScript module instance", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-ts-instance-"));
+  fs.writeFileSync(path.join(fixtureDir, "main.ts"), "export {};\n");
+  const pluginDir = path.join(fixtureDir, "plugins");
+  const pluginPath = path.join(pluginDir, "plugin.js");
+  const pluginTypeScriptDir = path.join(pluginDir, "node_modules", "typescript");
+  fs.mkdirSync(pluginTypeScriptDir, { recursive: true });
+  fs.writeFileSync(pluginPath, "module.exports = () => () => (file) => file;\n");
+  fs.writeFileSync(path.join(pluginTypeScriptDir, "package.json"), JSON.stringify({ name: "typescript", main: "index.js" }));
+  fs.writeFileSync(path.join(pluginTypeScriptDir, "index.js"), "module.exports = {};\n");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { plugins: [{ transform: "./plugins/plugin.js" }] }, include: ["main.ts"] }));
+  const sessionTypeScriptPath = fs.realpathSync(require.resolve("typescript"));
+
+  const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath, sessionTypeScriptPath).handleRequest({
+    protocol: 1,
+    operation: "validate",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+  });
+
+  assert.equal(response.diagnostics.length, 1);
+  assert.equal(response.diagnostics[0].code, "typescript-instance-mismatch");
+});
+
+// Catches plugin factory work being reported as worker overhead. The metric is
+// an observable timing contract, and the delay is supplied by a real plugin.
+test("plugin metrics include program and raw factory time", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-factory-timing-"));
+  const sourceDir = path.join(fixtureDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const fileName = path.join(sourceDir, "main.ts");
+  fs.writeFileSync(fileName, "export const phase = 1;\n");
+  fs.writeFileSync(path.join(fixtureDir, "slow-program.js"), `module.exports = () => {
+  const until = Date.now() + 30; while (Date.now() < until) {}
+  return () => (file) => file;
+};\n`);
+  fs.writeFileSync(path.join(fixtureDir, "slow-raw.js"), `module.exports = () => {
+  const until = Date.now() + 30; while (Date.now() < until) {}
+  return (file) => file;
+};\n`);
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: {
+      module: "CommonJS", moduleResolution: "Node", noLib: true,
+      target: "ESNext", rootDir: "src", outDir: "out",
+      plugins: [{ transform: "./slow-program.js" }, { transform: "./slow-raw.js", type: "raw" }],
+    }, include: ["src"],
+  }));
+
+  const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
+    protocol: 1,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    compileFileNames: [fileName],
+    changedFiles: [],
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.deepEqual(response.metrics.plugins.map((plugin) => plugin.ms >= 20), [true, true]);
 });
 
 test("sidecar protocol responses include optional request metrics", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
     protocol: 1,
+    operation: "transform",
     projectDir,
     tsConfigPath,
     compileFileNames: [sourcePath],
     changedFiles: [],
-    transformSources: true,
   });
 
   assert.equal(typeof response.metrics.wallMs, "number");
@@ -306,6 +440,7 @@ test("sidecar protocol metrics split wall time per transformer plugin", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
     protocol: 1,
+    operation: "transform",
     projectDir,
     tsConfigPath,
     compileFileNames: [sourcePath],
@@ -314,7 +449,6 @@ test("sidecar protocol metrics split wall time per transformer plugin", () => {
       { transform: "./plugins/prefix-string.js", prefix: "first" },
       { transform: "./plugins/prefix-string.js", prefix: "second" },
     ],
-    transformSources: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -377,11 +511,11 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
     const firstResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify({
       protocol: 1,
+    operation: "transform",
       projectDir,
       tsConfigPath,
       compileFileNames: [sourcePath],
       changedFiles: [],
-      transformSources: true,
     })}\n`);
 
     const firstResponse = await firstResponsePromise;
@@ -392,6 +526,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
     const secondResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify({
       protocol: 1,
+    operation: "transform",
       projectDir,
       tsConfigPath,
       compileFileNames: [sourcePath],
@@ -401,7 +536,6 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
           text: 'export const phase = "memory";\n',
         },
       ],
-      transformSources: true,
     })}\n`);
 
     const secondResponse = await secondResponsePromise;
@@ -484,11 +618,11 @@ module.exports.shouldTransformSourceFile = true;
   const result = spawnSync(process.execPath, [mainPath], {
     input: `${JSON.stringify({
       protocol: 1,
+    operation: "transform",
       projectDir: hookProjectDir,
       tsConfigPath: path.join(hookProjectDir, "tsconfig.json"),
       compileFileNames: [selectedPath, skippedPath],
       changedFiles: [],
-      transformSources: true,
     })}\n`,
     encoding: "utf8",
     cwd: hookProjectDir,
@@ -535,11 +669,11 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
 
   const request = JSON.stringify({
     protocol: 1,
+    operation: "transform",
     tsConfigPath: path.join(noisyProjectDir, "tsconfig.json"),
     projectDir: noisyProjectDir,
     compileFileNames: [noisyMainFile],
     changedFiles: [],
-    transformSources: true,
   });
 
   const result = spawnSync(process.execPath, [mainPath], {
@@ -619,12 +753,12 @@ function programFileNames(session) {
 function narrowRootsRequest(project, rootFileNames) {
   return {
     protocol: 1,
+    operation: "transform",
     projectDir: project.projectRoot,
     tsConfigPath: project.configPath,
     compileFileNames: rootFileNames,
     rootFileNames,
     changedFiles: [],
-    transformSources: true,
   };
 }
 
