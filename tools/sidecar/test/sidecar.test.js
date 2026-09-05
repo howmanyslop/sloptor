@@ -321,6 +321,7 @@ test("sidecar protocol requires an explicit operation", () => {
 });
 
 test("sidecar protocol requires content identities and accepts an empty project", (t) => {
+  const originalCwd = process.cwd();
   const server = new sidecar.SidecarServer(ts);
   const missing = server.handleRequest({
     protocol: 2,
@@ -332,7 +333,10 @@ test("sidecar protocol requires content identities and accepts an empty project"
     changedFiles: [],
   });
   const emptyProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-empty-"));
-  t.after(() => fs.rmSync(emptyProjectDir, { recursive: true, force: true }));
+  t.after(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(emptyProjectDir, { recursive: true, force: true });
+  });
   const emptyConfigPath = path.join(emptyProjectDir, "tsconfig.json");
   fs.writeFileSync(emptyConfigPath, JSON.stringify({ compilerOptions: { noLib: true }, files: [] }));
   const empty = server.handleRequest({

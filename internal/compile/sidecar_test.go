@@ -571,6 +571,7 @@ func TestLocalSidecarRetriesDroppedOverlayAfterSnapshotMismatch(t *testing.T) {
 
 func TestCompilerTypesIdentityRejectsDiskEditsAfterProgramSnapshot(t *testing.T) {
 	fileName := filepath.Join(t.TempDir(), "node_modules", "@rbxts", "compiler-types", "types", "Iterable.d.ts")
+	parserFileName := filepath.ToSlash(fileName)
 	if err := os.MkdirAll(filepath.Dir(fileName), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -579,7 +580,7 @@ func TestCompilerTypesIdentityRejectsDiskEditsAfterProgramSnapshot(t *testing.T)
 	if err := os.WriteFile(fileName, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	programFile := parseSourceFile(fileName, RewriteIterableArity(before))
+	programFile := parseSourceFile(parserFileName, RewriteIterableArity(before))
 	if err := os.WriteFile(fileName, []byte(after), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -587,26 +588,26 @@ func TestCompilerTypesIdentityRejectsDiskEditsAfterProgramSnapshot(t *testing.T)
 		t.Fatal("compiler-types disk edit after the Program snapshot succeeded")
 	}
 
-	currentFile := parseSourceFile(fileName, RewriteIterableArity(after))
+	currentFile := parseSourceFile(parserFileName, RewriteIterableArity(after))
 	identities, reads, err := sidecarSourceContentIdentities([]*ast.SourceFile{currentFile}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reads != 1 || identities[fileName] != sidecarTextContentIdentity(after) {
-		t.Fatalf("current compiler-types identity = %q, reads = %d", identities[fileName], reads)
+	if reads != 1 || identities[parserFileName] != sidecarTextContentIdentity(after) {
+		t.Fatalf("current compiler-types identity = %q, reads = %d", identities[parserFileName], reads)
 	}
 
 	overlay := "interface Iterable<T> { overlay(): void }\n"
 	if err := os.Remove(fileName); err != nil {
 		t.Fatal(err)
 	}
-	overlayFile := parseSourceFile(fileName, overlay)
+	overlayFile := parseSourceFile(parserFileName, overlay)
 	identities, reads, err = sidecarSourceContentIdentities([]*ast.SourceFile{overlayFile}, map[string]string{fileName: overlay})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reads != 0 || identities[fileName] != sidecarTextContentIdentity(overlay) {
-		t.Fatalf("virtual compiler-types overlay identity = %q, reads = %d", identities[fileName], reads)
+	if reads != 0 || identities[parserFileName] != sidecarTextContentIdentity(overlay) {
+		t.Fatalf("virtual compiler-types overlay identity = %q, reads = %d", identities[parserFileName], reads)
 	}
 }
 
