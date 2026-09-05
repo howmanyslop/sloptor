@@ -2,6 +2,7 @@ package rojo
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -10,21 +11,13 @@ import (
 	"sync"
 )
 
-const resolverCacheFormatVersion = 3
+const resolverCacheFormatVersion = 4
 
 type resolverCacheManifestEntry struct {
-	Path             string                        `json:"path"`
-	MtimeUnixNano    int64                         `json:"mtimeUnixNano"`
-	IsDirectory      bool                          `json:"isDirectory"`
-	DirectoryEntries []resolverCacheDirectoryEntry `json:"directoryEntries,omitempty"`
-}
-
-// resolverCacheDirectoryEntry records the direct membership a Rojo walk saw.
-// Directory mtimes can be preserved or have coarse resolution, so they cannot
-// establish whether a nested project file appeared between solution projects.
-type resolverCacheDirectoryEntry struct {
-	Name string `json:"name"`
-	Type uint32 `json:"type"`
+	Path            string `json:"path"`
+	MtimeUnixNano   int64  `json:"mtimeUnixNano"`
+	IsDirectory     bool   `json:"isDirectory"`
+	DirectoryDigest string `json:"directoryDigest,omitempty"`
 }
 
 type resolverCacheFile struct {
@@ -239,11 +232,11 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 			IsDirectory:   isDirectory,
 		}
 		if isDirectory {
-			entries, ok := resolverCacheDirectoryEntries(path)
+			digest, ok := resolverCacheDirectoryDigest(path)
 			if !ok {
 				return nil, false
 			}
-			entry.DirectoryEntries = entries
+			entry.DirectoryDigest = digest
 		}
 		manifest = append(manifest, entry)
 	}
@@ -260,8 +253,8 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 			return false
 		}
 		if entry.IsDirectory {
-			entries, ok := resolverCacheDirectoryEntries(entry.Path)
-			if !ok || !slices.Equal(entries, entry.DirectoryEntries) {
+			digest, ok := resolverCacheDirectoryDigest(entry.Path)
+			if !ok || digest != entry.DirectoryDigest {
 				return false
 			}
 		}
@@ -269,31 +262,30 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 	return true
 }
 
-func resolverCacheDirectoryEntries(path string) ([]resolverCacheDirectoryEntry, bool) {
+// resolverCacheDirectoryDigest records the direct membership a Rojo walk saw.
+// os.ReadDir sorts names lexically. Fixed-width lengths and types make the
+// encoded name/type stream unambiguous when a directory mtime is unchanged.
+func resolverCacheDirectoryDigest(path string) (string, bool) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		return nil, false
+		return "", false
 	}
-	result := make([]resolverCacheDirectoryEntry, len(entries))
-	for index, entry := range entries {
-		result[index] = resolverCacheDirectoryEntry{
-			Name: entry.Name(),
-			Type: uint32(entry.Type()),
-		}
+	digest := sha256.New()
+	var field [4]byte
+	for _, entry := range entries {
+		name := entry.Name()
+		binary.LittleEndian.PutUint32(field[:], uint32(len(name)))
+		_, _ = digest.Write(field[:])
+		_, _ = digest.Write([]byte(name))
+		binary.LittleEndian.PutUint32(field[:], uint32(entry.Type()))
+		_, _ = digest.Write(field[:])
 	}
-	return result, true
+	return hex.EncodeToString(digest.Sum(nil)), true
 }
 
 func stateMatchesManifest(state ResolverState, manifest []resolverCacheManifestEntry) bool {
 	expected, ok := resolverMtimeManifest(state)
-	return ok && slices.EqualFunc(expected, manifest, resolverCacheManifestEntryEqual)
-}
-
-func resolverCacheManifestEntryEqual(left, right resolverCacheManifestEntry) bool {
-	return left.Path == right.Path &&
-		left.MtimeUnixNano == right.MtimeUnixNano &&
-		left.IsDirectory == right.IsDirectory &&
-		slices.Equal(left.DirectoryEntries, right.DirectoryEntries)
+	return ok && slices.Equal(expected, manifest)
 }
 
 func writeResolverCacheFileAtomic(path string, data []byte) error {
