@@ -3,6 +3,7 @@ package compile
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -134,9 +135,8 @@ func TestDeclarationEmitRewritesOverlaidImports(t *testing.T) {
 	}
 }
 
-// --emitDeclarationOnly still runs the transformer round trip even though it
-// throws the transformed sources away, so that a plugin which fails to load
-// still fails the build rather than silently publishing types.
+// An unloadable transformer must still block publishing declarations: the
+// declaration path validates module resolution before it writes any output.
 func TestEmitDeclarationOnlyStillReportsAFailingPlugin(t *testing.T) {
 	setRepoSidecarPath(t)
 	closeSidecarSessions()
@@ -151,5 +151,65 @@ func TestEmitDeclarationOnlyStillReportsAFailingPlugin(t *testing.T) {
 	joined := strings.Join(diags, "\n")
 	if !strings.Contains(joined, "does-not-exist.js") {
 		t.Fatalf("diagnostics do not name the failing plugin: %v", diags)
+	}
+}
+
+// Catches declaration-only builds executing transformer factories even though
+// no transformed source participates in declaration emit. The missing marker
+// is the plugin's observable side effect; the generated declaration is the
+// TypeScript emit contract.
+func TestEmitDeclarationOnlyValidatesPluginsWithoutInvokingFactories(t *testing.T) {
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/declaration-plugin-validation", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[
+		{ "transform": "./plugins/program.js" },
+		{ "transform": "./plugins/raw.js", "type": "raw" }
+	]`))
+	marker := filepath.Join(dir, "factory-ran")
+	plugin := `const fs = require("node:fs");
+module.exports = () => {
+	fs.writeFileSync(` + strconv.Quote(marker) + `, "called");
+	throw new Error("declaration validation must not invoke factories");
+};
+`
+	for _, name := range []string{"program.js", "raw.js"} {
+		if err := os.WriteFile(filepath.Join(dir, "plugins", name), []byte(plugin), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, diags, err := BuildProjectWithOptions(dir, ProjectOptions{EmitDeclarationOnly: true})
+	if err != nil {
+		t.Fatalf("declaration-only build: %v (diags: %v)", err, diags)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("plugin factory marker exists after declaration validation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "main.d.ts")); err != nil {
+		t.Fatalf("declaration-only build did not emit main.d.ts: %v", err)
+	}
+}
+
+// Catches a declaration-only build accepting a configured module that does
+// not export the requested transformer factory. The diagnostic comes from the
+// transform-plugin configuration contract, not from factory execution.
+func TestEmitDeclarationOnlyRejectsMissingPluginExport(t *testing.T) {
+	setRepoSidecarPath(t)
+	closeSidecarSessions()
+	dir := writeProject(t, "@scope/declaration-plugin-export", "")
+	t.Cleanup(closeSidecarSessions)
+	writeSidecarPluginFixture(t, dir, "", sidecarDeclarationConfig(`[{ "transform": "./plugins/invalid.js" }]`))
+	if err := os.WriteFile(filepath.Join(dir, "plugins", "invalid.js"), []byte("module.exports = {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diags, err := BuildProjectWithOptions(dir, ProjectOptions{EmitDeclarationOnly: true})
+	if err == nil {
+		t.Fatal("declaration-only build accepted a plugin without a factory export")
+	}
+	if !strings.Contains(strings.Join(diags, "\n"), "factory not a function") {
+		t.Fatalf("diagnostics do not explain the missing factory export: %v", diags)
 	}
 }

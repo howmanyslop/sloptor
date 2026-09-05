@@ -97,6 +97,12 @@ func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program)
 // (emitDeclarationTexts), never from the overlaid program a transform
 // produces.
 func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline) (*compilePipelineResult, []string, error) {
+	if len(overlays) > 0 {
+		// Project setup already rejects unmatched overlays for a single project
+		// and leaves them for the solution-wide check otherwise. Transformer and
+		// native stages only need this Program's exact source-file spellings.
+		overlays, _ = rekeyOverlaysToProgram(program, overlays)
+	}
 	if pipeline == nil {
 		prepared, diags, err := prepareTransformerProgram(dir, program, sourceFiles, overlays)
 		if err != nil {

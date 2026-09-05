@@ -2,6 +2,7 @@ package compile
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -23,6 +24,63 @@ func normalizeOverlays(overlays map[string]string) map[string]string {
 		out[normalizeOverlayPath(path, caseSensitive)] = text
 	}
 	return out
+}
+
+// overlayAliases expands the small caller-provided overlay set once, before a
+// compiler host starts probing the filesystem. The hot FileExists/ReadFile
+// path remains lexical: module resolution may make thousands of probes per
+// build, most of which have nothing to do with an overlay.
+func overlayAliases(overlays map[string]string, configPath string, caseSensitive bool) map[string]string {
+	if len(overlays) == 0 {
+		return nil
+	}
+	aliases := make(map[string]string, len(overlays)*2)
+	configDir := filepath.Dir(filepath.FromSlash(configPath))
+	canonicalConfigDir, configIsPhysical := filepath.EvalSymlinks(configDir)
+	for path, text := range overlays {
+		aliases[normalizeOverlayPath(path, caseSensitive)] = text
+		if physical, ok := canonicalExistingOverlayPath(path, caseSensitive); ok {
+			aliases[physical] = text
+			if configIsPhysical == nil {
+				relative, err := filepath.Rel(canonicalConfigDir, filepath.FromSlash(physical))
+				if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+					// Config parsing may probe an include path before it has made it
+					// absolute, while later source reads use the lexical config root.
+					aliases[normalizeOverlayPath(relative, caseSensitive)] = text
+					aliases[normalizeOverlayPath(filepath.Join(configDir, relative), caseSensitive)] = text
+				}
+			}
+		}
+	}
+	return aliases
+}
+
+// overlayText first reads the caller-owned lexical map. Apart from keeping
+// path lookup cheap, that preserves virtual overlays added after a prior
+// negative filesystem lookup. Physical aliases are fixed at host setup and
+// cover existing files spelled through a symlinked parent.
+func overlayText(overlays, aliases map[string]string, path string, caseSensitive bool) (string, bool) {
+	path = normalizeOverlayPath(path, caseSensitive)
+	if text, ok := overlays[path]; ok {
+		return text, true
+	}
+	text, ok := aliases[path]
+	return text, ok
+}
+
+// canonicalExistingOverlayPath resolves only a complete, existing absolute
+// target. A missing target remains lexical so the overlay-match guard reports
+// it instead of accepting a typo through a symlinked parent directory.
+func canonicalExistingOverlayPath(path string, caseSensitive bool) (string, bool) {
+	path = normalizeOverlayPath(path, caseSensitive)
+	if !filepath.IsAbs(path) {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", false
+	}
+	return normalizeOverlayPath(resolved, caseSensitive), true
 }
 
 // matchOverlaysToProgram counts the overlay keys that name a source file the
@@ -59,15 +117,30 @@ func matchSolutionOverlaysToProgram(program *compiler.Program, overlays map[stri
 // message).
 func overlayKeysInProgram(program *compiler.Program, overlays map[string]string) (matched map[string]struct{}, unmatched []string) {
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
-	inProgram := make(map[string]struct{}, len(program.SourceFiles()))
+	inProgram := make(map[string]string, len(program.SourceFiles()))
 	for _, sourceFile := range program.SourceFiles() {
-		inProgram[normalizeOverlayPath(sourceFile.FileName(), caseSensitive)] = struct{}{}
+		inProgram[normalizeOverlayPath(sourceFile.FileName(), caseSensitive)] = sourceFile.FileName()
 	}
 
 	matched = make(map[string]struct{}, len(overlays))
+	var canonicalProgram map[string]string
 	for path := range overlays {
 		normalized := normalizeOverlayPath(path, caseSensitive)
-		if _, ok := inProgram[normalized]; !ok {
+		_, found := inProgram[normalized]
+		if !found {
+			if physical, ok := canonicalExistingOverlayPath(path, caseSensitive); ok {
+				if canonicalProgram == nil {
+					canonicalProgram = make(map[string]string, len(program.SourceFiles()))
+					for _, sourceFile := range program.SourceFiles() {
+						if canonical, exists := canonicalExistingOverlayPath(sourceFile.FileName(), caseSensitive); exists {
+							canonicalProgram[canonical] = sourceFile.FileName()
+						}
+					}
+				}
+				_, found = canonicalProgram[physical]
+			}
+		}
+		if !found {
 			unmatched = append(unmatched, path)
 			continue
 		}
@@ -76,18 +149,56 @@ func overlayKeysInProgram(program *compiler.Program, overlays map[string]string)
 	return matched, unmatched
 }
 
+// rekeyOverlaysToProgram turns caller spellings into the exact file names the
+// already-parsed program reads. This is a bounded setup step for an overlay
+// build, so the virtual filesystem can keep every subsequent probe lexical.
+func rekeyOverlaysToProgram(program *compiler.Program, overlays map[string]string) (map[string]string, []string) {
+	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
+	inProgram := make(map[string]string, len(program.SourceFiles()))
+	for _, sourceFile := range program.SourceFiles() {
+		inProgram[normalizeOverlayPath(sourceFile.FileName(), caseSensitive)] = sourceFile.FileName()
+	}
+
+	resolved := make(map[string]string, len(overlays))
+	var canonicalProgram map[string]string
+	var unmatched []string
+	for path, text := range overlays {
+		fileName, found := inProgram[normalizeOverlayPath(path, caseSensitive)]
+		if !found {
+			if physical, ok := canonicalExistingOverlayPath(path, caseSensitive); ok {
+				if canonicalProgram == nil {
+					canonicalProgram = make(map[string]string, len(program.SourceFiles()))
+					for _, sourceFile := range program.SourceFiles() {
+						if canonical, exists := canonicalExistingOverlayPath(sourceFile.FileName(), caseSensitive); exists {
+							canonicalProgram[canonical] = sourceFile.FileName()
+						}
+					}
+				}
+				fileName, found = canonicalProgram[physical]
+			}
+		}
+		if !found {
+			unmatched = append(unmatched, path)
+			continue
+		}
+		resolved[normalizeOverlayPath(fileName, caseSensitive)] = text
+	}
+	return resolved, unmatched
+}
+
 func newOverlayFS(rawBase vfs.FS, configPath string, overlays map[string]string) vfs.FS {
 	baseFS := cachedvfs.From(SanitizeFSWithConfigPath(bundled.WrapFS(rawBase), configPath))
 	caseSensitive := baseFS.UseCaseSensitiveFileNames()
+	aliases := overlayAliases(overlays, configPath, caseSensitive)
 	return wrapvfs.Wrap(baseFS, wrapvfs.Replacements{
 		FileExists: func(path string) bool {
-			if _, ok := overlays[normalizeOverlayPath(path, caseSensitive)]; ok {
+			if _, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
 				return true
 			}
 			return baseFS.FileExists(path)
 		},
 		ReadFile: func(path string) (string, bool) {
-			if text, ok := overlays[normalizeOverlayPath(path, caseSensitive)]; ok {
+			if text, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
 				return text, true
 			}
 			return baseFS.ReadFile(path)

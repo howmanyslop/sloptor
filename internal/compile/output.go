@@ -145,16 +145,15 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			msg := "Option 'emitDeclarationOnly' cannot be specified without specifying option 'declaration' or option 'composite'."
 			return nil, []string{msg}, errors.New("compile: TypeScript diagnostics")
 		}
-		// Declarations are emitted from the ORIGINAL program: a source
-		// transformer changes the emitted Luau, never the types the project
-		// publishes. The transformer round trip still runs so a plugin that
-		// fails is still reported by an --emitDeclarationOnly build.
+		// Declarations are emitted from the original program. Validate configured
+		// transformer modules without invoking their factories: transformed text
+		// cannot affect declaration output and must not create a discarded overlay.
 		originalProgram := program
-		prepared, sidecarDiags, err := prepareTransformerProgram(dir, program, sourceFiles, opts.Overlays)
-		if err != nil {
-			return nil, sidecarDiags, err
+		if projectUsesTransformerPlugins(program.CommandLine()) {
+			if sidecarDiags, err := validateTransformerSidecar(dir, program); err != nil {
+				return nil, sidecarDiags, err
+			}
 		}
-		timings.recordPreparedTransformerProgram(prepared)
 		stopDeclarations := timings.startStage(declarationEmitWritesStage)
 		emitted, err := emitDeclarations(originalProgram, nil, nil, opts.WriteOnlyChanged, writer, timings)
 		stopDeclarations()
