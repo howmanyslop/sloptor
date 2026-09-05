@@ -38,10 +38,8 @@ vfs/wrapvfs
 
 ## Named compatibility watchpoints
 
-These are direct uses implicated by the upstream API rename report in issue
-
-## 43. They have 17 current call sites across the flamework and transformer
-
+These are direct uses implicated by the upstream API rename report in issue #43.
+They have 17 current call sites across the flamework and transformer
 packages, so a port needs an explicit compatibility decision rather than a
 blind rename.
 
