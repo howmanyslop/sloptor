@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"rotor/tsgo/ast"
 )
@@ -101,9 +102,9 @@ func TestSolutionPackageJSONCacheKeepsSiblingPackagesDistinct(t *testing.T) {
 }
 
 // Catches a dependent project keeping the pre-build Rojo tree after its
-// predecessor adds a nested output project, while the dependent loses its own
-// persistent cache. The shared fixture tree declares that nested output under
-// Generated, which is the required import path after the predecessor emits it.
+// predecessor adds a nested output project while the walked output directory
+// retains its original mtime. The fixture tree declares that nested output
+// under Generated, which is the required import path after it is emitted.
 func TestSolutionSharedRojoCacheRevalidatesPredecessorOutputAndPersistsPerProject(t *testing.T) {
 	root, libDir, gameDir := writeCrossProjectSolution(t)
 	for _, dir := range []string{filepath.Join(libDir, "out"), filepath.Join(gameDir, "out")} {
@@ -118,9 +119,32 @@ func TestSolutionSharedRojoCacheRevalidatesPredecessorOutputAndPersistsPerProjec
 	writeSolutionFile(t, libDir, "src/default.project.json", `{"name":"generated","tree":{"Generated":{"regular":{"$path":"regular.luau"}}}}`)
 	writeSolutionFile(t, gameDir, "src/index.ts", "import { regular } from \"../../lib/src/regular\";\nexport const value = regular();\n")
 
+	libOutput := filepath.Join(libDir, "out")
+	if err := os.Chtimes(libOutput, time.Unix(1_700_000_000, 0), time.Unix(1_700_000_000, 0)); err != nil {
+		t.Fatalf("pin predecessor output mtime: %v", err)
+	}
+	initialOutputInfo, err := os.Stat(libOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	builders := 1
-	if _, messages, err := BuildSolutionWithOptions(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders}); err != nil {
-		t.Fatalf("BuildSolutionWithOptions: %v (%v)", err, messages)
+	coordinator, err := NewSolutionCoordinator(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders})
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinator: %v", err)
+	}
+	buildDrainer, ok := coordinator.drainer.(*solutionBuildDrainer)
+	if !ok {
+		t.Fatalf("solution drainer = %T, want *solutionBuildDrainer", coordinator.drainer)
+	}
+	coordinator.drainer = &directoryMtimeRestoringDrainer{
+		solutionBuildDrainer: buildDrainer,
+		projectConfig:        filepath.Join(libDir, "tsconfig.json"),
+		directory:            libOutput,
+		restore:              initialOutputInfo.ModTime(),
+	}
+	if _, messages, err := coordinator.Drain(); err != nil {
+		t.Fatalf("Drain: %v (%v)", err, messages)
 	}
 
 	if _, err := os.Stat(filepath.Join(libDir, "out", "default.project.json")); err != nil {
@@ -141,6 +165,26 @@ func TestSolutionSharedRojoCacheRevalidatesPredecessorOutputAndPersistsPerProjec
 			t.Fatalf("Rojo cache for %s was not persisted as a non-empty regular file", projectDir)
 		}
 	}
+}
+
+// directoryMtimeRestoringDrainer simulates a filesystem that does not report
+// the predecessor's newly created directory entries through its mtime.
+type directoryMtimeRestoringDrainer struct {
+	*solutionBuildDrainer
+	projectConfig string
+	directory     string
+	restore       time.Time
+}
+
+func (d *directoryMtimeRestoringDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
+	result, messages, err := d.solutionBuildDrainer.Drain(project)
+	if err != nil || project.ConfigPath != d.projectConfig {
+		return result, messages, err
+	}
+	if err := os.Chtimes(d.directory, d.restore, d.restore); err != nil {
+		return result, messages, err
+	}
+	return result, messages, nil
 }
 
 func writeSharedDeclSolutionProject(t *testing.T, dir, sharedDecl string) {

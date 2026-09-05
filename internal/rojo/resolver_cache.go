@@ -10,11 +10,21 @@ import (
 	"sync"
 )
 
-const resolverCacheFormatVersion = 2
+const resolverCacheFormatVersion = 3
 
 type resolverCacheManifestEntry struct {
-	Path          string `json:"path"`
-	MtimeUnixNano int64  `json:"mtimeUnixNano"`
+	Path             string                        `json:"path"`
+	MtimeUnixNano    int64                         `json:"mtimeUnixNano"`
+	IsDirectory      bool                          `json:"isDirectory"`
+	DirectoryEntries []resolverCacheDirectoryEntry `json:"directoryEntries,omitempty"`
+}
+
+// resolverCacheDirectoryEntry records the direct membership a Rojo walk saw.
+// Directory mtimes can be preserved or have coarse resolution, so they cannot
+// establish whether a nested project file appeared between solution projects.
+type resolverCacheDirectoryEntry struct {
+	Name string `json:"name"`
+	Type uint32 `json:"type"`
 }
 
 type resolverCacheFile struct {
@@ -209,16 +219,33 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 	if len(paths) == 0 {
 		return nil, false
 	}
+	directories := make(map[string]struct{}, len(state.WalkedDirectories))
+	for _, path := range state.WalkedDirectories {
+		directories[filepath.Clean(path)] = struct{}{}
+	}
 	manifest := make([]resolverCacheManifestEntry, 0, len(paths))
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, false
 		}
-		manifest = append(manifest, resolverCacheManifestEntry{
+		_, isDirectory := directories[filepath.Clean(path)]
+		if info.IsDir() != isDirectory {
+			return nil, false
+		}
+		entry := resolverCacheManifestEntry{
 			Path:          path,
 			MtimeUnixNano: info.ModTime().UnixNano(),
-		})
+			IsDirectory:   isDirectory,
+		}
+		if isDirectory {
+			entries, ok := resolverCacheDirectoryEntries(path)
+			if !ok {
+				return nil, false
+			}
+			entry.DirectoryEntries = entries
+		}
+		manifest = append(manifest, entry)
 	}
 	return manifest, true
 }
@@ -229,16 +256,44 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 	}
 	for _, entry := range manifest {
 		info, err := os.Stat(entry.Path)
-		if err != nil || info.ModTime().UnixNano() != entry.MtimeUnixNano {
+		if err != nil || info.ModTime().UnixNano() != entry.MtimeUnixNano || info.IsDir() != entry.IsDirectory {
 			return false
+		}
+		if entry.IsDirectory {
+			entries, ok := resolverCacheDirectoryEntries(entry.Path)
+			if !ok || !slices.Equal(entries, entry.DirectoryEntries) {
+				return false
+			}
 		}
 	}
 	return true
 }
 
+func resolverCacheDirectoryEntries(path string) ([]resolverCacheDirectoryEntry, bool) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, false
+	}
+	result := make([]resolverCacheDirectoryEntry, len(entries))
+	for index, entry := range entries {
+		result[index] = resolverCacheDirectoryEntry{
+			Name: entry.Name(),
+			Type: uint32(entry.Type()),
+		}
+	}
+	return result, true
+}
+
 func stateMatchesManifest(state ResolverState, manifest []resolverCacheManifestEntry) bool {
 	expected, ok := resolverMtimeManifest(state)
-	return ok && slices.Equal(expected, manifest)
+	return ok && slices.EqualFunc(expected, manifest, resolverCacheManifestEntryEqual)
+}
+
+func resolverCacheManifestEntryEqual(left, right resolverCacheManifestEntry) bool {
+	return left.Path == right.Path &&
+		left.MtimeUnixNano == right.MtimeUnixNano &&
+		left.IsDirectory == right.IsDirectory &&
+		slices.Equal(left.DirectoryEntries, right.DirectoryEntries)
 }
 
 func writeResolverCacheFileAtomic(path string, data []byte) error {
