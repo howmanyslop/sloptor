@@ -31,9 +31,10 @@ cd tools/sidecar
 bun install --no-save
 ```
 
-The package pins `typescript@5.5.3` to match the upstream `roblox-ts` plugin
-runtime; this copy is only the fallback for synthetic test fixtures that have
-no `node_modules` of their own.
+The package pins `typescript@6.0.3` for the worker's own compatibility suite.
+This copy is only the fallback for synthetic test fixtures that have no
+`node_modules` of their own; project builds still resolve their TypeScript
+runtime from the project first.
 
 ## Invocation
 
@@ -44,52 +45,64 @@ node tools/sidecar/main.js
 The process reads newline-delimited JSON requests from `stdin` and writes one
 newline-delimited JSON response per request to `stdout`.
 
-**stdout is reserved for protocol responses.** `main.js` captures the real
-stdout writer and reroutes every other stdout write (plugin `console.log`,
-e.g. Flamework's logging) to stderr. Rotor streams the worker's stderr lines
-to the compiler log as they arrive and keeps a tail for error reporting.
+**stdout is reserved for protocol responses.** For each request, `main.js`
+captures plugin writes to stdout and stderr and returns their lines in that
+request's `logs` field. Rotor forwards those lines to the compiler log after
+it decodes the response.
 
-## Warm sessions
+## Persistent sessions
 
-Rotor keeps **one worker per `(projectDir, tsConfigPath)` for the life of the
-rotor process**, including across `rotor build -w` rebuilds — the JS program
-stays warm, mirroring upstream's persistent `transformerWatcher`. The worker
-exits when rotor's pipes close.
+Rotor keeps a private daemon per canonical workspace and a Node worker per
+canonical project config and runtime identity. Separate `sloptor` invocations
+therefore reuse the same TypeScript `LanguageService` program. The worker key
+includes the sidecar protocol and contents, the Node executable contents, the
+resolved TypeScript and transformer modules, the effective plugin config, and
+a hash of the complete child environment. A changed runtime input gets a new
+worker instead of reusing process state loaded by an older build.
 
-Edits are communicated via `changedFiles`: rotor stat-diffs the project's
-`.ts`/`.tsx` files against the session's last-seen stamps and ships new text
-for anything that changed, which bumps the worker's LanguageService script
-versions (upstream `updateFile` semantics). A request on a fresh worker sends
-no changed files — the worker reads from disk. If a worker dies mid-request,
-rotor respawns it once and retries.
+Unix builds use a user-private socket; Windows builds use a named pipe limited
+to the current user. `sloptor daemon status` lists live workspace daemons, and
+`sloptor daemon stop` asks every live daemon for the current user to exit. A
+daemon expires after five idle minutes and keeps at most two idle Node workers
+per workspace.
 
-**Caller source overlays** (`ProjectOptions.Overlays`, which `rotor
-diagnostics` fills from its stdin request) ride the same field, under
-different rules. An overlay exists nowhere on disk, so no stat describes it:
-each one ships on every round trip, fresh worker or not. An overlay the next
-round trip drops is undone by resending the file's disk text, because the
-worker's override map outlives the request that filled it.
+The daemon owns the source snapshots used for freshness. Every transform sends
+the complete current source file set and complete caller overlay set. The
+daemon derives text updates and deletions from those snapshots, so an edit,
+deleted disk file, or removed overlay is visible even when the compiler process
+that created the worker has exited. Config file-set changes trigger a new parse;
+edits to loaded TypeScript or plugin dependency files dispose and recreate the
+Node session.
 
-Known limitation: a warm worker's *plugin-visible* view of an edited ambient
-`.d.ts` can be stale until the watch session restarts (stamps cover the
-`.ts`/`.tsx` compile surface). Rotor's own typecheck and emit always read
-fresh state.
+A build-only warm request starts while Go creates its initial program. It asks
+the worker to create the JavaScript program without narrowing roots, sending
+overlays, recording disk stamps, or invoking transformer factories. Declaration
+only builds do not warm the worker. Solution-build warmups are joined by their
+own project task, which keeps their concurrency within `--builders`.
 
-Inside the worker, one in-memory project session per
-`(projectDir, tsConfigPath)` holds the overlay map and reuses the TypeScript
-`LanguageService` program across requests.
+Once a transform request has been accepted, Rotor never replays it after a
+transport or worker failure because transformer plugins are arbitrary code. A
+failure before the request is accepted may retry daemon startup. Startup uses a
+private lock and handshake so concurrent compiler processes agree on one live
+daemon and recover artifacts whose owning process has exited.
 
-## Protocol v1
+## Protocol v2
 
-Each request must be a single JSON object with `protocol: 1`.
+Each request is one JSON object with `protocol: 2`, `operation`, `projectDir`,
+and `tsConfigPath`. The protocol is a hard cutover; v1 fields are rejected.
+
+A source transform uses this shape:
 
 ```json
 {
-  "protocol": 1,
+  "protocol": 2,
+  "operation": "transform",
   "tsConfigPath": "C:/abs/project/tsconfig.json",
   "projectDir": "C:/abs/project",
-  "compileFileNames": [
-    "C:/abs/project/src/example.ts"
+  "compileFileNames": ["C:/abs/project/src/example.ts"],
+  "fileNames": [
+    "C:/abs/project/src/example.ts",
+    "C:/abs/project/src/globals.d.ts"
   ],
   "rootFileNames": [
     "C:/abs/project/src/example.ts",
@@ -99,59 +112,95 @@ Each request must be a single JSON object with `protocol: 1`.
     {
       "fileName": "C:/abs/project/src/example.ts",
       "text": "export const phase = \"memory\";\n"
+    },
+    {
+      "fileName": "C:/abs/project/src/removed.ts",
+      "deleted": true
     }
-  ],
-  "transformSources": true
+  ]
 }
 ```
 
-`rootFileNames` is optional and narrows the worker's `LanguageService` root
-set for one request. Rotor sends it on an incremental round trip, naming the
-files being compiled plus every `.d.ts` in the project; TypeScript still pulls
-each root's import closure into the program, so a transformer asking the
-checker about a compiled file gets the same answers while the worker parses
-and binds far fewer files. Omitting it means "every file the tsconfig names",
-which is what a full build sends.
+`fileNames` is the complete source snapshot for freshness and config file-set
+invalidation. It does not replace the roots parsed from the config.
+`rootFileNames` optionally narrows the worker program to files being compiled
+plus project declarations. Within one session the limit only widens, and the
+first transform that omits it or sends an empty list disables narrowing for the
+rest of that session.
 
-Within a session the root limit only ever widens, and the first request that
-omits it drops the limit for good. A watch session rebuilds through the same
-warm worker, so a limit that shrank between rebuilds would throw the program
-away each time.
-
-`transformSources` is required and must be a boolean. There is no declaration
-mode: the worker only ever transforms sources.
-
-Response shape:
+The first response prints transformed text and retains the corresponding
+TypeScript transform result under an opaque handle. It does not generate trace
+maps:
 
 ```json
 {
-  "diagnostics": [
-    {
-      "category": "error",
-      "code": "invalid-request",
-      "message": "protocol must equal 1"
-    }
-  ],
+  "diagnostics": [],
   "transformed": [
     {
       "fileName": "C:/abs/project/src/example.ts",
       "text": "export const phase = \"before:after:start\";\n"
     }
   ],
-  "afterDeclarationsTransformers": 0
+  "resultHandle": "3b17e882da428b238abff264239c92c3",
+  "afterDeclarationsTransformers": 0,
+  "logs": []
 }
 ```
 
-`afterDeclarationsTransformers` is how many `afterDeclarations` transformers
-the worker built for the project after flattening. The worker never runs them;
-the count exists so rotor can warn (see "Declaration Emit Is Native").
+Rotor requests a trace map only when a diagnostic needs original disk
+coordinates or a successful output source map needs composition:
+
+```json
+{
+  "protocol": 2,
+  "operation": "maps",
+  "projectDir": "C:/abs/project",
+  "tsConfigPath": "C:/abs/project/tsconfig.json",
+  "resultHandle": "3b17e882da428b238abff264239c92c3",
+  "fileNames": ["C:/abs/project/src/example.ts"]
+}
+```
+
+A maps response contains `traceMaps` entries with `fileName` and the serialized
+`traceMap`. The worker prints from the retained transformed nodes, so requesting
+a map never runs a plugin again. Prefix and suffix transformer stages retain
+separate handles; Rotor composes their maps with the native transform trace.
+
+Every accepted result is released on success, error, or cancellation:
+
+```json
+{
+  "protocol": 2,
+  "operation": "release",
+  "projectDir": "C:/abs/project",
+  "tsConfigPath": "C:/abs/project/tsconfig.json",
+  "resultHandle": "3b17e882da428b238abff264239c92c3",
+  "outcome": "success"
+}
+```
+
+The daemon reclaims a result when its owning process exits or its PID is
+reused. Results from clients without a process owner expire after 30 minutes.
+A worker session stays serialized and cannot be refreshed while one of its
+results is retained.
+
+`operation: "warm"` accepts only the common identity fields. `operation:
+"validate"` loads and validates configured modules for declaration-only builds
+without creating a language service or invoking a factory.
+
+`afterDeclarationsTransformers` reports how many such transformers the worker
+built or validated. The worker never runs them because declaration emit stays
+native. `logs` contains stdout and stderr lines produced by plugins during that
+request; the sidecar keeps protocol responses on its separate stdout writer.
 
 `diagnostics` may contain:
 
 - TypeScript config/program diagnostics converted to `{ category, code, file, start, length, message }`
 - transformer resolution warnings using code `transformer-not-found`
+- a `typescript-instance-mismatch` error when a plugin resolves another TypeScript copy
 - a `typescript-not-found` error when the project has no resolvable `typescript` package
 - request validation errors using code `invalid-request`
+- expired or unknown handle errors using code `invalid-result-handle`
 - internal worker failures using code `sidecar-internal`
 
 ## Semantics Mirrored From Upstream

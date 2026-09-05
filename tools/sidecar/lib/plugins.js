@@ -63,6 +63,24 @@ function realpath(fileName) {
   return fs.realpathSync.native?.(fileName) ?? fs.realpathSync(fileName);
 }
 
+function collectRequireClosure(modulePath) {
+  const files = new Set();
+  const visit = (loadedModule) => {
+    if (!loadedModule || files.has(loadedModule.filename)) {
+      return;
+    }
+    files.add(loadedModule.filename);
+    for (const child of loadedModule.children) {
+      visit(child);
+    }
+  };
+  visit(require.cache[modulePath]);
+  if (files.size === 0) {
+    files.add(modulePath);
+  }
+  return files;
+}
+
 function loadPluginDefinition(config, baseDir, tsModulePath) {
   const modulePath = require.resolve(config.transform, { paths: [baseDir] });
   const requiredModule = require(modulePath);
@@ -70,9 +88,12 @@ function loadPluginDefinition(config, baseDir, tsModulePath) {
     ? Object.assign({ default: requiredModule }, requiredModule)
     : requiredModule;
   const factory = factoryModule[config.import ?? "default"];
+  const moduleFiles = collectRequireClosure(modulePath);
 
   if (typeof factory !== "function") {
-    throw new Error("factory not a function");
+    const error = new Error("factory not a function");
+    error.moduleFiles = moduleFiles;
+    throw error;
   }
 
   if (tsModulePath) {
@@ -85,17 +106,19 @@ function loadPluginDefinition(config, baseDir, tsModulePath) {
       }
     }
     if (pluginTypeScriptPath && pluginTypeScriptPath !== tsModulePath) {
+      moduleFiles.add(pluginTypeScriptPath);
       return {
         diagnostic: createProtocolDiagnostic(
           "error",
           "typescript-instance-mismatch",
           `Transformer \`${config.transform}\` resolves TypeScript from ${pluginTypeScriptPath}, but the project uses ${tsModulePath}. Install one shared TypeScript copy so transformer nodes and the sidecar use the same module instance.`,
         ),
+        moduleFiles,
       };
     }
   }
 
-  return { modulePath, factoryModule, factory };
+  return { modulePath, factoryModule, factory, moduleFiles };
 }
 
 // validatePluginConfigs performs only the protocol's declaration-time checks:
@@ -106,6 +129,7 @@ function loadPluginDefinition(config, baseDir, tsModulePath) {
 function validatePluginConfigs(configs, baseDir, tsModulePath) {
   const diagnostics = [];
   let afterDeclarationsTransformers = 0;
+  const moduleFiles = new Set();
 
   for (const config of configs) {
     if (!config.transform) {
@@ -114,6 +138,9 @@ function validatePluginConfigs(configs, baseDir, tsModulePath) {
 
     try {
       const loaded = loadPluginDefinition(config, baseDir, tsModulePath);
+      for (const fileName of loaded.moduleFiles) {
+        moduleFiles.add(fileName);
+      }
       if (loaded.diagnostic) {
         diagnostics.push(loaded.diagnostic);
         continue;
@@ -122,11 +149,14 @@ function validatePluginConfigs(configs, baseDir, tsModulePath) {
         afterDeclarationsTransformers += 1;
       }
     } catch (error) {
+      for (const fileName of error?.moduleFiles ?? []) {
+        moduleFiles.add(fileName);
+      }
       diagnostics.push(createPluginNotFoundDiagnostic(config.transform, error));
     }
   }
 
-  return { diagnostics, afterDeclarationsTransformers };
+  return { diagnostics, afterDeclarationsTransformers, moduleFiles };
 }
 
 function wrapWithShouldTransform(ts, transformer, shouldTransformSourceFile, program, config) {
@@ -170,6 +200,12 @@ function pluginMetrics(plugins) {
   return plugins.map((plugin) => ({ transform: plugin.transform, ms: Number(plugin.ns / 1000000n) }));
 }
 
+function resetPluginMetrics(plugins) {
+  for (const plugin of plugins) {
+    plugin.ns = 0n;
+  }
+}
+
 function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
   const transforms = {
     before: [],
@@ -178,6 +214,8 @@ function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
   };
   const diagnostics = [];
   const plugins = [];
+  const moduleFiles = new Set();
+  const modulePaths = new Set();
 
   for (const config of configs) {
     if (!config.transform) {
@@ -186,14 +224,25 @@ function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
 
     try {
       const loaded = loadPluginDefinition(config, baseDir, tsModulePath);
+      for (const fileName of loaded.moduleFiles) {
+        moduleFiles.add(fileName);
+      }
       if (loaded.diagnostic) {
         diagnostics.push(loaded.diagnostic);
         continue;
       }
+      modulePaths.add(loaded.modulePath);
       const plugin = { transform: config.transform, ns: 0n };
       const factoryStarted = process.hrtime.bigint();
-      const transformer = getTransformerFromFactory(ts, loaded.factory, config, program);
-      plugin.ns += process.hrtime.bigint() - factoryStarted;
+      let transformer;
+      try {
+        transformer = getTransformerFromFactory(ts, loaded.factory, config, program);
+      } finally {
+        plugin.ns += process.hrtime.bigint() - factoryStarted;
+        for (const fileName of collectRequireClosure(loaded.modulePath)) {
+          moduleFiles.add(fileName);
+        }
+      }
       if (!transformer) {
         continue;
       }
@@ -216,11 +265,14 @@ function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
         );
       }
     } catch (error) {
+      for (const fileName of error?.moduleFiles ?? []) {
+        moduleFiles.add(fileName);
+      }
       diagnostics.push(createPluginNotFoundDiagnostic(config.transform, error));
     }
   }
 
-  return { transforms, diagnostics, plugins };
+  return { transforms, diagnostics, plugins, moduleFiles, modulePaths };
 }
 
 function flattenIntoTransformers(transforms) {
@@ -263,7 +315,9 @@ function wrapTransformersWithParentFix(ts, transformers) {
 
 module.exports = {
   createTransformerList,
+  collectRequireClosure,
   pluginMetrics,
+  resetPluginMetrics,
   flattenIntoTransformers,
   getPluginConfigs,
   validatePluginConfigs,

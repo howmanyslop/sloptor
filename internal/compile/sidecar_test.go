@@ -183,13 +183,14 @@ func TestApplyTransformerSidecarWithPluginsRunsPrefixAndSuffixOnce(t *testing.T)
 	}
 	prefix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"prefix"}`)}
 	suffix := []json.RawMessage{json.RawMessage(`{"transform":"./plugins/prefix-string.js","prefix":"suffix","after":true}`)}
+	state := newSidecarBuildState("")
 
 	// When: the prefix and suffix run as source-only stages.
-	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, nil)
+	first, diags, err := applyTransformerSidecarWithPlugins(dir, program, projectSourceFiles(program), nil, prefix, state)
 	if err != nil {
 		t.Fatalf("prefix transform: %v (diags: %v)", err, diags)
 	}
-	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, nil)
+	second, diags, err := applyTransformerSidecarWithPlugins(dir, first.program, projectSourceFiles(first.program), nil, suffix, state)
 	// Then: each subset is applied in order.
 	if err != nil {
 		t.Fatalf("suffix transform: %v (diags: %v)", err, diags)

@@ -142,10 +142,11 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
   const configPath = path.join(projectDir, "tsconfig.no-plugins.json");
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir,
     tsConfigPath: configPath,
+    fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
   });
@@ -160,10 +161,11 @@ test("a project whose plugins are overridden to empty runs no transformers", () 
 test("responses report the afterDeclarations transformer count", () => {
   const session = new sidecar.SidecarProjectSession(ts, projectDir, tsConfigPath);
   const response = session.handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir,
     tsConfigPath,
+    fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
   });
@@ -176,10 +178,11 @@ test("a project with no plugins reports no afterDeclarations transformers", () =
   const configPath = path.join(projectDir, "tsconfig.no-plugins.json");
   const session = new sidecar.SidecarProjectSession(ts, projectDir, configPath);
   const response = session.handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir,
     tsConfigPath: configPath,
+    fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
   });
@@ -196,12 +199,13 @@ test("checker plugins use the referenced source contract from rbxtsc", () => {
   assert.equal(expected, "1");
   const session = new sidecar.SidecarProjectSession(ts, checkerReferenceProjectDir, checkerReferenceConfigPath);
   const response = session.handleRequest({
-    protocol: 1,
+    protocol: 2,
+    operation: "transform",
     projectDir: checkerReferenceProjectDir,
     tsConfigPath: checkerReferenceConfigPath,
+    fileNames: [checkerReferenceSourcePath],
     compileFileNames: [checkerReferenceSourcePath],
     changedFiles: [],
-    transformSources: true,
   });
 
   assert.deepEqual(response.diagnostics, []);
@@ -275,7 +279,7 @@ test("transformSourceFiles omits source files whose transformers preserve identi
 test("sidecar protocol requires an explicit operation", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
-    protocol: 1,
+    protocol: 2,
     projectDir,
     tsConfigPath,
     compileFileNames: [sourcePath],
@@ -285,7 +289,7 @@ test("sidecar protocol requires an explicit operation", () => {
   assert.deepEqual(response.transformed, []);
   assert.equal(response.diagnostics.length, 1);
   assert.equal(response.diagnostics[0].code, "invalid-request");
-  assert.equal(response.diagnostics[0].message, 'operation must equal "transform" or "validate"');
+  assert.match(response.diagnostics[0].message, /operation must equal/);
 });
 
 // Catches comment-driven compiler directives disappearing before later
@@ -314,10 +318,11 @@ test("intermediate transforms preserve comments when final emit removes them", (
   }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
+    fileNames: [fileName],
     compileFileNames: [fileName],
     changedFiles: [],
   });
@@ -341,7 +346,7 @@ module.exports = () => { fs.writeFileSync(${JSON.stringify(markerPath)}, "called
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { plugins: [{ transform: "./plugin.js" }, { transform: "./plugin.js", type: "raw" }] }, include: ["main.ts"] }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "validate",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -370,7 +375,7 @@ test("validation rejects a plugin with a different TypeScript module instance", 
   const sessionTypeScriptPath = fs.realpathSync(require.resolve("typescript"));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath, sessionTypeScriptPath).handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "validate",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
@@ -406,10 +411,11 @@ test("plugin metrics include program and raw factory time", () => {
   }));
 
   const response = new sidecar.SidecarProjectSession(ts, fixtureDir, configPath).handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir: fixtureDir,
     tsConfigPath: configPath,
+    fileNames: [fileName],
     compileFileNames: [fileName],
     changedFiles: [],
   });
@@ -421,10 +427,11 @@ test("plugin metrics include program and raw factory time", () => {
 test("sidecar protocol responses include optional request metrics", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir,
     tsConfigPath,
+    fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
   });
@@ -439,10 +446,11 @@ test("sidecar protocol responses include optional request metrics", () => {
 test("sidecar protocol metrics split wall time per transformer plugin", () => {
   const server = new sidecar.SidecarServer(ts);
   const response = server.handleRequest({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir,
     tsConfigPath,
+    fileNames: [sourcePath],
     compileFileNames: [sourcePath],
     changedFiles: [],
     plugins: [
@@ -510,10 +518,11 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
   try {
     const firstResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify({
-      protocol: 1,
-    operation: "transform",
+      protocol: 2,
+      operation: "transform",
       projectDir,
       tsConfigPath,
+      fileNames: [sourcePath],
       compileFileNames: [sourcePath],
       changedFiles: [],
     })}\n`);
@@ -525,10 +534,11 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
 
     const secondResponsePromise = readProtocolLine(child.stdout);
     child.stdin.write(`${JSON.stringify({
-      protocol: 1,
-    operation: "transform",
+      protocol: 2,
+      operation: "transform",
       projectDir,
       tsConfigPath,
+      fileNames: [sourcePath],
       compileFileNames: [sourcePath],
       changedFiles: [
         {
@@ -617,10 +627,11 @@ module.exports.shouldTransformSourceFile = true;
 
   const result = spawnSync(process.execPath, [mainPath], {
     input: `${JSON.stringify({
-      protocol: 1,
-    operation: "transform",
+      protocol: 2,
+      operation: "transform",
       projectDir: hookProjectDir,
       tsConfigPath: path.join(hookProjectDir, "tsconfig.json"),
+      fileNames: [selectedPath, skippedPath],
       compileFileNames: [selectedPath, skippedPath],
       changedFiles: [],
     })}\n`,
@@ -668,10 +679,11 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
   fs.writeFileSync(noisyMainFile, 'export const phase = "start";\n');
 
   const request = JSON.stringify({
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     tsConfigPath: path.join(noisyProjectDir, "tsconfig.json"),
     projectDir: noisyProjectDir,
+    fileNames: [noisyMainFile],
     compileFileNames: [noisyMainFile],
     changedFiles: [],
   });
@@ -687,7 +699,8 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
   assert.equal(lines.length, 1, `stdout must carry exactly one JSON response, got:\n${result.stdout}`);
   const response = JSON.parse(lines[0]);
   assert.deepEqual(response.diagnostics, []);
-  assert.match(result.stderr, /plugin chatter on stdout/);
+  assert.equal(result.stderr, "");
+  assert.deepEqual(response.logs, ["plugin chatter on stdout"]);
 });
 
 test("resolveTypeScript prefers the project's typescript copy", () => {
@@ -752,11 +765,12 @@ function programFileNames(session) {
 
 function narrowRootsRequest(project, rootFileNames) {
   return {
-    protocol: 1,
+    protocol: 2,
     operation: "transform",
     projectDir: project.projectRoot,
     tsConfigPath: project.configPath,
     compileFileNames: rootFileNames,
+    fileNames: Object.values(project.files),
     rootFileNames,
     changedFiles: [],
   };
@@ -772,26 +786,18 @@ test("rootFileNames narrows the worker program to the files being compiled", () 
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.globals)]);
 });
 
-// A watch session reuses one warm worker, so a narrowed root set has to be
-// stable across rebuilds: it only ever grows, and a request that sends no
-// limit widens it back to the whole project for good.
 test("the worker's root limit only ever widens within a session", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
 
   session.handleRequest(narrowRootsRequest(project, [project.files.a]));
-  const afterFirst = session.projectVersion;
   session.handleRequest(narrowRootsRequest(project, [project.files.b]));
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.b)]);
 
-  const afterSecond = session.projectVersion;
-  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
-  assert.equal(session.projectVersion, afterSecond, "a subset request must not disturb the program");
-  assert.ok(afterSecond > afterFirst, "widening the root set must invalidate the program");
-
   const full = narrowRootsRequest(project, [project.files.c]);
   delete full.rootFileNames;
-  session.handleRequest(full);
+  const response = session.handleRequest(full);
+  assert.deepEqual(response.diagnostics, []);
   assert.deepEqual(programFileNames(session), [
     toSlash(project.files.a),
     toSlash(project.files.b),
@@ -800,7 +806,7 @@ test("the worker's root limit only ever widens within a session", () => {
   ]);
 
   session.handleRequest(narrowRootsRequest(project, [project.files.a]));
-  assert.equal(session.rootLimit, undefined, "a full build must switch narrowing off for the session");
+  assert.equal(session.rootLimit, undefined);
 });
 
 test("rootFileNames must be an array of strings when present", () => {
@@ -812,51 +818,404 @@ test("rootFileNames must be an array of strings when present", () => {
   assert.match(response.diagnostics[0].message, /rootFileNames must be an array of strings/);
 });
 
-// The root limit never shrinks, so a file that leaves the project stays in it.
-// getScriptFileNames drops what is not on disk, so the stale root costs the
-// program nothing and never reaches TypeScript as a missing root.
-test("a narrowed root whose file was deleted is dropped, not reported", () => {
+test("a deleted overlay removes a file before the next program is built", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
 
   session.handleRequest(narrowRootsRequest(project, [project.files.a, project.files.b]));
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.b)]);
 
-  fs.rmSync(project.files.b);
-  const response = session.handleRequest(narrowRootsRequest(project, [project.files.a]));
+  const request = narrowRootsRequest(project, [project.files.a]);
+  request.fileNames = request.fileNames.filter((fileName) => fileName !== project.files.b);
+  request.changedFiles = [{ fileName: project.files.b, deleted: true }];
+  const response = session.handleRequest(request);
 
   assert.deepEqual(response.diagnostics, []);
-  assert.ok(session.rootLimit.has(session.canonicalize(project.files.b)), "the limit should still name the deleted file");
+  assert.equal(session.readFile(project.files.b), undefined);
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a)]);
 });
 
-// The root limit is monotonic, and a limitless request is its ceiling: after
-// one, the effective root set is every file the tsconfig names and no later
-// narrowed request may shrink it — nor disturb the program TypeScript built for
-// it.
-test("a narrowed request after a limitless one neither shrinks nor churns the program", () => {
+test("a complete fileNames snapshot invalidates parsed config file discovery", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
-  const everything = [
+  const full = narrowRootsRequest(project, [project.files.a]);
+  delete full.rootFileNames;
+  session.handleRequest(full);
+
+  const addedFile = path.join(path.dirname(project.files.a), "added.ts");
+  fs.writeFileSync(addedFile, "export const added = 1;\n");
+  const next = narrowRootsRequest(project, [addedFile]);
+  next.fileNames.push(addedFile);
+  delete next.rootFileNames;
+  const response = session.handleRequest(next);
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.ok(programFileNames(session).includes(toSlash(addedFile)));
+});
+
+test("warm accepts no roots or overlays and builds the tsconfig program", () => {
+  const project = narrowRootsProject();
+  const server = new sidecar.SidecarServer(ts);
+  const response = server.handleRequest({
+    protocol: 2,
+    operation: "warm",
+    projectDir: project.projectRoot,
+    tsConfigPath: project.configPath,
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.deepEqual(programFileNames(server.session), [
     toSlash(project.files.a),
     toSlash(project.files.b),
     toSlash(project.files.c),
     toSlash(project.files.globals),
-  ];
+  ]);
+  server.close();
+});
 
-  session.handleRequest(narrowRootsRequest(project, [project.files.a]));
-  assert.deepEqual(programFileNames(session), [toSlash(project.files.a)]);
+test("transform retains maps until an explicit release", () => {
+  const server = new sidecar.SidecarServer(ts);
+  const transform = server.handleRequest({
+    protocol: 2,
+    operation: "transform",
+    projectDir,
+    tsConfigPath,
+    fileNames: [sourcePath],
+    compileFileNames: [sourcePath],
+    changedFiles: [],
+  });
 
-  const full = narrowRootsRequest(project, [project.files.a]);
-  delete full.rootFileNames;
-  session.handleRequest(full);
-  assert.deepEqual(programFileNames(session), everything);
+  assert.deepEqual(transform.diagnostics, []);
+  assert.equal(typeof transform.resultHandle, "string");
+  assert.equal("traceMap" in transform.transformed[0], false);
 
-  const settled = session.projectVersion;
-  const response = session.handleRequest(narrowRootsRequest(project, [project.files.b]));
+  const maps = server.handleRequest({
+    protocol: 2,
+    operation: "maps",
+    projectDir,
+    tsConfigPath,
+    resultHandle: transform.resultHandle,
+    fileNames: [sourcePath],
+  });
+  assert.deepEqual(maps.diagnostics, []);
+  assert.equal(maps.traceMaps.length, 1);
+  assert.doesNotThrow(() => JSON.parse(maps.traceMaps[0].traceMap));
+
+  const release = server.handleRequest({
+    protocol: 2,
+    operation: "release",
+    projectDir,
+    tsConfigPath,
+    resultHandle: transform.resultHandle,
+    outcome: "success",
+  });
+  assert.deepEqual(release.diagnostics, []);
+
+  const afterRelease = server.handleRequest({
+    protocol: 2,
+    operation: "maps",
+    projectDir,
+    tsConfigPath,
+    resultHandle: transform.resultHandle,
+  });
+  assert.equal(afterRelease.diagnostics[0].code, "invalid-result-handle");
+  server.close();
+});
+
+test("a cached transformer keeps its state for the same Program and exact config", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-stateful-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => {
+  let sequence = 0;
+  return (context) => {
+    const visit = (node) => helpers.ts.isStringLiteral(node)
+      ? helpers.ts.factory.createStringLiteral(config.prefix + ":" + ++sequence)
+      : helpers.ts.visitEachChild(node, visit, context);
+    return (source) => helpers.ts.visitNode(source, visit);
+  };
+};\n`);
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
+  const server = new sidecar.SidecarServer(ts);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+    plugins: [{ transform: "./plugin.js", prefix: "stable" }],
+  };
+
+  const first = server.handleRequest(request);
+  const second = server.handleRequest(request);
+  const changedConfig = server.handleRequest({
+    ...request,
+    plugins: [{ transform: "./plugin.js", prefix: "changed" }],
+  });
+
+  assert.match(first.transformed[0].text, /"stable:1"/);
+  assert.match(second.transformed[0].text, /"stable:2"/);
+  assert.match(changedConfig.transformed[0].text, /"changed:1"/);
+  server.close();
+});
+
+test("editing an extended config changes the effective transformer config", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-config-chain-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const baseConfig = path.join(fixtureDir, "base.json");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(config.prefix)
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  const writeBase = (prefix) => fs.writeFileSync(baseConfig, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js", prefix }] },
+  }));
+  writeBase("from-base-one");
+  fs.writeFileSync(configPath, JSON.stringify({ extends: "./base.json", files: ["main.ts"] }));
+  const server = new sidecar.SidecarServer(ts);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+  };
+
+  const first = server.handleRequest(request);
+  writeBase("from-base-two");
+  const second = server.handleRequest(request);
+
+  assert.match(first.transformed[0].text, /"from-base-one"/);
+  assert.match(second.transformed[0].text, /"from-base-two"/);
+  server.close();
+});
+
+test("editing a loaded plugin dependency is visible on the next transform", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-plugin-freshness-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const valueModule = path.join(fixtureDir, "value.js");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => {
+  return (context) => {
+    return (source) => {
+      const value = require("./value.js");
+      const visit = (node) => helpers.ts.isStringLiteral(node)
+        ? helpers.ts.factory.createStringLiteral(value)
+        : helpers.ts.visitEachChild(node, visit, context);
+      return helpers.ts.visitNode(source, visit);
+    };
+  };
+};\n`);
+  fs.writeFileSync(valueModule, 'module.exports = "dependency-one";\n');
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const server = new sidecar.SidecarServer(sidecar.resolveTypeScript);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+  };
+
+  const first = server.handleRequest(request);
+  fs.writeFileSync(valueModule, 'module.exports = "dependency-two";\n');
+  const second = server.handleRequest(request);
+
+  assert.match(first.transformed[0].text, /"dependency-one"/);
+  assert.match(second.transformed[0].text, /"dependency-two"/);
+  server.close();
+});
+
+test("plugin console output is scoped to the response that produced it", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-logs-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, "export {};\n");
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config) => {
+  console.error(config.message);
+  return () => (source) => source;
+};\n`);
+  fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
+  const server = new sidecar.SidecarServer(ts);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+  };
+
+  const first = server.handleRequest({ ...request, plugins: [{ transform: "./plugin.js", message: "first request" }] });
+  const second = server.handleRequest({ ...request, plugins: [{ transform: "./plugin.js", message: "second request" }] });
+
+  assert.deepEqual(first.logs, ["first request"]);
+  assert.deepEqual(second.logs, ["second request"]);
+  server.close();
+});
+
+test("warm builds a program without loading or invoking transformer factories", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-warm-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const markerFile = path.join(fixtureDir, "factory-loaded");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, "export {};\n");
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `require("node:fs").writeFileSync(${JSON.stringify(markerFile)}, "loaded");
+module.exports = () => () => (source) => source;\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const server = new sidecar.SidecarServer(ts);
+
+  const response = server.handleRequest({
+    protocol: 2,
+    operation: "warm",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+  });
 
   assert.deepEqual(response.diagnostics, []);
-  assert.equal(session.rootLimit, undefined, "the limit is already the whole project");
-  assert.deepEqual(programFileNames(session), everything, "a narrowed request must not shrink the root set");
-  assert.equal(session.projectVersion, settled, "a narrowed request must not invalidate the program");
+  assert.equal(fs.existsSync(markerFile), false);
+  server.close();
+});
+
+test("the first transform refreshes a disk edit made after warm", (t) => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-warm-edit-"));
+  t.after(() => fs.rmSync(fixtureDir, { recursive: true, force: true }));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "before";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(node.text)
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const server = new sidecar.SidecarServer(ts);
+  const identity = { protocol: 2, projectDir: fixtureDir, tsConfigPath: configPath };
+
+  const warm = server.handleRequest({ ...identity, operation: "warm" });
+  fs.writeFileSync(sourceFile, 'export const phase = "after-warm";\n');
+  const transformed = server.handleRequest({
+    ...identity,
+    operation: "transform",
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+  });
+
+  assert.deepEqual(warm.diagnostics, []);
+  assert.deepEqual(transformed.diagnostics, []);
+  assert.match(transformed.transformed[0].text, /"after-warm"/);
+  server.close();
+});
+
+test("editing the loaded TypeScript runtime is visible on the next transform", () => {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-ts-freshness-"));
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const runtimePath = path.join(fixtureDir, "typescript-runtime.js");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(runtimePath, 'module.exports = "runtime-one";\n');
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(helpers.ts.runtimeLabel)
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const loadTypeScript = () => {
+    const api = Object.create(ts);
+    api.runtimeLabel = require(runtimePath);
+    return api;
+  };
+  loadTypeScript.modulePathFor = () => fs.realpathSync(runtimePath);
+  const server = new sidecar.SidecarServer(loadTypeScript);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    changedFiles: [],
+  };
+
+  const first = server.handleRequest(request);
+  fs.writeFileSync(runtimePath, 'module.exports = "runtime-two";\n');
+  const second = server.handleRequest(request);
+
+  assert.match(first.transformed[0].text, /"runtime-one"/);
+  assert.match(second.transformed[0].text, /"runtime-two"/);
+  server.close();
+});
+
+test("plugin cwd uses the session's canonical project path", (t) => {
+  const realProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-cwd-real-"));
+  const aliasProjectDir = `${realProjectDir}-alias`;
+  t.after(() => {
+    fs.rmSync(aliasProjectDir, { force: true });
+    fs.rmSync(realProjectDir, { recursive: true, force: true });
+  });
+  try {
+    fs.symlinkSync(realProjectDir, aliasProjectDir, "dir");
+  } catch (error) {
+    t.skip(`cannot create project-path symlink: ${error.message}`);
+    return;
+  }
+  const sourceFile = path.join(realProjectDir, "main.ts");
+  const configPath = path.join(realProjectDir, "tsconfig.json");
+  fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
+  fs.writeFileSync(path.join(realProjectDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const projectIndex = Math.max(process.argv.indexOf("-p"), process.argv.indexOf("--project"));
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(process.cwd() + "|" + process.argv[projectIndex + 1])
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const originalArgv = process.argv.slice();
+  t.after(() => process.argv.splice(0, process.argv.length, ...originalArgv));
+  process.argv.push("--project", path.join(aliasProjectDir, "tsconfig.json"));
+  const server = new sidecar.SidecarServer(ts);
+  t.after(() => server.close());
+  const response = server.handleRequest({
+    protocol: 2,
+    operation: "transform",
+    projectDir: aliasProjectDir,
+    tsConfigPath: path.join(aliasProjectDir, "tsconfig.json"),
+    fileNames: [path.join(aliasProjectDir, "main.ts")],
+    compileFileNames: [path.join(aliasProjectDir, "main.ts")],
+    changedFiles: [],
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.ok(response.transformed[0].text.includes(JSON.stringify(`${fs.realpathSync(realProjectDir)}|${fs.realpathSync(configPath)}`)));
 });

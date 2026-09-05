@@ -7,6 +7,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 
 	"rotor/internal/transformer"
 	"rotor/tsgo/sourcemap"
@@ -16,6 +17,16 @@ type sourceTraceMap struct {
 	fileName string
 	text     string
 	mappings []traceMapping
+
+	// resolveFn materializes a trace map retained by the transformer worker;
+	// deferred stays true after resolution so later compositions remain safe
+	// while another goroutine may be leaving resolveOnce. Keeping the loader on
+	// the trace itself lets prefix/native/suffix composition stay lazy until a
+	// diagnostic or successful emitted source map needs coordinates.
+	resolveOnce sync.Once
+	resolveFn   func() error
+	resolveErr  error
+	deferred    bool
 }
 
 type traceMapping struct {
@@ -71,6 +82,36 @@ func newSourceTraceMap(raw, fileName, text string) (*sourceTraceMap, error) {
 	return trace, nil
 }
 
+func newDeferredSourceTraceMap(fileName, text string, load func() (string, error)) *sourceTraceMap {
+	trace := &sourceTraceMap{fileName: fileName, text: text, deferred: true}
+	trace.resolveFn = func() error {
+		raw, err := load()
+		if err != nil {
+			return err
+		}
+		resolved, err := newSourceTraceMap(raw, fileName, text)
+		if err != nil {
+			return err
+		}
+		trace.mappings = resolved.mappings
+		return nil
+	}
+	return trace
+}
+
+func (t *sourceTraceMap) resolve() error {
+	if t == nil {
+		return nil
+	}
+	t.resolveOnce.Do(func() {
+		if resolve := t.resolveFn; resolve != nil {
+			t.resolveFn = nil
+			t.resolveErr = resolve()
+		}
+	})
+	return t.resolveErr
+}
+
 func (t *sourceTraceMap) OriginalSourceFileName() string { return t.fileName }
 
 func (t *sourceTraceMap) OriginalSourceText() string { return t.text }
@@ -94,6 +135,9 @@ func (t diagnosticTraces) remap(info DiagnosticInfo, generated string) Diagnosti
 	}
 	trace := t[normalizeSourceFilePath(info.FileName)]
 	if trace == nil {
+		return info
+	}
+	if err := trace.resolve(); err != nil {
 		return info
 	}
 	line, column, ok := utf16Position(generated, info.Offset)
@@ -125,7 +169,24 @@ func (t diagnosticTraces) remapAll(infos []DiagnosticInfo, generated string) []D
 	if len(t) == 0 {
 		return infos
 	}
+	resolved := make(map[*sourceTraceMap]error)
+	reported := make(map[*sourceTraceMap]struct{})
 	for i, info := range infos {
+		trace := t[normalizeSourceFilePath(info.FileName)]
+		if trace != nil {
+			err, ok := resolved[trace]
+			if !ok {
+				err = trace.resolve()
+				resolved[trace] = err
+			}
+			if err != nil {
+				if _, ok := reported[trace]; !ok {
+					infos = append(infos, DiagnosticInfo{Message: err.Error()})
+					reported[trace] = struct{}{}
+				}
+				continue
+			}
+		}
 		infos[i] = t.remap(info, generated)
 	}
 	return infos
@@ -188,6 +249,9 @@ func byteOffsetOf(text string, line, column int) (int, bool) {
 }
 
 func (t *sourceTraceMap) OriginalPosition(position transformer.SourcePosition) *transformer.SourcePosition {
+	if err := t.resolve(); err != nil {
+		return nil
+	}
 	index := sort.Search(len(t.mappings), func(index int) bool {
 		mapping := t.mappings[index]
 		return int(mapping.generatedLine) > position.Line ||
@@ -207,18 +271,40 @@ func composeSourceTraceMaps(outer, inner *sourceTraceMap) *sourceTraceMap {
 	if inner == nil {
 		return outer
 	}
-	composed := &sourceTraceMap{fileName: inner.fileName, text: inner.text, mappings: make([]traceMapping, 0, len(outer.mappings))}
+	if outer.deferred || inner.deferred {
+		composed := &sourceTraceMap{fileName: inner.fileName, text: inner.text, deferred: true}
+		composed.resolveFn = func() error {
+			if err := outer.resolve(); err != nil {
+				return err
+			}
+			if err := inner.resolve(); err != nil {
+				return err
+			}
+			composed.mappings = composeResolvedSourceTraceMaps(outer, inner)
+			return nil
+		}
+		return composed
+	}
+	return &sourceTraceMap{
+		fileName: inner.fileName,
+		text:     inner.text,
+		mappings: composeResolvedSourceTraceMaps(outer, inner),
+	}
+}
+
+func composeResolvedSourceTraceMaps(outer, inner *sourceTraceMap) []traceMapping {
+	mappings := make([]traceMapping, 0, len(outer.mappings))
 	for _, mapping := range outer.mappings {
 		original := inner.OriginalPosition(transformer.SourcePosition{Line: int(mapping.sourceLine), Column: int(mapping.sourceColumn)})
 		if original == nil {
 			continue
 		}
-		composed.mappings = append(composed.mappings, traceMapping{
+		mappings = append(mappings, traceMapping{
 			generatedLine:   mapping.generatedLine,
 			generatedColumn: mapping.generatedColumn,
 			sourceLine:      int32(original.Line),
 			sourceColumn:    int32(original.Column),
 		})
 	}
-	return composed
+	return mappings
 }

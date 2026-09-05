@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"rotor/internal/config"
@@ -41,33 +42,43 @@ const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 type sidecarRequest struct {
 	Protocol         int      `json:"protocol"`
 	Operation        string   `json:"operation"`
-	TsConfigPath     string   `json:"tsConfigPath"`
-	ProjectDir       string   `json:"projectDir"`
-	CompileFileNames []string `json:"compileFileNames"`
+	TsConfigPath     string   `json:"tsConfigPath,omitempty"`
+	ProjectDir       string   `json:"projectDir,omitempty"`
+	CompileFileNames []string `json:"compileFileNames,omitempty"`
+	FileNames        []string `json:"fileNames,omitempty"`
 	// RootFileNames narrows the worker's LanguageService root set. Empty means
 	// "every file the tsconfig names", which is what a full build wants. An
 	// incremental build that selected a handful of files pays for parsing and
 	// binding the whole project otherwise, and the worker's program is thrown
 	// away when the rotor process exits, so nothing amortizes it.
-	RootFileNames []string             `json:"rootFileNames,omitempty"`
-	ChangedFiles  []sidecarChangedFile `json:"changedFiles"`
-	Plugins       []json.RawMessage    `json:"plugins,omitempty"`
+	RootFileNames []string              `json:"rootFileNames,omitempty"`
+	ChangedFiles  *[]sidecarChangedFile `json:"changedFiles,omitempty"`
+	Plugins       []json.RawMessage     `json:"plugins,omitempty"`
+	ResultHandle  string                `json:"resultHandle,omitempty"`
+	Outcome       string                `json:"outcome,omitempty"`
+	leaseOwner    string
 }
 
 type sidecarChangedFile struct {
 	FileName string `json:"fileName"`
-	Text     string `json:"text"`
+	Text     string `json:"text,omitempty"`
+	Deleted  bool   `json:"deleted,omitempty"`
 }
 
 type sidecarResponse struct {
-	Diagnostics []sidecarDiagnostic     `json:"diagnostics"`
-	Transformed []sidecarOutputFile     `json:"transformed"`
-	Metrics     *sidecarResponseMetrics `json:"metrics,omitempty"`
+	Diagnostics  []sidecarDiagnostic     `json:"diagnostics"`
+	Transformed  []sidecarOutputFile     `json:"transformed"`
+	Metrics      *sidecarResponseMetrics `json:"metrics,omitempty"`
+	ResultHandle string                  `json:"resultHandle,omitempty"`
+	TraceMaps    []sidecarTraceMap       `json:"traceMaps,omitempty"`
+	Logs         []string                `json:"logs,omitempty"`
 	// AfterDeclarationsTransformers is how many `afterDeclarations`
 	// transformers the worker built for this project, after flattening. Rotor
 	// emits declarations natively and never runs them, so a non-zero count is
 	// a warning (see warnUnsupportedAfterDeclarations).
 	AfterDeclarationsTransformers int `json:"afterDeclarationsTransformers"`
+	lease                         *sidecarTraceLease
+	abandon                       func()
 }
 
 type sidecarResponseMetrics struct {
@@ -117,6 +128,10 @@ type sidecarDiagnostic struct {
 type sidecarOutputFile struct {
 	FileName string `json:"fileName"`
 	Text     string `json:"text"`
+}
+
+type sidecarTraceMap struct {
+	FileName string `json:"fileName"`
 	TraceMap string `json:"traceMap"`
 }
 
@@ -125,6 +140,7 @@ type preparedTransformerProgram struct {
 	sourceFiles              []*ast.SourceFile
 	flamework                *config.FlameworkConfig
 	sourceTraces             diagnosticTraces
+	sidecarTraceLeases       []*sidecarTraceLease
 	sidecarWaitDuration      time.Duration
 	sidecarPrepDuration      time.Duration
 	sidecarRoundTripDuration time.Duration
@@ -154,6 +170,10 @@ func prepareProjectProgramForCompile(dir string, program *compiler.Program, sour
 }
 
 func prepareTransformerProgram(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
+	return prepareTransformerProgramForWorkspace(dir, program, sourceFiles, overlays, "")
+}
+
+func prepareTransformerProgramForWorkspace(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, workspaceDir string) (*preparedTransformerProgram, []string, error) {
 	flamework, diags, err := prepareFlameworkConfig(dir, program.CommandLine())
 	if err != nil {
 		return nil, diags, err
@@ -165,7 +185,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
-	transformed, diags, err := applyTransformerSidecar(dir, program, sourceFiles, overlays)
+	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, nil, newSidecarBuildState(workspaceDir))
 	if err != nil {
 		return nil, diags, err
 	}
@@ -178,6 +198,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 
 	remapped, err := remapProgramSourceFiles(transformed.program, sourceFiles)
 	if err != nil {
+		releaseSidecarTraceLeases(transformed.sidecarTraceLeases, "error")
 		return nil, nil, err
 	}
 	prepared := *transformed
@@ -207,10 +228,18 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 		warnUnsupportedAfterDeclarations(configPath, countConfiguredAfterDeclarations(configured))
 	}
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, state)
+	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), program.SourceFiles(), overlays, plugins, state)
 	sidecarRegion.End()
 	if err != nil {
 		return nil, []string{err.Error()}, err
+	}
+	leaseTransferred := false
+	if response.lease != nil {
+		defer func() {
+			if !leaseTransferred {
+				releaseSidecarTraceLeases([]*sidecarTraceLease{response.lease}, "error")
+			}
+		}()
 	}
 
 	if emitsDeclarations {
@@ -234,9 +263,6 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 	var canonicalSources map[string]*ast.SourceFile
 	for index := range response.Transformed {
 		file := &response.Transformed[index]
-		if file.TraceMap == "" {
-			continue
-		}
 		original := program.GetSourceFile(file.FileName)
 		if original == nil {
 			if canonicalSources == nil {
@@ -251,21 +277,29 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 			stopDecode()
 			return nil, nil, fmt.Errorf("compile: transformer trace source missing from program: %s", file.FileName)
 		}
-		fileTrace, err := newSourceTraceMap(file.TraceMap, original.FileName(), original.Text())
-		if err != nil {
+		if response.lease == nil {
 			stopDecode()
-			return nil, nil, err
+			return nil, nil, errors.New("compile: transformer response omitted its result handle")
 		}
 		// Keep the Go program's original spelling for downstream overlay and
 		// diagnostic lookups. The worker operates on physical paths, which can
 		// differ from this process's /var-style path through a symlink.
 		file.FileName = original.FileName()
-		sourceTraces[normalizeSourceFilePath(file.FileName)] = fileTrace
+		traceFileName := file.FileName
+		sourceTraces[normalizeSourceFilePath(traceFileName)] = newDeferredSourceTraceMap(
+			original.FileName(),
+			original.Text(),
+			func() (string, error) { return response.lease.traceMap(traceFileName) },
+		)
 	}
 	stats.decode += stopDecode()
 	state.addCall(stats)
 	state.absorbTransformed(response.Transformed)
 	prepared := preparedFromSidecarStats(program, sourceTraces, stats)
+	if response.lease != nil {
+		prepared.sidecarTraceLeases = []*sidecarTraceLease{response.lease}
+		leaseTransferred = true
+	}
 	if len(response.Transformed) == 0 {
 		return prepared, nil, nil
 	}
@@ -327,8 +361,17 @@ func preparedFromSidecarStats(program *compiler.Program, sourceTraces diagnostic
 }
 
 type sidecarFileStamp struct {
-	modTime time.Time
-	size    int64
+	modTime          time.Time
+	size             int64
+	metadataIdentity string
+}
+
+func newSidecarFileStamp(info os.FileInfo) sidecarFileStamp {
+	return sidecarFileStamp{
+		modTime:          info.ModTime(),
+		size:             info.Size(),
+		metadataIdentity: sidecarFileMetadataIdentity(info),
+	}
 }
 
 // sidecarSession is one warm Node worker. It lives for the rotor process
@@ -350,18 +393,98 @@ type sidecarSession struct {
 }
 
 type sidecarSlot struct {
-	mu      sync.Mutex
-	session *sidecarSession
+	mu        sync.Mutex
+	session   *sidecarSession
+	leaseMu   sync.Mutex
+	leases    map[string]string
+	leaseDone chan struct{}
+}
+
+func (s *sidecarSlot) waitForResultOwner(owner string) {
+	for {
+		s.leaseMu.Lock()
+		if len(s.leases) == 0 || sidecarSlotLeasesOwnedBy(s.leases, owner) {
+			s.leaseMu.Unlock()
+			return
+		}
+		done := s.leaseDone
+		s.leaseMu.Unlock()
+		<-done
+	}
+}
+
+func (s *sidecarSlot) lockForResultOwner(owner string) {
+	for {
+		s.waitForResultOwner(owner)
+		s.mu.Lock()
+		s.leaseMu.Lock()
+		available := len(s.leases) == 0 || sidecarSlotLeasesOwnedBy(s.leases, owner)
+		s.leaseMu.Unlock()
+		if available {
+			return
+		}
+		s.mu.Unlock()
+	}
+}
+
+func sidecarSlotLeasesOwnedBy(leases map[string]string, owner string) bool {
+	if owner == "" {
+		return false
+	}
+	for _, leaseOwner := range leases {
+		if leaseOwner != owner {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *sidecarSlot) retainResult(handle, owner string) {
+	s.leaseMu.Lock()
+	defer s.leaseMu.Unlock()
+	if len(s.leases) == 0 {
+		s.leases = make(map[string]string)
+		s.leaseDone = make(chan struct{})
+	}
+	s.leases[handle] = owner
+}
+
+func (s *sidecarSlot) releaseResult(handle string) {
+	s.leaseMu.Lock()
+	defer s.leaseMu.Unlock()
+	delete(s.leases, handle)
+	if len(s.leases) == 0 && s.leaseDone != nil {
+		close(s.leaseDone)
+		s.leaseDone = nil
+	}
+}
+
+func (s *sidecarSlot) clearResults() {
+	s.leaseMu.Lock()
+	defer s.leaseMu.Unlock()
+	clear(s.leases)
+	if s.leaseDone != nil {
+		close(s.leaseDone)
+		s.leaseDone = nil
+	}
 }
 
 type sidecarBuildState struct {
 	stageOverlays map[string]string
 	diskScanned   bool
 	call          sidecarCallStats
+	workspaceDir  string
+	leaseOwner    string
 }
 
-func newSidecarBuildState() *sidecarBuildState {
-	return &sidecarBuildState{stageOverlays: map[string]string{}}
+var sidecarBuildSequence atomic.Uint64
+
+func newSidecarBuildState(workspaceDir string) *sidecarBuildState {
+	return &sidecarBuildState{
+		stageOverlays: map[string]string{},
+		workspaceDir:  workspaceDir,
+		leaseOwner:    fmt.Sprintf("%d-%d", os.Getpid(), sidecarBuildSequence.Add(1)),
+	}
 }
 
 func (s *sidecarBuildState) absorbSourceFiles(files []*ast.SourceFile) {
@@ -520,10 +643,13 @@ func spawnSidecarSession(dir, sidecarDir string) (*sidecarSession, error) {
 	if err != nil {
 		return nil, errors.New("node executable not found; rotor transformer plugins require Node.js on PATH")
 	}
+	return spawnSidecarSessionWithRuntime(dir, sidecarDir, nodePath, sidecarEnv(dir, sidecarDir))
+}
 
+func spawnSidecarSessionWithRuntime(dir, sidecarDir, nodePath string, env []string) (*sidecarSession, error) {
 	cmd := exec.Command(nodePath, filepath.Join(sidecarDir, "main.js"))
 	cmd.Dir = filepath.FromSlash(dir)
-	cmd.Env = sidecarEnv(dir, sidecarDir)
+	cmd.Env = slices.Clone(env)
 
 	stderrPipe, err := cmd.StderrPipe()
 	if err != nil {
@@ -654,12 +780,17 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 	fresh := len(s.stamps) == 0
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	overlaid := make(map[string]sidecarChangedFile, len(overlays))
+	current := make(map[string]struct{}, len(fileNames)+len(overlays))
+	for _, fileName := range fileNames {
+		current[normalizeOverlayPath(filepath.FromSlash(fileName), caseSensitive)] = struct{}{}
+	}
 	for path, text := range overlays {
 		key := normalizeOverlayPath(path, caseSensitive)
+		current[key] = struct{}{}
 		overlaid[key] = sidecarChangedFile{FileName: filepath.FromSlash(path), Text: text}
 	}
 
-	changed, revertReads, revertStats := s.revertDroppedOverlays(overlaid)
+	changed, revertReads, revertStats := s.revertDroppedOverlays(overlaid, current)
 	ioStats.reads += revertReads
 	ioStats.stats += revertStats
 	for _, key := range slices.Sorted(maps.Keys(overlaid)) {
@@ -690,9 +821,15 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 		info, err := os.Stat(path)
 		ioStats.stats++
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				if _, stamped := s.stamps[path]; stamped && !fresh {
+					changed = append(changed, sidecarChangedFile{FileName: path, Deleted: true})
+				}
+				delete(s.stamps, path)
+			}
 			continue
 		}
-		stamp := sidecarFileStamp{modTime: info.ModTime(), size: info.Size()}
+		stamp := newSidecarFileStamp(info)
 		if prev, ok := s.stamps[path]; !fresh && (!ok || prev != stamp) {
 			text, err := os.ReadFile(path)
 			ioStats.reads++
@@ -702,6 +839,13 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 			changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
 		}
 		s.stamps[path] = stamp
+	}
+	for stampedPath := range s.stamps {
+		if _, ok := current[normalizeOverlayPath(stampedPath, caseSensitive)]; ok {
+			continue
+		}
+		delete(s.stamps, stampedPath)
+		changed = append(changed, sidecarChangedFile{FileName: stampedPath, Deleted: true})
 	}
 	ioStats.changedFiles = len(changed)
 	return changed, ioStats, nil
@@ -716,15 +860,9 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 // would have read it from anyway. Stamping the file at the same time keeps the
 // stat-diff below from sending it a second time.
 //
-// Known limitation: a file overlaid and then DELETED from disk keeps its
-// override in the worker for the session's lifetime. There is nothing to resend
-// and the protocol carries no way to forget a file, so rotor only drops its own
-// stamp. Unreachable from `rotor diagnostics`, which sets its overlays once per
-// process; it would need a watch session that both overlays and deletes.
-//
 // overlaid is this round trip's overlays, keyed the way normalizeOverlayPath
 // keys them.
-func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile) ([]sidecarChangedFile, int, int) {
+func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile, current map[string]struct{}) ([]sidecarChangedFile, int, int) {
 	changed := []sidecarChangedFile{}
 	reads := 0
 	stats := 0
@@ -734,23 +872,34 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 		}
 		path := s.overlaid[key]
 		delete(s.overlaid, key)
+		if _, present := current[key]; !present {
+			delete(s.stamps, path)
+			changed = append(changed, sidecarChangedFile{FileName: path, Deleted: true})
+			continue
+		}
 
-		text, err := os.ReadFile(path)
-		reads++
 		info, statErr := os.Stat(path)
 		stats++
+		text, err := os.ReadFile(path)
+		reads++
 		if err != nil || statErr != nil {
 			delete(s.stamps, path)
+			if errors.Is(err, os.ErrNotExist) || errors.Is(statErr, os.ErrNotExist) {
+				changed = append(changed, sidecarChangedFile{FileName: path, Deleted: true})
+			}
 			continue
 		}
 		changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
-		s.stamps[path] = sidecarFileStamp{modTime: info.ModTime(), size: info.Size()}
+		s.stamps[path] = newSidecarFileStamp(info)
 	}
 	return changed, reads, stats
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
+	if state == nil {
+		state = newSidecarBuildState("")
+	}
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, stats, err
@@ -758,6 +907,9 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 	timeout, err := sidecarResponseTimeout()
 	if err != nil {
 		return nil, stats, err
+	}
+	if PersistentSidecarDaemonEnabled() {
+		return persistentTransformerSidecar(dir, configPath, compileFiles, rootFiles, stampFiles, overlays, plugins, state, timeout)
 	}
 
 	roundTripStage := sidecarRoundTripStage.traceName()
@@ -772,7 +924,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 	key := sidecarDirPath + "|" + sidecarConfigPath
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
-	slot.mu.Lock()
+	slot.lockForResultOwner(state.leaseOwner)
 	stats.wait = stopWait()
 	defer slot.mu.Unlock()
 
@@ -783,7 +935,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			if session != nil {
 				session.close()
 			}
-			session, err = spawnSidecarSession(dir, sidecarDir)
+			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
 			if err != nil {
 				stats.prep += stopPrep()
 				return nil, stats, nodeRequirementError(err, configPath, plugins)
@@ -813,18 +965,19 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 
 		request := sidecarRequest{
-			Protocol:         1,
+			Protocol:         sidecarNodeProtocolVersion,
 			Operation:        "transform",
 			TsConfigPath:     filepath.FromSlash(sidecarConfigPath),
 			ProjectDir:       filepath.FromSlash(sidecarDirPath),
 			CompileFileNames: make([]string, 0, len(compileFiles)),
-			ChangedFiles:     changedFiles,
+			ChangedFiles:     &changedFiles,
+			FileNames:        append([]string(nil), stampNames...),
 			Plugins:          plugins,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
 		}
-		request.RootFileNames = narrowedSidecarRoots(compileFiles, stampFiles)
+		request.RootFileNames = narrowedSidecarRoots(compileFiles, rootFiles)
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
@@ -841,12 +994,6 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		if err != nil {
 			session.close()
 			slot.session = nil
-			if errors.Is(err, context.DeadlineExceeded) {
-				return nil, stats, err
-			}
-			if attempt == 0 {
-				continue
-			}
 			return nil, stats, err
 		}
 		if state != nil {
@@ -858,6 +1005,9 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
 			return nil, stats, session.fail(err)
 		}
+		for _, logLine := range response.Logs {
+			logservice.WriteLine(logLine)
+		}
 		stats.decode += time.Since(decodeStarted)
 		if response.Metrics != nil {
 			stats.nodeWallMs = response.Metrics.WallMs
@@ -865,6 +1015,18 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
 			stats.nodeVersion = response.Metrics.NodeVersion
 			logPluginMetrics(configPath, response.Metrics.Plugins)
+		}
+		if response.ResultHandle != "" {
+			handle := response.ResultHandle
+			slot.retainResult(handle, state.leaseOwner)
+			response.lease = newSidecarTraceLease(handle, func(control sidecarRequest) (*sidecarResponse, error) {
+				if control.Operation == "release" {
+					defer slot.releaseResult(handle)
+				}
+				control.TsConfigPath = filepath.FromSlash(sidecarConfigPath)
+				control.ProjectDir = filepath.FromSlash(sidecarDirPath)
+				return localSidecarControlRequest(key, control, timeout)
+			})
 		}
 		return &response, stats, nil
 	}
@@ -875,13 +1037,13 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 // factory. Declaration emit uses the original Go program, so a transform round
 // trip would only allocate a discarded overlay program and execute arbitrary
 // plugin code that cannot affect the declarations.
-func validateTransformerSidecar(dir string, program *compiler.Program) ([]string, error) {
+func validateTransformerSidecar(dir string, program *compiler.Program, workspaceDir string) ([]string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
-	response, _, err := runTransformerSidecarValidation(dir, configPath)
+	response, _, err := runTransformerSidecarValidation(dir, configPath, workspaceDir)
 	if err != nil {
 		return []string{err.Error()}, err
 	}
@@ -904,7 +1066,7 @@ func validateTransformerSidecar(dir string, program *compiler.Program) ([]string
 	return nil, nil
 }
 
-func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecarValidation(dir, configPath, workspaceDir string) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
@@ -913,6 +1075,9 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 	timeout, err := sidecarResponseTimeout()
 	if err != nil {
 		return nil, stats, err
+	}
+	if PersistentSidecarDaemonEnabled() {
+		return persistentSidecarValidation(dir, configPath, workspaceDir, timeout)
 	}
 
 	sidecarDirPath := canonicalSidecarPath(dir)
@@ -931,7 +1096,7 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 			if session != nil {
 				session.close()
 			}
-			session, err = spawnSidecarSession(dir, sidecarDir)
+			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
 			if err != nil {
 				stats.prep += stopPrep()
 				return nil, stats, nodeRequirementError(err, configPath, nil)
@@ -945,7 +1110,7 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 		}
 
 		request := sidecarRequest{
-			Protocol:     1,
+			Protocol:     sidecarNodeProtocolVersion,
 			Operation:    "validate",
 			TsConfigPath: filepath.FromSlash(sidecarConfigPath),
 			ProjectDir:   filepath.FromSlash(sidecarDirPath),
@@ -976,6 +1141,9 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 		var response sidecarResponse
 		if err := json.Unmarshal(bytes.TrimSpace(line), &response); err != nil {
 			return nil, stats, session.fail(err)
+		}
+		for _, logLine := range response.Logs {
+			logservice.WriteLine(logLine)
 		}
 		stats.decode += time.Since(decodeStarted)
 		if response.Metrics != nil {
@@ -1043,6 +1211,7 @@ func closeSidecarSessions() {
 			slot.session.close()
 			slot.session = nil
 		}
+		slot.clearResults()
 		slot.mu.Unlock()
 	}
 }

@@ -93,6 +93,8 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	if err != nil {
 		return "", stringDiagnostics(diags), err
 	}
+	releaseOutcome := "error"
+	defer func() { releaseSidecarTraceLeases(pipeline.prepared.sidecarTraceLeases, releaseOutcome) }()
 	program = pipeline.prepared.program
 	sourceFile = pipeline.prepared.sourceFiles[0]
 
@@ -136,7 +138,11 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	state.Files = pctx.files
 	state.Stamps = pctx.stamps
 	state.SkipSemanticDiagnostics = opts.SkipSemanticDiagnostics
-	return transformAndRenderDetailed(state)
+	text, renderDiags, err := transformAndRenderDetailed(state)
+	if err == nil && len(renderDiags) == 0 {
+		releaseOutcome = "success"
+	}
+	return text, renderDiags, err
 }
 
 // transformAndRender runs the transformer and renderer behind a recover
@@ -284,6 +290,14 @@ func stringDiagnostics(diags []string) []DiagnosticInfo {
 func tsDiagnosticInfos(diags []*ast.Diagnostic, traces diagnosticTraces) []DiagnosticInfo {
 	out := make([]DiagnosticInfo, len(diags))
 	for i, d := range diags {
+		if file := d.File(); file != nil {
+			if trace := traces[normalizeSourceFilePath(file.FileName())]; trace != nil {
+				if err := trace.resolve(); err != nil {
+					out[i] = DiagnosticInfo{Message: err.Error()}
+					continue
+				}
+			}
+		}
 		out[i] = infoFromTSDiag(d, traces)
 	}
 	return out

@@ -483,6 +483,7 @@ type ProjectOptions struct {
 	pendingSolutionPersists   *[]func() error
 	deferRojoCachePersist     bool
 	compileCache              *solutionCompileCache
+	sidecarWorkspaceDir       string
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds
@@ -698,6 +699,8 @@ func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOp
 	if err != nil {
 		return nil, stringDiagnostics(diags), err
 	}
+	releaseOutcome := "error"
+	defer func() { releaseSidecarTraceLeases(pipeline.prepared.sidecarTraceLeases, releaseOutcome) }()
 	program = pipeline.prepared.program
 	sourceFiles = pipeline.prepared.sourceFiles
 	pctx, pctxDiags, err := newProjectContext(dir, program, opts)
@@ -706,6 +709,9 @@ func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOp
 	}
 	pctx.sourceTraces = pipeline.prepared.sourceTraces
 	outputs, _, infos, err := compileProjectSourceFiles(dir, program, pctx, sourceFiles, opts)
+	if err == nil && len(infos) == 0 {
+		releaseOutcome = "success"
+	}
 	return outputs, infos, err
 }
 

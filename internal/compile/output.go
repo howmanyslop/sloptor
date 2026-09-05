@@ -64,6 +64,8 @@ type BuildResult struct {
 // compiled outputs. CompileProject remains the pure library API; this is the
 // writing entry point for the CLI and future watch/incremental layers.
 func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResult, []string, error) {
+	warmup := startPersistentSidecarWarmup(projectDir, opts)
+	defer warmup.stop()
 	writer := newOutputWriter()
 	timings := opts.Timings
 	if timings != nil {
@@ -150,7 +152,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		// cannot affect declaration output and must not create a discarded overlay.
 		originalProgram := program
 		if projectUsesTransformerPlugins(program.CommandLine()) {
-			if sidecarDiags, err := validateTransformerSidecar(dir, program); err != nil {
+			if sidecarDiags, err := validateTransformerSidecar(dir, program, opts.sidecarWorkspaceDir); err != nil {
 				return nil, sidecarDiags, err
 			}
 		}
@@ -277,12 +279,19 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 
 	// Held across the pipeline because declaration emit reads it: declarations
 	// describe the source the user wrote, not the source transformers produced.
+	if len(selectedFiles) == 0 {
+		warmup.stop()
+	} else {
+		warmup.wait()
+	}
 	originalProgram := program
-	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
+	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline, opts.sidecarWorkspaceDir)
 	if err != nil {
 		return nil, diags, err
 	}
 	prepared := pipeline.prepared
+	releaseOutcome := "error"
+	defer func() { releaseSidecarTraceLeases(prepared.sidecarTraceLeases, releaseOutcome) }()
 	timings.recordPreparedTransformerProgram(prepared)
 	program = prepared.program
 	selectedFiles = prepared.sourceFiles
@@ -486,6 +495,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	stopPersistence()
 	timings.setEmittedEntries(len(emittedFiles))
 
+	releaseOutcome = "success"
 	return &BuildResult{
 		Outputs:         outputs,
 		EmittedFiles:    emittedFiles,
