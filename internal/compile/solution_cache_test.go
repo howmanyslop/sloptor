@@ -3,10 +3,12 @@ package compile
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
+	"time"
 
 	"rotor/tsgo/ast"
 )
@@ -85,6 +87,106 @@ func TestSolutionParseCacheHitsSharedDeclarations(t *testing.T) {
 	}
 }
 
+// Catches sibling projects resolving the same package specifier through the
+// other project's package.json when a solution shares package metadata.
+func TestSolutionPackageJSONCacheKeepsSiblingPackagesDistinct(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionConfig(t, root, "tsconfig.json", []string{"./left", "./right"}, true)
+	writePackageJSONCacheProject(t, filepath.Join(root, "left"), "left")
+	writePackageJSONCacheProject(t, filepath.Join(root, "right"), "right")
+
+	builders := 1
+	if _, messages, err := BuildSolutionWithOptions(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders}); err != nil {
+		t.Fatalf("BuildSolutionWithOptions: %v (%v)", err, messages)
+	}
+}
+
+// Catches a dependent project keeping the pre-build Rojo tree after its
+// predecessor adds a nested output project while the walked output directory
+// retains its original mtime. The fixture tree declares that nested output
+// under Generated, which is the required import path after it is emitted.
+func TestSolutionSharedRojoCacheRevalidatesPredecessorOutputAndPersistsPerProject(t *testing.T) {
+	root, libDir, gameDir := writeCrossProjectSolution(t)
+	for _, dir := range []string{filepath.Join(libDir, "out"), filepath.Join(gameDir, "out")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeSolutionFile(t, root, "shared.project.json", `{"name":"shared","tree":{"$className":"DataModel","ReplicatedStorage":{"include":{"$path":"game/include"},"lib":{"$path":"lib/out"},"game":{"$path":"game/out"}}}}`)
+	writeSolutionFile(t, libDir, "tsconfig.json", crossProjectCompilerOptions(true)+`,"rbxts":{"rojo":"../shared.project.json"},"include":["src"]}`)
+	writeSolutionFile(t, gameDir, "tsconfig.json", crossProjectCompilerOptions(true)+`,"rbxts":{"rojo":"../shared.project.json","type":"game"},"include":["src"],"references":[{"path":"../lib"}]}`)
+	writeSolutionFile(t, libDir, "src/default.project.json", `{"name":"generated","tree":{"Generated":{"regular":{"$path":"regular.luau"}}}}`)
+	writeSolutionFile(t, gameDir, "src/index.ts", "import { regular } from \"../../lib/src/regular\";\nexport const value = regular();\n")
+
+	libOutput := filepath.Join(libDir, "out")
+	if err := os.Chtimes(libOutput, time.Unix(1_700_000_000, 0), time.Unix(1_700_000_000, 0)); err != nil {
+		t.Fatalf("pin predecessor output mtime: %v", err)
+	}
+	initialOutputInfo, err := os.Stat(libOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	builders := 1
+	coordinator, err := NewSolutionCoordinator(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders})
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinator: %v", err)
+	}
+	buildDrainer, ok := coordinator.drainer.(*solutionBuildDrainer)
+	if !ok {
+		t.Fatalf("solution drainer = %T, want *solutionBuildDrainer", coordinator.drainer)
+	}
+	coordinator.drainer = &directoryMtimeRestoringDrainer{
+		solutionBuildDrainer: buildDrainer,
+		projectConfig:        filepath.Join(libDir, "tsconfig.json"),
+		directory:            libOutput,
+		restore:              initialOutputInfo.ModTime(),
+	}
+	if _, messages, err := coordinator.Drain(); err != nil {
+		t.Fatalf("Drain: %v (%v)", err, messages)
+	}
+
+	if _, err := os.Stat(filepath.Join(libDir, "out", "default.project.json")); err != nil {
+		t.Fatalf("predecessor did not emit the nested Rojo project: %v", err)
+	}
+	gameOutput := string(mustReadFile(t, filepath.Join(gameDir, "out", "init.luau")))
+	if !strings.Contains(gameOutput, `"lib", "Generated", "regular"`) {
+		t.Fatalf("dependent output did not use the predecessor's nested Rojo mapping:\n%s", gameOutput)
+	}
+
+	for _, projectDir := range []string{libDir, gameDir} {
+		cachePath := onlyCacheFile(t, filepath.Join(projectDir, ".rotor", "cache", "rojo"))
+		info, err := os.Stat(cachePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			t.Fatalf("Rojo cache for %s was not persisted as a non-empty regular file", projectDir)
+		}
+	}
+}
+
+// directoryMtimeRestoringDrainer simulates a filesystem that does not report
+// the predecessor's newly created directory entries through its mtime.
+type directoryMtimeRestoringDrainer struct {
+	*solutionBuildDrainer
+	projectConfig string
+	directory     string
+	restore       time.Time
+}
+
+func (d *directoryMtimeRestoringDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
+	result, messages, err := d.solutionBuildDrainer.Drain(project)
+	if err != nil || project.ConfigPath != d.projectConfig {
+		return result, messages, err
+	}
+	if err := os.Chtimes(d.directory, d.restore, d.restore); err != nil {
+		return result, messages, err
+	}
+	return result, messages, nil
+}
+
 func writeSharedDeclSolutionProject(t *testing.T, dir, sharedDecl string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o755); err != nil {
@@ -99,6 +201,32 @@ func writeSharedDeclSolutionProject(t *testing.T, dir, sharedDecl string) {
 	}
 	for path, content := range files {
 		if err := os.WriteFile(filepath.Join(dir, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func writePackageJSONCacheProject(t *testing.T, dir, value string) {
+	t.Helper()
+	files := map[string]string{
+		"tsconfig.json":    `{"compilerOptions":{"allowSyntheticDefaultImports":true,"composite":true,"declaration":true,"module":"CommonJS","moduleResolution":"Node","noLib":true,"moduleDetection":"force","strict":true,"target":"ESNext","types":[],"typeRoots":["node_modules/@rbxts"],"rootDir":"src","outDir":"out"},"include":["src"]}`,
+		"package.json":     `{"name":"@scope/` + value + `"}`,
+		"src/globals.d.ts": noLibGlobalStubs,
+		"src/main.ts": `import { marker } from "@rbxts/fixture";
+const observed: "` + value + `" = marker;
+export { observed };
+`,
+		"node_modules/@rbxts/fixture/package.json": `{"name":"@rbxts/fixture","types":"index.d.ts","main":"init.luau"}`,
+		"node_modules/@rbxts/fixture/index.d.ts": `export declare const marker: "` + value + `";
+`,
+		"node_modules/@rbxts/fixture/init.luau": "return {}\n",
+	}
+	for path, contents := range files {
+		fullPath := filepath.Join(dir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte(contents), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -41,6 +41,7 @@ type ProgramOptions struct {
 	TypingsLocation             string
 	ProjectName                 string
 	Tracing                     *tracing.Tracing
+	ResolverOptions             module.ResolverOptions
 }
 
 func (p *ProgramOptions) canUseProjectReferenceSource() bool {

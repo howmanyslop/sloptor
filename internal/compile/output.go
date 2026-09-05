@@ -185,8 +185,9 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		stopSelection()
 		return nil, nil, err
 	}
-	rojoCache := loadRojoCachesPreBuild(dir, opts)
+	rojoCache, rojoResolver := loadRojoCachesPreBuild(dir, opts)
 	opts.rojoCache = rojoCache
+	opts.rojoResolver = rojoResolver
 
 	selectedFiles := sourceFiles
 	// signatureDeclarations is the declaration text the selection pass already
@@ -200,7 +201,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			recovered := recoveredInputPaths(dir, pathTranslator, previousOutputs, previousPresence)
 			narrowed, declarations, ok, err := narrowSelectionByDeclarationSignature(
 				dir, program, pathTranslator, sourceFiles, recovered,
-				currentManifest, previousManifest, previousOutputs, timings,
+				currentManifest, previousManifest, previousOutputs, writer.previousOutputMatches, timings,
 			)
 			if err != nil {
 				stopSelection()
@@ -499,14 +500,17 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}, nil, nil
 }
 
-func loadRojoCachesPreBuild(dir string, opts ProjectOptions) *rojo.RojoResolverCache {
+func loadRojoCachesPreBuild(dir string, opts ProjectOptions) (*rojo.RojoResolverCache, *rojo.RojoResolver) {
 	rojoConfigPath, _, err := resolveRojoConfigPath(dir, opts.RojoConfigPath)
 	if err != nil || rojoConfigPath == "" {
-		return nil
+		return nil, nil
 	}
-	cache := rojo.NewRojoResolverCacheWithDeferredPersist(filepath.Join(filepath.FromSlash(dir), ".rotor", "cache", "rojo"), core.Version(), opts.deferRojoCachePersist)
-	cache.Load(rojoConfigPath)
-	return cache
+	cacheDir := filepath.Join(filepath.FromSlash(dir), ".rotor", "cache", "rojo")
+	if opts.compileCache != nil {
+		return opts.compileCache.rojoResolver(rojoConfigPath, cacheDir, core.Version(), opts.deferRojoCachePersist)
+	}
+	cache := rojo.NewRojoResolverCacheWithDeferredPersist(cacheDir, core.Version(), opts.deferRojoCachePersist)
+	return cache, cache.Load(rojoConfigPath)
 }
 
 // declarationEmitFile is one file tsgo's declaration emit produced for a

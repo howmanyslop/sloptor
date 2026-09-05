@@ -51,11 +51,38 @@ func TestOutputHashMatchUsesValidatedContents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wrote || reads.Load() != 1 || writes.Load() != 0 || lstats.Load() != 2 {
+	if wrote || reads.Load() != 1 || writes.Load() != 0 || lstats.Load() != 1 {
 		t.Fatalf("wrote=%v reads=%d writes=%d lstats=%d", wrote, reads.Load(), writes.Load(), lstats.Load())
 	}
 	if current["out/main.luau"] != hash || writer.hashSkipCount() != 1 {
 		t.Fatalf("current hashes = %v, skips = %d", current, writer.hashSkipCount())
+	}
+}
+
+// Catches a no-change build reading every prior output before it knows that no
+// output needs to be trusted for a hash skip.
+func TestOutputWriterDefersManifestContentValidation(t *testing.T) {
+	var reads atomic.Int32
+	var stats atomic.Int32
+	writer := newOutputWriterWithOperations(outputWriterOperations{
+		readFile: func(string) ([]byte, error) {
+			reads.Add(1)
+			return nil, os.ErrNotExist
+		},
+		lstat: func(string) (fs.FileInfo, error) {
+			stats.Add(1)
+			return nil, os.ErrNotExist
+		},
+	}, true)
+
+	if err := writer.useHashes(t.TempDir(), map[string]string{
+		"out/unused.luau": contentHash("unused"),
+	}, map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if reads.Load() != 0 || stats.Load() != 0 {
+		t.Fatalf("useHashes read=%d stats=%d, want no output validation before a hash skip", reads.Load(), stats.Load())
 	}
 }
 
