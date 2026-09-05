@@ -118,6 +118,30 @@ func TestSelectByDeclarationSignatureStopsAtUnchangedDeclaration(t *testing.T) {
 	}
 }
 
+// Catches a changed source leaving its importer stale when the declaration
+// file from the prior build was altered outside the compiler.
+func TestSelectByDeclarationSignaturePropagatesWhenRecordedOutputChanged(t *testing.T) {
+	current, previous := signatureFixture()
+	files := fakeSourceFiles(t, "/proj/src/main.ts", "/proj/src/util.ts", "/proj/src/side.ts")
+	declarations := map[string]string{"main": "declare main;", "util": "export declare const VALUE: number;"}
+	recorded := map[string]string{
+		"out/util.d.ts": contentHash(declarations["util"]),
+		"out/main.d.ts": contentHash(declarations["main"]),
+	}
+	selection, _ := signatureSelection(t, declarations, recorded)
+	selection.previousOutputMatches = func(path, hash string) bool {
+		return false
+	}
+
+	selected, _, err := selectByDeclarationSignature(files, changedSourcePaths(current, previous), current, previous, selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selectedNames(selected); !slices.Equal(got, []string{"main.ts", "util.ts"}) {
+		t.Fatalf("selected = %v, want util.ts and its importer after a changed declaration output", got)
+	}
+}
+
 func TestSelectByDeclarationSignaturePropagatesOnChangedDeclaration(t *testing.T) {
 	current, previous := signatureFixture()
 	files := fakeSourceFiles(t, "/proj/src/main.ts", "/proj/src/util.ts", "/proj/src/side.ts")
@@ -264,7 +288,7 @@ func TestNarrowSelectionStandsDownWhenTheSelectionEmitFails(t *testing.T) {
 	t.Cleanup(func() { declarationTextsForSelection = restore })
 
 	selected, declarations, ok, err := narrowSelectionByDeclarationSignature(
-		dir, program, pathTranslator, sourceFiles, nil, manifest, previous, manifest.Outputs, nil,
+		dir, program, pathTranslator, sourceFiles, nil, manifest, previous, manifest.Outputs, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("a failed selection emit became a build error: %v", err)

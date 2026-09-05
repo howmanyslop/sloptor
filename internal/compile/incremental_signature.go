@@ -21,9 +21,10 @@ type declarationSignatureSelection struct {
 	// declarationPath maps a source file to the absolute path its declaration
 	// output is written to.
 	declarationPath func(string) string
-	// previousOutputs is the last build's output-path -> content hash map,
-	// already validated against what is on disk.
-	previousOutputs map[string]string
+	// previousOutputs is the last build's output-path -> content hash map.
+	// Its contents are validated only when a declaration signature would hold.
+	previousOutputs       map[string]string
+	previousOutputMatches func(string, string) bool
 	// emit yields the declaration text a set of source files produces. It must
 	// be the same text the build will write: the comparison below is against
 	// the hash the previous build recorded for the file it wrote.
@@ -153,7 +154,10 @@ func (selection declarationSignatureSelection) signatureHeld(sourceFile *ast.Sou
 		return false
 	}
 	sum := sha256.Sum256([]byte(text))
-	return hex.EncodeToString(sum[:]) == previous
+	if hex.EncodeToString(sum[:]) != previous {
+		return false
+	}
+	return selection.previousOutputMatches == nil || selection.previousOutputMatches(key, previous)
 }
 
 // outputKey mirrors outputWriter.outputKey so a declaration path lines up with
@@ -204,6 +208,7 @@ func narrowSelectionByDeclarationSignature(
 	extraSeeds map[string]struct{},
 	current, previous *incrementalManifest,
 	previousOutputs map[string]string,
+	previousOutputMatches func(string, string) bool,
 	timings *BuildTimings,
 ) ([]*ast.SourceFile, []declarationEmitFile, bool, error) {
 	if previous == nil || current == nil || previous.Salt != current.Salt {
@@ -222,9 +227,10 @@ func narrowSelectionByDeclarationSignature(
 	}
 
 	selection := declarationSignatureSelection{
-		projectDir:      filepath.Clean(filepath.FromSlash(dir)),
-		declarationPath: pathTranslator.GetOutputDeclarationPath,
-		previousOutputs: previousOutputs,
+		projectDir:            filepath.Clean(filepath.FromSlash(dir)),
+		declarationPath:       pathTranslator.GetOutputDeclarationPath,
+		previousOutputs:       previousOutputs,
+		previousOutputMatches: previousOutputMatches,
 		emit: func(files []*ast.SourceFile) ([]declarationEmitFile, error) {
 			// A wave's emit is a real tsgo declaration emit, so it is charged
 			// to declarationEmit like the write path's own emit and taken back

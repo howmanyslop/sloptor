@@ -30,6 +30,18 @@ type resolverCacheEntry struct {
 	Manifest []resolverCacheManifestEntry
 }
 
+// ResolverSnapshot is an in-memory resolver state that another cache owner can
+// adopt without changing where it persists its own disk entry.
+type ResolverSnapshot struct {
+	key      string
+	resolver *RojoResolver
+	manifest []resolverCacheManifestEntry
+}
+
+func (s *ResolverSnapshot) valid() bool {
+	return s != nil && manifestStillValid(s.manifest)
+}
+
 // RojoResolverCache keeps parsed resolver states in memory and on disk.
 type RojoResolverCache struct {
 	cacheDir        string
@@ -87,6 +99,42 @@ func (c *RojoResolverCache) Load(rojoConfigFilePath string) *RojoResolver {
 	return resolver
 }
 
+// LoadSnapshot loads a resolver and returns its manifest-backed in-memory
+// state when that state can be shared by another cache owner.
+func (c *RojoResolverCache) LoadSnapshot(rojoConfigFilePath string) (*ResolverSnapshot, *RojoResolver) {
+	resolver := c.Load(rojoConfigFilePath)
+	key := cacheKey(rojoConfigFilePath)
+	c.mu.Lock()
+	entry, ok := c.l1[key]
+	c.mu.Unlock()
+	if !ok {
+		return nil, resolver
+	}
+	return &ResolverSnapshot{
+		key:      key,
+		resolver: entry.Resolver,
+		manifest: slices.Clone(entry.Manifest),
+	}, resolver
+}
+
+// AdoptSnapshot records a still-valid resolver under this cache's own disk
+// directory.
+func (c *RojoResolverCache) AdoptSnapshot(rojoConfigFilePath string, snapshot *ResolverSnapshot) (*RojoResolver, bool) {
+	if snapshot == nil || snapshot.key != cacheKey(rojoConfigFilePath) || !snapshot.valid() {
+		return nil, false
+	}
+	entry := resolverCacheEntry{Resolver: snapshot.resolver, Manifest: slices.Clone(snapshot.manifest)}
+	c.mu.Lock()
+	c.l1[snapshot.key] = entry
+	if c.deferPersist {
+		c.pending[snapshot.key] = entry
+	} else {
+		c.writeDisk(snapshot.key, entry.Resolver.GetState(), entry.Manifest)
+	}
+	c.mu.Unlock()
+	return entry.Resolver, true
+}
+
 func (c *RojoResolverCache) Persist() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -115,9 +163,6 @@ func (c *RojoResolverCache) loadDisk(key string) (*RojoResolver, []resolverCache
 		if !c.deferPersist {
 			_ = os.Remove(path)
 		}
-		return nil, nil, false
-	}
-	if !manifestStillValid(file.MtimeManifest) {
 		return nil, nil, false
 	}
 	resolver, err := FromState(file.State)
