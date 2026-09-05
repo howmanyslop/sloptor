@@ -194,7 +194,12 @@ test("a retargeted source link uses its current source after a result release", 
   fs.symlinkSync(secondTarget, sourceLink, process.platform === "win32" ? "junction" : "dir");
   const second = server.handleRequest(transformRequest(project, [sourcePath]));
   assertNoDiagnostics(second);
-  assert.equal(second.transformed[0].fileName.replace(/\\/g, "/"), fs.realpathSync(sourcePath).replace(/\\/g, "/"));
+  const transformedSource = fs.statSync(second.transformed[0].fileName);
+  const currentSource = fs.statSync(sourcePath);
+  assert.deepEqual(
+    { device: transformedSource.dev, inode: transformedSource.ino },
+    { device: currentSource.dev, inode: currentSource.ino },
+  );
   assert.match(second.transformed[0].text, /value = "second"/);
 });
 
