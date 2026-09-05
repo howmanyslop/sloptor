@@ -134,6 +134,30 @@ func TestDeclarationEmitRewritesOverlaidImports(t *testing.T) {
 	}
 }
 
+// Native declaration output is a downstream type boundary: consumers must be
+// able to resolve and use it. Member and union order, synthesized-import
+// spelling, exported alias choice, and tuple line layout are deliberately
+// outside that contract because TypeScript treats each pair as equivalent.
+func TestNativeDeclarationsTypeCheckInASeparateConsumer(t *testing.T) {
+	root := t.TempDir()
+	copyDir(t, filepath.Join("testdata", "declaration_consumer_contracts"), root)
+
+	producer := filepath.Join(root, "producer")
+	for _, project := range []string{producer, filepath.Join(root, "consumer")} {
+		if err := os.MkdirAll(filepath.Join(project, "node_modules", "@rbxts"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, diags, err := BuildProjectWithOptions(producer, ProjectOptions{EmitDeclarationOnly: true}); err != nil {
+		t.Fatalf("emit producer declarations: %v (diags: %v)", err, diags)
+	}
+
+	consumer := filepath.Join(root, "consumer")
+	if _, diags, err := BuildProjectWithOptions(consumer, ProjectOptions{EmitDeclarationOnly: true}); err != nil {
+		t.Fatalf("type check declaration consumer: %v (diags: %v)", err, diags)
+	}
+}
+
 // --emitDeclarationOnly still runs the transformer round trip even though it
 // throws the transformed sources away, so that a plugin which fails to load
 // still fails the build rather than silently publishing types.
