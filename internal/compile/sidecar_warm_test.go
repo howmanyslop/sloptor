@@ -44,6 +44,10 @@ func TestNoChangeBuildPreservesUsefulSidecarWorkers(t *testing.T) {
 			t.Fatalf("seed project %d: %v (%v)", index, err, diagnostics)
 		}
 	}
+	defaultBuildInfoPath := filepath.Join(projects[2], "tsconfig.rbxtsc.tsbuildinfo")
+	if info, err := os.Stat(defaultBuildInfoPath); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("seeded default build info %s: %v", defaultBuildInfoPath, err)
+	}
 	closeSidecarSessions()
 
 	runtimeDir := t.TempDir()
@@ -108,6 +112,12 @@ func TestNoChangeBuildPreservesUsefulSidecarWorkers(t *testing.T) {
 	}
 	if noChangeTimings.Counts.SelectedSources != 0 {
 		t.Fatalf("no-change build selected %d sources", noChangeTimings.Counts.SelectedSources)
+	}
+	// Await the same presence decision used by BuildProject so an incorrect
+	// hint has time to create a third worker and evict the least-recently-used
+	// worker. The build above creates the manifest through the real emit path.
+	if warmup := startPersistentSidecarWarmupIfCold(projects[2], ProjectOptions{sidecarWorkspaceDir: workspaceDir}); warmup != nil {
+		warmup.wait()
 	}
 	if secondPID := build(projects[0]); secondPID != firstPID {
 		t.Fatalf("useful worker changed from PID %s to %s after a no-change build", firstPID, secondPID)

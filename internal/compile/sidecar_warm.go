@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"rotor/internal/rojo"
 	"rotor/tsgo/core"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
@@ -67,10 +68,10 @@ func configuredTSBuildInfoPath(configPath string) string {
 		return ""
 	}
 	options.ConfigFilePath = filepath.ToSlash(absolute)
-	return filepath.FromSlash(outputpaths.GetBuildInfoFileName(options, tspath.ComparePathsOptions{
+	return rojo.RbxtscBuildInfoPath(filepath.FromSlash(outputpaths.GetBuildInfoFileName(options, tspath.ComparePathsOptions{
 		CurrentDirectory:          filepath.ToSlash(filepath.Dir(absolute)),
 		UseCaseSensitiveFileNames: osvfs.FS().UseCaseSensitiveFileNames(),
-	}))
+	})))
 }
 
 func applyManifestCompilerOptions(configPath string, active map[string]bool, options *core.CompilerOptions) bool {
