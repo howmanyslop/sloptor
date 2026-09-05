@@ -60,8 +60,13 @@ function normalizePath(fileName) {
   }
 }
 
-function setCanonicalProjectArgument(tsConfigPath) {
-  for (let index = 2; index < process.argv.length - 1; index += 1) {
+// Transformer packages read both cwd and `--project` directly. Keep those
+// process-level inputs aligned with the physical request paths before loading
+// a plugin: otherwise an alias such as /var or a Windows short-name path can
+// be compared with TypeScript's canonical source and output paths.
+function syncProjectProcessPaths(projectDir, tsConfigPath) {
+  process.chdir(projectDir);
+  for (let index = 0; index < process.argv.length - 1; index += 1) {
     if (process.argv[index] === "-p" || process.argv[index] === "--project") {
       process.argv[index + 1] = tsConfigPath;
     }
@@ -96,8 +101,7 @@ class SidecarProjectSession {
     this.ts = ts;
     this.projectDir = normalizePath(projectDir);
     this.tsConfigPath = normalizePath(tsConfigPath);
-    process.chdir(this.projectDir);
-    setCanonicalProjectArgument(this.tsConfigPath);
+    syncProjectProcessPaths(this.projectDir, this.tsConfigPath);
     this.tsModulePath = tsModulePath;
     this.documentRegistry = ts.createDocumentRegistry(ts.sys.useCaseSensitiveFileNames);
     this.overrides = new Map();
@@ -675,6 +679,14 @@ function captureRequestLogs(run) {
   const stdoutWrite = process.stdout.write;
   const stderrWrite = process.stderr.write;
   const chunks = [];
+
+  // A plugin may terminate the process after printing its own diagnostic.
+  // The normal response carries captured logs, but an immediate exit has no
+  // response, so preserve those lines on the worker's stderr failure path.
+  const flushOnExit = () => {
+    stderrWrite.call(process.stderr, chunks.join(""));
+  };
+  process.once("exit", flushOnExit);
   const capture = (chunk, encoding, callback) => {
     chunks.push(Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === "string" ? encoding : undefined) : String(chunk));
     if (typeof encoding === "function") {
@@ -695,6 +707,7 @@ function captureRequestLogs(run) {
     }
     return { response, logs: chunks.join("").split(/\r?\n/).filter(Boolean) };
   } finally {
+    process.removeListener("exit", flushOnExit);
     process.stdout.write = stdoutWrite;
     process.stderr.write = stderrWrite;
   }

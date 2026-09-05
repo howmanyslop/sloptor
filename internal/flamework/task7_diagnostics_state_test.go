@@ -232,7 +232,7 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 	if ctx.Err() != nil {
 		return 124, []task7StateTuple{{Start: -1, Category: "error", Code: "timeout", Message: ctx.Err().Error()}}
 	}
-	if err != nil {
+	if err != nil && len(bytes.TrimSpace(output)) == 0 {
 		return 1, task7StateParseUpstream(root, testCase.category, stderr.Bytes())
 	}
 	var response task7StateSidecarResponse

@@ -935,6 +935,10 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 			if session != nil {
 				session.close()
 			}
+			// Plugins can derive project-relative paths from process.cwd(). Start
+			// Node in the same physical directory sent in the request so that
+			// cwd, tsconfig-derived options, and source-file paths agree on
+			// macOS symlink roots and Windows short-name aliases.
 			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
 			if err != nil {
 				stats.prep += stopPrep()
