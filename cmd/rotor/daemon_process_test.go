@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,11 +28,16 @@ func TestMain(m *testing.M) {
 	}
 	if projectDir := os.Getenv(rotorCLIAbandonProjectEnv); projectDir != "" {
 		compile.EnablePersistentSidecarDaemon()
+		fileName := filepath.Join(projectDir, "src", "main.ts")
+		text, _ := os.ReadFile(fileName)
+		contentIdentity := fmt.Sprintf("%x", sha256.Sum256(text))
 		request, _ := json.Marshal(map[string]any{
 			"protocol": 2, "operation": "transform",
 			"projectDir": projectDir, "tsConfigPath": filepath.Join(projectDir, "tsconfig.json"),
-			"compileFileNames": []string{filepath.Join(projectDir, "src", "main.ts")},
-			"fileNames":        []string{filepath.Join(projectDir, "src", "main.ts")},
+			"compileFileNames":      []string{fileName},
+			"fileNames":             []string{fileName},
+			"fileContentIdentities": map[string]string{fileName: contentIdentity},
+			"changedFiles":          []struct{}{},
 		})
 		result, err := compile.SidecarDaemonRoundTrip(context.Background(), compile.SidecarDaemonCall{
 			WorkspaceKey: projectDir,
@@ -41,7 +47,7 @@ func TestMain(m *testing.M) {
 			LeaseOwner:   fmt.Sprintf("%d-1", os.Getpid()),
 			Payload:      request,
 			StampFileNames: []string{
-				filepath.Join(projectDir, "src", "main.ts"),
+				fileName,
 			},
 		})
 		if err != nil {

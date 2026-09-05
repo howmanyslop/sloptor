@@ -4,6 +4,7 @@ package compile
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"unicode/utf16"
 )
 
 // Catches a later compiler invocation serving a stale source snapshot from a
@@ -34,19 +36,28 @@ func TestSidecarDaemonOwnsCrossProcessFileFreshness(t *testing.T) {
 
 	sourcePath := filepath.Join(projectDir, "source.ts")
 	removedFromProjectPath := filepath.Join(projectDir, "removed.ts")
-	if err := os.WriteFile(sourcePath, []byte("export const value = 1;\n"), 0o600); err != nil {
+	sourceText := "export const value = 1;\n"
+	removedText := "export const removed = true;\n"
+	if err := os.WriteFile(sourcePath, utf16LESource(sourceText), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(removedFromProjectPath, []byte("export const removed = true;\n"), 0o600); err != nil {
+	if err := os.WriteFile(removedFromProjectPath, []byte(removedText), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	identities := map[string]string{
+		sourcePath:             "5d8f65d2774e206bc9f7a7a4ad39ca2dc563b5c31e46ab57ef4874961237ce29",
+		removedFromProjectPath: "d8b0cb855c04ec4bf715854d923a4735a033752635c60721d37758700057c36b",
 	}
 	call := SidecarDaemonCall{
-		WorkspaceKey:   projectDir,
-		WorkerKey:      "tsconfig",
-		ProjectDir:     projectDir,
-		SidecarDir:     sidecarDir,
-		Payload:        []byte(`{"protocol":2,"operation":"transform"}`),
-		StampFileNames: []string{sourcePath, removedFromProjectPath},
+		WorkspaceKey: projectDir,
+		WorkerKey:    "tsconfig",
+		ProjectDir:   projectDir,
+		SidecarDir:   sidecarDir,
+		Payload:      daemonTransformPayload(t, identities),
+		StampFileNames: []string{
+			sourcePath,
+			removedFromProjectPath,
+		},
 	}
 	first, err := SidecarDaemonRoundTrip(context.Background(), call)
 	if err != nil {
@@ -60,13 +71,26 @@ func TestSidecarDaemonOwnsCrossProcessFileFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chtimes(sourcePath, beforeRewrite.ModTime().Add(-time.Hour), beforeRewrite.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed := decodeEchoedChanges(t, unchanged.Payload); len(changed) != 0 {
+		t.Fatalf("access-time-only change dirtied source files: %+v", changed)
+	}
+
 	wantText := "export const value = 2;\n"
-	if err := os.WriteFile(sourcePath, []byte(wantText), 0o600); err != nil {
+	if err := os.WriteFile(sourcePath, utf16LESource(wantText), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(sourcePath, beforeRewrite.ModTime(), beforeRewrite.ModTime()); err != nil {
 		t.Fatal(err)
 	}
+	identities[sourcePath] = "f4918c8ac9858f83b2c0307536179d6bd283bc7c20ba34b53074721f43611f4a"
+	call.Payload = daemonTransformPayload(t, identities)
 	second, err := SidecarDaemonRoundTrip(context.Background(), call)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +103,9 @@ func TestSidecarDaemonOwnsCrossProcessFileFreshness(t *testing.T) {
 	if err := os.Remove(sourcePath); err != nil {
 		t.Fatal(err)
 	}
+	delete(identities, sourcePath)
+	call.StampFileNames = []string{removedFromProjectPath}
+	call.Payload = daemonTransformPayload(t, identities)
 	third, err := SidecarDaemonRoundTrip(context.Background(), call)
 	if err != nil {
 		t.Fatal(err)
@@ -89,6 +116,8 @@ func TestSidecarDaemonOwnsCrossProcessFileFreshness(t *testing.T) {
 	}
 
 	call.StampFileNames = nil
+	delete(identities, removedFromProjectPath)
+	call.Payload = daemonTransformPayload(t, identities)
 	fourth, err := SidecarDaemonRoundTrip(context.Background(), call)
 	if err != nil {
 		t.Fatal(err)
@@ -103,6 +132,103 @@ func TestSidecarDaemonOwnsCrossProcessFileFreshness(t *testing.T) {
 	}
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSidecarDaemonRetriesUnacceptedDiskChanges(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(sidecarDaemonRuntimeEnv, runtimeDir)
+	projectDir := t.TempDir()
+	sidecarDir := t.TempDir()
+	t.Setenv("ROTOR_NODE_PATH", writeEchoNode(t))
+	id, err := sidecarDaemonID(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runSidecarDaemon(runtimeDir, id, 2*time.Second) }()
+	waitForSidecarDaemon(t, runtimeDir, id, done)
+	t.Cleanup(func() {
+		_, _ = StopSidecarDaemons(context.Background())
+		<-done
+	})
+
+	overlayPath := filepath.Join(projectDir, "overlay.ts")
+	if err := os.WriteFile(overlayPath, []byte("disk-one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call := SidecarDaemonCall{
+		WorkspaceKey:   projectDir,
+		WorkerKey:      "transactional-retry",
+		ProjectDir:     projectDir,
+		SidecarDir:     sidecarDir,
+		StampFileNames: []string{overlayPath},
+		Overlays:       map[string]string{overlayPath: "overlay!\n"},
+		Payload: daemonTransformPayload(t, map[string]string{
+			overlayPath: sidecarTextContentIdentity("overlay!\n"),
+		}),
+	}
+	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+
+	call.Overlays = nil
+	call.Payload = daemonTransformPayload(t, map[string]string{
+		overlayPath: sidecarTextContentIdentity("disk-two\n"),
+	})
+	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err == nil {
+		t.Fatal("dropped overlay with mismatched disk text succeeded")
+	}
+	if err := os.WriteFile(overlayPath, []byte("disk-two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := decodeEchoedChanges(t, retried.Payload)
+	if len(changed) != 1 || changed[0].FileName != overlayPath || changed[0].Text != "disk-two\n" {
+		t.Fatalf("dropped overlay retry changes = %+v", changed)
+	}
+
+	firstPath := filepath.Join(projectDir, "first.ts")
+	lastPath := filepath.Join(projectDir, "last.ts")
+	for _, fileName := range []string{firstPath, lastPath} {
+		if err := os.WriteFile(fileName, []byte("before\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identities := map[string]string{
+		firstPath: sidecarTextContentIdentity("before\n"),
+		lastPath:  sidecarTextContentIdentity("before\n"),
+	}
+	call.WorkerKey = "later-mismatch"
+	call.StampFileNames = []string{firstPath, lastPath}
+	call.Payload = daemonTransformPayload(t, identities)
+	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstPath, []byte("first!\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lastPath, []byte("last!!\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	identities[firstPath] = sidecarTextContentIdentity("first!\n")
+	identities[lastPath] = sidecarTextContentIdentity("wanted\n")
+	call.Payload = daemonTransformPayload(t, identities)
+	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err == nil {
+		t.Fatal("later mismatched source succeeded")
+	}
+	identities[lastPath] = sidecarTextContentIdentity("last!!\n")
+	call.Payload = daemonTransformPayload(t, identities)
+	retried, err = SidecarDaemonRoundTrip(context.Background(), call)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed = decodeEchoedChanges(t, retried.Payload)
+	if len(changed) != 2 || changed[0].FileName != firstPath || changed[0].Text != "first!\n" || changed[1].FileName != lastPath || changed[1].Text != "last!!\n" {
+		t.Fatalf("later mismatch retry changes = %+v", changed)
 	}
 }
 
@@ -138,7 +264,9 @@ func TestSidecarDaemonWarmDoesNotPopulateTheFirstTransformDelta(t *testing.T) {
 	if _, err := SidecarDaemonRoundTrip(context.Background(), call); err != nil {
 		t.Fatal(err)
 	}
-	call.Payload = []byte(`{"protocol":2,"operation":"transform"}`)
+	call.Payload = daemonTransformPayload(t, map[string]string{
+		sourcePath: "5d8f65d2774e206bc9f7a7a4ad39ca2dc563b5c31e46ab57ef4874961237ce29",
+	})
 	call.StampFileNames = []string{sourcePath}
 	result, err := SidecarDaemonRoundTrip(context.Background(), call)
 	if err != nil {
@@ -695,6 +823,29 @@ type echoedChange struct {
 	FileName string `json:"fileName"`
 	Text     string `json:"text"`
 	Deleted  bool   `json:"deleted"`
+}
+
+func daemonTransformPayload(t *testing.T, identities map[string]string) []byte {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"protocol":              2,
+		"operation":             "transform",
+		"fileContentIdentities": identities,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func utf16LESource(text string) []byte {
+	units := utf16.Encode([]rune(text))
+	contents := make([]byte, 2+len(units)*2)
+	contents[0], contents[1] = 0xff, 0xfe
+	for index, unit := range units {
+		binary.LittleEndian.PutUint16(contents[2+index*2:], unit)
+	}
+	return contents
 }
 
 func decodeEchoedChanges(t *testing.T, payload []byte) []echoedChange {

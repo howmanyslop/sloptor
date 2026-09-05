@@ -45,13 +45,14 @@ type task7StateSidecarResponse struct {
 }
 
 type task7StateSidecarRequest struct {
-	Protocol         int        `json:"protocol"`
-	Operation        string     `json:"operation"`
-	TSConfigPath     string     `json:"tsConfigPath"`
-	ProjectDir       string     `json:"projectDir"`
-	CompileFileNames []string   `json:"compileFileNames"`
-	FileNames        []string   `json:"fileNames"`
-	ChangedFiles     []struct{} `json:"changedFiles"`
+	Protocol              int               `json:"protocol"`
+	Operation             string            `json:"operation"`
+	TSConfigPath          string            `json:"tsConfigPath"`
+	ProjectDir            string            `json:"projectDir"`
+	CompileFileNames      []string          `json:"compileFileNames"`
+	FileNames             []string          `json:"fileNames"`
+	FileContentIdentities map[string]string `json:"fileContentIdentities"`
+	ChangedFiles          []struct{}        `json:"changedFiles"`
 }
 
 type task7StateCase struct {
@@ -216,7 +217,7 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 		t.Fatalf("resolve sidecar: %v", err)
 	}
 	compileFileNames := []string{filepath.Join(root, "src", "index.ts")}
-	request := task7StateSidecarRequest{Protocol: 2, Operation: "transform", TSConfigPath: filepath.Join(root, project), ProjectDir: root, CompileFileNames: compileFileNames, FileNames: compileFileNames, ChangedFiles: []struct{}{}}
+	request := task7StateSidecarRequest{Protocol: 2, Operation: "transform", TSConfigPath: filepath.Join(root, project), ProjectDir: root, CompileFileNames: compileFileNames, FileNames: compileFileNames, FileContentIdentities: task7SidecarContentIdentities(t, compileFileNames), ChangedFiles: []struct{}{}}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)

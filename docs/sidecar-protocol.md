@@ -67,12 +67,12 @@ daemon expires after five idle minutes and keeps at most two idle Node workers
 per workspace.
 
 The daemon owns the source snapshots used for freshness. Every transform sends
-the complete current source file set and complete caller overlay set. The
-daemon derives text updates and deletions from those snapshots, so an edit,
-deleted disk file, or removed overlay is visible even when the compiler process
-that created the worker has exited. Config file-set changes trigger a new parse;
-edits to loaded TypeScript or plugin dependency files dispose and recreate the
-Node session.
+the complete current source file set, a SHA-256 identity for each source text,
+and the complete caller overlay set. The daemon derives text updates and
+deletions from those snapshots, so an edit, deleted disk file, or removed
+overlay is visible even when the compiler process that created the worker has
+exited. Config file-set changes trigger a new parse; edits to loaded TypeScript
+or plugin dependency files dispose and recreate the Node session.
 
 A build-only warm request starts while Go creates its initial program. It asks
 the worker to create the JavaScript program without narrowing roots, sending
@@ -104,6 +104,10 @@ A source transform uses this shape:
     "C:/abs/project/src/example.ts",
     "C:/abs/project/src/globals.d.ts"
   ],
+  "fileContentIdentities": {
+    "C:/abs/project/src/example.ts": "d81e3b55289a9501503008467d42b457d8f96600190d80b3fad30949fa08792f",
+    "C:/abs/project/src/globals.d.ts": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
   "rootFileNames": [
     "C:/abs/project/src/example.ts",
     "C:/abs/project/src/globals.d.ts"
@@ -121,8 +125,13 @@ A source transform uses this shape:
 }
 ```
 
-`fileNames` is the complete source snapshot for freshness and config file-set
-invalidation. It does not replace the roots parsed from the config.
+`fileNames` and `fileContentIdentities` form the complete source snapshot for
+freshness and config file-set invalidation. The identities are SHA-256 hashes
+of the source text already loaded by the compiler. They do not replace the
+roots parsed from the config. A transform immediately following `warm` uses
+them to compare the warmed JavaScript Program with the Go Program; it reads
+only mismatched files and rejects a disk version that no longer matches the
+compiler snapshot.
 `rootFileNames` optionally narrows the worker program to files being compiled
 plus project declarations. Within one session the limit only widens, and the
 first transform that omits it or sends an empty list disables narrowing for the

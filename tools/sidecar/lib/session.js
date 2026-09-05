@@ -84,16 +84,8 @@ function fileDigest(fileName) {
   }
 }
 
-function fileStamp(fileName) {
-  try {
-    const stat = fs.statSync(fileName, { bigint: true });
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return undefined;
-    }
-    throw error;
-  }
+function textDigest(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
 }
 
 class SidecarProjectSession {
@@ -124,6 +116,7 @@ class SidecarProjectSession {
     this.results = new Map();
     this.moduleFiles = new Map();
     this.warmFiles = undefined;
+    this.verifiedSourceIdentities = new WeakMap();
   }
 
   canonicalize(fileName) {
@@ -297,9 +290,7 @@ class SidecarProjectSession {
       if (!this.parsed || this.configSignature !== configSignature) {
         this.parsed = parsed;
         this.configSignature = configSignature;
-        this.service?.dispose();
-        this.service = undefined;
-        this.transformerCache = new WeakMap();
+        this.discardProgram();
         this.projectVersion += 1;
       } else {
         this.parsed = parsed;
@@ -313,6 +304,14 @@ class SidecarProjectSession {
       this.service = this.ts.createLanguageService(createServiceHost(this, this.ts), this.documentRegistry);
     }
     return { diagnostics: this.parsedDiagnostics, parsed: this.parsed };
+  }
+
+  discardProgram() {
+    this.service?.dispose();
+    this.service = undefined;
+    this.transformerCache = new WeakMap();
+    this.verifiedSourceIdentities = new WeakMap();
+    this.warmFiles = undefined;
   }
 
   getSourceFile(program, fileName) {
@@ -432,31 +431,81 @@ class SidecarProjectSession {
     this.warmFiles = new Map();
     for (const sourceFile of program.getSourceFiles()) {
       const fileName = this.rememberFile(sourceFile.fileName);
-      this.warmFiles.set(this.canonicalize(fileName), { fileName, stamp: fileStamp(fileName) });
+      const canonical = this.canonicalize(fileName);
+      const digest = textDigest(sourceFile.text);
+      this.warmFiles.set(canonical, { fileName, digest });
+      this.verifiedSourceIdentities.set(sourceFile, digest);
     }
   }
 
-  refreshWarmFiles(changedFiles) {
+  refreshWarmFiles(changedFiles, contentIdentities) {
     if (!this.warmFiles) {
       return;
     }
+    if (!contentIdentities) {
+      throw new Error("the first transform after warm must include fileContentIdentities");
+    }
     const changed = new Set(changedFiles.map((file) => this.canonicalize(file.fileName)));
+    const updates = [];
     for (const [canonical, warmed] of this.warmFiles) {
       if (changed.has(canonical)) {
         continue;
       }
-      const stamp = fileStamp(warmed.fileName);
-      if (stamp === warmed.stamp) {
+      const expectedDigest = contentIdentities.get(canonical);
+      if (expectedDigest === undefined) {
+        updates.push({ fileName: warmed.fileName, deleted: true });
         continue;
       }
-      if (stamp === undefined) {
-        this.deleteFile(warmed.fileName);
+      if (expectedDigest === warmed.digest) {
+        continue;
+      }
+      const text = this.ts.sys.readFile(warmed.fileName);
+      if (text === undefined || textDigest(text) !== expectedDigest) {
+        throw new Error(`source changed after the compiler snapshot: ${warmed.fileName}`);
+      }
+      updates.push({ fileName: warmed.fileName, text });
+    }
+    for (const update of updates) {
+      if (update.deleted === true) {
+        this.deleteFile(update.fileName);
       } else {
-        const text = fs.readFileSync(warmed.fileName, "utf8");
-        this.updateFile(warmed.fileName, text);
+        this.updateFile(update.fileName, update.text);
       }
     }
     this.warmFiles = undefined;
+  }
+
+  verifyChangedFiles(changedFiles, contentIdentities) {
+    if (!contentIdentities) {
+      return;
+    }
+    for (const changedFile of changedFiles) {
+      const expectedDigest = contentIdentities.get(this.canonicalize(changedFile.fileName));
+      if (expectedDigest === undefined) {
+        continue;
+      }
+      if (changedFile.deleted === true || textDigest(changedFile.text) !== expectedDigest) {
+        throw new Error(`source changed after the compiler snapshot: ${changedFile.fileName}`);
+      }
+    }
+  }
+
+  verifyProgramContentIdentities(program, contentIdentities) {
+    if (!contentIdentities) {
+      return;
+    }
+    for (const sourceFile of program.getSourceFiles()) {
+      const canonical = this.canonicalize(sourceFile.fileName);
+      const expectedDigest = contentIdentities.get(canonical);
+      if (expectedDigest === undefined) {
+        continue;
+      }
+      if (this.verifiedSourceIdentities.get(sourceFile) !== expectedDigest && textDigest(sourceFile.text) !== expectedDigest) {
+        this.discardProgram();
+        throw new Error(`source changed after the compiler snapshot: ${sourceFile.fileName}`);
+      }
+      this.verifiedSourceIdentities.set(sourceFile, expectedDigest);
+    }
   }
 
   clearModuleCache() {
@@ -470,8 +519,7 @@ class SidecarProjectSession {
       retained.result.dispose?.();
     }
     this.results.clear();
-    this.service?.dispose();
-    this.service = undefined;
+    this.discardProgram();
   }
 
   handleRequest(request) {
@@ -513,7 +561,11 @@ class SidecarProjectSession {
         return { diagnostics: parsedState.diagnostics, transformed: [] };
       }
 
-      this.refreshWarmFiles(request.changedFiles);
+      const contentIdentities = request.fileContentIdentities === undefined
+        ? undefined
+        : new Map(Object.entries(request.fileContentIdentities).map(([fileName, digest]) => [this.canonicalize(fileName), digest]));
+      this.verifyChangedFiles(request.changedFiles, contentIdentities);
+      this.refreshWarmFiles(request.changedFiles, contentIdentities);
       for (const changedFile of request.changedFiles) {
         if (changedFile.deleted === true) {
           this.deleteFile(changedFile.fileName);
@@ -533,6 +585,7 @@ class SidecarProjectSession {
           transformed: [],
         };
       }
+      this.verifyProgramContentIdentities(program, contentIdentities);
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
       const transformerState = this.transformerList(program, pluginConfigs);
@@ -627,7 +680,7 @@ function validateRequest(request) {
     return createRequestDiagnostic("protocol 2 does not accept protocol 1 request fields");
   }
   if (request.operation === "warm") {
-    if (["fileNames", "rootFileNames", "compileFileNames", "changedFiles", "plugins"].some((field) => request[field] !== undefined)) {
+    if (["fileNames", "rootFileNames", "compileFileNames", "fileContentIdentities", "changedFiles", "plugins"].some((field) => request[field] !== undefined)) {
       return createRequestDiagnostic("warm requests cannot include roots, overlays, or plugins");
     }
     return undefined;
@@ -664,6 +717,18 @@ function validateRequest(request) {
   }
   if (!Array.isArray(request.changedFiles)) {
     return createRequestDiagnostic("changedFiles must be an array");
+  }
+  if (
+    request.fileContentIdentities === undefined
+    || request.fileContentIdentities === null
+    || Array.isArray(request.fileContentIdentities)
+    || typeof request.fileContentIdentities !== "object"
+    || Object.values(request.fileContentIdentities).some((digest) => typeof digest !== "string" || digest.length === 0)
+  ) {
+    return createRequestDiagnostic("fileContentIdentities must map file names to non-empty strings");
+  }
+  if (request.fileNames.some((fileName) => request.fileContentIdentities[fileName] === undefined)) {
+    return createRequestDiagnostic("fileContentIdentities must include every fileNames entry");
   }
   for (const changedFile of request.changedFiles) {
     const hasText = typeof changedFile?.text === "string";

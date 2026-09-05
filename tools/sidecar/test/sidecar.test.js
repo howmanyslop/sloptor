@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -24,6 +25,33 @@ function toSlash(value) {
   } catch {
     return value.replace(/\\/g, "/");
   }
+}
+
+function contentIdentity(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
+function transformRequest(request) {
+  if (request.operation !== "transform" || request.fileContentIdentities !== undefined) {
+    return request;
+  }
+  const changed = new Map((request.changedFiles ?? [])
+    .filter((file) => typeof file.text === "string")
+    .map((file) => [toSlash(file.fileName), file.text]));
+  const fileContentIdentities = {};
+  for (const fileName of request.fileNames ?? []) {
+    const text = changed.get(toSlash(fileName)) ?? ts.sys.readFile(fileName);
+    assert.notEqual(text, undefined, `expected authoritative text for ${fileName}`);
+    fileContentIdentities[fileName] = contentIdentity(text);
+  }
+  return { ...request, fileContentIdentities };
+}
+
+function createProtocolServer(typeScript = ts) {
+  const server = new sidecar.SidecarServer(typeScript);
+  const handleRequest = server.handleRequest.bind(server);
+  server.handleRequest = (request) => handleRequest(transformRequest(request));
+  return server;
 }
 
 function resolveOptions(configPath) {
@@ -277,7 +305,7 @@ test("transformSourceFiles omits source files whose transformers preserve identi
 });
 
 test("sidecar protocol requires an explicit operation", () => {
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const response = server.handleRequest({
     protocol: 2,
     projectDir,
@@ -290,6 +318,38 @@ test("sidecar protocol requires an explicit operation", () => {
   assert.equal(response.diagnostics.length, 1);
   assert.equal(response.diagnostics[0].code, "invalid-request");
   assert.match(response.diagnostics[0].message, /operation must equal/);
+});
+
+test("sidecar protocol requires content identities and accepts an empty project", (t) => {
+  const server = new sidecar.SidecarServer(ts);
+  const missing = server.handleRequest({
+    protocol: 2,
+    operation: "transform",
+    projectDir,
+    tsConfigPath,
+    fileNames: [sourcePath],
+    compileFileNames: [sourcePath],
+    changedFiles: [],
+  });
+  const emptyProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-empty-"));
+  t.after(() => fs.rmSync(emptyProjectDir, { recursive: true, force: true }));
+  const emptyConfigPath = path.join(emptyProjectDir, "tsconfig.json");
+  fs.writeFileSync(emptyConfigPath, JSON.stringify({ compilerOptions: { noLib: true }, files: [] }));
+  const empty = server.handleRequest({
+    protocol: 2,
+    operation: "transform",
+    projectDir: emptyProjectDir,
+    tsConfigPath: emptyConfigPath,
+    fileNames: [],
+    compileFileNames: [],
+    fileContentIdentities: {},
+    changedFiles: [],
+  });
+
+  assert.equal(missing.diagnostics[0].code, "invalid-request");
+  assert.match(missing.diagnostics[0].message, /fileContentIdentities/);
+  assert.equal(empty.diagnostics.some((diagnostic) => diagnostic.code === "invalid-request"), false);
+  server.close();
 });
 
 // Catches comment-driven compiler directives disappearing before later
@@ -374,7 +434,7 @@ module.exports = (program, config, helpers) => (context) => (sourceFile) => {
 
   const aliasConfigPath = path.join(aliasDir, "tsconfig.json");
   const result = spawnSync(process.execPath, [mainPath, "--project", aliasConfigPath], {
-    input: `${JSON.stringify({
+    input: `${JSON.stringify(transformRequest({
       protocol: 2,
       operation: "transform",
       projectDir: aliasDir,
@@ -382,7 +442,7 @@ module.exports = (program, config, helpers) => (context) => (sourceFile) => {
       compileFileNames: [path.join(aliasDir, "src", "main.ts")],
       fileNames: [path.join(aliasDir, "src", "main.ts")],
       changedFiles: [],
-    })}\n`,
+    }))}\n`,
     encoding: "utf8",
     cwd: aliasDir,
   });
@@ -487,7 +547,7 @@ test("plugin metrics include program and raw factory time", () => {
 });
 
 test("sidecar protocol responses include optional request metrics", () => {
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const response = server.handleRequest({
     protocol: 2,
     operation: "transform",
@@ -506,7 +566,7 @@ test("sidecar protocol responses include optional request metrics", () => {
 });
 
 test("sidecar protocol metrics split wall time per transformer plugin", () => {
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const response = server.handleRequest({
     protocol: 2,
     operation: "transform",
@@ -579,7 +639,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
 
   try {
     const firstResponsePromise = readProtocolLine(child.stdout);
-    child.stdin.write(`${JSON.stringify({
+    child.stdin.write(`${JSON.stringify(transformRequest({
       protocol: 2,
       operation: "transform",
       projectDir,
@@ -587,7 +647,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
       fileNames: [sourcePath],
       compileFileNames: [sourcePath],
       changedFiles: [],
-    })}\n`);
+    }))}\n`);
 
     const firstResponse = await firstResponsePromise;
     assert.deepEqual(firstResponse.diagnostics, []);
@@ -595,7 +655,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
     assert.match(firstResponse.transformed[0].text, /after:before:start/);
 
     const secondResponsePromise = readProtocolLine(child.stdout);
-    child.stdin.write(`${JSON.stringify({
+    child.stdin.write(`${JSON.stringify(transformRequest({
       protocol: 2,
       operation: "transform",
       projectDir,
@@ -608,7 +668,7 @@ test("main.js runs before then after, excludes afterDeclarations, and reuses ove
           text: 'export const phase = "memory";\n',
         },
       ],
-    })}\n`);
+    }))}\n`);
 
     const secondResponse = await secondResponsePromise;
     assert.deepEqual(secondResponse.diagnostics, []);
@@ -688,7 +748,7 @@ module.exports.shouldTransformSourceFile = true;
   fs.writeFileSync(skippedPath, 'export const phase = "skipped";\n');
 
   const result = spawnSync(process.execPath, [mainPath], {
-    input: `${JSON.stringify({
+    input: `${JSON.stringify(transformRequest({
       protocol: 2,
       operation: "transform",
       projectDir: hookProjectDir,
@@ -696,7 +756,7 @@ module.exports.shouldTransformSourceFile = true;
       fileNames: [selectedPath, skippedPath],
       compileFileNames: [selectedPath, skippedPath],
       changedFiles: [],
-    })}\n`,
+    }))}\n`,
     encoding: "utf8",
     cwd: hookProjectDir,
   });
@@ -740,7 +800,7 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
   const noisyMainFile = path.join(noisyProjectDir, "src", "main.ts");
   fs.writeFileSync(noisyMainFile, 'export const phase = "start";\n');
 
-  const request = JSON.stringify({
+  const request = JSON.stringify(transformRequest({
     protocol: 2,
     operation: "transform",
     tsConfigPath: path.join(noisyProjectDir, "tsconfig.json"),
@@ -748,7 +808,7 @@ test("main.js keeps plugin console.log off the protocol stream", () => {
     fileNames: [noisyMainFile],
     compileFileNames: [noisyMainFile],
     changedFiles: [],
-  });
+  }));
 
   const result = spawnSync(process.execPath, [mainPath], {
     input: `${request}\n`,
@@ -799,7 +859,7 @@ test("main.js preserves complete plugin logs when a plugin exits immediately", (
   );
 
   const result = spawnSync(process.execPath, [mainPath], {
-    input: `${JSON.stringify({
+    input: `${JSON.stringify(transformRequest({
       protocol: 2,
       operation: "transform",
       projectDir: fixtureDir,
@@ -807,7 +867,7 @@ test("main.js preserves complete plugin logs when a plugin exits immediately", (
       fileNames: [sourcePath],
       compileFileNames: [sourcePath],
       changedFiles: [],
-    })}\n`,
+    }))}\n`,
     encoding: "utf8",
     cwd: fixtureDir,
   });
@@ -927,7 +987,7 @@ test("the worker's root limit only ever widens within a session", () => {
 
 test("rootFileNames must be an array of strings when present", () => {
   const project = narrowRootsProject();
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const response = server.handleRequest({ ...narrowRootsRequest(project, [project.files.a]), rootFileNames: [1] });
 
   assert.equal(response.diagnostics.length, 1);
@@ -971,7 +1031,7 @@ test("a complete fileNames snapshot invalidates parsed config file discovery", (
 
 test("warm accepts no roots or overlays and builds the tsconfig program", () => {
   const project = narrowRootsProject();
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const response = server.handleRequest({
     protocol: 2,
     operation: "warm",
@@ -990,7 +1050,7 @@ test("warm accepts no roots or overlays and builds the tsconfig program", () => 
 });
 
 test("transform retains maps until an explicit release", () => {
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const transform = server.handleRequest({
     protocol: 2,
     operation: "transform",
@@ -1053,7 +1113,7 @@ test("a cached transformer keeps its state for the same Program and exact config
 };\n`);
   const configPath = path.join(fixtureDir, "tsconfig.json");
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const request = {
     protocol: 2,
     operation: "transform",
@@ -1095,7 +1155,7 @@ test("editing an extended config changes the effective transformer config", () =
   }));
   writeBase("from-base-one");
   fs.writeFileSync(configPath, JSON.stringify({ extends: "./base.json", files: ["main.ts"] }));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const request = {
     protocol: 2,
     operation: "transform",
@@ -1137,7 +1197,7 @@ test("editing a loaded plugin dependency is visible on the next transform", () =
     compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
     files: ["main.ts"],
   }));
-  const server = new sidecar.SidecarServer(sidecar.resolveTypeScript);
+  const server = createProtocolServer(sidecar.resolveTypeScript);
   const request = {
     protocol: 2,
     operation: "transform",
@@ -1167,7 +1227,7 @@ test("plugin console output is scoped to the response that produced it", () => {
   return () => (source) => source;
 };\n`);
   fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   const request = {
     protocol: 2,
     operation: "transform",
@@ -1198,7 +1258,7 @@ module.exports = () => () => (source) => source;\n`);
     compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
     files: ["main.ts"],
   }));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
 
   const response = server.handleRequest({
     protocol: 2,
@@ -1212,16 +1272,18 @@ module.exports = () => () => (source) => source;\n`);
   server.close();
 });
 
-test("the first transform refreshes a disk edit made after warm", (t) => {
+test("a cold transform retries after the disk returns to its compiler snapshot", (t) => {
   const originalCwd = process.cwd();
-  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-warm-edit-"));
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-cold-race-"));
   t.after(() => {
     process.chdir(originalCwd);
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   });
   const sourceFile = path.join(fixtureDir, "main.ts");
   const configPath = path.join(fixtureDir, "tsconfig.json");
-  fs.writeFileSync(sourceFile, 'export const phase = "before";\n');
+  const expectedText = 'export const phase = "expected";\n';
+  const racedText = 'export const phase = "disk-now";\n';
+  fs.writeFileSync(sourceFile, racedText);
   fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
   const visit = (node) => helpers.ts.isStringLiteral(node)
     ? helpers.ts.factory.createStringLiteral(node.text)
@@ -1232,22 +1294,79 @@ test("the first transform refreshes a disk edit made after warm", (t) => {
     compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
     files: ["main.ts"],
   }));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
+  const request = {
+    protocol: 2,
+    operation: "transform",
+    projectDir: fixtureDir,
+    tsConfigPath: configPath,
+    fileNames: [sourceFile],
+    compileFileNames: [sourceFile],
+    fileContentIdentities: { [sourceFile]: contentIdentity(expectedText) },
+    changedFiles: [],
+  };
+
+  const raced = server.handleRequest(request);
+  fs.writeFileSync(sourceFile, expectedText);
+  const retried = server.handleRequest(request);
+
+  assert.deepEqual(raced.transformed, []);
+  assert.match(raced.diagnostics[0].message, /source changed after the compiler snapshot/);
+  assert.deepEqual(retried.diagnostics, []);
+  assert.match(retried.transformed[0].text, /"expected"/);
+  server.close();
+});
+
+test("the first transform refreshes a disk edit made after warm", (t) => {
+  const originalCwd = process.cwd();
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-warm-edit-"));
+  t.after(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+  const sourceFile = path.join(fixtureDir, "main.ts");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  const beforeText = 'export const phase = "before";\n';
+  const afterText = 'export const phase = "second";\n';
+  const racedText = 'export const phase = "third!";\n';
+  fs.writeFileSync(sourceFile, beforeText);
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  const visit = (node) => helpers.ts.isStringLiteral(node)
+    ? helpers.ts.factory.createStringLiteral(node.text)
+    : helpers.ts.visitEachChild(node, visit, context);
+  return (source) => helpers.ts.visitNode(source, visit);
+};\n`);
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { noLib: true, plugins: [{ transform: "./plugin.js" }] },
+    files: ["main.ts"],
+  }));
+  const server = createProtocolServer(ts);
   const identity = { protocol: 2, projectDir: fixtureDir, tsConfigPath: configPath };
 
   const warm = server.handleRequest({ ...identity, operation: "warm" });
-  fs.writeFileSync(sourceFile, 'export const phase = "after-warm";\n');
-  const transformed = server.handleRequest({
+  const beforeRewrite = fs.statSync(sourceFile);
+  fs.writeFileSync(sourceFile, racedText);
+  fs.utimesSync(sourceFile, beforeRewrite.atime, beforeRewrite.mtime);
+  const transform = {
     ...identity,
     operation: "transform",
     fileNames: [sourceFile],
     compileFileNames: [sourceFile],
+    fileContentIdentities: {
+      [sourceFile]: crypto.createHash("sha256").update(afterText).digest("hex"),
+    },
     changedFiles: [],
-  });
+  };
+  const raced = server.handleRequest(transform);
+  fs.writeFileSync(sourceFile, afterText);
+  fs.utimesSync(sourceFile, beforeRewrite.atime, beforeRewrite.mtime);
+  const transformed = server.handleRequest(transform);
 
   assert.deepEqual(warm.diagnostics, []);
+  assert.deepEqual(raced.transformed, []);
+  assert.match(raced.diagnostics[0].message, /source changed after the compiler snapshot/);
   assert.deepEqual(transformed.diagnostics, []);
-  assert.match(transformed.transformed[0].text, /"after-warm"/);
+  assert.match(transformed.transformed[0].text, /"second"/);
   server.close();
 });
 
@@ -1274,7 +1393,7 @@ test("editing the loaded TypeScript runtime is visible on the next transform", (
     return api;
   };
   loadTypeScript.modulePathFor = () => fs.realpathSync(runtimePath);
-  const server = new sidecar.SidecarServer(loadTypeScript);
+  const server = createProtocolServer(loadTypeScript);
   const request = {
     protocol: 2,
     operation: "transform",
@@ -1330,7 +1449,7 @@ module.exports = (program, config, helpers) => (context) => {
   const originalArgv = process.argv.slice();
   t.after(() => process.argv.splice(0, process.argv.length, ...originalArgv));
   process.argv.push("--project", path.join(aliasProjectDir, "tsconfig.json"));
-  const server = new sidecar.SidecarServer(ts);
+  const server = createProtocolServer(ts);
   t.after(() => server.close());
   const response = server.handleRequest({
     protocol: 2,

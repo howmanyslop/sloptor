@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	sidecarDaemonProtocol    = 1
+	sidecarDaemonProtocol    = 2
 	sidecarDaemonIdleTimeout = 5 * time.Minute
 	sidecarDaemonStartWait   = 5 * time.Second
 	sidecarDaemonLockExpiry  = 15 * time.Second
@@ -470,8 +470,12 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 		return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: "Node request payload must be a JSON object"}
 	}
 	var operation string
+	var fileContentIdentities map[string]string
 	if rawOperation := nodeRequest["operation"]; len(rawOperation) > 0 {
 		_ = json.Unmarshal(rawOperation, &operation)
+	}
+	if rawIdentities := nodeRequest["fileContentIdentities"]; len(rawIdentities) > 0 {
+		_ = json.Unmarshal(rawIdentities, &fileContentIdentities)
 	}
 	worker := s.acquireWorker(request.WorkerKey)
 	defer s.releaseWorker(request.WorkerKey, worker)
@@ -507,7 +511,7 @@ func (s *sidecarDaemonServer) roundTrip(request sidecarDaemonMessage, requestCon
 	var ioStats sidecarCallStats
 	if operation == "transform" {
 		var err error
-		changedFiles, ioStats, err = collectSidecarDaemonChanges(worker.session, request.StampFileNames, request.Overlays, request.InvalidatedFileNames, !worker.initialized)
+		changedFiles, ioStats, err = collectSidecarDaemonChanges(worker.session, request.StampFileNames, fileContentIdentities, request.Overlays, request.InvalidatedFileNames, !worker.initialized)
 		if err != nil {
 			return sidecarDaemonReply{Protocol: sidecarDaemonProtocol, Error: err.Error()}
 		}
@@ -626,12 +630,24 @@ func sidecarLeaseOwnerPID(owner string) int {
 	return pid
 }
 
-func collectSidecarDaemonChanges(session *sidecarSession, fileNames []string, overlays map[string]string, invalidated []string, fresh bool) ([]sidecarDaemonChangedFile, sidecarCallStats, error) {
+func collectSidecarDaemonChanges(session *sidecarSession, fileNames []string, contentIdentities map[string]string, overlays map[string]string, invalidated []string, fresh bool) ([]sidecarDaemonChangedFile, sidecarCallStats, error) {
 	var ioStats sidecarCallStats
+	nextStamps := maps.Clone(session.stamps)
+	if nextStamps == nil {
+		nextStamps = make(map[string]sidecarFileStamp)
+	}
+	nextOverlaid := maps.Clone(session.overlaid)
+	if nextOverlaid == nil {
+		nextOverlaid = make(map[string]string)
+	}
+	contentIdentities = normalizedSidecarContentIdentities(fileNames, contentIdentities)
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	currentFiles := make(map[string]string, len(fileNames)+len(overlays))
 	for _, fileName := range fileNames {
 		path := filepath.FromSlash(fileName)
+		if contentIdentities[path] == "" {
+			return nil, ioStats, fmt.Errorf("missing content identity for %q", path)
+		}
 		currentFiles[normalizeOverlayPath(path, caseSensitive)] = path
 	}
 	overlaid := make(map[string]sidecarDaemonChangedFile, len(overlays))
@@ -651,11 +667,11 @@ func collectSidecarDaemonChanges(session *sidecarSession, fileNames []string, ov
 	}
 
 	changed := make([]sidecarDaemonChangedFile, 0, len(overlays))
-	for key, previousPath := range session.overlaid {
+	for key, previousPath := range nextOverlaid {
 		if _, stillOverlaid := overlaid[key]; stillOverlaid {
 			continue
 		}
-		delete(session.overlaid, key)
+		delete(nextOverlaid, key)
 		currentPath, stillCurrent := currentFiles[key]
 		if !stillCurrent {
 			deleted[previousPath] = struct{}{}
@@ -663,32 +679,34 @@ func collectSidecarDaemonChanges(session *sidecarSession, fileNames []string, ov
 		}
 		info, statErr := os.Stat(currentPath)
 		ioStats.stats++
-		text, readErr := os.ReadFile(currentPath)
+		text, readErr := readSidecarSourceText(currentPath)
 		ioStats.reads++
 		if errors.Is(readErr, os.ErrNotExist) || errors.Is(statErr, os.ErrNotExist) {
-			deleted[currentPath] = struct{}{}
-			continue
+			return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", currentPath)
 		}
 		if readErr != nil {
 			return nil, ioStats, readErr
 		}
 		if statErr != nil {
-			continue
+			return nil, ioStats, statErr
 		}
-		changed = append(changed, sidecarDaemonChangedFile{FileName: currentPath, Text: string(text)})
-		session.stamps[currentPath] = newSidecarFileStamp(info)
+		if sidecarTextContentIdentity(text) != contentIdentities[currentPath] {
+			return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", currentPath)
+		}
+		changed = append(changed, sidecarDaemonChangedFile{FileName: currentPath, Text: text})
+		nextStamps[currentPath] = newSidecarFileStampWithContent(info, contentIdentities[currentPath])
 	}
 	for _, key := range slices.Sorted(maps.Keys(overlaid)) {
 		file := overlaid[key]
 		changed = append(changed, file)
-		session.overlaid[key] = file.FileName
+		nextOverlaid[key] = file.FileName
 	}
 
 	for _, fileName := range fileNames {
 		path := filepath.FromSlash(fileName)
 		key := normalizeOverlayPath(path, caseSensitive)
 		if _, isOverlay := overlaid[key]; isOverlay {
-			session.overlaid[key] = path
+			nextOverlaid[key] = path
 			continue
 		}
 		if _, isDeleted := deleted[path]; isDeleted {
@@ -697,36 +715,37 @@ func collectSidecarDaemonChanges(session *sidecarSession, fileNames []string, ov
 		info, statErr := os.Stat(path)
 		ioStats.stats++
 		if errors.Is(statErr, os.ErrNotExist) {
-			if _, previouslyStamped := session.stamps[path]; previouslyStamped && !fresh {
-				deleted[path] = struct{}{}
-			}
-			delete(session.stamps, path)
-			continue
+			return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
 		}
 		if statErr != nil {
-			continue
+			return nil, ioStats, statErr
 		}
-		stamp := newSidecarFileStamp(info)
-		if previous, ok := session.stamps[path]; !fresh && (!ok || previous != stamp) {
-			text, readErr := os.ReadFile(path)
+		stamp := newSidecarFileStampWithContent(info, contentIdentities[path])
+		if previous, ok := nextStamps[path]; !fresh && (!ok || previous != stamp) {
+			text, readErr := readSidecarSourceText(path)
 			ioStats.reads++
 			if readErr != nil {
 				return nil, ioStats, readErr
 			}
-			changed = append(changed, sidecarDaemonChangedFile{FileName: path, Text: string(text)})
+			if sidecarTextContentIdentity(text) != contentIdentities[path] {
+				return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
+			}
+			changed = append(changed, sidecarDaemonChangedFile{FileName: path, Text: text})
 		}
-		session.stamps[path] = stamp
+		nextStamps[path] = stamp
 	}
-	for stampedPath := range session.stamps {
+	for stampedPath := range nextStamps {
 		if _, current := currentFiles[normalizeOverlayPath(stampedPath, caseSensitive)]; !current {
 			deleted[stampedPath] = struct{}{}
 		}
 	}
 	for _, path := range slices.Sorted(maps.Keys(deleted)) {
-		delete(session.stamps, path)
-		delete(session.overlaid, normalizeOverlayPath(path, caseSensitive))
+		delete(nextStamps, path)
+		delete(nextOverlaid, normalizeOverlayPath(path, caseSensitive))
 		changed = append(changed, sidecarDaemonChangedFile{FileName: path, Deleted: true})
 	}
+	session.stamps = nextStamps
+	session.overlaid = nextOverlaid
 	ioStats.changedFiles = len(changed)
 	return changed, ioStats, nil
 }

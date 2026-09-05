@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,15 +49,16 @@ type sidecarRequest struct {
 	FileNames        []string `json:"fileNames,omitempty"`
 	// RootFileNames narrows the worker's LanguageService root set. Empty means
 	// "every file the tsconfig names", which is what a full build wants. An
-	// incremental build that selected a handful of files pays for parsing and
-	// binding the whole project otherwise, and the worker's program is thrown
-	// away when the rotor process exits, so nothing amortizes it.
-	RootFileNames []string              `json:"rootFileNames,omitempty"`
-	ChangedFiles  *[]sidecarChangedFile `json:"changedFiles,omitempty"`
-	Plugins       []json.RawMessage     `json:"plugins,omitempty"`
-	ResultHandle  string                `json:"resultHandle,omitempty"`
-	Outcome       string                `json:"outcome,omitempty"`
-	leaseOwner    string
+	// incremental build that selected a handful of files should not parse and
+	// bind unrelated roots; the persistent session widens this limit when later
+	// requests select more files.
+	RootFileNames         []string              `json:"rootFileNames,omitempty"`
+	FileContentIdentities *map[string]string    `json:"fileContentIdentities,omitempty"`
+	ChangedFiles          *[]sidecarChangedFile `json:"changedFiles,omitempty"`
+	Plugins               []json.RawMessage     `json:"plugins,omitempty"`
+	ResultHandle          string                `json:"resultHandle,omitempty"`
+	Outcome               string                `json:"outcome,omitempty"`
+	leaseOwner            string
 }
 
 type sidecarChangedFile struct {
@@ -361,16 +363,22 @@ func preparedFromSidecarStats(program *compiler.Program, sourceTraces diagnostic
 }
 
 type sidecarFileStamp struct {
-	modTime          time.Time
-	size             int64
-	metadataIdentity string
+	modTime         time.Time
+	size            int64
+	mode            os.FileMode
+	contentIdentity string
 }
 
 func newSidecarFileStamp(info os.FileInfo) sidecarFileStamp {
+	return newSidecarFileStampWithContent(info, "")
+}
+
+func newSidecarFileStampWithContent(info os.FileInfo, contentIdentity string) sidecarFileStamp {
 	return sidecarFileStamp{
-		modTime:          info.ModTime(),
-		size:             info.Size(),
-		metadataIdentity: sidecarFileMetadataIdentity(info),
+		modTime:         info.ModTime(),
+		size:            info.Size(),
+		mode:            info.Mode(),
+		contentIdentity: contentIdentity,
 	}
 }
 
@@ -772,12 +780,27 @@ func (s *sidecarSession) changedFilesFor(fileNames []string, overlays map[string
 }
 
 func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[string]string, skipDiskScan bool) ([]sidecarChangedFile, sidecarCallStats, error) {
+	return s.collectChangedFilesWithContent(fileNames, overlays, nil, skipDiskScan)
+}
+
+func (s *sidecarSession) collectChangedFilesWithContent(fileNames []string, overlays map[string]string, contentIdentities map[string]string, skipDiskScan bool) ([]sidecarChangedFile, sidecarCallStats, error) {
 	var ioStats sidecarCallStats
+	next := &sidecarSession{
+		stamps:   maps.Clone(s.stamps),
+		overlaid: maps.Clone(s.overlaid),
+	}
+	if next.stamps == nil {
+		next.stamps = make(map[string]sidecarFileStamp)
+	}
+	if next.overlaid == nil {
+		next.overlaid = make(map[string]string)
+	}
+	contentIdentities = normalizedSidecarContentIdentities(fileNames, contentIdentities)
 	// An empty stamp map still means "no round trip yet". Overlaid files skip
 	// the stat-diff, but revertDroppedOverlays stamps each one as it hands the
 	// file back, so a session cannot reach a second round trip having stamped
 	// nothing and still owe the worker a disk edit.
-	fresh := len(s.stamps) == 0
+	fresh := len(next.stamps) == 0
 	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
 	overlaid := make(map[string]sidecarChangedFile, len(overlays))
 	current := make(map[string]struct{}, len(fileNames)+len(overlays))
@@ -790,15 +813,20 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 		overlaid[key] = sidecarChangedFile{FileName: filepath.FromSlash(path), Text: text}
 	}
 
-	changed, revertReads, revertStats := s.revertDroppedOverlays(overlaid, current)
+	changed, revertReads, revertStats, err := next.revertDroppedOverlays(overlaid, current, contentIdentities)
 	ioStats.reads += revertReads
 	ioStats.stats += revertStats
+	if err != nil {
+		return nil, ioStats, err
+	}
 	for _, key := range slices.Sorted(maps.Keys(overlaid)) {
 		changed = append(changed, overlaid[key])
-		s.overlaid[key] = overlaid[key].FileName
+		next.overlaid[key] = overlaid[key].FileName
 	}
 
 	if skipDiskScan {
+		s.stamps = next.stamps
+		s.overlaid = next.overlaid
 		ioStats.changedFiles = len(changed)
 		return changed, ioStats, nil
 	}
@@ -814,41 +842,124 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 			if _, ok := overlaid[key]; ok {
 				// The program's spelling, not the caller's, so the stamp a
 				// revert writes is the one this loop later looks up.
-				s.overlaid[key] = path
+				next.overlaid[key] = path
 				continue
 			}
 		}
 		info, err := os.Stat(path)
 		ioStats.stats++
 		if err != nil {
+			if contentIdentities[path] != "" {
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
+				}
+				return nil, ioStats, err
+			}
 			if errors.Is(err, os.ErrNotExist) {
-				if _, stamped := s.stamps[path]; stamped && !fresh {
+				if _, stamped := next.stamps[path]; stamped && !fresh {
 					changed = append(changed, sidecarChangedFile{FileName: path, Deleted: true})
 				}
-				delete(s.stamps, path)
+				delete(next.stamps, path)
 			}
 			continue
 		}
-		stamp := newSidecarFileStamp(info)
-		if prev, ok := s.stamps[path]; !fresh && (!ok || prev != stamp) {
-			text, err := os.ReadFile(path)
+		stamp := newSidecarFileStampWithContent(info, contentIdentities[path])
+		if prev, ok := next.stamps[path]; !fresh && (!ok || prev != stamp) {
+			text, err := readSidecarSourceText(path)
 			ioStats.reads++
 			if err != nil {
 				return nil, ioStats, err
 			}
-			changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
+			if contentIdentities[path] != "" && sidecarTextContentIdentity(text) != contentIdentities[path] {
+				return nil, ioStats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
+			}
+			changed = append(changed, sidecarChangedFile{FileName: path, Text: text})
 		}
-		s.stamps[path] = stamp
+		next.stamps[path] = stamp
 	}
-	for stampedPath := range s.stamps {
+	for stampedPath := range next.stamps {
 		if _, ok := current[normalizeOverlayPath(stampedPath, caseSensitive)]; ok {
 			continue
 		}
-		delete(s.stamps, stampedPath)
+		delete(next.stamps, stampedPath)
 		changed = append(changed, sidecarChangedFile{FileName: stampedPath, Deleted: true})
 	}
+	s.stamps = next.stamps
+	s.overlaid = next.overlaid
 	ioStats.changedFiles = len(changed)
 	return changed, ioStats, nil
+}
+
+func sidecarSourceContentIdentities(sourceFiles []*ast.SourceFile, overlays map[string]string) (map[string]string, int, error) {
+	identities := make(map[string]string, len(sourceFiles))
+	overlaidText := make(map[string]string, len(overlays))
+	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
+	for fileName, text := range overlays {
+		overlaidText[normalizeOverlayPath(filepath.FromSlash(fileName), caseSensitive)] = text
+	}
+	reads := 0
+	for _, sourceFile := range sourceFiles {
+		text := sourceFile.Text()
+		// The native checker widens compiler-types' iterable declarations
+		// through SanitizeFS. The plugin worker intentionally runs the project's
+		// TypeScript over the original declaration text, so its authoritative
+		// snapshot for these compatibility-only declarations remains the decoded
+		// disk text.
+		if isCompilerTypesDTSPath(filepath.ToSlash(sourceFile.FileName())) {
+			if overlay, ok := overlaidText[normalizeOverlayPath(filepath.FromSlash(sourceFile.FileName()), caseSensitive)]; ok {
+				text = overlay
+			} else {
+				var err error
+				text, err = readSidecarSourceText(sourceFile.FileName())
+				reads++
+				if err != nil {
+					return nil, reads, err
+				}
+				if RewriteIterableArity(text) != sourceFile.Text() {
+					return nil, reads, fmt.Errorf("source changed after the compiler snapshot: %s", sourceFile.FileName())
+				}
+			}
+		}
+		identities[sourceFile.FileName()] = sidecarTextContentIdentity(text)
+	}
+	return identities, reads, nil
+}
+
+func includeSyntheticSidecarOverlays(configPath string, sourceFiles []*ast.SourceFile, overlays map[string]string) {
+	synthetic := syntheticDeclSkip(configPath)
+	for _, sourceFile := range sourceFiles {
+		if _, ok := synthetic[normalizeSourceFilePath(sourceFile.FileName())]; ok {
+			overlays[sourceFile.FileName()] = sourceFile.Text()
+		}
+	}
+}
+
+func normalizedSidecarContentIdentities(fileNames []string, identities map[string]string) map[string]string {
+	normalized := make(map[string]string, len(fileNames))
+	for _, fileName := range fileNames {
+		path := filepath.FromSlash(fileName)
+		normalized[path] = identities[fileName]
+		if normalized[path] == "" {
+			normalized[path] = identities[path]
+		}
+	}
+	return normalized
+}
+
+func sidecarTextContentIdentity(text string) string {
+	hash := sha256.Sum256([]byte(text))
+	return fmt.Sprintf("%x", hash)
+}
+
+func readSidecarSourceText(path string) (string, error) {
+	text, ok := osvfs.FS().ReadFile(filepath.ToSlash(path))
+	if !ok {
+		if _, err := os.Stat(path); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("read source file %q", path)
+	}
+	return text, nil
 }
 
 // revertDroppedOverlays undoes the overlays this round trip no longer carries,
@@ -862,7 +973,7 @@ func (s *sidecarSession) collectChangedFiles(fileNames []string, overlays map[st
 //
 // overlaid is this round trip's overlays, keyed the way normalizeOverlayPath
 // keys them.
-func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile, current map[string]struct{}) ([]sidecarChangedFile, int, int) {
+func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChangedFile, current map[string]struct{}, contentIdentities map[string]string) ([]sidecarChangedFile, int, int, error) {
 	changed := []sidecarChangedFile{}
 	reads := 0
 	stats := 0
@@ -880,19 +991,24 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 
 		info, statErr := os.Stat(path)
 		stats++
-		text, err := os.ReadFile(path)
+		text, err := readSidecarSourceText(path)
 		reads++
 		if err != nil || statErr != nil {
-			delete(s.stamps, path)
 			if errors.Is(err, os.ErrNotExist) || errors.Is(statErr, os.ErrNotExist) {
-				changed = append(changed, sidecarChangedFile{FileName: path, Deleted: true})
+				return nil, reads, stats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
 			}
-			continue
+			if err != nil {
+				return nil, reads, stats, err
+			}
+			return nil, reads, stats, statErr
 		}
-		changed = append(changed, sidecarChangedFile{FileName: path, Text: string(text)})
-		s.stamps[path] = newSidecarFileStamp(info)
+		if contentIdentities[path] != "" && sidecarTextContentIdentity(text) != contentIdentities[path] {
+			return nil, reads, stats, fmt.Errorf("source changed after the compiler snapshot: %s", path)
+		}
+		changed = append(changed, sidecarChangedFile{FileName: path, Text: text})
+		s.stamps[path] = newSidecarFileStampWithContent(info, contentIdentities[path])
 	}
-	return changed, reads, stats
+	return changed, reads, stats, nil
 }
 
 func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
@@ -957,9 +1073,16 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 			stampNames = append(stampNames, sourceFile.FileName())
 		}
 		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, true)
+		includeSyntheticSidecarOverlays(configPath, stampFiles, sidecarOverlays)
 		stats.reads += overlayReads
 		skipDiskScan := state != nil && state.diskScanned && len(session.stamps) > 0
-		changedFiles, ioStats, err := session.collectChangedFiles(stampNames, sidecarOverlays, skipDiskScan)
+		contentIdentities, identityReads, err := sidecarSourceContentIdentities(stampFiles, sidecarOverlays)
+		stats.reads += identityReads
+		if err != nil {
+			stats.prep += stopPrep()
+			return nil, stats, err
+		}
+		changedFiles, ioStats, err := session.collectChangedFilesWithContent(stampNames, sidecarOverlays, contentIdentities, skipDiskScan)
 		stats.stats += ioStats.stats
 		stats.reads += ioStats.reads
 		stats.changedFiles += ioStats.changedFiles
@@ -969,14 +1092,15 @@ func runTransformerSidecar(dir, configPath string, compileFiles, rootFiles, stam
 		}
 
 		request := sidecarRequest{
-			Protocol:         sidecarNodeProtocolVersion,
-			Operation:        "transform",
-			TsConfigPath:     filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:       filepath.FromSlash(sidecarDirPath),
-			CompileFileNames: make([]string, 0, len(compileFiles)),
-			ChangedFiles:     &changedFiles,
-			FileNames:        append([]string(nil), stampNames...),
-			Plugins:          plugins,
+			Protocol:              sidecarNodeProtocolVersion,
+			Operation:             "transform",
+			TsConfigPath:          filepath.FromSlash(sidecarConfigPath),
+			ProjectDir:            filepath.FromSlash(sidecarDirPath),
+			CompileFileNames:      make([]string, 0, len(compileFiles)),
+			ChangedFiles:          &changedFiles,
+			FileNames:             append([]string(nil), stampNames...),
+			FileContentIdentities: &contentIdentities,
+			Plugins:               plugins,
 		}
 		for _, sourceFile := range compileFiles {
 			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))

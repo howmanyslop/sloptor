@@ -12,8 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 
+	"github.com/zeebo/xxh3"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -43,16 +43,6 @@ type sidecarTypeScriptIdentity struct {
 	Version   string `json:"version,omitempty"`
 	EntryHash string `json:"entryHash"`
 }
-
-type sidecarNodeHashCacheEntry struct {
-	infoMetadata string
-	hash         string
-}
-
-var sidecarNodeHashCache = struct {
-	sync.Mutex
-	entries map[string]sidecarNodeHashCacheEntry
-}{entries: make(map[string]sidecarNodeHashCacheEntry)}
 
 // resolveSidecarWorkerIdentity computes the two process-lifetime keys before a
 // request crosses into the daemon. WorkspaceKey is stable for one canonical
@@ -208,11 +198,7 @@ func resolveSidecarNodeIdentity() (string, sidecarNodeIdentity, error) {
 	if err != nil {
 		return "", sidecarNodeIdentity{}, fmt.Errorf("canonicalize Node executable: %w", err)
 	}
-	info, err := os.Stat(filepath.FromSlash(canonicalNodePath))
-	if err != nil {
-		return "", sidecarNodeIdentity{}, fmt.Errorf("inspect Node executable: %w", err)
-	}
-	contentHash, err := sidecarNodeContentHash(canonicalNodePath, info)
+	contentHash, err := sidecarNodeContentHash(canonicalNodePath)
 	if err != nil {
 		return "", sidecarNodeIdentity{}, err
 	}
@@ -222,21 +208,14 @@ func resolveSidecarNodeIdentity() (string, sidecarNodeIdentity, error) {
 	}, nil
 }
 
-func sidecarNodeContentHash(path string, info os.FileInfo) (string, error) {
+func sidecarNodeContentHash(path string) (string, error) {
 	for range 2 {
-		sidecarNodeHashCache.Lock()
-		cached, ok := sidecarNodeHashCache.entries[path]
-		sidecarNodeHashCache.Unlock()
-		if ok && cached.infoMetadata == sidecarFileMetadataIdentity(info) {
-			return cached.hash, nil
-		}
-
 		file, err := os.Open(filepath.FromSlash(path))
 		if err != nil {
 			return "", fmt.Errorf("read Node executable: %w", err)
 		}
 		openedInfo, statErr := file.Stat()
-		hasher := sha256.New()
+		hasher := xxh3.New()
 		_, copyErr := io.Copy(hasher, file)
 		closeErr := file.Close()
 		if statErr != nil {
@@ -254,21 +233,13 @@ func sidecarNodeContentHash(path string, info os.FileInfo) (string, error) {
 			return "", fmt.Errorf("inspect Node executable after hashing: %w", err)
 		}
 		if !os.SameFile(openedInfo, currentInfo) || openedInfo.Size() != currentInfo.Size() || openedInfo.ModTime() != currentInfo.ModTime() {
-			info = currentInfo
 			continue
 		}
 
-		hash := hex.EncodeToString(hasher.Sum(nil))
-		sidecarNodeHashCache.Lock()
-		sidecarNodeHashCache.entries[path] = sidecarNodeHashCacheEntry{infoMetadata: sidecarFileMetadataIdentity(currentInfo), hash: hash}
-		sidecarNodeHashCache.Unlock()
-		return hash, nil
+		sum := hasher.Sum128().Bytes()
+		return hex.EncodeToString(sum[:]), nil
 	}
 	return "", errors.New("Node executable changed while its identity was being computed")
-}
-
-func sidecarFileMetadataIdentity(info os.FileInfo) string {
-	return fmt.Sprintf("%d\x00%d\x00%s\x00%#v", info.Size(), info.ModTime().UnixNano(), info.Mode(), info.Sys())
 }
 
 // sidecarEnvironmentHash fingerprints exactly what exec.Cmd.Env receives. It
