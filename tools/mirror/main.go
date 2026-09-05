@@ -227,18 +227,29 @@ func patchNames() ([]string, error) {
 }
 
 func patchTargets(patches []string) ([]string, error) {
+	if len(patches) == 0 {
+		return nil, nil
+	}
 	seen := make(map[string]struct{})
 	var targets []string
-	for _, patch := range patches {
-		data, err := os.ReadFile(patch)
+	for _, reverse := range []bool{false, true} {
+		args := []string{"apply", "--numstat", "-z"}
+		if reverse {
+			args = append(args, "--reverse")
+		}
+		stats, err := output("", "git", append(args, patches...)...)
 		if err != nil {
 			return nil, err
 		}
-		for _, line := range strings.Split(string(data), "\n") {
-			path, ok := strings.CutPrefix(line, "+++ b/")
-			if !ok || path == "/dev/null" {
+		for record := range strings.SplitSeq(stats, "\x00") {
+			if record == "" {
 				continue
 			}
+			fields := strings.SplitN(record, "\t", 3)
+			if len(fields) != 3 {
+				return nil, fmt.Errorf("invalid Git patch file record %q", record)
+			}
+			path := fields[2]
 			if _, exists := seen[path]; !exists {
 				seen[path] = struct{}{}
 				targets = append(targets, filepath.FromSlash(path))
@@ -270,6 +281,9 @@ func seedPatchBases(candidate, currentMirror string) error {
 
 	for _, target := range targets {
 		data, err := os.ReadFile(filepath.Join(currentMirror, target))
+		if os.IsNotExist(err) {
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("read patch baseline %s: %w", target, err)
 		}
@@ -291,7 +305,13 @@ func seedPatchBases(candidate, currentMirror string) error {
 		}
 	}
 	for _, target := range targets {
-		if _, err := output(candidate, "git", "hash-object", "-w", filepath.Join(resolvedBases, target)); err != nil {
+		path := filepath.Join(resolvedBases, target)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return fmt.Errorf("read patch baseline %s: %w", target, err)
+		}
+		if _, err := output(candidate, "git", "hash-object", "-w", path); err != nil {
 			return fmt.Errorf("store patch baseline %s: %w", target, err)
 		}
 	}
