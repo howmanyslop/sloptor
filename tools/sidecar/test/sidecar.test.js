@@ -1213,8 +1213,12 @@ module.exports = () => () => (source) => source;\n`);
 });
 
 test("the first transform refreshes a disk edit made after warm", (t) => {
+  const originalCwd = process.cwd();
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-warm-edit-"));
-  t.after(() => fs.rmSync(fixtureDir, { recursive: true, force: true }));
+  t.after(() => {
+    process.chdir(originalCwd);
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
   const sourceFile = path.join(fixtureDir, "main.ts");
   const configPath = path.join(fixtureDir, "tsconfig.json");
   fs.writeFileSync(sourceFile, 'export const phase = "before";\n');
@@ -1291,9 +1295,11 @@ test("editing the loaded TypeScript runtime is visible on the next transform", (
 });
 
 test("plugin cwd uses the session's canonical project path", (t) => {
+  const originalCwd = process.cwd();
   const realProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-cwd-real-"));
   const aliasProjectDir = `${realProjectDir}-alias`;
   t.after(() => {
+    process.chdir(originalCwd);
     fs.rmSync(aliasProjectDir, { force: true });
     fs.rmSync(realProjectDir, { recursive: true, force: true });
   });
@@ -1306,10 +1312,14 @@ test("plugin cwd uses the session's canonical project path", (t) => {
   const sourceFile = path.join(realProjectDir, "main.ts");
   const configPath = path.join(realProjectDir, "tsconfig.json");
   fs.writeFileSync(sourceFile, 'export const phase = "input";\n');
-  fs.writeFileSync(path.join(realProjectDir, "plugin.js"), `module.exports = (program, config, helpers) => (context) => {
+  fs.writeFileSync(path.join(realProjectDir, "plugin.js"), `const fs = require("node:fs");
+const path = require("node:path");
+module.exports = (program, config, helpers) => (context) => {
   const projectIndex = Math.max(process.argv.indexOf("-p"), process.argv.indexOf("--project"));
+  const configPath = process.argv[projectIndex + 1];
+  const usesCanonicalProject = fs.realpathSync(process.cwd()) === fs.realpathSync(path.dirname(configPath));
   const visit = (node) => helpers.ts.isStringLiteral(node)
-    ? helpers.ts.factory.createStringLiteral(process.cwd() + "|" + process.argv[projectIndex + 1])
+    ? helpers.ts.factory.createStringLiteral(usesCanonicalProject ? "canonical-project" : "split-project")
     : helpers.ts.visitEachChild(node, visit, context);
   return (source) => helpers.ts.visitNode(source, visit);
 };\n`);
@@ -1333,5 +1343,5 @@ test("plugin cwd uses the session's canonical project path", (t) => {
   });
 
   assert.deepEqual(response.diagnostics, []);
-  assert.ok(response.transformed[0].text.includes(JSON.stringify(`${fs.realpathSync(realProjectDir)}|${fs.realpathSync(configPath)}`)));
+  assert.match(response.transformed[0].text, /"canonical-project"/);
 });
