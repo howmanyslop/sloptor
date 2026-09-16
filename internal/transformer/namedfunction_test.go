@@ -64,12 +64,13 @@ consume(_exp, recurse, after())
 
 // TestNamedFunctionExpression_async_call_argument_wraps_the_named_local:
 // `registerOnClose(async function onBindToCloseAsync() {})` used to fail
-// with noFunctionExpressionName. The name is the TS.async wrapper, same
-// shape as a hoisted async declaration, so a caller (and a self-call)
-// get a Promise.
+// with noFunctionExpressionName. The inner local function keeps the Luau
+// debug name; the assignment makes the name bind to TS.async's wrapper
+// so a caller (and a self-call) get a Promise.
 func TestNamedFunctionExpression_async_call_argument_wraps_the_named_local(t *testing.T) {
-	want := `local onBindToCloseAsync
-onBindToCloseAsync = TS.async(function() end)
+	want := `local function onBindToCloseAsync()
+end
+onBindToCloseAsync = TS.async(onBindToCloseAsync)
 local stopBindToClose = registerOnClose(onBindToCloseAsync)
 print(stopBindToClose)
 `
@@ -80,16 +81,16 @@ print(stopBindToClose)
 
 // TestNamedFunctionExpression_async_matching_const_binds_the_wrapper:
 // a self-call through the function name must hit TS.async, not the raw
-// body. The local is declared before the wrapper is assigned so Lua
-// captures that local, not a global. Matching names fold into one local;
-// a mismatched const still lifts the expression name and aliases it.
+// body. Matching names fold into one local; a mismatched const still
+// lifts the expression name and aliases it.
 func TestNamedFunctionExpression_async_matching_const_binds_the_wrapper(t *testing.T) {
-	want := `local named
-named = TS.async(function(value)
+	want := `local function named(value)
 	return if value == 0 then 0 else named(value - 1)
-end)
-local different
-different = TS.async(function() end)
+end
+named = TS.async(named)
+local function different()
+end
+different = TS.async(different)
 local f = different
 print(named(2), f)
 `
@@ -123,30 +124,30 @@ print(named(), g())
 
 // TestNamedFunctionExpression_async_conditional_operands_stay_conditional:
 // constructing the wrapper is work, so a short-circuit operand and a
-// ternary arm must keep the local and the TS.async assignment inside
-// the branch.
+// ternary arm must keep the declaration and the TS.async assignment
+// inside the branch.
 func TestNamedFunctionExpression_async_conditional_operands_stay_conditional(t *testing.T) {
 	want := `local _condition = flag
 if _condition then
-	local shortNamed
-	shortNamed = TS.async(function()
+	local function shortNamed()
 		return 1
-	end)
+	end
+	shortNamed = TS.async(shortNamed)
 	_condition = shortNamed
 end
 local short = _condition
 local _result
 if flag then
-	local thenNamed
-	thenNamed = TS.async(function()
+	local function thenNamed()
 		return 1
-	end)
+	end
+	thenNamed = TS.async(thenNamed)
 	_result = thenNamed
 else
-	local elseNamed
-	elseNamed = TS.async(function()
+	local function elseNamed()
 		return 2
-	end)
+	end
+	elseNamed = TS.async(elseNamed)
 	_result = elseNamed
 end
 local ternary = _result

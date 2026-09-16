@@ -123,11 +123,10 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 // expression is lifted to a local function declaration in ANY expression
 // position — the prereq machinery already places the declaration where the
 // expression is evaluated, so short-circuit operands and conditional arms
-// stay conditional. Async names use the hoisted-declaration shape
-// (`local name; name = TS.async(function() ... end)`) so a self-call
-// captures the wrapper local. Generator names lift like a generator
-// declaration: the body is `return TS.generator(...)`, so a self-call
-// creates a new generator.
+// stay conditional. Async names keep the declaration (the Luau debug name)
+// and assign `name = TS.async(name)` so a self-call hits the wrapper.
+// Generator names lift like a generator declaration: the body is
+// `return TS.generator(...)`, so a self-call creates a new generator.
 // Async generators still report noAsyncGeneratorFunctions. Arrow expression
 // bodies reuse the full return transform with prereqs captured into the
 // function body — that is the only implicit-return mechanism.

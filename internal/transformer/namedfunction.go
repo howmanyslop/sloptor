@@ -6,17 +6,13 @@ import (
 	"rotor/tsgo/checker"
 )
 
-// emitNamedFunctionExpression lowers a named FunctionExpression.
-//
-// A generator expression is a factory, same as a generator declaration:
-// `local function name() return TS.generator(function() ... end) end`.
-//
-// An async expression uses the same shape as a hoisted async declaration:
-// `local name; name = TS.async(function() ... end)`. The local is declared
-// before the wrapper is assigned so a self-call in the body captures that
-// local (Lua does not expose a local in its own initializer). Reassigning a
-// `local function` to the wrapper is not used — Luau may treat that binding
-// as fixed for inlining, and `--!strict` can reject the write.
+// emitNamedFunctionExpression lowers a named FunctionExpression to a local
+// function declaration. A generator body is wrapped the same way as an
+// anonymous function expression. An async expression keeps that declaration
+// (the only Luau form with a debug name) and then assigns
+// `name = TS.async(name)`: `local function name` is `local name; name =
+// function() ... end`, so the body already closes over the local, and the
+// write points it at the wrapper.
 func emitNamedFunctionExpression(
 	s *State,
 	node *ast.Node,
@@ -35,22 +31,7 @@ func emitNamedFunctionExpression(
 		body.statements = wrapStatementsAsGenerator(s, node, body.statements)
 	}
 
-	if isAsync {
-		right := luau.NewCall(
-			s.RuntimeLib(node, "async"),
-			luau.NewList[luau.Expression](
-				luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements),
-			),
-		)
-		statements := luau.NewList[luau.Statement]()
-		if localize {
-			statements.Push(luau.NewVariableDeclaration(name, nil))
-		}
-		statements.Push(luau.NewAssignment(name, "=", right))
-		return statements
-	}
-
-	return luau.NewList[luau.Statement](
+	statements := luau.NewList[luau.Statement](
 		luau.NewFunctionDeclaration(
 			localize,
 			name,
@@ -59,6 +40,14 @@ func emitNamedFunctionExpression(
 			body.statements,
 		),
 	)
+	if isAsync {
+		statements.Push(luau.NewAssignment(
+			name,
+			"=",
+			luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](name)),
+		))
+	}
+	return statements
 }
 
 func transformNamedFunctionExpressionBody(
