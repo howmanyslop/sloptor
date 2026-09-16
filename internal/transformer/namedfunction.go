@@ -6,10 +6,59 @@ import (
 	"rotor/tsgo/checker"
 )
 
-func isSynchronousNonGeneratorFunctionExpression(node *ast.Node) bool {
-	return ast.IsFunctionExpression(node) &&
-		!ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync) &&
-		node.AsFunctionExpression().AsteriskToken == nil
+// emitNamedFunctionExpression lowers a named FunctionExpression.
+//
+// A generator expression is a factory, same as a generator declaration:
+// `local function name() return TS.generator(function() ... end) end`.
+//
+// An async expression uses the same shape as a hoisted async declaration:
+// `local name; name = TS.async(function() ... end)`. The local is declared
+// before the wrapper is assigned so a self-call in the body captures that
+// local (Lua does not expose a local in its own initializer). Reassigning a
+// `local function` to the wrapper is not used — Luau may treat that binding
+// as fixed for inlining, and `--!strict` can reject the write.
+func emitNamedFunctionExpression(
+	s *State,
+	node *ast.Node,
+	name luau.AnyIdentifier,
+	localize bool,
+	nameReplacement *luau.TemporaryIdentifier,
+) *luau.List[luau.Statement] {
+	body := transformNamedFunctionExpressionBody(s, node, nameReplacement)
+
+	isAsync := ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync)
+	asteriskToken := node.AsFunctionExpression().AsteriskToken
+	if asteriskToken != nil {
+		if isAsync {
+			s.Diags.Add(DiagNoAsyncGeneratorFunctions(node))
+		}
+		body.statements = wrapStatementsAsGenerator(s, node, body.statements)
+	}
+
+	if isAsync {
+		right := luau.NewCall(
+			s.RuntimeLib(node, "async"),
+			luau.NewList[luau.Expression](
+				luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements),
+			),
+		)
+		statements := luau.NewList[luau.Statement]()
+		if localize {
+			statements.Push(luau.NewVariableDeclaration(name, nil))
+		}
+		statements.Push(luau.NewAssignment(name, "=", right))
+		return statements
+	}
+
+	return luau.NewList[luau.Statement](
+		luau.NewFunctionDeclaration(
+			localize,
+			name,
+			body.parameters,
+			body.hasDotDotDot,
+			body.statements,
+		),
+	)
 }
 
 func transformNamedFunctionExpressionBody(
@@ -46,7 +95,7 @@ func transformNamedFunctionExpressionBody(
 	return transformFunctionBody(s, node)
 }
 
-func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.FunctionDeclaration {
+func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.List[luau.Statement] {
 	if ast.HasSyntacticModifier(node, ast.ModifierFlagsExport) {
 		return nil
 	}
@@ -64,7 +113,7 @@ func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.Functio
 	declaration := declarations[0].AsVariableDeclaration()
 	bindingName := declaration.Name()
 	initializer := declaration.Initializer
-	if !ast.IsIdentifier(bindingName) || !isSynchronousNonGeneratorFunctionExpression(initializer) {
+	if !ast.IsIdentifier(bindingName) || !ast.IsFunctionExpression(initializer) {
 		return nil
 	}
 
@@ -82,13 +131,12 @@ func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.Functio
 		return nil
 	}
 	checkVariableHoist(s, bindingName, bindingSymbol)
-	body := transformNamedFunctionExpressionBody(s, initializer, nil)
-	return luau.NewFunctionDeclaration(
-		!s.IsHoisted[bindingSymbol],
+	return emitNamedFunctionExpression(
+		s,
+		initializer,
 		TransformIdentifierDefined(s, bindingName),
-		body.parameters,
-		body.hasDotDotDot,
-		body.statements,
+		!s.IsHoisted[bindingSymbol],
+		nil,
 	)
 }
 
