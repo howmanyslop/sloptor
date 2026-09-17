@@ -62,23 +62,123 @@ consume(_exp, recurse, after())
 	}
 }
 
-// TestNamedFunctionExpression_async_and_generator_keep_diagnostics: the two
-// forms a lift cannot express. Both wrap the transformed body — `TS.async(...)`
-// and `TS.generator(...)` — and the name binds to the WRAPPER, so a lifted
-// `local function named()` would make a self-call reach the raw body and skip
-// the wrapper. Lowering them as `local named; named = TS.async(...)` would be
-// correct but carries no Luau debug name, which is the only thing the name
-// buys, so the diagnostic stays.
-func TestNamedFunctionExpression_async_and_generator_keep_diagnostics(t *testing.T) {
+// TestNamedFunctionExpression_async_call_argument_wraps_the_named_local:
+// `registerOnClose(async function onBindToCloseAsync() {})` used to fail
+// with noFunctionExpressionName. The inner local function keeps the Luau
+// debug name; the assignment makes the name bind to TS.async's wrapper
+// so a caller (and a self-call) get a Promise.
+func TestNamedFunctionExpression_async_call_argument_wraps_the_named_local(t *testing.T) {
+	want := `local function onBindToCloseAsync()
+end
+onBindToCloseAsync = TS.async(onBindToCloseAsync)
+local stopBindToClose = registerOnClose(onBindToCloseAsync)
+print(stopBindToClose)
+`
+	if got := renderFunctionsFile(t, "src/namedasyncarg.ts"); got != want {
+		t.Errorf("rendered output:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestNamedFunctionExpression_async_matching_const_binds_the_wrapper:
+// a self-call through the function name must hit TS.async, not the raw
+// body. Matching names fold into one local; a mismatched const still
+// lifts the expression name and aliases it.
+func TestNamedFunctionExpression_async_matching_const_binds_the_wrapper(t *testing.T) {
+	want := `local function named(value)
+	return if value == 0 then 0 else named(value - 1)
+end
+named = TS.async(named)
+local function different()
+end
+different = TS.async(different)
+local f = different
+print(named(2), f)
+`
+	if got := renderFunctionsFile(t, "src/namedasyncconst.ts"); got != want {
+		t.Errorf("rendered output:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestNamedFunctionExpression_generator_lifts_as_a_declaration: a named
+// generator expression is the factory, same as `function* named()`. The
+// name binds to that factory, so a self-call creates a new generator
+// instead of re-entering the iterator callback.
+func TestNamedFunctionExpression_generator_lifts_as_a_declaration(t *testing.T) {
+	want := `local function named()
+	return TS.generator(function()
+		coroutine.yield(1)
+	end)
+end
+local function generatorNamed()
+	return TS.generator(function()
+		coroutine.yield(2)
+	end)
+end
+local g = generatorNamed
+print(named(), g())
+`
+	if got := renderFunctionsFile(t, "src/namedgenerator.ts"); got != want {
+		t.Errorf("rendered output:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestNamedFunctionExpression_async_conditional_operands_stay_conditional:
+// constructing the wrapper is work, so a short-circuit operand and a
+// ternary arm must keep the declaration and the TS.async assignment
+// inside the branch.
+func TestNamedFunctionExpression_async_conditional_operands_stay_conditional(t *testing.T) {
+	want := `local _condition = flag
+if _condition then
+	local function shortNamed()
+		return 1
+	end
+	shortNamed = TS.async(shortNamed)
+	_condition = shortNamed
+end
+local short = _condition
+local _result
+if flag then
+	local function thenNamed()
+		return 1
+	end
+	thenNamed = TS.async(thenNamed)
+	_result = thenNamed
+else
+	local function elseNamed()
+		return 2
+	end
+	elseNamed = TS.async(elseNamed)
+	_result = elseNamed
+end
+local ternary = _result
+print(short, ternary)
+`
+	if got := renderFunctionsFile(t, "src/namedasyncconditional.ts"); got != want {
+		t.Errorf("rendered output:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestNamedFunctionExpression_async_generator_keeps_diagnostic: async
+// generators are still unsupported (the name cannot bind to both wrappers).
+// They must not fall back to noFunctionExpressionName now that plain async
+// and generator names compile.
+func TestNamedFunctionExpression_async_generator_keeps_diagnostic(t *testing.T) {
 	diagnostics := transformExpectingDiagnostics(t, "src/namedunsupported.ts")
 	namedFunctionDiagnostics := 0
+	asyncGeneratorDiagnostics := 0
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Code == "noFunctionExpressionName" {
+		switch diagnostic.Code {
+		case "noFunctionExpressionName":
 			namedFunctionDiagnostics++
+		case "noAsyncGeneratorFunctions":
+			asyncGeneratorDiagnostics++
 		}
 	}
-	if namedFunctionDiagnostics != 2 {
-		t.Errorf("noFunctionExpressionName diagnostic count = %d, want 2; got: %v", namedFunctionDiagnostics, diagnostics)
+	if namedFunctionDiagnostics != 0 {
+		t.Errorf("noFunctionExpressionName diagnostic count = %d, want 0; got: %v", namedFunctionDiagnostics, diagnostics)
+	}
+	if asyncGeneratorDiagnostics != 1 {
+		t.Errorf("noAsyncGeneratorFunctions diagnostic count = %d, want 1; got: %v", asyncGeneratorDiagnostics, diagnostics)
 	}
 }
 
