@@ -50,12 +50,13 @@ func configureSidecarDaemonProcess(cmd *exec.Cmd) {
 }
 
 func sidecarProcessAlive(pid int) bool {
-	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return false
 	}
-	_ = windows.CloseHandle(handle)
-	return true
+	defer windows.CloseHandle(handle)
+	status, err := windows.WaitForSingleObject(handle, 0)
+	return err == nil && status == uint32(windows.WAIT_TIMEOUT)
 }
 
 func sidecarProcessGeneration(pid int) string {

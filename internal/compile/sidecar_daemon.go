@@ -1022,7 +1022,7 @@ func waitForSidecarDaemonStop(ctx context.Context, runtimeDir string, metadata s
 	for {
 		if _, err := os.Stat(sidecarDaemonMetadataPath(runtimeDir, metadata.ID)); errors.Is(err, os.ErrNotExist) {
 			return nil
-		} else if err != nil {
+		} else if err != nil && (runtime.GOOS != "windows" || !errors.Is(err, os.ErrPermission)) {
 			return fmt.Errorf("inspect stopped sidecar daemon %d: %w", metadata.PID, err)
 		}
 		if !sidecarProcessAlive(metadata.PID) {
