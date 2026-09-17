@@ -19,7 +19,8 @@ The reported binaries used Go 1.26.6 with `-trimpath -buildvcs=false`.
 Their SHA-256 values are `5854d7e1ae20fb0de52c9f51a60aacdf3549d40c997e95f073162d7f7a45c3fa`
 for 9aecb04 and `da049788edad7099acb3f1ebfd23c47c492da0a4bd17ac74dac90f58363d0acc`
 for d27f884. Every run that started a sidecar reported Node 22.23.2; no-change
-runs made no sidecar request and therefore recorded no Node version. The
+runs made no sidecar request and therefore recorded no Node version. Both
+fixtures used project TypeScript 6.0.2. The
 measurements ran on macOS arm64 with 14 logical CPUs. `/usr/bin/time -lp`
 supplied wall, CPU, and peak-RSS values.
 
@@ -79,7 +80,7 @@ Prerequisites:
   both binaries.
 - Node 22.23.2 before any other `node` in `PATH`. The compiler starts Node as a
   child process, so choosing the harness executable alone is insufficient.
-- A TypeScript installation directory from the candidate worktree.
+- A TypeScript 6.0.2 installation directory, shared by the two fixtures.
 
 Set the paths for an isolated scratch directory and the two source worktrees:
 
