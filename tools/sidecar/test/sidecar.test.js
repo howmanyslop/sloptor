@@ -12,6 +12,9 @@ const projectDir = path.resolve(__dirname, "..", "testdata", "project");
 const tsConfigPath = path.join(projectDir, "tsconfig.json");
 const sourcePath = path.join(projectDir, "src", "example.ts");
 const mainPath = path.resolve(__dirname, "..", "main.js");
+const checkerReferenceProjectDir = path.resolve(__dirname, "..", "testdata", "checker-project-reference", "app");
+const checkerReferenceConfigPath = path.join(checkerReferenceProjectDir, "tsconfig.json");
+const checkerReferenceSourcePath = path.join(checkerReferenceProjectDir, "src", "main.ts");
 
 // TypeScript reports file names with forward slashes on every platform, so
 // comparisons against host paths must be slash-normalized to hold on Windows.
@@ -40,6 +43,24 @@ function createProgram() {
     options: parsed.options,
     projectReferences: parsed.projectReferences,
   });
+}
+
+function checkerReferenceOracle() {
+  const parsed = resolveOptions(checkerReferenceConfigPath);
+  const builder = ts.createEmitAndSemanticDiagnosticsBuilderProgram(
+    parsed.fileNames,
+    parsed.options,
+    ts.createIncrementalCompilerHost(parsed.options),
+  );
+  const program = builder.getProgram();
+  const sourceFile = program.getSourceFile(checkerReferenceSourcePath);
+  assert.ok(sourceFile, "expected checker-reference source file");
+  const probe = sourceFile.statements
+    .filter(ts.isVariableStatement)
+    .flatMap((statement) => statement.declarationList.declarations)
+    .find((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === "probe");
+  assert.ok(probe?.initializer, "expected checker-reference probe initializer");
+  return program.getTypeChecker().typeToString(program.getTypeChecker().getTypeAtLocation(probe.initializer));
 }
 
 function describePluginConfigs(configs) {
@@ -164,6 +185,28 @@ test("a project with no plugins reports no afterDeclarations transformers", () =
   });
 
   assert.equal(response.afterDeclarationsTransformers, 0);
+});
+
+// Catches a checker plugin observing a referenced project's already-emitted
+// declarations instead of the source program rbxtsc gives it. The expected
+// literal comes from the rbxtsc createProjectProgram builder construction,
+// which uses parsed roots and options without parsed project references.
+test("checker plugins use the referenced source contract from rbxtsc", () => {
+  const expected = checkerReferenceOracle();
+  assert.equal(expected, "1");
+  const session = new sidecar.SidecarProjectSession(ts, checkerReferenceProjectDir, checkerReferenceConfigPath);
+  const response = session.handleRequest({
+    protocol: 1,
+    projectDir: checkerReferenceProjectDir,
+    tsConfigPath: checkerReferenceConfigPath,
+    compileFileNames: [checkerReferenceSourcePath],
+    changedFiles: [],
+    transformSources: true,
+  });
+
+  assert.deepEqual(response.diagnostics, []);
+  assert.equal(response.transformed.length, 1);
+  assert.match(response.transformed[0].text, new RegExp(`checkerProbe = "${expected}"`));
 });
 
 test("createTransformerList instantiates checker and compilerOptions factories", () => {

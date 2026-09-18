@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "noLib": true,
+    "strict": true,
+    "target": "ESNext",
+    "rootDir": "src",
+    "outDir": "out",
+    "plugins": [{ "transform": "./plugins/checker-reference.js", "type": "checker" }]
+  },
+  "references": [{ "path": "../shared" }],
+  "include": ["src"]
+}

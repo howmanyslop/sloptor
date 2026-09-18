@@ -35,7 +35,6 @@ function createServiceHost(session, ts) {
     directoryExists: ts.sys.directoryExists,
     fileExists: (fileName) => session.fileExists(fileName),
     getProjectVersion: () => String(session.projectVersion),
-    getProjectReferences: () => session.parsed.projectReferences,
     getScriptFileNames: () => session.getScriptFileNames(),
     getScriptSnapshot: (fileName) => {
       const text = session.readFile(fileName);
