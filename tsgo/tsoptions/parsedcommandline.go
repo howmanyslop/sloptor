@@ -3,6 +3,7 @@ package tsoptions
 import (
 	"fmt"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -55,6 +56,23 @@ type ParsedCommandLine struct {
 
 	locale     locale.Locale
 	localeOnce sync.Once
+
+	// configParseSnapshot is the complete set of successful reads made while
+	// parsing this configuration. Consumers that must reproduce this parse in a
+	// separate process use it instead of reopening the config chain from disk.
+	configParseSnapshot map[string]string
+}
+
+// SetConfigParseSnapshot records the bytes consumed by this parsed command
+// line's config parser. Both directions clone the map so a caller cannot alter
+// the program's configuration snapshot after construction.
+func (p *ParsedCommandLine) SetConfigParseSnapshot(files map[string]string) {
+	p.configParseSnapshot = maps.Clone(files)
+}
+
+// ConfigParseSnapshot returns the config parser inputs for this command line.
+func (p *ParsedCommandLine) ConfigParseSnapshot() map[string]string {
+	return maps.Clone(p.configParseSnapshot)
 }
 
 func NewParsedCommandLine(

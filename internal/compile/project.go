@@ -128,21 +128,26 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	// stays the default so a build without overlays keeps exactly the previous
 	// filesystem stack.
 	var overlays map[string]string
-	fs := solutionCacheFS(opts.compileCache, configPath, nil)
-	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
+	configSnapshot := newConfigParseSnapshot()
+	fs := solutionCacheFSWithConfigRead(opts.compileCache, configPath, nil, configSnapshot.captureRaw)
+	program, diags, err := newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays, configSnapshot)
 	if err != nil {
 		return "", nil, diags, err
 	}
 	if len(opts.Overlays) > 0 {
 		var unmatched []string
-		overlays, unmatched = rekeyOverlaysToProgram(program, opts.Overlays)
+		overlays, unmatched, err = rekeyOverlaysToProgram(program, opts.Overlays)
+		if err != nil {
+			return "", nil, []string{err.Error()}, err
+		}
 		if len(unmatched) > 0 && opts.solutionOverlays == nil {
 			sort.Strings(unmatched)
 			err = fmt.Errorf("compile: overlay matches no file in the program: %s", strings.Join(unmatched, ", "))
 			return "", nil, []string{err.Error()}, err
 		}
-		fs = solutionCacheFS(opts.compileCache, configPath, overlays)
-		program, diags, err = newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays)
+		configSnapshot = newConfigParseSnapshot()
+		fs = solutionCacheFSWithConfigRead(opts.compileCache, configPath, overlays, configSnapshot.captureRaw)
+		program, diags, err = newProjectProgramFromFSWithOptions(dir, configPath, fs, opts.Checkers, opts.SingleThreaded, opts.compileCache, overlays, configSnapshot)
 		if err != nil {
 			return "", nil, diags, err
 		}
@@ -483,6 +488,7 @@ type ProjectOptions struct {
 	pendingSolutionPersists   *[]func() error
 	deferRojoCachePersist     bool
 	compileCache              *solutionCompileCache
+	sidecarWorkspaceDir       string
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds
@@ -698,6 +704,8 @@ func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOp
 	if err != nil {
 		return nil, stringDiagnostics(diags), err
 	}
+	releaseOutcome := "error"
+	defer func() { releaseSidecarTraceLeases(pipeline.prepared.sidecarTraceLeases, releaseOutcome) }()
 	program = pipeline.prepared.program
 	sourceFiles = pipeline.prepared.sourceFiles
 	pctx, pctxDiags, err := newProjectContext(dir, program, opts)
@@ -706,6 +714,9 @@ func compileProjectProgram(dir string, program *compiler.Program, opts ProjectOp
 	}
 	pctx.sourceTraces = pipeline.prepared.sourceTraces
 	outputs, _, infos, err := compileProjectSourceFiles(dir, program, pctx, sourceFiles, opts)
+	if err == nil && len(infos) == 0 {
+		releaseOutcome = "success"
+	}
 	return outputs, infos, err
 }
 
@@ -1031,10 +1042,20 @@ type rawEnforcedOptions struct {
 // tsoptions sees the sanitizer's TS7 compatibility rewrites. Unreadable or
 // unparsable configs return zero values so tsoptions reports the parse error.
 func readRawEnforcedOptions(configPath string) rawEnforcedOptions {
-	return readRawEnforcedOptionsFromChain(configPath, make(map[string]struct{}))
+	return readRawEnforcedOptionsFromChain(configPath, make(map[string]struct{}), os.ReadFile, nil)
 }
 
-func readRawEnforcedOptionsFromChain(configPath string, visited map[string]struct{}) rawEnforcedOptions {
+func readRawEnforcedOptionsFromSnapshot(configPath string, snapshot map[string]string) rawEnforcedOptions {
+	return readRawEnforcedOptionsFromChain(configPath, make(map[string]struct{}), func(path string) ([]byte, error) {
+		text, ok := snapshot[filepath.ToSlash(filepath.Clean(path))]
+		if !ok {
+			return nil, os.ErrNotExist
+		}
+		return []byte(text), nil
+	}, snapshot)
+}
+
+func readRawEnforcedOptionsFromChain(configPath string, visited map[string]struct{}, readFile func(string) ([]byte, error), snapshot map[string]string) rawEnforcedOptions {
 	normalized, err := filepath.Abs(configPath)
 	if err != nil {
 		return rawEnforcedOptions{}
@@ -1044,8 +1065,9 @@ func readRawEnforcedOptionsFromChain(configPath string, visited map[string]struc
 		return rawEnforcedOptions{}
 	}
 	visited[normalized] = struct{}{}
+	defer delete(visited, normalized)
 
-	data, err := os.ReadFile(configPath)
+	data, err := readFile(configPath)
 	if err != nil {
 		return rawEnforcedOptions{}
 	}
@@ -1055,10 +1077,16 @@ func readRawEnforcedOptionsFromChain(configPath string, visited map[string]struc
 	}
 
 	base := rawEnforcedOptions{}
-	if extends, ok := root["extends"].(string); ok {
-		parent, err := resolveExtendsPath(filepath.Dir(normalized), extends)
-		if err == nil {
-			base = readRawEnforcedOptionsFromChain(parent, visited)
+	if extendsValue, present := root["extends"]; present && extendsValue != nil {
+		if extendsRaw, err := json.Marshal(extendsValue); err == nil {
+			if extends, parseErr := parseExtends(extendsRaw); parseErr == nil {
+				for _, extended := range extends {
+					parent, resolveErr := resolveExtendedConfig(normalized, extended, snapshot)
+					if resolveErr == nil {
+						base = mergeRawEnforcedOptions(base, readRawEnforcedOptionsFromChain(parent, visited, readFile, snapshot))
+					}
+				}
+			}
 		}
 	}
 

@@ -14,6 +14,7 @@ package main
 import (
 	"os"
 
+	"rotor/internal/compile"
 	rotorversion "rotor/internal/version"
 )
 
@@ -24,5 +25,8 @@ import (
 var version = rotorversion.Version
 
 func main() {
+	// The hidden daemon child enters through main as well; enabling this twice
+	// across the parent and child processes is intentional and idempotent.
+	compile.EnablePersistentSidecarDaemon()
 	os.Exit(run(os.Args[1:]))
 }

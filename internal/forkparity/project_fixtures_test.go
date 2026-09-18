@@ -177,7 +177,10 @@ func TestProjectOracleGoldens(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build rotor: %v\n%s", err, output)
 	}
-	runner := MatrixRunner{RepoRoot: root}
+	runner := MatrixRunner{
+		RepoRoot:         root,
+		DaemonRuntimeDir: testRotorDaemonRuntime(t, rotorBin),
+	}
 	nodeModules, err := runner.rotorNodeModules()
 	if err != nil {
 		t.Fatal(err)

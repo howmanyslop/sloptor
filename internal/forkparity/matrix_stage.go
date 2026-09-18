@@ -3,6 +3,7 @@ package forkparity
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 const matrixTSConfig = `{
@@ -46,14 +48,20 @@ func (r MatrixRunner) runTransformerFixture(
 	rotorBin string,
 	nodeModules string,
 	fixture TransformerFixture,
-) (matrixFixtureResult, error) {
+) (fixtureResult matrixFixtureResult, runErr error) {
 	stage, err := stageMatrixFixture(matrixTransformerFiles(fixture), nodeModules)
 	if err != nil {
 		return matrixFixtureResult{}, err
 	}
-	defer os.RemoveAll(stage.dir)
+	defer func() {
+		cleanupErr := cleanupMatrixStage(rotorBin, r.DaemonRuntimeDir, stage.dir)
+		if cleanupErr != nil {
+			fixtureResult = matrixFixtureResult{}
+			runErr = errors.Join(runErr, fmt.Errorf("clean up transformer fixture %q: %w", fixture.Name, cleanupErr))
+		}
+	}()
 
-	runner := Runner{RotorBinPath: rotorBin}
+	runner := Runner{RotorBinPath: rotorBin, DaemonRuntimeDir: r.DaemonRuntimeDir}
 	result, err := runner.RunRotor(ctx, rotorBin, stage.dir, filepath.Join(stage.dir, "out"))
 	if err != nil {
 		return matrixFixtureResult{}, err
@@ -73,14 +81,20 @@ func (r MatrixRunner) runProjectFixture(
 	rotorBin string,
 	nodeModules string,
 	fixture ProjectFixture,
-) (matrixFixtureResult, error) {
+) (fixtureResult matrixFixtureResult, runErr error) {
 	stage, err := stageMatrixFixture(fixture.Files, nodeModules)
 	if err != nil {
 		return matrixFixtureResult{}, err
 	}
-	defer os.RemoveAll(stage.dir)
+	defer func() {
+		cleanupErr := cleanupMatrixStage(rotorBin, r.DaemonRuntimeDir, stage.dir)
+		if cleanupErr != nil {
+			fixtureResult = matrixFixtureResult{}
+			runErr = errors.Join(runErr, fmt.Errorf("clean up project fixture %q: %w", fixture.Name, cleanupErr))
+		}
+	}()
 
-	runner := Runner{RotorBinPath: rotorBin}
+	runner := Runner{RotorBinPath: rotorBin, DaemonRuntimeDir: r.DaemonRuntimeDir}
 	run := RotorRun{
 		Binary:     rotorBin,
 		FixtureDir: stage.dir,
@@ -115,6 +129,18 @@ func (r MatrixRunner) runProjectFixture(
 		artifacts = afterSecond
 	}
 	return matrixFixtureResult{Artifacts: matrixNormalizeArtifacts(artifacts, stage.dir), Drifts: drifts}, nil
+}
+
+func cleanupMatrixStage(rotorBin, runtimeDir, stageDir string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := stopRotorDaemons(ctx, rotorBin, runtimeDir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(stageDir); err != nil {
+		return fmt.Errorf("remove matrix fixture: %w", err)
+	}
+	return nil
 }
 
 func matrixTransformerFiles(fixture TransformerFixture) map[string]string {

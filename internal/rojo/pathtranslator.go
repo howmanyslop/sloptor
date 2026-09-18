@@ -86,13 +86,16 @@ func NewPathTranslator(rootDir, outDir, buildInfoOutputPath string, declaration,
 	return &PathTranslator{
 		RootDir:             rootDir,
 		OutDir:              outDir,
-		BuildInfoOutputPath: addRbxtscBuildInfoInfix(buildInfoOutputPath),
+		BuildInfoOutputPath: RbxtscBuildInfoPath(buildInfoOutputPath),
 		Declaration:         declaration,
 		UseLuauExtension:    useLuauExtension,
 	}
 }
 
-func addRbxtscBuildInfoInfix(filePath string) string {
+// RbxtscBuildInfoPath returns the path used for rbxtsc's incremental build
+// information. It is idempotent so paths already carrying the infix are
+// unchanged.
+func RbxtscBuildInfoPath(filePath string) string {
 	if !strings.HasSuffix(filePath, buildInfoExt) {
 		return filePath
 	}

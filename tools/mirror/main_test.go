@@ -50,8 +50,12 @@ func TestApplyPatchesReproducesRotorEdits(t *testing.T) {
 		filepath.Join("compiler", "program.go"),
 		filepath.Join("parser", "references.go"),
 		filepath.Join("printer", "emitcontext.go"),
+		filepath.Join("tsoptions", "parsedcommandline.go"),
 	}
-	base := t.TempDir()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, rel := range files {
 		data, err := os.ReadFile(filepath.Join(outDir, rel))
 		if err != nil {

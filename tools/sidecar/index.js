@@ -1,7 +1,14 @@
 const fs = require("node:fs");
 const readline = require("node:readline");
 const { createInternalDiagnostic, createRequestDiagnostic } = require("./lib/diagnostics");
-const { createTransformerList, flattenIntoTransformers, getPluginConfigs, validatePluginConfigs } = require("./lib/plugins");
+const {
+  collectRequireClosure,
+  createTransformerList,
+  flattenIntoTransformers,
+  getPluginConfigs,
+  resetPluginMetrics,
+  validatePluginConfigs,
+} = require("./lib/plugins");
 const { SidecarProjectSession, SidecarServer } = require("./lib/session");
 
 // resolveTypeScript loads the same `typescript` module instance the project's
@@ -25,7 +32,13 @@ resolveTypeScript.modulePathFor = resolveTypeScriptPath;
 
 function transformSourceFiles(tsApi, program, sourceFiles, transforms) {
   const session = new SidecarProjectSession(tsApi, process.cwd(), process.cwd());
-  return session.transformSourceFiles(program, sourceFiles, transforms);
+  try {
+    const result = session.transformSourceFiles(program, sourceFiles, transforms);
+    delete result.resultHandle;
+    return result;
+  } finally {
+    session.dispose();
+  }
 }
 
 function serveStdio(options = {}) {
@@ -59,6 +72,7 @@ function serveStdio(options = {}) {
 
     output.write(`${JSON.stringify(response)}\n`);
   });
+  lineReader.once("close", () => server.close());
 
   return lineReader;
 }
@@ -66,9 +80,11 @@ function serveStdio(options = {}) {
 module.exports = {
   SidecarProjectSession,
   SidecarServer,
+  collectRequireClosure,
   createTransformerList,
   flattenIntoTransformers,
   getPluginConfigs,
+  resetPluginMetrics,
   validatePluginConfigs,
   resolveTypeScript,
   resolveTypeScriptPath,

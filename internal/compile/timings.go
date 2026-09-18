@@ -465,6 +465,13 @@ func (timings *BuildTimings) recordPreparedTransformerProgram(prepared *prepared
 	}
 }
 
+func (timings *BuildTimings) recordSidecarCall(stats sidecarCallStats) {
+	if timings == nil || stats == (sidecarCallStats{}) {
+		return
+	}
+	timings.recordPreparedTransformerProgram(preparedFromSidecarStats(nil, nil, stats))
+}
+
 func (timings *BuildTimings) setSourceCounts(totalSources, selectedSources int) {
 	if timings == nil {
 		return

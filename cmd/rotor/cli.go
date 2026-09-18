@@ -150,6 +150,7 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 		newBundleCommand(streams),
 		newCheckCommand(streams),
 		newCleanCommand(streams),
+		newDaemonCommand(streams),
 		newDeployCommand(streams),
 		newDevCommand(streams),
 		newDiagnosticsCommand(streams),
@@ -162,6 +163,7 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 		newSourcemapCommand(streams),
 		newCompletionCommand(),
 		newVersionCommand(),
+		newInternalSidecarDaemonCommand(),
 	)
 	return root
 }

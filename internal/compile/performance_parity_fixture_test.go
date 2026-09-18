@@ -2,6 +2,7 @@ package compile
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,12 +63,15 @@ func runPerformanceOutputBinary(t *testing.T, fixture string) (performanceOutput
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
+	runtimeDir := t.TempDir()
+	t.Cleanup(func() { stopPerformanceOutputDaemons(t, binary, runtimeDir) })
 	build := exec.Command("go", "build", "-o", binary, "./cmd/rotor")
 	build.Dir = performanceRepoRoot(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build candidate binary: %v\n%s", err, output)
 	}
 	command := exec.Command(binary, "build", "--json", "--project", fixture)
+	command.Env = performanceDaemonEnvironment(runtimeDir)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	command.Stdout = &stdout
@@ -85,6 +89,52 @@ func runPerformanceOutputBinary(t *testing.T, fixture string) (performanceOutput
 	}
 	result.Diagnostics = response.Diagnostics
 	return result, err
+}
+
+func stopPerformanceOutputDaemons(t *testing.T, binary, runtimeDir string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	stop := exec.CommandContext(ctx, binary, "daemon", "stop")
+	stop.Env = performanceDaemonEnvironment(runtimeDir)
+	if output, err := stop.CombinedOutput(); err != nil {
+		t.Errorf("stop performance output daemon: %v\n%s", err, output)
+		return
+	}
+	var lastStatusErr error
+	var lastStatusOutput []byte
+	for {
+		status := exec.CommandContext(ctx, binary, "daemon", "status")
+		status.Env = performanceDaemonEnvironment(runtimeDir)
+		output, err := status.CombinedOutput()
+		if err != nil {
+			lastStatusErr = err
+			lastStatusOutput = output
+		} else if strings.TrimSpace(string(output)) == "no sidecar daemons running" {
+			return
+		}
+		if ctx.Err() != nil {
+			if lastStatusErr != nil {
+				t.Errorf("wait for performance output daemon shutdown: %v\n%s", lastStatusErr, lastStatusOutput)
+				return
+			}
+			t.Errorf("wait for performance output daemon shutdown: %v\n%s", ctx.Err(), output)
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+}
+
+func performanceDaemonEnvironment(runtimeDir string) []string {
+	environment := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "ROTOR_DAEMON_RUNTIME_DIR" {
+			environment = append(environment, entry)
+		}
+	}
+	return append(environment, "ROTOR_DAEMON_RUNTIME_DIR="+runtimeDir)
 }
 
 func commandExitCode(err error) int {

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"testing"
 	"testing/synctest"
+	"time"
 )
 
 func TestSidecarSlotsAllowConcurrentKeys(t *testing.T) {
@@ -59,6 +60,47 @@ func TestSidecarSlotsSerializeTheSameKey(t *testing.T) {
 	}
 	close(release)
 	wg.Wait()
+}
+
+func TestSidecarSlotPinsResultsUntilTheirBuildReleasesThem(t *testing.T) {
+	slot := &sidecarSlot{}
+	slot.retainResult("first", "build-a")
+	slot.retainResult("second", "build-a")
+
+	sameBuild := make(chan struct{})
+	go func() {
+		slot.waitForResultOwner("build-a")
+		close(sameBuild)
+	}()
+	select {
+	case <-sameBuild:
+	case <-time.After(time.Second):
+		t.Fatal("the retaining build was blocked by its own result")
+	}
+
+	nextBuild := make(chan struct{})
+	go func() {
+		slot.waitForResultOwner("build-b")
+		close(nextBuild)
+	}()
+	select {
+	case <-nextBuild:
+		t.Fatal("a later build entered while results were retained")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	slot.releaseResult("first")
+	select {
+	case <-nextBuild:
+		t.Fatal("a later build entered while one result was retained")
+	case <-time.After(50 * time.Millisecond):
+	}
+	slot.releaseResult("second")
+	select {
+	case <-nextBuild:
+	case <-time.After(time.Second):
+		t.Fatal("a later build remained blocked after result release")
+	}
 }
 
 func TestCloseSidecarSessionsWaitsForActiveSlot(t *testing.T) {

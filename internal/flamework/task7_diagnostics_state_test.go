@@ -45,12 +45,15 @@ type task7StateSidecarResponse struct {
 }
 
 type task7StateSidecarRequest struct {
-	Protocol         int        `json:"protocol"`
-	Operation        string     `json:"operation"`
-	TSConfigPath     string     `json:"tsConfigPath"`
-	ProjectDir       string     `json:"projectDir"`
-	CompileFileNames []string   `json:"compileFileNames"`
-	ChangedFiles     []struct{} `json:"changedFiles"`
+	Protocol              int               `json:"protocol"`
+	Operation             string            `json:"operation"`
+	TSConfigPath          string            `json:"tsConfigPath"`
+	ProjectDir            string            `json:"projectDir"`
+	CompileFileNames      []string          `json:"compileFileNames"`
+	FileNames             []string          `json:"fileNames"`
+	FileContentIdentities map[string]string `json:"fileContentIdentities"`
+	ChangedFiles          []struct{}        `json:"changedFiles"`
+	ConfigSnapshot        map[string]string `json:"configSnapshot"`
 }
 
 type task7StateCase struct {
@@ -214,7 +217,9 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 	if err != nil {
 		t.Fatalf("resolve sidecar: %v", err)
 	}
-	request := task7StateSidecarRequest{Protocol: 1, Operation: "transform", TSConfigPath: filepath.Join(root, project), ProjectDir: root, CompileFileNames: []string{filepath.Join(root, "src", "index.ts")}, ChangedFiles: []struct{}{}}
+	compileFileNames := []string{filepath.Join(root, "src", "index.ts")}
+	configPath := filepath.Join(root, project)
+	request := task7StateSidecarRequest{Protocol: 3, Operation: "transform", TSConfigPath: configPath, ProjectDir: root, CompileFileNames: compileFileNames, FileNames: compileFileNames, FileContentIdentities: task7SidecarContentIdentities(t, compileFileNames), ChangedFiles: []struct{}{}, ConfigSnapshot: task7ConfigSnapshot(t, configPath)}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)
@@ -230,7 +235,7 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 	if ctx.Err() != nil {
 		return 124, []task7StateTuple{{Start: -1, Category: "error", Code: "timeout", Message: ctx.Err().Error()}}
 	}
-	if err != nil {
+	if err != nil && len(bytes.TrimSpace(output)) == 0 {
 		return 1, task7StateParseUpstream(root, testCase.category, stderr.Bytes())
 	}
 	var response task7StateSidecarResponse
@@ -253,6 +258,20 @@ func task7StateUpstream(t *testing.T, root string, testCase task7StateCase) (int
 		}
 	}
 	return exit, tuples
+}
+
+func task7ConfigSnapshot(t *testing.T, configPath string) map[string]string {
+	t.Helper()
+	snapshot := map[string]string{}
+	data, err := os.ReadFile(configPath)
+	if os.IsNotExist(err) {
+		return snapshot
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot[configPath] = string(data)
+	return snapshot
 }
 
 func task7StateNative(t *testing.T, root string, testCase task7StateCase) (int, []task7StateTuple) {

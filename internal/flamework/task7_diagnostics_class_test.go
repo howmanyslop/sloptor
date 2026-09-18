@@ -276,7 +276,8 @@ func task7ClassRunSidecar(t *testing.T, root string, compileFiles []string) task
 	if err != nil {
 		t.Fatalf("resolve sidecar: %v", err)
 	}
-	request := map[string]any{"protocol": 1, "operation": "transform", "tsConfigPath": filepath.Join(root, "tsconfig.json"), "projectDir": root, "compileFileNames": compileFiles, "changedFiles": []struct{}{}}
+	configPath := filepath.Join(root, "tsconfig.json")
+	request := map[string]any{"protocol": 3, "operation": "transform", "tsConfigPath": configPath, "projectDir": root, "compileFileNames": compileFiles, "fileNames": compileFiles, "fileContentIdentities": task7SidecarContentIdentities(t, compileFiles), "changedFiles": []struct{}{}, "configSnapshot": task7ConfigSnapshot(t, configPath)}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)
@@ -298,6 +299,19 @@ func task7ClassRunSidecar(t *testing.T, root string, compileFiles []string) task
 		t.Fatalf("decode sidecar response: %v\nstdout=%s\nstderr=%s", err, output, stderr.String())
 	}
 	return response
+}
+
+func task7SidecarContentIdentities(t *testing.T, fileNames []string) map[string]string {
+	t.Helper()
+	identities := make(map[string]string, len(fileNames))
+	for _, fileName := range fileNames {
+		text, err := os.ReadFile(fileName)
+		if err != nil {
+			t.Fatalf("read sidecar input %s: %v", fileName, err)
+		}
+		identities[fileName] = fmt.Sprintf("%x", sha256.Sum256(text))
+	}
+	return identities
 }
 
 func task7ClassOracleCLITuples(t *testing.T, root, output string) []task7ClassDiagnosticTuple {
