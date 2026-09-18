@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.4.0
+-- Compiled with sloptor v2.5.0
 return function()
 	it("should support map constructor", function()
 		local map = {

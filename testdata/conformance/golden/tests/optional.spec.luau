@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.4.0
+-- Compiled with sloptor v2.5.0
 return function()
 	describe("should support optional function calls", function()
 		local foo = (function()

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.4.0
+-- Compiled with sloptor v2.5.0
 local a = 10
 local b = 3
 print(a + b, a - b, a * b, a / b, a % b, a ^ b)
