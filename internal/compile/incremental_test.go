@@ -157,8 +157,9 @@ func TestBuildProjectIncrementalRecreatesMissingOutputs(t *testing.T) {
 	}
 }
 
-func TestBuildProjectIncrementalRepairsExternallyCorruptedRegularOutput(t *testing.T) {
-	// Given: a warm incremental project with a known-good emitted Luau file.
+// An unselected output stays untouched until a source rebuild needs to write
+// it. That write must repair corruption even when the expected hash is unchanged.
+func TestBuildProjectIncrementalDefersExternalOutputRepairUntilSourceRebuild(t *testing.T) {
 	dir := writeProject(t, "@scope/incremental-corrupt-output-fixture", "")
 	enableIncrementalBuilds(t, dir)
 	outputPath := filepath.Join(dir, "out", "main.luau")
@@ -169,33 +170,45 @@ func TestBuildProjectIncrementalRepairsExternallyCorruptedRegularOutput(t *testi
 	if err != nil {
 		t.Fatalf("read seed output: %v", err)
 	}
-	if err := os.WriteFile(outputPath, append(want, []byte("\nSTALE-MARKER\n")...), 0o644); err != nil {
+	corrupted := append(slices.Clone(want), []byte("\nSTALE-MARKER\n")...)
+	if err := os.WriteFile(outputPath, corrupted, 0o644); err != nil {
 		t.Fatalf("corrupt output: %v", err)
 	}
 
 	// When: the unchanged project is built again.
-	timings := NewBuildTimings()
-	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings})
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+		t.Fatalf("no-change build: %v (diags: %v)", err, diags)
+	}
+	got, err := os.ReadFile(outputPath)
 	if err != nil {
-		t.Fatalf("repair build: %v (diags: %v)", err, diags)
+		t.Fatalf("read unchanged output: %v", err)
+	}
+	if !bytes.Equal(got, corrupted) {
+		t.Fatalf("no-change build changed externally edited output:\n%s", got)
 	}
 
-	// Then: the external corruption is overwritten instead of being reported as a warm build.
-	got, err := os.ReadFile(outputPath)
+	// A blank line changes the source snapshot without changing the emitted
+	// program, so this is a real incremental selection with the same expected
+	// Luau output as the seed build.
+	sourcePath := filepath.Join(dir, "src", "main.ts")
+	source, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if err := os.WriteFile(sourcePath, append(source, '\n'), 0o644); err != nil {
+		t.Fatalf("edit source: %v", err)
+	}
+
+	// Then: a selected source write repairs the externally corrupted output.
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+		t.Fatalf("source rebuild: %v (diags: %v)", err, diags)
+	}
+	got, err = os.ReadFile(outputPath)
 	if err != nil {
 		t.Fatalf("read repaired output: %v", err)
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("repaired output differs from seed output:\n%s", got)
-	}
-	if timings.Counts.ActualWrites == 0 {
-		t.Fatalf("actual writes = %d, want nonzero", timings.Counts.ActualWrites)
-	}
-	if len(result.Outputs) == 0 {
-		t.Fatal("compiled outputs = none, want selected repaired output")
-	}
-	if len(result.EmittedFiles) == 0 {
-		t.Fatal("emitted files = none, want repaired output")
 	}
 }
 

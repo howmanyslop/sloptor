@@ -25,6 +25,7 @@ import (
 	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
+	"rotor/tsgo/module"
 	"rotor/tsgo/tsoptions"
 	"rotor/tsgo/vfs"
 	"rotor/tsgo/vfs/osvfs"
@@ -1088,9 +1089,14 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 		parsed.ParsedConfig.FileNames = append(parsed.ParsedConfig.FileNames, macroDecl)
 	}
 
+	resolverOptions := module.ResolverOptions{}
+	if cache != nil {
+		resolverOptions.PackageJsonCache = cache.packageJSON
+	}
 	return compiler.NewProgram(compiler.ProgramOptions{
-		Host:   host,
-		Config: parsed,
+		Host:            host,
+		Config:          parsed,
+		ResolverOptions: resolverOptions,
 	}), nil, nil
 }
 

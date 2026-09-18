@@ -56,7 +56,7 @@ func (writer *outputWriter) useHashes(projectDir string, previous, current map[s
 		}
 		writer.root = root
 	}
-	writer.previous = writer.validatedOutputHashes(previous)
+	writer.previous = previous
 	return nil
 }
 
@@ -73,8 +73,7 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 	hash := hex.EncodeToString(sum[:])
 	key := writer.outputKey(path)
 	if previous, ok := writer.previous[key]; ok && previous == hash {
-		info, err := writer.lstat(path)
-		if err == nil && info.Mode().IsRegular() {
+		if writer.outputHashMatches(path, key, previous) {
 			writer.mu.Lock()
 			writer.current[key] = hash
 			writer.hashSkips++
@@ -108,6 +107,30 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 	}
 	writer.recordHash(key, hash)
 	return true, nil
+}
+
+func (writer *outputWriter) outputHashMatches(path, key, expected string) bool {
+	info, err := writer.lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	var contents []byte
+	if writer.root != nil {
+		root, name := writer.rootForKey(key)
+		contents, err = root.ReadFile(name)
+	} else {
+		contents, err = writer.operations.readFile(path)
+	}
+	if err != nil {
+		return false
+	}
+	sum := sha256.Sum256(contents)
+	return hex.EncodeToString(sum[:]) == expected
+}
+
+func (writer *outputWriter) previousOutputMatches(key, expected string) bool {
+	path := filepath.Join(writer.projectDir, filepath.FromSlash(key))
+	return writer.outputHashMatches(path, key, expected)
 }
 
 func (writer *outputWriter) lstat(path string) (fs.FileInfo, error) {

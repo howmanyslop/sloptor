@@ -233,11 +233,15 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	// compileFiles.ts L61-63.
 	var rojoResolver *rojo.RojoResolver
 	if rojoConfigPath != "" {
-		if opts.rojoCache != nil {
+		if opts.rojoResolver != nil {
+			rojoResolver = opts.rojoResolver
+		} else if opts.rojoCache != nil {
 			rojoResolver = opts.rojoCache.Load(rojoConfigPath)
 		} else {
 			rojoResolver = rojo.FromPath(rojoConfigPath)
 		}
+	} else if opts.compileCache != nil {
+		rojoResolver = opts.compileCache.syntheticRojoResolver(filepath.FromSlash(outDir))
 	} else {
 		rojoResolver = rojo.Synthetic(filepath.FromSlash(outDir))
 	}
@@ -311,7 +315,12 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	typeRoots := options.TypeRoots
 	pkgRojoResolvers := make([]*rojo.RojoResolver, 0, len(typeRoots))
 	for _, typeRoot := range typeRoots {
-		pkgRojoResolvers = append(pkgRojoResolvers, rojo.Synthetic(filepath.FromSlash(typeRoot)))
+		basePath := filepath.FromSlash(typeRoot)
+		if opts.compileCache != nil {
+			pkgRojoResolvers = append(pkgRojoResolvers, opts.compileCache.syntheticRojoResolver(basePath))
+		} else {
+			pkgRojoResolvers = append(pkgRojoResolvers, rojo.Synthetic(basePath))
+		}
 	}
 
 	// $env macro environment: the .env files live in the directory containing
@@ -466,8 +475,9 @@ func resolveAgainst(base, p string) string {
 // without any include emission, preserving the original CompileProject
 // behavior (pure: nothing but the returned map is produced).
 type ProjectOptions struct {
-	rojoCache *rojo.RojoResolverCache
-	Timings   *BuildTimings
+	rojoCache    *rojo.RojoResolverCache
+	rojoResolver *rojo.RojoResolver
+	Timings      *BuildTimings
 
 	crossProjectImportPathMap map[string]string
 	pendingSolutionPersists   *[]func() error

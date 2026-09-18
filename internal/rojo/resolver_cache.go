@@ -2,6 +2,7 @@ package rojo
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"os"
@@ -10,11 +11,13 @@ import (
 	"sync"
 )
 
-const resolverCacheFormatVersion = 2
+const resolverCacheFormatVersion = 4
 
 type resolverCacheManifestEntry struct {
-	Path          string `json:"path"`
-	MtimeUnixNano int64  `json:"mtimeUnixNano"`
+	Path            string `json:"path"`
+	MtimeUnixNano   int64  `json:"mtimeUnixNano"`
+	IsDirectory     bool   `json:"isDirectory"`
+	DirectoryDigest string `json:"directoryDigest,omitempty"`
 }
 
 type resolverCacheFile struct {
@@ -28,6 +31,18 @@ type resolverCacheFile struct {
 type resolverCacheEntry struct {
 	Resolver *RojoResolver
 	Manifest []resolverCacheManifestEntry
+}
+
+// ResolverSnapshot is an in-memory resolver state that another cache owner can
+// adopt without changing where it persists its own disk entry.
+type ResolverSnapshot struct {
+	key      string
+	resolver *RojoResolver
+	manifest []resolverCacheManifestEntry
+}
+
+func (s *ResolverSnapshot) valid() bool {
+	return s != nil && manifestStillValid(s.manifest)
 }
 
 // RojoResolverCache keeps parsed resolver states in memory and on disk.
@@ -87,6 +102,42 @@ func (c *RojoResolverCache) Load(rojoConfigFilePath string) *RojoResolver {
 	return resolver
 }
 
+// LoadSnapshot loads a resolver and returns its manifest-backed in-memory
+// state when that state can be shared by another cache owner.
+func (c *RojoResolverCache) LoadSnapshot(rojoConfigFilePath string) (*ResolverSnapshot, *RojoResolver) {
+	resolver := c.Load(rojoConfigFilePath)
+	key := cacheKey(rojoConfigFilePath)
+	c.mu.Lock()
+	entry, ok := c.l1[key]
+	c.mu.Unlock()
+	if !ok {
+		return nil, resolver
+	}
+	return &ResolverSnapshot{
+		key:      key,
+		resolver: entry.Resolver,
+		manifest: slices.Clone(entry.Manifest),
+	}, resolver
+}
+
+// AdoptSnapshot records a still-valid resolver under this cache's own disk
+// directory.
+func (c *RojoResolverCache) AdoptSnapshot(rojoConfigFilePath string, snapshot *ResolverSnapshot) (*RojoResolver, bool) {
+	if snapshot == nil || snapshot.key != cacheKey(rojoConfigFilePath) || !snapshot.valid() {
+		return nil, false
+	}
+	entry := resolverCacheEntry{Resolver: snapshot.resolver, Manifest: slices.Clone(snapshot.manifest)}
+	c.mu.Lock()
+	c.l1[snapshot.key] = entry
+	if c.deferPersist {
+		c.pending[snapshot.key] = entry
+	} else {
+		c.writeDisk(snapshot.key, entry.Resolver.GetState(), entry.Manifest)
+	}
+	c.mu.Unlock()
+	return entry.Resolver, true
+}
+
 func (c *RojoResolverCache) Persist() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -115,9 +166,6 @@ func (c *RojoResolverCache) loadDisk(key string) (*RojoResolver, []resolverCache
 		if !c.deferPersist {
 			_ = os.Remove(path)
 		}
-		return nil, nil, false
-	}
-	if !manifestStillValid(file.MtimeManifest) {
 		return nil, nil, false
 	}
 	resolver, err := FromState(file.State)
@@ -164,16 +212,33 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 	if len(paths) == 0 {
 		return nil, false
 	}
+	directories := make(map[string]struct{}, len(state.WalkedDirectories))
+	for _, path := range state.WalkedDirectories {
+		directories[filepath.Clean(path)] = struct{}{}
+	}
 	manifest := make([]resolverCacheManifestEntry, 0, len(paths))
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
 			return nil, false
 		}
-		manifest = append(manifest, resolverCacheManifestEntry{
+		_, isDirectory := directories[filepath.Clean(path)]
+		if info.IsDir() != isDirectory {
+			return nil, false
+		}
+		entry := resolverCacheManifestEntry{
 			Path:          path,
 			MtimeUnixNano: info.ModTime().UnixNano(),
-		})
+			IsDirectory:   isDirectory,
+		}
+		if isDirectory {
+			digest, ok := resolverCacheDirectoryDigest(path)
+			if !ok {
+				return nil, false
+			}
+			entry.DirectoryDigest = digest
+		}
+		manifest = append(manifest, entry)
 	}
 	return manifest, true
 }
@@ -184,11 +249,38 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 	}
 	for _, entry := range manifest {
 		info, err := os.Stat(entry.Path)
-		if err != nil || info.ModTime().UnixNano() != entry.MtimeUnixNano {
+		if err != nil || info.ModTime().UnixNano() != entry.MtimeUnixNano || info.IsDir() != entry.IsDirectory {
 			return false
+		}
+		if entry.IsDirectory {
+			digest, ok := resolverCacheDirectoryDigest(entry.Path)
+			if !ok || digest != entry.DirectoryDigest {
+				return false
+			}
 		}
 	}
 	return true
+}
+
+// resolverCacheDirectoryDigest records the direct membership a Rojo walk saw.
+// os.ReadDir sorts names lexically. Fixed-width lengths and types make the
+// encoded name/type stream unambiguous when a directory mtime is unchanged.
+func resolverCacheDirectoryDigest(path string) (string, bool) {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return "", false
+	}
+	digest := sha256.New()
+	var field [4]byte
+	for _, entry := range entries {
+		name := entry.Name()
+		binary.LittleEndian.PutUint32(field[:], uint32(len(name)))
+		_, _ = digest.Write(field[:])
+		_, _ = digest.Write([]byte(name))
+		binary.LittleEndian.PutUint32(field[:], uint32(entry.Type()))
+		_, _ = digest.Write(field[:])
+	}
+	return hex.EncodeToString(digest.Sum(nil)), true
 }
 
 func stateMatchesManifest(state ResolverState, manifest []resolverCacheManifestEntry) bool {
