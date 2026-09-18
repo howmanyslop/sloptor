@@ -22,8 +22,15 @@ func flameworkGuardLibrary(state *TransformState, file *ast.SourceFile) string {
 	}
 	fileGuard, fileGuardOK := resolveNodeModuleRoot(filepath.Dir(file.FileName()), "@rbxts/t")
 	coreGuard, coreGuardOK := resolveNodeModuleRoot(coreRoot, "@rbxts/t")
+	// A hoisted dependency can resolve in TypeScript without being importable
+	// through this package's runtime node_modules scope.
 	if fileGuardOK && coreGuardOK && filepath.Clean(fileGuard) == filepath.Clean(coreGuard) {
-		state.guardLibrary = "@rbxts/t"
+		localGuard, err := filepath.EvalSymlinks(filepath.Join(state.project.rootDirectory, "node_modules", "@rbxts", "t"))
+		if err == nil && filepath.Clean(localGuard) == filepath.Clean(fileGuard) {
+			state.guardLibrary = "@rbxts/t"
+		} else {
+			state.guardLibrary = flameworkPreludeModule
+		}
 		return state.guardLibrary
 	}
 	expectedCoreGuardRoot := filepath.Join(coreRoot, "node_modules", "@rbxts", "t")
