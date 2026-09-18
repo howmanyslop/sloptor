@@ -126,10 +126,19 @@ func TestTask7DiagnosticsClass_sameCompilerFiveFamilyTreeMatchesOracle(t *testin
 		if err := os.WriteFile(macrosPath, []byte(fiveFamilyMacros), 0o644); err != nil {
 			t.Fatalf("write five-family macros fixture: %v", err)
 		}
-		writeTransformFixture(t, root, "flamework.build", `{"version":1,"flameworkVersion":"1.3.2","identifiers":{},"stringHashes":{"task4:payload":"00000000-0000-4000-8000-000000000004"},"salt":"task7-controlled-salt"}`)
+		writeTransformFixture(t, root, "flamework.build", `{"version":1,"flameworkVersion":"1.3.2","identifiers":{},"stringHashes":{"task4:payload":"00000000-0000-4000-8000-000000000004"}}`)
 	}
+	// Both compilers receive the controlled salt as an explicit option. It is
+	// intentionally absent from persisted build info because explicit salt
+	// configuration takes precedence over, and clears, prior persisted salt.
 	plugin := `"salt":"task7-controlled-salt","hashPrefix":"task7","idGenerationMode":"full","optimizations":{"guardGenerationDedupLimit":2}`
-	writeTransformFixture(t, oracleRoot, "tsconfig.json", task7TSConfig(plugin, "src"))
+	// The seeded string hash represents an incremental project. Upstream
+	// Flamework deliberately replaces build info on its first clean compile,
+	// so the marker makes this oracle exercise the existing-build-info path
+	// whose artifacts the native project is compared against.
+	oracleConfig := strings.Replace(task7TSConfig(plugin, "src"), `"compilerOptions":{`, `"compilerOptions":{"incremental":true,"tsBuildInfoFile":"out/task7.tsbuildinfo",`, 1)
+	writeTransformFixture(t, oracleRoot, "tsconfig.json", oracleConfig)
+	writeTransformFixture(t, oracleRoot, "out/task7.tsbuildinfo", "{}\n")
 	writeTransformFixture(t, nativeRoot, "tsconfig.json", task7TSConfig("", "src"))
 	oracleFiles := task7ClassCompileFiles(t, oracleRoot)
 	if len(oracleFiles) != 5 {
@@ -267,7 +276,7 @@ func task7ClassRunSidecar(t *testing.T, root string, compileFiles []string) task
 	if err != nil {
 		t.Fatalf("resolve sidecar: %v", err)
 	}
-	request := map[string]any{"protocol": 1, "tsConfigPath": filepath.Join(root, "tsconfig.json"), "projectDir": root, "compileFileNames": compileFiles, "changedFiles": []struct{}{}, "transformSources": true, "emitDeclarations": false}
+	request := map[string]any{"protocol": 1, "operation": "transform", "tsConfigPath": filepath.Join(root, "tsconfig.json"), "projectDir": root, "compileFileNames": compileFiles, "changedFiles": []struct{}{}}
 	requestData, err := json.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal sidecar request: %v", err)

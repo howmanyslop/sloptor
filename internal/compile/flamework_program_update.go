@@ -122,15 +122,16 @@ type nativeOverlayHost struct {
 func newNativeOverlayHost(base compiler.CompilerHost, overlays map[string]string) compiler.CompilerHost {
 	baseFS := base.FS()
 	caseSensitive := baseFS.UseCaseSensitiveFileNames()
+	aliases := overlayAliases(overlays, "", caseSensitive)
 	fs := wrapvfs.Wrap(baseFS, wrapvfs.Replacements{
 		FileExists: func(path string) bool {
-			if _, ok := overlays[normalizeOverlayPath(path, caseSensitive)]; ok {
+			if _, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
 				return true
 			}
 			return baseFS.FileExists(path)
 		},
 		ReadFile: func(path string) (string, bool) {
-			if text, ok := overlays[normalizeOverlayPath(path, caseSensitive)]; ok {
+			if text, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
 				return text, true
 			}
 			return baseFS.ReadFile(path)

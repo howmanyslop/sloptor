@@ -239,6 +239,34 @@ func TestCompileFileKeepsOverlaysOnFilesTheSidecarDidNotTransform(t *testing.T) 
 	}
 }
 
+// Catches a partial sidecar response dropping an imported helper overlay when
+// the editor names that existing helper through a symlinked parent. The main
+// file is the only requested transform; string concatenation proves the
+// rebuilt checker program retained the helper's overlay text.
+func TestCompileFileKeepsSymlinkedHelperOverlayAfterPartialSidecarTransform(t *testing.T) {
+	dir := writeOverlayPluginProject(t, "@scope/overlay-symlink-partial-fixture",
+		"import { label } from \"./helper\";\nexport const tag = \"main\";\nexport const joined = label + label;\n")
+	helperPath := filepath.Join(dir, "src", "helper.ts")
+	if err := os.WriteFile(helperPath, []byte("export const label = 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(filepath.Dir(dir), alias); err != nil {
+		t.Skipf("cannot create parent symlink: %v", err)
+	}
+	overlayPath := filepath.Join(alias, filepath.Base(dir), "src", "helper.ts")
+
+	got, diags, err := CompileFileDetailedWithOptions(dir, "src/main.ts", ProjectOptions{
+		Overlays: map[string]string{overlayPath: "export const label = \"text\";\n"},
+	})
+	if err != nil {
+		t.Fatalf("CompileFileDetailedWithOptions: %v (diags: %v)", err, diags)
+	}
+	if !strings.Contains(got, "label .. label") {
+		t.Fatalf("symlinked helper overlay was dropped from the rebuilt program:\n%s", got)
+	}
+}
+
 func TestBuildProjectOverlaysReachDeclarationPathRewriting(t *testing.T) {
 	// Given a project that emits declarations through `paths`, and an overlay
 	// that is the only thing importing the alias

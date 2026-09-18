@@ -1,20 +1,27 @@
+const fs = require("node:fs");
 const readline = require("node:readline");
 const { createInternalDiagnostic, createRequestDiagnostic } = require("./lib/diagnostics");
-const { createTransformerList, flattenIntoTransformers, getPluginConfigs } = require("./lib/plugins");
+const { createTransformerList, flattenIntoTransformers, getPluginConfigs, validatePluginConfigs } = require("./lib/plugins");
 const { SidecarProjectSession, SidecarServer } = require("./lib/session");
 
 // resolveTypeScript loads the same `typescript` module instance the project's
 // plugins resolve, so factory nodes and the transform context share one
 // implementation (upstream roblox-ts guarantees this by construction). The
 // sidecar's own install is only a fallback for projects without typescript.
-function resolveTypeScript(projectDir) {
+function resolveTypeScriptPath(projectDir) {
   const paths = [];
   if (typeof projectDir === "string" && projectDir.length > 0) {
     paths.push(projectDir);
   }
   paths.push(__dirname);
-  return require(require.resolve("typescript", { paths }));
+  const modulePath = require.resolve("typescript", { paths });
+  return fs.realpathSync.native?.(modulePath) ?? fs.realpathSync(modulePath);
 }
+
+function resolveTypeScript(projectDir) {
+  return require(resolveTypeScriptPath(projectDir));
+}
+resolveTypeScript.modulePathFor = resolveTypeScriptPath;
 
 function transformSourceFiles(tsApi, program, sourceFiles, transforms) {
   const session = new SidecarProjectSession(tsApi, process.cwd(), process.cwd());
@@ -62,7 +69,9 @@ module.exports = {
   createTransformerList,
   flattenIntoTransformers,
   getPluginConfigs,
+  validatePluginConfigs,
   resolveTypeScript,
+  resolveTypeScriptPath,
   serveStdio,
   transformSourceFiles,
 };
