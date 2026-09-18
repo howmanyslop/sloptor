@@ -68,6 +68,11 @@ func TestDiagnosticMessages(t *testing.T) {
 			msg:  "Macros which use variadic arguments do not support spread expressions!\nMore information: https://github.com/roblox-ts/roblox-ts/issues/1149",
 		},
 		{
+			d:    DiagNoFunctionExpressionName(node),
+			code: "noFunctionExpressionName",
+			msg:  "Function expression names are not supported!",
+		},
+		{
 			d:       DiagTruthyChange(node, "0, 0/0, \"\""),
 			code:    "truthyChange",
 			msg:     "Value will be checked against 0, 0/0, \"\"",
