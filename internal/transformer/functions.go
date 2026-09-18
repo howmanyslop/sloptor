@@ -119,33 +119,30 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 }
 
 // transformFunctionExpression ports transformFunctionExpression.ts (L11-47):
-// FunctionExpression and ArrowFunction share one transform. A synchronous
-// named function expression is lifted to a local function declaration in
-// ANY expression position — the prereq machinery already places the
-// declaration where the expression is evaluated, so short-circuit operands
-// and conditional arms stay conditional. Only async and generator
-// expressions keep the diagnostic: their name binds to the TS.async /
-// TS.generator wrapper rather than to the lifted closure, so a
-// self-reference inside the body would reach the wrong function. Arrow
-// expression bodies reuse the full return transform with prereqs captured
-// into the function body — that is the only implicit-return mechanism.
+// FunctionExpression and ArrowFunction share one transform. A named function
+// expression is lifted to a local function declaration in ANY expression
+// position — the prereq machinery already places the declaration where the
+// expression is evaluated, so short-circuit operands and conditional arms
+// stay conditional. Async names keep the declaration (the Luau debug name)
+// and assign `name = TS.async(name)` so a self-call hits the wrapper.
+// Generator names lift like a generator declaration: the body is
+// `return TS.generator(...)`, so a self-call creates a new generator.
+// Async generators still report noAsyncGeneratorFunctions. Arrow expression
+// bodies reuse the full return transform with prereqs captured into the
+// function body — that is the only implicit-return mechanism.
 func transformFunctionExpression(s *State, node *ast.Node) luau.Expression {
 	if ast.IsFunctionExpression(node) {
 		if name := node.AsFunctionExpression().Name(); name != nil {
-			if isSynchronousNonGeneratorFunctionExpression(node) {
-				ValidateIdentifier(s, name)
-				identifier := luau.ExactTempID(name.Text())
-				body := transformNamedFunctionExpressionBody(s, node, identifier)
-				s.Prereq(luau.NewFunctionDeclaration(
-					true,
-					identifier,
-					body.parameters,
-					body.hasDotDotDot,
-					body.statements,
-				))
-				return identifier
-			}
-			s.Diags.Add(DiagNoFunctionExpressionName(name))
+			ValidateIdentifier(s, name)
+			identifier := luau.ExactTempID(name.Text())
+			s.PrereqList(emitNamedFunctionExpression(
+				s,
+				node,
+				identifier,
+				true,
+				identifier,
+			))
+			return identifier
 		}
 	}
 
