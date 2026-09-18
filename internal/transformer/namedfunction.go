@@ -6,10 +6,48 @@ import (
 	"rotor/tsgo/checker"
 )
 
-func isSynchronousNonGeneratorFunctionExpression(node *ast.Node) bool {
-	return ast.IsFunctionExpression(node) &&
-		!ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync) &&
-		node.AsFunctionExpression().AsteriskToken == nil
+// emitNamedFunctionExpression lowers a named FunctionExpression to a local
+// function declaration. A generator body is wrapped the same way as an
+// anonymous function expression. An async expression keeps that declaration
+// (the only Luau form with a debug name) and then assigns
+// `name = TS.async(name)`: `local function name` is `local name; name =
+// function() ... end`, so the body already closes over the local, and the
+// write points it at the wrapper.
+func emitNamedFunctionExpression(
+	s *State,
+	node *ast.Node,
+	name luau.AnyIdentifier,
+	localize bool,
+	nameReplacement *luau.TemporaryIdentifier,
+) *luau.List[luau.Statement] {
+	body := transformNamedFunctionExpressionBody(s, node, nameReplacement)
+
+	isAsync := ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync)
+	asteriskToken := node.AsFunctionExpression().AsteriskToken
+	if asteriskToken != nil {
+		if isAsync {
+			s.Diags.Add(DiagNoAsyncGeneratorFunctions(node))
+		}
+		body.statements = wrapStatementsAsGenerator(s, node, body.statements)
+	}
+
+	statements := luau.NewList[luau.Statement](
+		luau.NewFunctionDeclaration(
+			localize,
+			name,
+			body.parameters,
+			body.hasDotDotDot,
+			body.statements,
+		),
+	)
+	if isAsync {
+		statements.Push(luau.NewAssignment(
+			name,
+			"=",
+			luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](name)),
+		))
+	}
+	return statements
 }
 
 func transformNamedFunctionExpressionBody(
@@ -46,7 +84,7 @@ func transformNamedFunctionExpressionBody(
 	return transformFunctionBody(s, node)
 }
 
-func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.FunctionDeclaration {
+func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.List[luau.Statement] {
 	if ast.HasSyntacticModifier(node, ast.ModifierFlagsExport) {
 		return nil
 	}
@@ -64,7 +102,7 @@ func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.Functio
 	declaration := declarations[0].AsVariableDeclaration()
 	bindingName := declaration.Name()
 	initializer := declaration.Initializer
-	if !ast.IsIdentifier(bindingName) || !isSynchronousNonGeneratorFunctionExpression(initializer) {
+	if !ast.IsIdentifier(bindingName) || !ast.IsFunctionExpression(initializer) {
 		return nil
 	}
 
@@ -82,13 +120,12 @@ func transformMatchingNamedFunctionConst(s *State, node *ast.Node) *luau.Functio
 		return nil
 	}
 	checkVariableHoist(s, bindingName, bindingSymbol)
-	body := transformNamedFunctionExpressionBody(s, initializer, nil)
-	return luau.NewFunctionDeclaration(
-		!s.IsHoisted[bindingSymbol],
+	return emitNamedFunctionExpression(
+		s,
+		initializer,
 		TransformIdentifierDefined(s, bindingName),
-		body.parameters,
-		body.hasDotDotDot,
-		body.statements,
+		!s.IsHoisted[bindingSymbol],
+		nil,
 	)
 }
 

@@ -191,8 +191,8 @@ func transformVariableDeclarationList(s *State, declarationList *ast.Node) *luau
 // transformVariableStatement ports transformVariableStatement.ts
 // transformVariableStatement (L191-196).
 func transformVariableStatement(s *State, node *ast.Node) *luau.List[luau.Statement] {
-	if declaration := transformMatchingNamedFunctionConst(s, node); declaration != nil {
-		return luau.NewList[luau.Statement](declaration)
+	if statements := transformMatchingNamedFunctionConst(s, node); statements != nil {
+		return statements
 	}
 	return transformVariableDeclarationList(s, node.AsVariableStatement().DeclarationList)
 }
