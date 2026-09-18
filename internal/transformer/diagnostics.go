@@ -166,6 +166,8 @@ func DiagNoRestSpreadingOfRobloxTypes(node *ast.Node) Diagnostic {
 	return errorDiag("noRestSpreadingOfRobloxTypes", node, "Operator `...` is not allowed on Roblox types!")
 }
 
+// DiagNoFunctionExpressionName is the upstream error. rotor compiles named
+// function expressions (see emitNamedFunctionExpression) and does not emit it.
 func DiagNoFunctionExpressionName(node *ast.Node) Diagnostic {
 	return errorDiag("noFunctionExpressionName", node, "Function expression names are not supported!")
 }
