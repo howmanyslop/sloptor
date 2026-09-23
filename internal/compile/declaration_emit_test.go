@@ -65,7 +65,7 @@ func TestBuildReportsDeclarationEmitDiagnostic(t *testing.T) {
 	}
 	for _, diagnostic := range result.Diagnostics {
 		if diagnostic.Code == "TS4023" && strings.Contains(diagnostic.Message, "merchantRecoveryStore") &&
-			diagnostic.FileName == filepath.Join(dir, "src", "main.ts") && diagnostic.Line == 2 {
+			diagnostic.FileName == filepath.ToSlash(filepath.Join(dir, "src", "main.ts")) && diagnostic.Line == 2 {
 			return
 		}
 	}
