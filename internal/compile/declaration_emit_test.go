@@ -32,6 +32,46 @@ func readDeclarationFixtureFile(t *testing.T, dir, name string) string {
 	return string(data)
 }
 
+func TestBuildReportsDeclarationEmitDiagnostic(t *testing.T) {
+	dir := writeProject(t, "@scope/declaration-diagnostic", "")
+	configPath := filepath.Join(dir, "tsconfig.json")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config = []byte(strings.Replace(string(config), `"outDir": "out"`, `"outDir": "out", "declaration": true`, 1))
+	if err := os.WriteFile(configPath, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dependencyDir := filepath.Join(dir, "node_modules", "@rbxts", "dependency")
+	if err := os.MkdirAll(dependencyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dependency := "declare const tag: unique symbol;\nexport declare function create(): { readonly [tag]: string };\n"
+	if err := os.WriteFile(filepath.Join(dependencyDir, "index.d.ts"), []byte(dependency), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	source := "import { create } from '@rbxts/dependency';\nexport const merchantRecoveryStore = create();\n"
+	if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, messages, err := BuildProjectWithOptions(dir, ProjectOptions{})
+	if err == nil {
+		t.Fatal("build succeeded despite an inaccessible exported type")
+	}
+	if result == nil || len(result.Diagnostics) == 0 {
+		t.Fatalf("declaration emit error lost its diagnostic: result=%+v messages=%v err=%v", result, messages, err)
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "TS4023" && strings.Contains(diagnostic.Message, "merchantRecoveryStore") &&
+			diagnostic.FileName == filepath.Join(dir, "src", "main.ts") && diagnostic.Line == 2 {
+			return
+		}
+	}
+	t.Fatalf("missing located TS4023: %+v", result.Diagnostics)
+}
+
 // End-to-end: a project with `paths` publishes declarations whose specifiers
 // the Luau runtime can actually resolve, with no Node worker involved.
 func TestDeclarationEmitRewritesPathAliases(t *testing.T) {

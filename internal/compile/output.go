@@ -158,7 +158,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		emitted, err := emitDeclarations(originalProgram, nil, nil, opts.WriteOnlyChanged, writer, timings)
 		stopDeclarations()
 		if err != nil {
-			return nil, nil, err
+			return declarationBuildFailure(err)
 		}
 		timings.setHashSkips(writer.hashSkipCount())
 		stopPersistence := timings.startStage(persistenceStage)
@@ -410,7 +410,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	declFiles, err := emitDeclarations(originalProgram, selectedPaths, signatureDeclarations, opts.WriteOnlyChanged, writer, timings)
 	stopDeclarations()
 	if err != nil {
-		return nil, nil, err
+		return declarationBuildFailure(err)
 	}
 	emittedFiles = append(emittedFiles, declFiles...)
 	timings.setHashSkips(writer.hashSkipCount())
@@ -516,6 +516,22 @@ type declarationEmitFile struct {
 	Data     *compiler.WriteFileData
 }
 
+type declarationEmitDiagnosticError struct {
+	diagnostics []DiagnosticInfo
+}
+
+func (e *declarationEmitDiagnosticError) Error() string {
+	return "compile: declaration emit diagnostics"
+}
+
+func declarationBuildFailure(err error) (*BuildResult, []string, error) {
+	var diagnosticErr *declarationEmitDiagnosticError
+	if errors.As(err, &diagnosticErr) {
+		return &BuildResult{Diagnostics: diagnosticErr.diagnostics}, diagnosticInfoMessages(diagnosticErr.diagnostics), err
+	}
+	return nil, nil, err
+}
+
 // emitDeclarationTexts is the declaration-emit seam: given a program and a set
 // of its source files, it returns one entry per emitted artifact — the `.d.ts`
 // and, when `declarationMap` is on, its `.d.ts.map` — with rotor's declaration
@@ -536,6 +552,7 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 	ctx := context.Background()
 	rewriter := newDeclarationPathRewriter(program)
 	perFile := make([][]declarationEmitFile, len(files))
+	perFileDiagnostics := make([][]DiagnosticInfo, len(files))
 	jobs := make([]func() error, len(files))
 	for index, sourceFile := range files {
 		jobs[index] = func() error {
@@ -549,7 +566,8 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 				},
 			})
 			if result != nil && len(result.Diagnostics) > 0 {
-				return errors.New("compile: declaration emit diagnostics")
+				perFileDiagnostics[index] = tsDiagnosticInfos(result.Diagnostics, nil)
+				return nil
 			}
 			rewriteDeclarationEmit(rewriter, sourceFile, pending)
 			perFile[index] = pending
@@ -558,6 +576,13 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 	}
 	if err := parallelize(writeWorkers(), jobs); err != nil {
 		return nil, err
+	}
+	var diagnostics []DiagnosticInfo
+	for _, fileDiagnostics := range perFileDiagnostics {
+		diagnostics = append(diagnostics, fileDiagnostics...)
+	}
+	if len(diagnostics) > 0 {
+		return nil, &declarationEmitDiagnosticError{diagnostics: diagnostics}
 	}
 	var emitted []declarationEmitFile
 	for _, files := range perFile {
