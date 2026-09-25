@@ -231,6 +231,8 @@ type checkWatchReporter interface {
 	// buildStart runs before each check; changed is nil for the initial check.
 	buildStart(changed []string)
 	buildEnd(core checkCore)
+	// watching runs once, after the initial check, with the watched file count.
+	watching(files int)
 }
 
 type styledCheckWatchReporter struct {
@@ -249,6 +251,9 @@ func (r *styledCheckWatchReporter) buildEnd(core checkCore) {
 	r.stats.record(res.elapsed)
 	newUI(r.out).watchBanner(len(res.watchFiles), r.stats)
 }
+
+// watching is a no-op: the styled banner already follows every check.
+func (r *styledCheckWatchReporter) watching(int) {}
 
 // runWatch runs an initial check, then polls the watched file set (the parsed
 // file list plus tsconfig.json) and re-runs the full check whenever anything
@@ -276,6 +281,9 @@ func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep check
 		files = core.watchFiles
 		stamps = mergePreStamps(snap(), stamps)
 		rep.buildEnd(core)
+		if changed == nil {
+			rep.watching(len(files))
+		}
 
 		stamps, changed = awaitChanges(ctx, interval, snap, stamps)
 		if changed == nil {
@@ -311,6 +319,8 @@ type buildWatchReporter interface {
 	// buildStart runs before each build; changed is nil for the initial build.
 	buildStart(changed []string)
 	buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error)
+	// watching runs once, after the initial build, with the watched file count.
+	watching(files int)
 }
 
 type styledBuildWatchReporter struct {
@@ -330,6 +340,9 @@ func (r *styledBuildWatchReporter) buildEnd(result *compile.BuildResult, diags [
 	r.stats.record(elapsed)
 	reportBuildPass(r.u, result, diags, elapsed, err, r.stats)
 }
+
+// watching is a no-op: the styled idle line already follows every build.
+func (r *styledBuildWatchReporter) watching(int) {}
 
 func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
 	runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, &styledBuildWatchReporter{
@@ -364,6 +377,9 @@ func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts proje
 		// would read as deletions and trigger a spurious rebuild.
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
 		pruneStamps(baseline, w.skipDirs)
+		if changed == nil {
+			rep.watching(len(baseline))
+		}
 
 		baseline, changed = awaitChanges(ctx, w.interval, w.snapshot, baseline)
 		if changed == nil {

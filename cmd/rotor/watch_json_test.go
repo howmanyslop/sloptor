@@ -64,12 +64,14 @@ func TestWatchEventWriterEmitsOneObjectPerLine(t *testing.T) {
 	w.now = func() time.Time { return at }
 
 	w.buildStart(nil)
-	w.buildStart([]string{filepath.Join(root, "src", "a.ts")})
 	w.buildEnd(jsonResult{Version: "v", OK: true, Files: 3, DurationMs: 7, Diagnostics: []jsonDiagnostic{}})
+	w.watching(12)
+	w.buildStart([]string{filepath.Join(root, "src", "a.ts")})
 
-	want := `{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":[]}
-{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":["src/a.ts"]}
+	want := `{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","version":"` + version + `","changed":[]}
 {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"v","ok":true,"files":3,"durationMs":7,"diagnostics":[]}
+{"event":"watching","at":"2026-09-25T18:00:00.142Z","files":12}
+{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":["src/a.ts"]}
 `
 	if got := buf.String(); got != want {
 		t.Errorf("output:\n%s\nwant:\n%s", got, want)
@@ -165,9 +167,15 @@ func TestBuildWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
 	if changed, _ := start["changed"].([]any); changed == nil || len(changed) != 0 {
 		t.Errorf("initial changed = %v, want []", start["changed"])
 	}
+	if start["version"] != version {
+		t.Errorf("initial buildStart version = %v, want %q", start["version"], version)
+	}
 	end := nextWatchEvent(t, events, "buildEnd")
 	if end["ok"] != true || end["files"].(float64) <= 0 {
 		t.Errorf("initial buildEnd = %v, want ok with files", end)
+	}
+	if watching := nextWatchEvent(t, events, "watching"); watching["files"].(float64) < 2 {
+		t.Errorf("watching = %v, want the watched file count", watching)
 	}
 
 	// A type error: the next pair names the file and carries the diagnostic.
@@ -204,9 +212,15 @@ func TestCheckWatchJSONEmitsPairedEventsPerCheck(t *testing.T) {
 	if changed, _ := start["changed"].([]any); changed == nil || len(changed) != 0 {
 		t.Errorf("initial changed = %v, want []", start["changed"])
 	}
+	if start["version"] != version {
+		t.Errorf("initial buildStart version = %v, want %q", start["version"], version)
+	}
 	end := nextWatchEvent(t, events, "buildEnd")
 	if end["ok"] != true || end["files"].(float64) <= 0 {
 		t.Errorf("initial buildEnd = %v, want ok with files", end)
+	}
+	if watching := nextWatchEvent(t, events, "watching"); watching["files"].(float64) < 2 {
+		t.Errorf("watching = %v, want the watched file count", watching)
 	}
 
 	mustWrite(t, filepath.Join(dir, "src", "main.ts"), "export const s: string = 5;\n")
