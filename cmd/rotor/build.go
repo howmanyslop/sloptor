@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -149,7 +150,7 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 		"cap the rendered code frames on failure (default 50; 0 = all)")
 	setFlagPlaceholder(cmd, "max-errors", "<n>")
 	addBoolFlag(cmd, &flags.jsonOut, "json", "", false,
-		"emit one machine-readable result object instead of styled output")
+		"emit one machine-readable result object instead of styled output (NDJSON events with --watch)")
 	addBoolFlag(cmd, &flags.bell, "bell", "", false,
 		"ring the terminal bell on a watch fail<->pass transition")
 	addBoolFlag(cmd, &flags.clear, "clear", "", true,
@@ -371,10 +372,30 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	// (createProjectData.ts L13).
 	dir := filepath.Dir(tsConfigPath)
 
+	// --json --watch: suppress all styled chrome and stream NDJSON
+	// buildStart/buildEnd events on stdout for a supervising tool.
+	if parsed.jsonOut && opts.watch {
+		// LogService writes compiler warnings to stdout; move them to stderr
+		// so they cannot corrupt the event stream.
+		logservice.Output = streams.err
+		if opts.writeTransformedFiles {
+			newUI(streams.err).warn("--writeTransformedFiles is not supported by sloptor yet (rbxtsc transformer-plugin debug output; out of v1 scope) — ignoring")
+		}
+		reporter := newBuildWatchJSONReporter(streams.out, dir)
+		if parsed.build {
+			reload := newBuildOptionsReload(tsConfigPath, parsed)
+			if runBuildSolutionWatchLoop(context.Background(), tsConfigPath, opts, reload, reporter) != 0 {
+				return reportedFailure(errors.New("build failed"))
+			}
+			return nil
+		}
+		runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, reporter)
+		return nil // unreachable in practice: watch loops until Ctrl+C
+	}
+
 	// --json: suppress all styled chrome and emit exactly one result object on
-	// stdout. Watch mode has no terminal "end", so it is not JSON-encoded; a
-	// one-shot build is what CI/editor integrations call with --json.
-	if parsed.jsonOut && !opts.watch {
+	// stdout; a one-shot build is what CI/editor integrations call with --json.
+	if parsed.jsonOut {
 		if code := cmdBuildJSON(streams.out, streams.err, dir, tsConfigPath, opts, parsed.build, parsed.timings); code != 0 {
 			return reportedFailure(errors.New("build failed"))
 		}
@@ -549,16 +570,20 @@ func runBuildOnceWithTimings(dir, tsConfigPath string, opts projectOptions, timi
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings
 	result, msgs, err := compile.BuildProjectWithOptions(dir, compileOptions)
+	return result, buildDiagnostics(result, msgs), time.Since(start), err
+}
+
+// buildDiagnostics prefers a build's structured diagnostics and falls back to
+// its plain messages (config/validation errors have no source span).
+func buildDiagnostics(result *compile.BuildResult, messages []string) []compile.DiagnosticInfo {
+	if result != nil && len(result.Diagnostics) > 0 {
+		return result.Diagnostics
+	}
 	var diags []compile.DiagnosticInfo
-	if result != nil {
-		diags = result.Diagnostics
+	for _, message := range messages {
+		diags = append(diags, compile.DiagnosticInfo{Message: message})
 	}
-	if len(diags) == 0 && len(msgs) > 0 { // config/validation errors have no source span
-		for _, m := range msgs {
-			diags = append(diags, compile.DiagnosticInfo{Message: m})
-		}
-	}
-	return result, diags, time.Since(start), err
+	return diags
 }
 
 func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *compile.BuildTimings) (*compile.BuildResult, []compile.DiagnosticInfo, time.Duration, error) {
@@ -566,16 +591,7 @@ func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *com
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings
 	result, msgs, err := compile.BuildSolutionWithOptions(tsConfigPath, compileOptions)
-	var diags []compile.DiagnosticInfo
-	if result != nil {
-		diags = result.Diagnostics
-	}
-	if len(diags) == 0 && len(msgs) > 0 {
-		for _, message := range msgs {
-			diags = append(diags, compile.DiagnosticInfo{Message: message})
-		}
-	}
-	return result, diags, time.Since(start), err
+	return result, buildDiagnostics(result, msgs), time.Since(start), err
 }
 
 func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.ProjectOptions {
@@ -672,33 +688,46 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 			return 1
 		}
 	}
-	res := jsonResult{
-		Version:    version,
-		OK:         err == nil,
-		DurationMs: elapsed.Milliseconds(),
-	}
+	writeJSONResult(out, buildJSONResult(dir, result, diags, elapsed, err))
 	if err != nil {
-		for _, d := range diags {
-			sev := "error"
-			if d.Warning {
-				sev = "warning"
-			}
-			jd := jsonDiagnostic{Code: d.Code, Severity: sev, Message: d.Message}
-			if d.FileName != "" {
-				jd.File = relForDisplay(d.FileName)
-				jd.Line, jd.Col = lineColOf(d.FileName, d.Offset)
-			}
-			res.Diagnostics = append(res.Diagnostics, jd)
-		}
-		if len(diags) == 0 {
-			res.Diagnostics = append(res.Diagnostics, jsonDiagnostic{Severity: "error", Message: err.Error()})
-		}
-		writeJSONResult(out, res)
 		return 1
 	}
-	res.Files = len(result.Outputs)
-	writeJSONResult(out, res)
 	return 0
+}
+
+// buildJSONResult converts one build pass into the --json wire shape shared by
+// one-shot `sloptor build --json` and the watch-mode buildEnd event. A failed
+// build with no structured diagnostics reports err itself as the one error.
+// Diagnostic files are reported relative to the project dir, like check.
+func buildJSONResult(dir string, result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) jsonResult {
+	res := jsonResult{
+		Version:     version,
+		OK:          err == nil,
+		DurationMs:  elapsed.Milliseconds(),
+		Diagnostics: []jsonDiagnostic{},
+	}
+	if err == nil {
+		if result != nil {
+			res.Files = len(result.Outputs)
+		}
+		return res
+	}
+	for _, d := range diags {
+		sev := "error"
+		if d.Warning {
+			sev = "warning"
+		}
+		jd := jsonDiagnostic{Code: d.Code, Severity: sev, Message: d.Message}
+		if d.FileName != "" {
+			jd.File = relDisplay(dir, d.FileName)
+			jd.Line, jd.Col = lineColOf(d.FileName, d.Offset)
+		}
+		res.Diagnostics = append(res.Diagnostics, jd)
+	}
+	if len(diags) == 0 {
+		res.Diagnostics = append(res.Diagnostics, jsonDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	return res
 }
 
 func prepareBuildTimingsPath(path string) error {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -223,41 +224,72 @@ func settleChanges(base, first map[string]fileStamp, snap func() map[string]file
 	return current, diffStamps(base, current)
 }
 
+// checkWatchReporter renders a check watch session: styled terminal chrome or
+// the --json NDJSON stream. Each buildStart is followed by exactly one
+// buildEnd.
+type checkWatchReporter interface {
+	// buildStart runs before each check; changed is nil for the initial check.
+	buildStart(changed []string)
+	buildEnd(core checkCore)
+	// watching runs once, after the initial check. files counts the watched
+	// files; it is lazy because only the JSON stream reports it.
+	watching(files func() int)
+}
+
+type styledCheckWatchReporter struct {
+	out   io.Writer
+	stats *watchStats
+}
+
+func (r *styledCheckWatchReporter) buildStart(changed []string) {
+	if changed != nil {
+		newUI(r.out).watchChanges(changed)
+	}
+}
+
+func (r *styledCheckWatchReporter) buildEnd(core checkCore) {
+	res := reportCheck(r.out, core)
+	r.stats.record(res.elapsed)
+	newUI(r.out).watchBanner(len(res.watchFiles), r.stats)
+}
+
+// watching is a no-op: the styled banner already follows every check.
+func (r *styledCheckWatchReporter) watching(func() int) {}
+
 // runWatch runs an initial check, then polls the watched file set (the parsed
 // file list plus tsconfig.json) and re-runs the full check whenever anything
 // changes. Exits only via Ctrl+C.
-func runWatch(dir string, out io.Writer, checkers *int) int {
-	u := newUI(out)
-	stats := &watchStats{}
+func runWatch(dir string, out io.Writer, checkers *int) {
+	runCheckWatchLoop(context.Background(), dir, checkers, &styledCheckWatchReporter{out: out, stats: &watchStats{}})
+}
 
-	res := runCheck(dir, out, checkers)
-	stats.record(res.elapsed)
-	stamps := snapshotFiles(res.watchFiles)
-	u.watchBanner(len(res.watchFiles), stats)
-
+// runCheckWatchLoop checks once, then re-checks on every settled change to the
+// watched file set until ctx is done.
+func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep checkWatchReporter) {
+	var changed, files []string
+	var stamps map[string]fileStamp
+	interval := func() time.Duration { return watchMinInterval }
+	// snap reads only the file list, so an idle watcher does not keep the
+	// last pass's diagnostics (and the source files they point at) alive.
+	snap := func() map[string]fileStamp { return snapshotFiles(files) }
 	for {
-		time.Sleep(watchMinInterval)
-		next := snapshotFiles(res.watchFiles)
-		changed := diffStamps(stamps, next)
-		if len(changed) == 0 {
-			continue
-		}
-		snap := func() map[string]fileStamp { return snapshotFiles(res.watchFiles) }
-		var settled map[string]fileStamp
-		settled, changed = settleChanges(stamps, next, snap, time.Sleep)
-		if len(changed) == 0 {
-			stamps = settled
-			continue
-		}
-		u.watchChanges(changed)
-
-		res = runCheck(dir, out, checkers)
-		stats.record(res.elapsed)
+		rep.buildStart(changed)
+		core := runCheckCore(dir, checkers)
 		// Stamp NEW files at their current state, but keep the pre-check
 		// stamps for surviving files so an edit made while the check ran is
-		// still detected on the next tick.
-		stamps = mergePreStamps(snapshotFiles(res.watchFiles), settled)
-		u.watchBanner(len(res.watchFiles), stats)
+		// still detected on the next tick. Stamping before buildEnd means an
+		// edit made after a consumer sees buildEnd is never absorbed.
+		files = core.watchFiles
+		stamps = mergePreStamps(snap(), stamps)
+		rep.buildEnd(core)
+		if changed == nil {
+			rep.watching(func() int { return len(files) })
+		}
+
+		stamps, changed = awaitChanges(ctx, interval, snap, stamps)
+		if changed == nil {
+			return
+		}
 	}
 }
 
@@ -281,14 +313,54 @@ func snapshotFiles(files []string) map[string]fileStamp {
 	return stamps
 }
 
-func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
-	u := newUI(os.Stdout)
-	stats := &watchStats{
-		maxErrors:   wopts.maxErrors,
-		bell:        wopts.bell,
-		clearScreen: wopts.clearScreen,
-	}
+// buildWatchReporter renders a build watch session: styled terminal chrome or
+// the --json NDJSON stream. Each buildStart is followed by exactly one
+// buildEnd.
+type buildWatchReporter interface {
+	// buildStart runs before each build; changed is nil for the initial build.
+	buildStart(changed []string)
+	buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error)
+	// watching runs once, after the initial build. files counts the watched
+	// files; it is lazy because only the JSON stream reports it.
+	watching(files func() int)
+}
 
+type styledBuildWatchReporter struct {
+	u     *ui
+	stats *watchStats
+}
+
+func (r *styledBuildWatchReporter) buildStart(changed []string) {
+	if changed == nil {
+		return
+	}
+	clearForRebuild(os.Stdout, r.stats)
+	r.u.watchChanges(changed)
+}
+
+func (r *styledBuildWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
+	r.stats.record(elapsed)
+	reportBuildPass(r.u, result, diags, elapsed, err, r.stats)
+}
+
+// watching is a no-op: the styled idle line already follows every build.
+func (r *styledBuildWatchReporter) watching(func() int) {}
+
+func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
+	runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, &styledBuildWatchReporter{
+		u: newUI(os.Stdout),
+		stats: &watchStats{
+			maxErrors:   wopts.maxErrors,
+			bell:        wopts.bell,
+			clearScreen: wopts.clearScreen,
+		},
+	})
+	return 0
+}
+
+// runBuildWatchLoop builds once, then rebuilds on every settled change to the
+// project tree until ctx is done.
+func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts projectOptions, rep buildWatchReporter) {
 	w := newTreeWatcher(dir)
 	w.setSkipDirs(guessedOutputDir(dir, nil), watchIncludeDir(dir, opts))
 
@@ -297,34 +369,46 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 	// of being silently absorbed (the v1 lost-update bug). Build outputs land
 	// in the pruned out/include dirs and never dirty the baseline.
 	baseline := w.snapshot()
-	result, diags, elapsed, err := runBuildOnce(dir, tsConfigPath, opts)
-	stats.record(elapsed)
-	reportBuildPass(u, result, diags, elapsed, err, stats)
-	// The build reveals the real output dir (it may not be out/); prune the
-	// baseline to match the refreshed skip set, or the now-unwalked entries
-	// would read as deletions and trigger a spurious rebuild.
-	w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
-	pruneStamps(baseline, w.skipDirs)
-
+	var changed []string
 	for {
-		time.Sleep(w.interval())
-		next := w.snapshot()
-		changed := diffStamps(baseline, next)
-		if len(changed) == 0 {
-			continue
-		}
-		baseline, changed = settleChanges(baseline, next, w.snapshot, time.Sleep)
-		if len(changed) == 0 {
-			continue
-		}
-		clearForRebuild(os.Stdout, stats)
-		u.watchChanges(changed)
-
-		result, diags, elapsed, err = runBuildOnce(dir, tsConfigPath, opts)
-		stats.record(elapsed)
-		reportBuildPass(u, result, diags, elapsed, err, stats)
+		rep.buildStart(changed)
+		result, diags, elapsed, err := runBuildOnce(dir, tsConfigPath, opts)
+		rep.buildEnd(result, diags, elapsed, err)
+		// The build reveals the real output dir (it may not be out/); prune the
+		// baseline to match the refreshed skip set, or the now-unwalked entries
+		// would read as deletions and trigger a spurious rebuild.
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
 		pruneStamps(baseline, w.skipDirs)
+		if changed == nil {
+			count := len(baseline)
+			rep.watching(func() int { return count })
+		}
+
+		baseline, changed = awaitChanges(ctx, w.interval, w.snapshot, baseline)
+		if changed == nil {
+			return
+		}
+	}
+}
+
+// awaitChanges polls snap until a settled batch of changes lands and returns
+// the new baseline plus the changed paths, or nil changes once ctx is done.
+func awaitChanges(ctx context.Context, interval func() time.Duration, snap func() map[string]fileStamp, baseline map[string]fileStamp) (map[string]fileStamp, []string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return baseline, nil
+		case <-time.After(interval()):
+		}
+		next := snap()
+		if len(diffStamps(baseline, next)) == 0 {
+			continue
+		}
+		var changed []string
+		baseline, changed = settleChanges(baseline, next, snap, time.Sleep)
+		if len(changed) > 0 {
+			return baseline, changed
+		}
 	}
 }
 

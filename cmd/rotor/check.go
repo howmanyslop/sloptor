@@ -53,7 +53,7 @@ func newCheckCommand(streams cliStreams) *cobra.Command {
 	flags.SortFlags = false
 	addBoolFlag(cmd, &args.watch, "watch", "w", false, "enable watch mode")
 	addBoolFlag(cmd, &args.jsonOut, "json", "", false,
-		"emit one machine-readable result object instead of styled output")
+		"emit one machine-readable result object instead of styled output (NDJSON events with --watch)")
 	cmd.Flags().VarP(newPositiveIntValue(&args.checkers), "checkers", "",
 		"number of checkers per project (default 4; build and check)")
 	setFlagPlaceholder(cmd, "checkers", "<n>")
@@ -95,9 +95,17 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 		}
 	}
 
+	// --json --watch: stream NDJSON buildStart/buildEnd events on stdout, with
+	// LogService moved to stderr so warnings cannot corrupt the stream.
+	if args.jsonOut && args.watch {
+		logservice.Output = streams.err
+		runCheckWatchLoop(context.Background(), dir, args.checkers, newCheckWatchJSONReporter(streams.out, dir))
+		return nil // unreachable in practice: watch loops until Ctrl+C
+	}
+
 	// --json: suppress styled chrome and emit exactly one result object on
-	// stdout (watch has no terminal "end", so it stays styled).
-	if args.jsonOut && !args.watch {
+	// stdout.
+	if args.jsonOut {
 		if cmdCheckJSON(streams.out, streams.err, dir, args.checkers) != 0 {
 			return reportedFailure(errors.New("check failed"))
 		}
@@ -128,19 +136,24 @@ func cmdCheckJSON(out, errOut io.Writer, dir string, checkers *int) int {
 	logservice.Output = errOut
 	defer func() { logservice.Output = previousLog }()
 
-	res := runCheckCollect(dir, checkers)
-	result := jsonResult{
-		Version:     version,
-		OK:          res.errorCount == 0,
-		Files:       res.fileCount,
-		DurationMs:  res.elapsed.Milliseconds(),
-		Diagnostics: res.jsonDiags,
-	}
+	result := checkJSONResult(runCheckCore(dir, checkers))
 	writeJSONResult(out, result)
-	if res.errorCount > 0 {
+	if !result.OK {
 		return 1
 	}
 	return 0
+}
+
+// checkJSONResult converts one check pass into the --json wire shape shared by
+// one-shot `sloptor check --json` and the watch-mode buildEnd event.
+func checkJSONResult(core checkCore) jsonResult {
+	return jsonResult{
+		Version:     version,
+		OK:          countErrors(core.diags) == 0,
+		Files:       core.fileCount,
+		DurationMs:  core.elapsed.Milliseconds(),
+		Diagnostics: jsonDiagnostics(core.diags, core.formatOpts),
+	}
 }
 
 type checkResult struct {
@@ -148,10 +161,6 @@ type checkResult struct {
 	errorCount int
 	elapsed    time.Duration
 	watchFiles []string
-
-	// jsonDiags is the structured diagnostics list for `sloptor check --json`,
-	// populated only by runCheckCollect (nil on the styled path).
-	jsonDiags []jsonDiagnostic
 }
 
 // checkCore is the shared diagnostics-building result: the sorted AST
@@ -182,7 +191,7 @@ func newCheckProgram(dir, configPath string, checkers *int) (*compiler.Program, 
 
 // runCheckCore builds a fresh program for the project in dir and returns its
 // (sorted, deduplicated) diagnostics without rendering anything — the common
-// core of the styled runCheck and the JSON runCheckCollect, so both observe
+// core of the styled runCheck and the JSON checkJSONResult, so both observe
 // identical diagnostics. The rotor-env.d.ts refresh still happens here (silent).
 func runCheckCore(dir string, checkers *int) checkCore {
 	start := time.Now()
@@ -254,7 +263,11 @@ func runCheckCore(dir string, checkers *int) checkCore {
 // runCheck builds a fresh program for the project in dir, prints all
 // diagnostics plus a summary line, and reports the file list to watch.
 func runCheck(dir string, out io.Writer, checkers *int) checkResult {
-	core := runCheckCore(dir, checkers)
+	return reportCheck(out, runCheckCore(dir, checkers))
+}
+
+// reportCheck prints a check pass's diagnostics plus the summary line.
+func reportCheck(out io.Writer, core checkCore) checkResult {
 	writeDiagnostics(out, core.diags, core.formatOpts)
 	res := checkResult{
 		fileCount:  core.fileCount,
@@ -264,20 +277,6 @@ func runCheck(dir string, out io.Writer, checkers *int) checkResult {
 	}
 	printSummary(out, res)
 	return res
-}
-
-// runCheckCollect is runCheck's JSON sibling: it builds the same program and
-// diagnostics but renders nothing, returning a checkResult whose jsonDiags
-// carries the structured (file, line, col, severity, message) entries.
-func runCheckCollect(dir string, checkers *int) checkResult {
-	core := runCheckCore(dir, checkers)
-	return checkResult{
-		fileCount:  core.fileCount,
-		errorCount: countErrors(core.diags),
-		elapsed:    core.elapsed,
-		watchFiles: core.watchFiles,
-		jsonDiags:  jsonDiagnostics(core.diags, core.formatOpts),
-	}
 }
 
 // jsonDiagnostics converts AST diagnostics into the --json wire shape, mirroring
