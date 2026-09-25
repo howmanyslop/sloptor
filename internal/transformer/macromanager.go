@@ -39,6 +39,10 @@ import (
 // present iff LuaTuple resolves; @rbxts/types present iff CFrame resolves)
 // keeps checker-light unit-test projects, which lack the packages entirely,
 // from failing the audit.
+//
+// Exception (rotor extension): classes in optionalPropertyCallClasses never
+// fail the audit — see that set's comment. Their rows are fork additions
+// whose types side may be absent from an older @rbxts/types.
 
 // ---------------------------------------------------------------------------
 // Macro signatures — macros/types.ts
@@ -163,6 +167,22 @@ var rbxTypesClasses = map[string]bool{
 	"Vector3":      true,
 	"Vector3int16": true,
 	"Number":       true,
+	"vector":       true,
+}
+
+// optionalPropertyCallClasses lists PROPERTY_CALL_MACROS rows that are rotor
+// extensions (not in upstream's table) and therefore may be ABSENT from the
+// project's types package: `vector`'s math methods are declared by newer
+// @rbxts/types releases only (include/macro_math.d.ts `declare interface
+// vector`), and every older release predating them must keep compiling. A
+// method the project's types do not declare can never be called — the type
+// checker rejects `v.sub(w)` outright — so its absence is NOT the
+// damage-numbers silent-regression class the audit exists for (that needs a
+// DECLARED macro method failing to register). Unresolvable symbols and
+// methods for these classes are skipped without an audit entry; whatever the
+// types DO declare registers exactly like every other row.
+var optionalPropertyCallClasses = map[string]bool{
+	"vector": true,
 }
 
 // NominalLuaTupleName ports Shared/constants.ts NOMINAL_LUA_TUPLE_NAME.
@@ -299,9 +319,12 @@ func NewMacroManager(chk *checker.Checker) *MacroManager {
 	// String/ArrayLike, ReadonlyArray/Array, ReadonlySet/Set/ReadonlyMap/Map,
 	// Promise.
 	for className, methods := range propertyCallMacroTable {
+		optional := optionalPropertyCallClasses[className]
 		symbol := chk.ResolveName(className, nil, ast.SymbolFlagsInterface, false)
 		if symbol == nil {
-			m.recordMissing(className, "MacroManager could not find symbol for "+className+typesNotice)
+			if !optional {
+				m.recordMissing(className, "MacroManager could not find symbol for "+className+typesNotice)
+			}
 			continue
 		}
 
@@ -324,10 +347,12 @@ func NewMacroManager(chk *checker.Checker) *MacroManager {
 			// upstream throws ProjectError when the method is missing
 			// (MacroManager.ts L138-141); rotor skips and records for the
 			// audit (same checker-light-project divergence as the other
-			// tables, made loud again by Missing()).
+			// tables, made loud again by Missing()) — except for optional
+			// classes, where an undeclared method is an older @rbxts/types,
+			// not a registration failure (see optionalPropertyCallClasses).
 			if methodSymbol := methodMap[methodName]; methodSymbol != nil {
 				m.propertyCallMacros[methodSymbol] = &PropertyCallMacroEntry{Name: className + "." + methodName, Macro: macro}
-			} else {
+			} else if !optional {
 				m.recordMissing(className, "MacroManager could not find method for "+className+"."+methodName+typesNotice)
 			}
 		}
