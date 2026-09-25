@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -149,7 +150,7 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 		"cap the rendered code frames on failure (default 50; 0 = all)")
 	setFlagPlaceholder(cmd, "max-errors", "<n>")
 	addBoolFlag(cmd, &flags.jsonOut, "json", "", false,
-		"emit one machine-readable result object instead of styled output")
+		"emit one machine-readable result object instead of styled output (NDJSON events with --watch)")
 	addBoolFlag(cmd, &flags.bell, "bell", "", false,
 		"ring the terminal bell on a watch fail<->pass transition")
 	addBoolFlag(cmd, &flags.clear, "clear", "", true,
@@ -370,10 +371,25 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	// (createProjectData.ts L13).
 	dir := filepath.Dir(tsConfigPath)
 
+	// --json --watch: suppress all styled chrome and stream NDJSON
+	// buildStart/buildEnd events on stdout for a supervising tool.
+	if parsed.jsonOut && opts.watch {
+		if parsed.build {
+			return usageFailure("--json cannot be used with --build --watch")
+		}
+		// LogService writes compiler warnings to stdout; move them to stderr
+		// so they cannot corrupt the event stream.
+		logservice.Output = streams.err
+		if opts.writeTransformedFiles {
+			newUI(streams.err).warn("--writeTransformedFiles is not supported by sloptor yet (rbxtsc transformer-plugin debug output; out of v1 scope) — ignoring")
+		}
+		runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, newBuildWatchJSONReporter(streams.out, dir))
+		return nil // unreachable in practice: watch loops until Ctrl+C
+	}
+
 	// --json: suppress all styled chrome and emit exactly one result object on
-	// stdout. Watch mode has no terminal "end", so it is not JSON-encoded; a
-	// one-shot build is what CI/editor integrations call with --json.
-	if parsed.jsonOut && !opts.watch {
+	// stdout; a one-shot build is what CI/editor integrations call with --json.
+	if parsed.jsonOut {
 		if code := cmdBuildJSON(streams.out, streams.err, dir, tsConfigPath, opts, parsed.build, parsed.timings); code != 0 {
 			return reportedFailure(errors.New("build failed"))
 		}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,5 +221,15 @@ func TestCheckWatchJSONEmitsPairedEventsPerCheck(t *testing.T) {
 	}
 	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["file"] != "src/main.ts" {
 		t.Errorf("diagnostic = %v, want TS2322 in src/main.ts", diag)
+	}
+}
+
+func TestBuildSolutionWatchJSONRejected(t *testing.T) {
+	dir := writeBuildableProject(t, "")
+
+	_, stderr, code := captureBuildOutput(t, []string{"--build", "--watch", "--json", dir})
+
+	if code != 1 || !strings.Contains(stderr, "--json cannot be used with --build --watch") {
+		t.Errorf("exit = %d, stderr = %q, want the --build --watch --json rejection", code, stderr)
 	}
 }

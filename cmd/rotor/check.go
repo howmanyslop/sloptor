@@ -53,7 +53,7 @@ func newCheckCommand(streams cliStreams) *cobra.Command {
 	flags.SortFlags = false
 	addBoolFlag(cmd, &args.watch, "watch", "w", false, "enable watch mode")
 	addBoolFlag(cmd, &args.jsonOut, "json", "", false,
-		"emit one machine-readable result object instead of styled output")
+		"emit one machine-readable result object instead of styled output (NDJSON events with --watch)")
 	cmd.Flags().VarP(newPositiveIntValue(&args.checkers), "checkers", "",
 		"number of checkers per project (default 4; build and check)")
 	setFlagPlaceholder(cmd, "checkers", "<n>")
@@ -95,9 +95,17 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 		}
 	}
 
+	// --json --watch: stream NDJSON buildStart/buildEnd events on stdout, with
+	// LogService moved to stderr so warnings cannot corrupt the stream.
+	if args.jsonOut && args.watch {
+		logservice.Output = streams.err
+		runCheckWatchLoop(context.Background(), dir, args.checkers, newCheckWatchJSONReporter(streams.out, dir))
+		return nil // unreachable in practice: watch loops until Ctrl+C
+	}
+
 	// --json: suppress styled chrome and emit exactly one result object on
-	// stdout (watch has no terminal "end", so it stays styled).
-	if args.jsonOut && !args.watch {
+	// stdout.
+	if args.jsonOut {
 		if cmdCheckJSON(streams.out, streams.err, dir, args.checkers) != 0 {
 			return reportedFailure(errors.New("check failed"))
 		}
