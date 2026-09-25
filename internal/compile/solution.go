@@ -52,8 +52,11 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	visits := map[string]solutionProjectVisit{}
 	stack := []string{}
 
-	var visit func(string, ProjectOptions, bool) error
-	visit = func(configPath string, options ProjectOptions, inheritEntryTypeAndRojo bool) error {
+	// rootIsCoordinator is set by the root visit before any reference is
+	// visited: a coordinator root hands its entry type and Rojo config down.
+	rootIsCoordinator := false
+	var visit func(string) error
+	visit = func(configPath string) error {
 		configPath, err := filepath.Abs(configPath)
 		if err != nil {
 			return fmt.Errorf("compile: resolve project reference %q: %w", configPath, err)
@@ -76,32 +79,30 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 		if err != nil {
 			return fmt.Errorf("compile: read project reference %q: %w", configPath, err)
 		}
-		project := SolutionProject{
+		options := entry
+		if len(stack) == 1 {
+			rootIsCoordinator = coordinator
+		} else {
+			// Derive from the entry, not the referencing project: a project's
+			// options, and so its incremental salt, must not depend on which
+			// project referenced it, or it never matches its own direct build.
+			options, err = ProjectOptionsForReferencedConfig(entry, configPath, rootIsCoordinator)
+			if err != nil {
+				return fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
+			}
+		}
+		projects[configPath] = SolutionProject{
 			ConfigPath:  configPath,
 			References:  references,
 			Options:     options,
 			Coordinator: coordinator,
 		}
-		projects[configPath] = project
-		if len(stack) == 1 {
-			inheritEntryTypeAndRojo = coordinator
-		}
 		for _, reference := range references {
-			// Derive from the entry, not the referencing project: a project's
-			// options, and so its incremental salt, must not depend on which
-			// project referenced it, or it never matches its own direct build.
-			referenceOptions, err := ProjectOptionsForReferencedConfig(entry, reference, inheritEntryTypeAndRojo)
-			if err != nil {
-				return fmt.Errorf("compile: read referenced project options %q: %w", reference, err)
-			}
-			if err := visit(reference, referenceOptions, inheritEntryTypeAndRojo); err != nil {
+			if err := visit(reference); err != nil {
 				return err
 			}
 		}
 		visits[configPath] = solutionProjectVisited
-		if !coordinator {
-			projects[configPath] = project
-		}
 		return nil
 	}
 
@@ -109,7 +110,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	if err != nil {
 		return nil, fmt.Errorf("compile: resolve solution config %q: %w", tsConfigPath, err)
 	}
-	if err := visit(rootPath, entry, false); err != nil {
+	if err := visit(rootPath); err != nil {
 		return nil, err
 	}
 
