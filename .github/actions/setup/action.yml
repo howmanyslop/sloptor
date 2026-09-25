@@ -1,11 +1,11 @@
 name: Set up rotor toolchain
 description: >-
-  Install the Go, Bun, and Node.js versions pinned in mise.toml, then install
-  the fixture node_modules the test suite needs. Bun is the canonical installer
-  for fixtures — npm was the source of flaky CI installs. rojo/lune are
-  intentionally NOT installed: the conformance runtime suite (lune-executed)
-  skips here and is exercised locally (see aftman.toml); CI gates on the
-  byte-parity tests, which need no Roblox tools.
+  Install the Go, Bun, Node.js, rojo, and lune versions pinned in mise.toml,
+  then install the fixture node_modules the test suite needs. Bun is the
+  canonical installer for fixtures; npm was the source of flaky CI installs.
+  rojo and lune are required: upstream-corrected conformance, differential, and
+  fork-parity rows are verified by the pinned compatibility runtime suite,
+  which fails closed without them.
 
 runs:
   using: composite
@@ -13,7 +13,7 @@ runs:
     - name: Set up Mise toolchain
       uses: jdx/mise-action@v2
       with:
-        install_args: go bun node
+        install_args: go bun node github:rojo-rbx/rojo github:lune-org/lune
         experimental: true
 
     - name: Restore Go module and build caches
