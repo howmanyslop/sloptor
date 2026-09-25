@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -46,4 +48,43 @@ func TestBuildJSONResultFailureMapsDiagnostics(t *testing.T) {
 	if got := res.Diagnostics[1]; got.Severity != "warning" {
 		t.Errorf("diag[1] severity = %q, want warning", got.Severity)
 	}
+}
+
+func TestWatchEventWriterEmitsOneObjectPerLine(t *testing.T) {
+	var buf bytes.Buffer
+	root := t.TempDir()
+	at := time.Date(2026, 9, 25, 18, 0, 0, 142_000_000, time.UTC)
+	w := newWatchEventWriter(&buf, root)
+	w.now = func() time.Time { return at }
+
+	w.buildStart(nil)
+	w.buildStart([]string{filepath.Join(root, "src", "a.ts")})
+	w.buildEnd(jsonResult{Version: "v", OK: true, Files: 3, DurationMs: 7})
+
+	want := `{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":[]}
+{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":["src/a.ts"]}
+{"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"v","ok":true,"files":3,"durationMs":7,"diagnostics":[]}
+`
+	if got := buf.String(); got != want {
+		t.Errorf("output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestWatchEventWriterWritesEachEventInOneWrite(t *testing.T) {
+	var writes countingWriter
+	w := newWatchEventWriter(&writes, t.TempDir())
+
+	w.buildStart(nil)
+	w.buildEnd(jsonResult{})
+
+	if writes.n != 2 {
+		t.Errorf("writes = %d, want 2 (one per NDJSON line, so pipes see whole lines)", writes.n)
+	}
+}
+
+type countingWriter struct{ n int }
+
+func (c *countingWriter) Write(p []byte) (int, error) {
+	c.n++
+	return len(p), nil
 }
