@@ -67,7 +67,7 @@ func newBuildWatchJSONReporter(w io.Writer, dir string) buildWatchReporter {
 func (r *jsonBuildWatchReporter) buildStart(changed []string) { r.events.buildStart(changed) }
 
 func (r *jsonBuildWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
-	r.events.buildEnd(buildJSONResult(result, diags, elapsed, err))
+	r.events.buildEnd(buildJSONResult(r.events.root, result, diags, elapsed, err))
 }
 
 // jsonCheckWatchReporter is the `check --watch --json` reporter.

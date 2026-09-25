@@ -685,7 +685,7 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 			return 1
 		}
 	}
-	writeJSONResult(out, buildJSONResult(result, diags, elapsed, err))
+	writeJSONResult(out, buildJSONResult(dir, result, diags, elapsed, err))
 	if err != nil {
 		return 1
 	}
@@ -695,7 +695,8 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 // buildJSONResult converts one build pass into the --json wire shape shared by
 // one-shot `sloptor build --json` and the watch-mode buildEnd event. A failed
 // build with no structured diagnostics reports err itself as the one error.
-func buildJSONResult(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) jsonResult {
+// Diagnostic files are reported relative to the project dir, like check.
+func buildJSONResult(dir string, result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) jsonResult {
 	res := jsonResult{
 		Version:     version,
 		OK:          err == nil,
@@ -715,7 +716,7 @@ func buildJSONResult(result *compile.BuildResult, diags []compile.DiagnosticInfo
 		}
 		jd := jsonDiagnostic{Code: d.Code, Severity: sev, Message: d.Message}
 		if d.FileName != "" {
-			jd.File = relForDisplay(d.FileName)
+			jd.File = relDisplay(dir, d.FileName)
 			jd.Line, jd.Col = lineColOf(d.FileName, d.Offset)
 		}
 		res.Diagnostics = append(res.Diagnostics, jd)

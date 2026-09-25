@@ -19,7 +19,7 @@ import (
 func TestBuildJSONResultSuccessCountsOutputs(t *testing.T) {
 	result := &compile.BuildResult{Outputs: map[string]string{"a.luau": "", "b.luau": ""}}
 
-	res := buildJSONResult(result, nil, 142*time.Millisecond, nil)
+	res := buildJSONResult("", result, nil, 142*time.Millisecond, nil)
 
 	if !res.OK || res.Files != 2 || res.DurationMs != 142 || res.Version != version {
 		t.Errorf("res = %+v, want ok, 2 files, 142 ms, version %q", res, version)
@@ -30,7 +30,7 @@ func TestBuildJSONResultSuccessCountsOutputs(t *testing.T) {
 }
 
 func TestBuildJSONResultFailureWithoutDiagnosticsReportsError(t *testing.T) {
-	res := buildJSONResult(nil, nil, 0, errors.New("config broke"))
+	res := buildJSONResult("", nil, nil, 0, errors.New("config broke"))
 
 	if res.OK {
 		t.Error("ok = true on failure")
@@ -43,7 +43,7 @@ func TestBuildJSONResultFailureWithoutDiagnosticsReportsError(t *testing.T) {
 func TestBuildJSONResultFailureMapsDiagnostics(t *testing.T) {
 	diags := []compile.DiagnosticInfo{{Code: "TS2322", Message: "bad"}, {Message: "meh", Warning: true}}
 
-	res := buildJSONResult(nil, diags, 0, errors.New("build failed"))
+	res := buildJSONResult("", nil, diags, 0, errors.New("build failed"))
 
 	if len(res.Diagnostics) != 2 {
 		t.Fatalf("diagnostics = %+v, want 2", res.Diagnostics)
@@ -181,8 +181,8 @@ func TestBuildWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
 	if end["ok"] != false || len(diags) == 0 {
 		t.Fatalf("buildEnd = %v, want failure with diagnostics", end)
 	}
-	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["severity"] != "error" {
-		t.Errorf("diagnostic = %v, want TS2322 error", diag)
+	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["severity"] != "error" || diag["file"] != "src/main.ts" {
+		t.Errorf("diagnostic = %v, want TS2322 error in src/main.ts", diag)
 	}
 
 	// A save with no content change still yields exactly one pair.
@@ -231,5 +231,19 @@ func TestBuildSolutionWatchJSONRejected(t *testing.T) {
 
 	if code != 1 || !strings.Contains(stderr, "--json cannot be used with --build --watch") {
 		t.Errorf("exit = %d, stderr = %q, want the --build --watch --json rejection", code, stderr)
+	}
+}
+
+func TestCmdBuildJSONDiagnosticPathIsProjectRelative(t *testing.T) {
+	dir := writeBuildableProject(t, "export const s: string = 5;\n")
+
+	output, _ := captureStdout(t, func() int { return cmdBuild([]string{"--json", dir}) })
+
+	var res jsonResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, output)
+	}
+	if len(res.Diagnostics) == 0 || res.Diagnostics[0].File != "src/main.ts" {
+		t.Errorf("diagnostics = %+v, want file src/main.ts (relative to the project, like check)", res.Diagnostics)
 	}
 }
