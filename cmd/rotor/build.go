@@ -669,33 +669,45 @@ func cmdBuildJSON(out, errOut io.Writer, dir, tsConfigPath string, opts projectO
 			return 1
 		}
 	}
-	res := jsonResult{
-		Version:    version,
-		OK:         err == nil,
-		DurationMs: elapsed.Milliseconds(),
-	}
+	writeJSONResult(out, buildJSONResult(result, diags, elapsed, err))
 	if err != nil {
-		for _, d := range diags {
-			sev := "error"
-			if d.Warning {
-				sev = "warning"
-			}
-			jd := jsonDiagnostic{Code: d.Code, Severity: sev, Message: d.Message}
-			if d.FileName != "" {
-				jd.File = relForDisplay(d.FileName)
-				jd.Line, jd.Col = lineColOf(d.FileName, d.Offset)
-			}
-			res.Diagnostics = append(res.Diagnostics, jd)
-		}
-		if len(diags) == 0 {
-			res.Diagnostics = append(res.Diagnostics, jsonDiagnostic{Severity: "error", Message: err.Error()})
-		}
-		writeJSONResult(out, res)
 		return 1
 	}
-	res.Files = len(result.Outputs)
-	writeJSONResult(out, res)
 	return 0
+}
+
+// buildJSONResult converts one build pass into the --json wire shape shared by
+// one-shot `sloptor build --json` and the watch-mode buildEnd event. A failed
+// build with no structured diagnostics reports err itself as the one error.
+func buildJSONResult(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) jsonResult {
+	res := jsonResult{
+		Version:     version,
+		OK:          err == nil,
+		DurationMs:  elapsed.Milliseconds(),
+		Diagnostics: []jsonDiagnostic{},
+	}
+	if err == nil {
+		if result != nil {
+			res.Files = len(result.Outputs)
+		}
+		return res
+	}
+	for _, d := range diags {
+		sev := "error"
+		if d.Warning {
+			sev = "warning"
+		}
+		jd := jsonDiagnostic{Code: d.Code, Severity: sev, Message: d.Message}
+		if d.FileName != "" {
+			jd.File = relForDisplay(d.FileName)
+			jd.Line, jd.Col = lineColOf(d.FileName, d.Offset)
+		}
+		res.Diagnostics = append(res.Diagnostics, jd)
+	}
+	if len(diags) == 0 {
+		res.Diagnostics = append(res.Diagnostics, jsonDiagnostic{Severity: "error", Message: err.Error()})
+	}
+	return res
 }
 
 func prepareBuildTimingsPath(path string) error {
