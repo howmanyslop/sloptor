@@ -65,7 +65,7 @@ func TestWatchEventWriterEmitsOneObjectPerLine(t *testing.T) {
 
 	w.buildStart(nil)
 	w.buildStart([]string{filepath.Join(root, "src", "a.ts")})
-	w.buildEnd(jsonResult{Version: "v", OK: true, Files: 3, DurationMs: 7})
+	w.buildEnd(jsonResult{Version: "v", OK: true, Files: 3, DurationMs: 7, Diagnostics: []jsonDiagnostic{}})
 
 	want := `{"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":[]}
 {"event":"buildStart","at":"2026-09-25T18:00:00.142Z","changed":["src/a.ts"]}

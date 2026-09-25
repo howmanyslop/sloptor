@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"io"
-	"path/filepath"
 	"time"
 
 	"rotor/internal/compile"
@@ -45,18 +44,12 @@ type watchBuildEndEvent struct {
 func (w *watchEventWriter) buildStart(changed []string) {
 	rel := make([]string, 0, len(changed))
 	for _, path := range changed {
-		if r, err := filepath.Rel(w.root, path); err == nil {
-			path = r
-		}
-		rel = append(rel, filepath.ToSlash(path))
+		rel = append(rel, relDisplay(w.root, path))
 	}
 	_ = w.enc.Encode(watchBuildStartEvent{Event: "buildStart", At: w.stamp(), Changed: rel})
 }
 
 func (w *watchEventWriter) buildEnd(res jsonResult) {
-	if res.Diagnostics == nil {
-		res.Diagnostics = []jsonDiagnostic{}
-	}
 	_ = w.enc.Encode(watchBuildEndEvent{Event: "buildEnd", At: w.stamp(), jsonResult: res})
 }
 

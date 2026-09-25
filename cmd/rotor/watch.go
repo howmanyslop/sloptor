@@ -253,16 +253,19 @@ func (r *styledCheckWatchReporter) buildEnd(core checkCore) {
 // runWatch runs an initial check, then polls the watched file set (the parsed
 // file list plus tsconfig.json) and re-runs the full check whenever anything
 // changes. Exits only via Ctrl+C.
-func runWatch(dir string, out io.Writer, checkers *int) int {
+func runWatch(dir string, out io.Writer, checkers *int) {
 	runCheckWatchLoop(context.Background(), dir, checkers, &styledCheckWatchReporter{out: out, stats: &watchStats{}})
-	return 0
 }
 
 // runCheckWatchLoop checks once, then re-checks on every settled change to the
 // watched file set until ctx is done.
 func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep checkWatchReporter) {
-	var changed []string
+	var changed, files []string
 	var stamps map[string]fileStamp
+	interval := func() time.Duration { return watchMinInterval }
+	// snap reads only the file list, so an idle watcher does not keep the
+	// last pass's diagnostics (and the source files they point at) alive.
+	snap := func() map[string]fileStamp { return snapshotFiles(files) }
 	for {
 		rep.buildStart(changed)
 		core := runCheckCore(dir, checkers)
@@ -270,11 +273,10 @@ func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep check
 		// stamps for surviving files so an edit made while the check ran is
 		// still detected on the next tick. Stamping before buildEnd means an
 		// edit made after a consumer sees buildEnd is never absorbed.
-		stamps = mergePreStamps(snapshotFiles(core.watchFiles), stamps)
+		files = core.watchFiles
+		stamps = mergePreStamps(snap(), stamps)
 		rep.buildEnd(core)
 
-		interval := func() time.Duration { return watchMinInterval }
-		snap := func() map[string]fileStamp { return snapshotFiles(core.watchFiles) }
 		stamps, changed = awaitChanges(ctx, interval, snap, stamps)
 		if changed == nil {
 			return
