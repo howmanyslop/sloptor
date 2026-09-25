@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"rotor/internal/compile"
 	"rotor/tsgo/fswatch"
@@ -133,24 +135,46 @@ func solutionWatchDirectoryIsArtifact(directory string, artifactDirectories []st
 	return false
 }
 
+// styledSolutionWatchReporter renders `build --build --watch` passes in the
+// terminal: only the build result, with no change list or idle stats.
+type styledSolutionWatchReporter struct{ maxErrors int }
+
+func (r *styledSolutionWatchReporter) buildStart([]string) {}
+
+func (r *styledSolutionWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
+	reportBuildPass(newUI(fmtWriter{}), result, diags, elapsed, err, &watchStats{maxErrors: r.maxErrors})
+}
+
+func (r *styledSolutionWatchReporter) watching(int) {}
+
 func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func() (projectOptions, error), wopts watchOptions) int {
-	s := &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}}
+	return runBuildSolutionWatchLoop(context.Background(), tsConfigPath, opts, reload, &styledSolutionWatchReporter{maxErrors: wopts.maxErrors})
+}
+
+func newSolutionWatchEvents() *solutionWatchEvents {
+	return &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}}
+}
+
+// runBuildSolutionWatchLoop builds the solution once, then rebuilds the
+// affected projects on every file-system change until ctx is done. It returns
+// 1 when the solution graph cannot be loaded.
+func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts projectOptions, reload func() (projectOptions, error), rep buildWatchReporter) int {
+	s := newSolutionWatchEvents()
 	coordinator, err := compile.NewSolutionCoordinator(tsConfigPath, projectCompileOptions(tsConfigPath, opts))
 	if err != nil {
-		reportBuildPass(newUI(fmtWriter{}), nil, nil, 0, err, &watchStats{})
+		rep.buildStart(nil)
+		rep.buildEnd(nil, nil, 0, err)
 		return 1
 	}
 	var mu sync.Mutex
 	var watches []fswatch.Watch
 	watcher := fswatch.Default()
 	refresh := func() {}
-	cycle := func() {
+	// rebuild invalidates and drains the changed projects, first reloading
+	// options and the graph when a config changed. reloaded is false when
+	// that reload failed.
+	rebuild := func(events solutionWatchEvents) (*compile.BuildResult, []compile.DiagnosticInfo, bool, error) {
 		var cleanStaleOutputs func() error
-		var reloadErr error
-		mu.Lock()
-		events := *s
-		s = &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}}
-		mu.Unlock()
 		if len(events.configs) > 0 {
 			for _, set := range coordinator.WatchSets() {
 				for _, config := range set.TsConfigPaths {
@@ -159,16 +183,14 @@ func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func
 					}
 				}
 			}
-			if next, reloadErr := reload(); reloadErr != nil {
-				fmt.Fprintln(stderrWriter{}, reloadErr)
-				return
-			} else {
-				opts = next
+			next, err := reload()
+			if err != nil {
+				return nil, nil, false, err
 			}
-			cleanStaleOutputs, reloadErr = coordinator.ReloadForWatch(tsConfigPath, projectCompileOptions(tsConfigPath, opts))
-			if reloadErr != nil {
-				fmt.Fprintln(stderrWriter{}, reloadErr)
-				return
+			opts = next
+			cleanStaleOutputs, err = coordinator.ReloadForWatch(tsConfigPath, projectCompileOptions(tsConfigPath, opts))
+			if err != nil {
+				return nil, nil, false, err
 			}
 			refresh()
 			if len(events.projects) == 0 {
@@ -180,13 +202,39 @@ func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func
 		for project := range events.projects {
 			coordinator.Invalidate(project)
 		}
+		result, messages, err := coordinator.Drain()
+		if err == nil && cleanStaleOutputs != nil {
+			err = cleanStaleOutputs()
+		}
+		refresh()
+		return result, buildDiagnostics(result, messages), true, err
+	}
+	initial := true
+	cycle := func() {
+		mu.Lock()
+		events := *s
+		s = newSolutionWatchEvents()
+		mu.Unlock()
 		if len(events.projects) > 0 || len(events.configs) > 0 {
-			result, diags, drainErr := coordinator.Drain()
-			if drainErr == nil && len(events.configs) > 0 {
-				drainErr = cleanStaleOutputs()
+			var changed []string
+			if !initial {
+				changed = make([]string, 0, len(events.paths))
+				for path := range events.paths {
+					changed = append(changed, path)
+				}
+				sort.Strings(changed)
 			}
-			reportBuildPass(newUI(fmtWriter{}), result, diagsToInfos(diags), 0, drainErr, &watchStats{maxErrors: wopts.maxErrors})
-			refresh()
+			start := time.Now()
+			rep.buildStart(changed)
+			result, diags, reloaded, err := rebuild(events)
+			rep.buildEnd(result, diags, time.Since(start), err)
+			if initial {
+				initial = false
+				rep.watching(solutionWatchedFileCount(coordinator.WatchSets()))
+			}
+			if !reloaded {
+				return
+			}
 		}
 		for project, paths := range events.assets {
 			changes := make([]compile.WatchAssetEvent, 0, len(paths))
@@ -249,18 +297,33 @@ func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func
 	}
 	gate.Trigger()
 	gate.Drain()
-	select {}
+	<-ctx.Done()
+	gate.Drain()
+	for _, watch := range watches {
+		_ = watch.Close()
+	}
+	return 0
+}
+
+// solutionWatchedFileCount counts the distinct files the solution watcher
+// observes: every file under the watched directories plus the config files.
+func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
+	seen := map[string]struct{}{}
+	for _, set := range sets {
+		for _, directory := range solutionWatchDirectories(set) {
+			for path := range newTreeWatcher(directory, set.ArtifactDirectories...).snapshot() {
+				seen[path] = struct{}{}
+			}
+		}
+		for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
+			seen[config] = struct{}{}
+		}
+	}
+	return len(seen)
 }
 
 func watchCompilable(path string) bool {
 	return filepath.Ext(path) == ".ts" || filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".d.ts"
-}
-func diagsToInfos(messages []string) []compile.DiagnosticInfo {
-	result := make([]compile.DiagnosticInfo, len(messages))
-	for i, message := range messages {
-		result[i] = compile.DiagnosticInfo{Message: message}
-	}
-	return result
 }
 
 type fmtWriter struct{}

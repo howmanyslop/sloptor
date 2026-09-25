@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -238,13 +239,44 @@ func TestCheckWatchJSONEmitsPairedEventsPerCheck(t *testing.T) {
 	}
 }
 
-func TestBuildSolutionWatchJSONRejected(t *testing.T) {
-	dir := writeBuildableProject(t, "")
+func TestBuildSolutionWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
+	root, configs := writeConcurrencySolution(t)
+	for _, config := range configs {
+		data, err := os.ReadFile(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, config, strings.Replace(string(data), `"types":[]`, `"types":[],"typeRoots":["node_modules/@rbxts"]`, 1))
+	}
+	tsConfigPath := filepath.Join(root, "tsconfig.json")
+	reload := newBuildOptionsReload(tsConfigPath, &buildArgs{build: true})
+	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {
+		runBuildSolutionWatchLoop(ctx, tsConfigPath, defaultProjectOptions, reload, newBuildWatchJSONReporter(out, root))
+	})
 
-	_, stderr, code := captureBuildOutput(t, []string{"--build", "--watch", "--json", dir})
+	start := nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); changed == nil || len(changed) != 0 || start["version"] != version {
+		t.Errorf("initial buildStart = %v, want version and changed []", start)
+	}
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true || end["files"].(float64) <= 0 {
+		t.Errorf("initial buildEnd = %v, want ok with files", end)
+	}
+	if watching := nextWatchEvent(t, events, "watching"); watching["files"].(float64) < 4 {
+		t.Errorf("watching = %v, want the watched file count", watching)
+	}
 
-	if code != 1 || !strings.Contains(stderr, "--json cannot be used with --build --watch") {
-		t.Errorf("exit = %d, stderr = %q, want the --build --watch --json rejection", code, stderr)
+	mustWrite(t, filepath.Join(root, "left", "src", "main.ts"), "export const s: string = 5;\n")
+	start = nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); !slices.Contains(changed, any("left/src/main.ts")) {
+		t.Errorf("changed = %v, want left/src/main.ts", start["changed"])
+	}
+	end := nextWatchEvent(t, events, "buildEnd")
+	diags, _ := end["diagnostics"].([]any)
+	if end["ok"] != false || len(diags) == 0 {
+		t.Fatalf("buildEnd = %v, want failure with diagnostics", end)
+	}
+	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["file"] != "left/src/main.ts" {
+		t.Errorf("diagnostic = %v, want TS2322 in left/src/main.ts", diag)
 	}
 }
 

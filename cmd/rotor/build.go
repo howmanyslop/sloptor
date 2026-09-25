@@ -374,16 +374,21 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	// --json --watch: suppress all styled chrome and stream NDJSON
 	// buildStart/buildEnd events on stdout for a supervising tool.
 	if parsed.jsonOut && opts.watch {
-		if parsed.build {
-			return usageFailure("--json cannot be used with --build --watch")
-		}
 		// LogService writes compiler warnings to stdout; move them to stderr
 		// so they cannot corrupt the event stream.
 		logservice.Output = streams.err
 		if opts.writeTransformedFiles {
 			newUI(streams.err).warn("--writeTransformedFiles is not supported by sloptor yet (rbxtsc transformer-plugin debug output; out of v1 scope) — ignoring")
 		}
-		runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, newBuildWatchJSONReporter(streams.out, dir))
+		reporter := newBuildWatchJSONReporter(streams.out, dir)
+		if parsed.build {
+			reload := newBuildOptionsReload(tsConfigPath, parsed)
+			if runBuildSolutionWatchLoop(context.Background(), tsConfigPath, opts, reload, reporter) != 0 {
+				return reportedFailure(errors.New("build failed"))
+			}
+			return nil
+		}
+		runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, reporter)
 		return nil // unreachable in practice: watch loops until Ctrl+C
 	}
 
@@ -563,16 +568,20 @@ func runBuildOnceWithTimings(dir, tsConfigPath string, opts projectOptions, timi
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings
 	result, msgs, err := compile.BuildProjectWithOptions(dir, compileOptions)
+	return result, buildDiagnostics(result, msgs), time.Since(start), err
+}
+
+// buildDiagnostics prefers a build's structured diagnostics and falls back to
+// its plain messages (config/validation errors have no source span).
+func buildDiagnostics(result *compile.BuildResult, messages []string) []compile.DiagnosticInfo {
+	if result != nil && len(result.Diagnostics) > 0 {
+		return result.Diagnostics
+	}
 	var diags []compile.DiagnosticInfo
-	if result != nil {
-		diags = result.Diagnostics
+	for _, message := range messages {
+		diags = append(diags, compile.DiagnosticInfo{Message: message})
 	}
-	if len(diags) == 0 && len(msgs) > 0 { // config/validation errors have no source span
-		for _, m := range msgs {
-			diags = append(diags, compile.DiagnosticInfo{Message: m})
-		}
-	}
-	return result, diags, time.Since(start), err
+	return diags
 }
 
 func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *compile.BuildTimings) (*compile.BuildResult, []compile.DiagnosticInfo, time.Duration, error) {
@@ -580,16 +589,7 @@ func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *com
 	compileOptions := projectCompileOptions(tsConfigPath, opts)
 	compileOptions.Timings = timings
 	result, msgs, err := compile.BuildSolutionWithOptions(tsConfigPath, compileOptions)
-	var diags []compile.DiagnosticInfo
-	if result != nil {
-		diags = result.Diagnostics
-	}
-	if len(diags) == 0 && len(msgs) > 0 {
-		for _, message := range msgs {
-			diags = append(diags, compile.DiagnosticInfo{Message: message})
-		}
-	}
-	return result, diags, time.Since(start), err
+	return result, buildDiagnostics(result, msgs), time.Since(start), err
 }
 
 func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.ProjectOptions {
