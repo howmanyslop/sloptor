@@ -17,6 +17,7 @@ type DivergenceClass string
 const (
 	DivergenceForkAuthoritative DivergenceClass = "fork-authoritative"
 	DivergenceRbxtsc3Compatible DivergenceClass = "rbxtsc-3.0-compatible"
+	DivergenceUpstreamCorrected DivergenceClass = "upstream-corrected"
 	DivergenceGoInapplicable    DivergenceClass = "go-inapplicable"
 )
 
@@ -47,6 +48,7 @@ type DivergenceRow struct {
 	Surface              MatrixSurface   `json:"surface"`
 	Contract             string          `json:"contract"`
 	Verification         string          `json:"verification"`
+	BehavioralTest       string          `json:"behavioralTest,omitempty"`
 	ImplementationDetail string          `json:"implementationDetail,omitempty"`
 	Reason               string          `json:"reason,omitempty"`
 }
@@ -94,6 +96,9 @@ func (l DivergenceLedger) Validate(expectedIDs []string) error {
 		if row.Surface == "" || row.Contract == "" || row.Verification == "" {
 			return fmt.Errorf("ledger row %q is missing surface, contract, or verification", row.ID)
 		}
+		if row.Classification == DivergenceUpstreamCorrected && (row.BehavioralTest == "" || row.Reason == "") {
+			return fmt.Errorf("upstream-corrected ledger row %q requires a behavioral test and reason", row.ID)
+		}
 		if row.Classification == DivergenceGoInapplicable {
 			if row.ImplementationDetail == "" {
 				return fmt.Errorf("inapplicable ledger row %q is missing implementation detail", row.ID)
@@ -113,7 +118,7 @@ func (l DivergenceLedger) Validate(expectedIDs []string) error {
 
 func validDivergenceClass(classification DivergenceClass) bool {
 	switch classification {
-	case DivergenceForkAuthoritative, DivergenceRbxtsc3Compatible, DivergenceGoInapplicable:
+	case DivergenceForkAuthoritative, DivergenceRbxtsc3Compatible, DivergenceUpstreamCorrected, DivergenceGoInapplicable:
 		return true
 	default:
 		return false
@@ -137,6 +142,16 @@ func matrixCaseIDs(transformerFixtures []TransformerFixture, projectFixtures []P
 		"write/node-fs-call-order",
 		"rbxtsc-3.0/differential-fixtures",
 		"rbxtsc-3.0/conformance-fixtures",
+		"differential/26_stringmacros",
+		"differential/29_iteration",
+		"differential/31_mixed3b",
+		"conformance/tests/array.spec.luau",
+		"conformance/tests/class.spec.luau",
+		"conformance/tests/decorator.spec.luau",
+		"conformance/tests/destructure.spec.luau",
+		"conformance/tests/string.spec.luau",
+		"conformance/tests/switch.spec.luau",
+		"conformance/tests/template.spec.luau",
 	)
 	return ids
 }

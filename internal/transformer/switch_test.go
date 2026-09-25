@@ -26,20 +26,22 @@ func renderSwitchFile(t *testing.T, relPath string) string {
 // TestSwitchCasePrereqsFallthrough: a case expression with prereqs (`i++`)
 // reachable by fallthrough takes the guarded variant — the prereqs run only
 // when not already falling through, the flag takes over the comparison
-// (`_fallthrough = n == _original`), and the clause condition collapses to
+// (`_fallthrough = _exp == _original`), and the clause condition collapses to
 // just `_fallthrough`. The preceding empty case emits only the flag update.
+// Operand capture follows 3.0.0-dev-3106b14 and is covered by the shared runtime fixture.
 func TestSwitchCasePrereqsFallthrough(t *testing.T) {
 	want := `local i = 10
 local function pick(n)
+	local _exp = n
 	repeat
 		local _fallthrough = false
-		if n == 0 then
+		if _exp == 0 then
 			_fallthrough = true
 		end
 		if not _fallthrough then
 			local _original = i
 			i += 1
-			_fallthrough = n == _original
+			_fallthrough = _exp == _original
 		end
 		if _fallthrough then
 			return "low"

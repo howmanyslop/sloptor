@@ -352,6 +352,13 @@ func DiagExpectedFunctionGotMethod(node *ast.Node) Diagnostic {
 	return errorDiag("expectedFunctionGotMethod", node, "Attempted to assign method where non-method was expected.")
 }
 
+func DiagNoUnstableThisType(node *ast.Node) Diagnostic {
+	return errorDiag("noUnstableThisType", node,
+		"The generic this type can become void, changing whether a receiver is passed.",
+		suggestion("Use this: void for callbacks, or constrain the receiver type to exclude void."),
+	)
+}
+
 // files
 //
 // Upstream errorWithContext factories: the formatted context lines are

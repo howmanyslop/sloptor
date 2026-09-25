@@ -4,6 +4,3 @@ print(p1[0], p2[1]);
 declare const nums: IterableFunction<number>;
 const [, second] = nums;
 print(second);
-declare const tags: Set<string>;
-const [, t2] = tags;
-print(t2);

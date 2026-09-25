@@ -34,3 +34,11 @@ func (c *Checker) GetTypeOfAssignmentPattern(expr *ast.Node) *Type {
 func (c *Checker) GetIndexTypeOfType(t *Type, keyType *Type) *Type {
 	return c.getIndexTypeOfType(t, keyType)
 }
+
+func (t *ConditionalType) RootCheckType() *Type {
+	return t.root.checkType
+}
+
+func (t *ConditionalType) RootNode() *ast.ConditionalTypeNode {
+	return t.root.node
+}

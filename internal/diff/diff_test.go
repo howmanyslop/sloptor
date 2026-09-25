@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"rotor/internal/compile"
+	"rotor/internal/forkparity"
 )
 
 func repoRoot(t *testing.T) string {
@@ -22,6 +23,17 @@ func TestDifferential(t *testing.T) {
 	root := repoRoot(t)
 	projDir := filepath.Join(root, "testdata", "diff", "project")
 	goldenDir := filepath.Join(root, "testdata", "diff", "golden")
+	ledger, err := forkparity.ReadDivergenceLedger(filepath.Join(root, "testdata", "forkparity", "divergence-ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrections := map[string]string{}
+	for _, row := range ledger.Rows {
+		if row.Classification == forkparity.DivergenceUpstreamCorrected {
+			corrections[row.ID] = row.BehavioralTest
+		}
+	}
+	verifiedCorrections := map[string]bool{}
 
 	goldens, err := filepath.Glob(filepath.Join(goldenDir, "*.luau"))
 	if err != nil || len(goldens) == 0 {
@@ -59,6 +71,18 @@ func TestDifferential(t *testing.T) {
 			got, ok := out["out/"+name+".luau"]
 			if !ok {
 				t.Fatalf("out/%s.luau missing from CompileProject output", name)
+			}
+			if behavioralTest, corrected := corrections["differential/"+name]; corrected {
+				if !verifiedCorrections[behavioralTest] {
+					if err := forkparity.VerifyBehavioralTest(t.Context(), root, behavioralTest); err != nil {
+						t.Fatal(err)
+					}
+					verifiedCorrections[behavioralTest] = true
+				}
+				if got != string(want) {
+					t.Logf("upstream-corrected output differs from the retained frozen golden; runtime verified by %s", behavioralTest)
+				}
+				return
 			}
 			if got != string(want) {
 				t.Errorf("output differs from rbxtsc golden")

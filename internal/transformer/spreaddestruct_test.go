@@ -2,6 +2,18 @@ package transformer_test
 
 import "testing"
 
+func TestUnsupportedFunctionRestDestructuringReportsDiagnostics(t *testing.T) {
+	diagnostics := destructuringDiagnostics(t, "src/unsupportedrest.ts")
+	if len(diagnostics) != 2 {
+		t.Fatalf("diagnostic count = %d, want 2: %v", len(diagnostics), diagnostics)
+	}
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code != "noNestedSpreadsInAssignmentPatterns" {
+			t.Errorf("diagnostic code = %q, want noNestedSpreadsInAssignmentPatterns", diagnostic.Code)
+		}
+	}
+}
+
 func TestObjectRest(t *testing.T) {
 	want := `local _binding = {
 	x = 1,

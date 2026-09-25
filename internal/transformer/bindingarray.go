@@ -20,13 +20,12 @@ func transformArrayBindingPattern(s *State, bindingPattern *ast.Node, parentID l
 	validateNotAnyType(s, bindingPattern)
 
 	index := 0
-	idStack := []luau.AnyIdentifier{}
 	patternType := s.GetType(bindingPattern)
-	accessor := getAccessorForBindingType(s, bindingPattern, patternType)
-	destructor := getSpreadDestructorForType(s, patternType)
+	accessor, state := getAccessorForBindingType(s, bindingPattern, patternType, parentID)
+	destructor := getSpreadDestructorForType(s, patternType, state)
 	for _, element := range bindingPattern.AsBindingPattern().Elements.Nodes {
 		if isOmittedBindingElement(element) {
-			accessor(s, parentID, index, &idStack, true)
+			accessor(s, parentID, index, state, true)
 		} else {
 			bindingElement := element.AsBindingElement()
 			var value luau.Expression
@@ -35,9 +34,9 @@ func transformArrayBindingPattern(s *State, bindingPattern *ast.Node, parentID l
 					s.Diags.Add(DiagNoNestedSpreadsInAssignmentPatterns(element))
 					return
 				}
-				value = destructor(s, parentID, index, idStack)
+				value = destructor(s, parentID, index, state)
 			} else {
-				value = accessor(s, parentID, index, &idStack, false)
+				value = accessor(s, parentID, index, state, false)
 			}
 			name := bindingElement.Name()
 			if ast.IsIdentifier(name) {
@@ -121,13 +120,12 @@ func transformOptimizedArrayBindingPattern(s *State, bindingPattern *ast.Node, r
 
 func transformArrayAssignmentPattern(s *State, assignmentPattern *ast.Node, parentID luau.AnyIdentifier) {
 	index := 0
-	idStack := []luau.AnyIdentifier{}
 	patternType := s.Checker.GetTypeOfAssignmentPattern(assignmentPattern)
-	accessor := getAccessorForBindingType(s, assignmentPattern, patternType)
-	destructor := getSpreadDestructorForType(s, patternType)
+	accessor, state := getAccessorForBindingType(s, assignmentPattern, patternType, parentID)
+	destructor := getSpreadDestructorForType(s, patternType, state)
 	for _, element := range assignmentPattern.AsArrayLiteralExpression().Elements.Nodes {
 		if ast.IsOmittedExpression(element) {
-			accessor(s, parentID, index, &idStack, true)
+			accessor(s, parentID, index, state, true)
 		} else {
 			var initializer *ast.Node
 			if ast.IsBinaryExpression(element) {
@@ -137,6 +135,7 @@ func transformArrayAssignmentPattern(s *State, assignmentPattern *ast.Node, pare
 			}
 
 			var value luau.Expression
+			var valuePrereqs *luau.List[luau.Statement]
 			if ast.IsSpreadElement(element) {
 				spread := element.AsSpreadElement()
 				if ast.IsObjectLiteralExpression(spread.Expression) || ast.IsArrayLiteralExpression(spread.Expression) || destructor == nil {
@@ -144,24 +143,46 @@ func transformArrayAssignmentPattern(s *State, assignmentPattern *ast.Node, pare
 					index++
 					continue
 				}
-				value = destructor(s, parentID, index, idStack)
+				value, valuePrereqs = s.Capture(func() luau.Expression {
+					return destructor(s, parentID, index, state)
+				})
 				element = spread.Expression
 			} else {
-				value = accessor(s, parentID, index, &idStack, false)
+				value, valuePrereqs = s.Capture(func() luau.Expression {
+					return accessor(s, parentID, index, state, false)
+				})
 			}
 			if ast.IsIdentifier(element) || ast.IsElementAccessExpression(element) || ast.IsPropertyAccessExpression(element) {
-				id := transformWritableExpression(s, element, initializer != nil)
-				s.Prereq(luau.NewAssignment(id, "=", value))
-				if initializer != nil {
-					s.Prereq(transformInitializer(s, id, initializer))
+				id := transformWritableExpression(s, element, false)
+				if valuePrereqs.IsNonEmpty() || initializer != nil {
+					switch target := id.(type) {
+					case *luau.PropertyAccessExpression:
+						id = luau.NewPropertyAccess(s.PushToVar(target.Expression, "exp"), target.Name)
+					case *luau.ComputedIndexExpression:
+						base := s.PushToVar(target.Expression, "exp")
+						key := target.Index
+						if !luau.IsSimplePrimitive(key) {
+							key = s.PushToVar(key, "index")
+						}
+						id = luau.NewComputedIndex(base, key)
+					}
 				}
+				s.PrereqList(valuePrereqs)
+				if initializer != nil {
+					binding := s.PushToVar(value, "binding")
+					s.Prereq(transformInitializer(s, binding, initializer))
+					value = binding
+				}
+				s.Prereq(luau.NewAssignment(id, "=", value))
 			} else if ast.IsArrayLiteralExpression(element) {
+				s.PrereqList(valuePrereqs)
 				id := s.PushToVar(value, "binding")
 				if initializer != nil {
 					s.Prereq(transformInitializer(s, id, initializer))
 				}
 				transformArrayAssignmentPattern(s, element, id)
 			} else if ast.IsObjectLiteralExpression(element) {
+				s.PrereqList(valuePrereqs)
 				id := s.PushToVar(value, "binding")
 				if initializer != nil {
 					s.Prereq(transformInitializer(s, id, initializer))

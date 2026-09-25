@@ -17,6 +17,14 @@ func init() {
 // Expression kinds upstream supports but rotor has not ported yet raise
 // DiagRotorNotYetSupported instead of upstream's `assert(false)`.
 func TransformExpression(s *State, node *ast.Node) luau.Expression {
+	expression := transformExpression(s, node)
+	if s.Checker != nil {
+		validateMethodExpression(s, node)
+	}
+	return expression
+}
+
+func transformExpression(s *State, node *ast.Node) luau.Expression {
 	switch node.Kind {
 	// banned expressions
 	case ast.KindBigIntLiteral:

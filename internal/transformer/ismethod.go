@@ -5,51 +5,14 @@ import (
 	"rotor/tsgo/checker"
 )
 
-// This file ports TSTransformer/util/isMethod.ts (complete).
-
-// getThisParameter ports isMethod.ts getThisParameter (L9-17): the first
-// parameter's name when it is the explicit `this` identifier.
-func getThisParameter(parameters []*ast.Node) *ast.Node {
-	if len(parameters) > 0 {
-		name := parameters[0].Name()
-		if name != nil && ast.IsIdentifier(name) && ast.IsThisIdentifier(name) {
-			return name
-		}
-	}
-	return nil
-}
-
-// isMethodDeclarationNode ports isMethod.ts isMethodDeclaration (L19-49): is
-// this signature declaration a method (callable with `:`)?
-func isMethodDeclarationNode(s *State, node *ast.Node) bool {
-	if !ast.IsFunctionLike(node) {
-		return false
-	}
-
-	if thisParam := getThisParameter(node.Parameters()); thisParam != nil {
-		return s.GetType(thisParam).Flags()&checker.TypeFlagsVoid == 0
-	}
-
-	// namespace declare functions with `this` arg defined (i.e. utf8)
-	if ast.IsFunctionDeclaration(node) {
-		return false
-	}
-
+func isMethodDeclarationNode(node *ast.Node) bool {
 	if ast.IsMethodDeclaration(node) || ast.IsMethodSignatureDeclaration(node) {
 		return true
 	}
-
-	// for some reason, FunctionExpressions within ObjectLiteralExpressions are implicitly methods
 	if ast.IsFunctionExpression(node) {
 		parent := SkipUpwards(node).Parent
-		if parent != nil && ast.IsPropertyAssignment(parent) {
-			grandparent := SkipUpwards(parent).Parent
-			if grandparent != nil && ast.IsObjectLiteralExpression(grandparent) {
-				return true
-			}
-		}
+		return parent != nil && ast.IsPropertyAssignment(parent)
 	}
-
 	return false
 }
 
@@ -63,18 +26,18 @@ func isMethodInner(s *State, node *ast.Node, t *checker.Type) bool {
 	hasCallbackDefinition := false
 
 	for _, callSignature := range s.Checker.GetCallSignatures(t) {
-		var thisValueDeclaration *ast.Node
 		if thisParameter := callSignature.ThisParameter(); thisParameter != nil {
-			thisValueDeclaration = thisParameter.ValueDeclaration
-		}
-		if thisValueDeclaration != nil {
-			if s.GetType(thisValueDeclaration).Flags()&checker.TypeFlagsVoid == 0 {
+			thisType := s.Checker.GetTypeOfSymbolAtLocation(thisParameter, node)
+			if canChangeReceiverConvention(s, thisType) {
+				AddDiagnosticWithCache(s.Diags, node, DiagNoUnstableThisType(node), s.Multi.IsReportedByNoUnstableThisType)
+			}
+			if thisType.Flags()&checker.TypeFlagsVoid == 0 {
 				hasMethodDefinition = true
 			} else {
 				hasCallbackDefinition = true
 			}
 		} else if declaration := callSignature.Declaration(); declaration != nil {
-			if isMethodDeclarationNode(s, declaration) {
+			if isMethodDeclarationNode(declaration) {
 				hasMethodDefinition = true
 			} else {
 				hasCallbackDefinition = true
@@ -91,7 +54,7 @@ func isMethodInner(s *State, node *ast.Node, t *checker.Type) bool {
 
 // isMethodFromType ports isMethod.ts isMethodFromType (L79-91): walk the
 // type's union/intersection members and constraints; each leaf with a symbol
-// consults the program-wide per-symbol cache (multiTransformState.isMethodCache).
+// consults the cache for that instantiated type.
 func isMethodFromType(s *State, node *ast.Node, t *checker.Type) bool {
 	result := false
 	WalkTypes(s, t, func(t *checker.Type) {
@@ -102,10 +65,10 @@ func isMethodFromType(s *State, node *ast.Node, t *checker.Type) bool {
 			return
 		}
 		if symbol := t.Symbol(); symbol != nil {
-			cached, ok := s.Multi.IsMethodCache[symbol]
+			cached, ok := s.Multi.IsMethodCache[t]
 			if !ok {
 				cached = isMethodInner(s, node, t)
-				s.Multi.IsMethodCache[symbol] = cached
+				s.Multi.IsMethodCache[t] = cached
 			}
 			result = result || cached
 		}
@@ -120,6 +83,10 @@ func isMethod(s *State, node *ast.Node) bool {
 		return true
 	}
 	if s.Checker != nil && ast.IsFunctionExpression(node) {
+		parameters := node.Parameters()
+		if len(parameters) > 0 && ast.IsThisIdentifier(parameters[0].Name()) {
+			return false
+		}
 		if contextualType := s.Checker.GetContextualType(node, checker.ContextFlagsNone); contextualType != nil && contextualType != t {
 			return isMethodFromType(s, node, contextualType)
 		}

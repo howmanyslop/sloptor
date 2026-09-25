@@ -1,0 +1,15 @@
+{
+	"extends": "../conformance/project/tsconfig.json",
+	"compilerOptions": {
+		"baseUrl": ".",
+		"rootDir": ".",
+		"outDir": "out",
+		"skipLibCheck": true,
+		"typeRoots": ["../conformance/project/node_modules/@rbxts"],
+		"types": ["types", "compiler-types", "testez/globals"],
+		"paths": {
+			"@rbxts/compat-library": ["packages/library/src/index"]
+		}
+	},
+	"include": ["runtime", "packages/*/src"]
+}

@@ -171,3 +171,11 @@ This keeps the harness environment-gated while making it a real build/output
 acceptance proof rather than a compile-only smoke test. With a local
 `randomness` checkout available, the staged compare is green byte-for-byte on
 both `out/` and `include/`.
+
+The four repairs pinned to upstream commit
+[`3106b1492a2cf5b5b06f73354e94b03e3eb45b4e`](https://github.com/roblox-ts/roblox-ts/tree/3106b1492a2cf5b5b06f73354e94b03e3eb45b4e)
+use runtime results and diagnostics as their compatibility contract. The original
+goldens above remain unchanged. Entries classified as `upstream-corrected` in
+`../forkparity/divergence-ledger.json` retain their byte comparison and require
+the named behavioral regression; `TestConformance` also runs the original
+Rojo/Lune suite. See `../compatibility/` for the shared fixtures and pinned setup.

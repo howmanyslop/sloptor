@@ -1,12 +1,8 @@
 package transformer
 
 import (
-	"math"
-
 	"rotor/internal/luau"
 	"rotor/tsgo/ast"
-	"rotor/tsgo/checker"
-	"rotor/tsgo/jsnum"
 )
 
 // ---------------------------------------------------------------------------
@@ -430,164 +426,17 @@ func transformForStatementFallback(s *State, node *ast.Node) *luau.List[luau.Sta
 	return luau.NewList[luau.Statement](luau.NewDo(result))
 }
 
-// getOptimizedIncrementorStepValue ports getOptimizedIncrementorStepValue
-// (L299-332): `i += intLit` / `i -= intLit` / `i++` / `i--` yield the step
-// value; anything else disqualifies the optimization. Upstream quirk ported
-// faithfully: the `-=` branch (L309-315) never checks that the left side is
-// the loop variable, unlike the `+=` branch.
-func getOptimizedIncrementorStepValue(s *State, incrementor *ast.Node, idSymbol *ast.Symbol) (float64, bool) {
-	if ast.IsBinaryExpression(incrementor) {
-		binary := incrementor.AsBinaryExpression()
-		if ast.IsIdentifier(binary.Left) &&
-			s.Checker.GetSymbolAtLocation(binary.Left) == idSymbol &&
-			binary.OperatorToken.Kind == ast.KindPlusEqualsToken &&
-			ast.IsNumericLiteral(binary.Right) &&
-			isProbablyInteger(s, binary.Right) {
-			value, err := luau.JSNumberParse(getText(s, binary.Right))
-			return value, err == nil
-		} else if binary.OperatorToken.Kind == ast.KindMinusEqualsToken &&
-			ast.IsNumericLiteral(binary.Right) &&
-			isProbablyInteger(s, binary.Right) {
-			value, err := luau.JSNumberParse(getText(s, binary.Right))
-			return -value, err == nil
-		}
-	} else if ast.IsPostfixUnaryExpression(incrementor) || ast.IsPrefixUnaryExpression(incrementor) {
-		operand, operator := unaryOperandAndOperator(incrementor)
-		if ast.IsIdentifier(operand) && s.Checker.GetSymbolAtLocation(operand) == idSymbol {
-			switch operator {
-			case ast.KindPlusPlusToken:
-				return 1, true
-			case ast.KindMinusMinusToken:
-				return -1, true
-			}
-		}
-	}
-	return 0, false
-}
-
-// unaryOperandAndOperator extracts the operand/operator pair from either
-// unary expression flavor.
-func unaryOperandAndOperator(node *ast.Node) (*ast.Node, ast.Kind) {
-	if ast.IsPrefixUnaryExpression(node) {
-		unary := node.AsPrefixUnaryExpression()
-		return unary.Operand, unary.Operator
-	}
-	unary := node.AsPostfixUnaryExpression()
-	return unary.Operand, unary.Operator
-}
-
-// isSizeMacro ports isSizeMacro (L334-346): a call whose callee symbol is the
-// `size` property-call macro (e.g. `arr.size()`). Upstream:
-// `macroManager.getPropertyCallMacro(symbol)` non-nil AND symbol.name ===
-// "size".
-func isSizeMacro(s *State, expression *ast.Node) bool {
-	if ast.IsCallExpression(expression) {
-		expType := s.Checker.GetNonOptionalType(s.GetType(expression.AsCallExpression().Expression))
-		symbol := GetFirstDefinedSymbol(s, expType)
-		if symbol != nil && symbol.Name == "size" && s.Macros().GetPropertyCallMacro(symbol) != nil {
-			return true
-		}
-	}
-	return false
-}
-
-// isUnaryExpressionWithWrite ports ts.isUnaryExpressionWithWrite: postfix
-// unary (always ++/--) or prefix unary with ++/--.
-func isUnaryExpressionWithWrite(node *ast.Node) bool {
-	switch node.Kind {
-	case ast.KindPostfixUnaryExpression:
-		return true
-	case ast.KindPrefixUnaryExpression:
-		operator := node.AsPrefixUnaryExpression().Operator
-		return operator == ast.KindPlusPlusToken || operator == ast.KindMinusMinusToken
-	}
-	return false
-}
-
-// isMutatedInBody ports isMutatedInBody (L348-366): true when any reference
-// to the loop variable inside the body is an assignment target or a ++/--
-// operand.
-func isMutatedInBody(s *State, identifier *ast.Node, body *ast.Node) bool {
-	return ForEachSymbolReference(s.Checker, identifier, body, func(token *ast.Node) bool {
-		parent := SkipUpwards(token).Parent
-		if parent == nil {
-			return false
-		}
-		if ast.IsAssignmentExpression(parent, false) && SkipDownwards(parent.AsBinaryExpression().Left) == token {
-			return true
-		}
-		if isUnaryExpressionWithWrite(parent) {
-			operand, _ := unaryOperandAndOperator(parent)
-			if SkipDownwards(operand) == token {
-				return true
-			}
-		}
-		return false
-	})
-}
-
-// isProbablyInteger ports isProbablyInteger (L368-390): integer numeric
-// literal; `+ - * **` of two such; unary ± of one; a `.size()` macro call; or
-// a checker type that is an integer number literal. NOTE the upstream chain
-// shape: a binary/prefix-unary expression with a non-matching operator falls
-// straight to false without consulting the checker.
-func isProbablyInteger(s *State, expression *ast.Node) bool {
-	if ast.IsNumericLiteral(expression) {
-		value, err := luau.JSNumberParse(getText(s, expression))
-		return err == nil && !math.IsInf(value, 0) && value == math.Trunc(value)
-	} else if ast.IsBinaryExpression(expression) {
-		binary := expression.AsBinaryExpression()
-		switch binary.OperatorToken.Kind {
-		case ast.KindPlusToken, ast.KindMinusToken, ast.KindAsteriskToken, ast.KindAsteriskAsteriskToken:
-			return isProbablyInteger(s, binary.Left) && isProbablyInteger(s, binary.Right)
-		}
-	} else if ast.IsPrefixUnaryExpression(expression) {
-		unary := expression.AsPrefixUnaryExpression()
-		if unary.Operator == ast.KindPlusToken || unary.Operator == ast.KindMinusToken {
-			return isProbablyInteger(s, unary.Operand)
-		}
-	} else if isSizeMacro(s, expression) {
-		return true
-	} else if IsDefinitelyType(s, s.GetType(expression), isIntegerLiteralTypeCheck) {
-		return true
-	}
-	return false
-}
-
-// isIntegerLiteralTypeCheck ports the L386 callback:
-// `t.isNumberLiteral() && Number.isInteger(t.value)`.
-var isIntegerLiteralTypeCheck = TypeCheck{check: func(t *checker.Type) bool {
-	if !t.IsNumberLiteral() {
-		return false
-	}
-	value, ok := t.AsLiteralType().Value().(jsnum.Number)
-	if !ok {
-		return false
-	}
-	f := float64(value)
-	return !math.IsNaN(f) && !math.IsInf(f, 0) && f == math.Trunc(f)
-}}
-
-// transformForStatementOptimized ports transformForStatementOptimized
-// (L392-489): `for (let i = a; i < b; i += s)` (and <=, >, >= variants)
-// becomes Luau `for i = a, b±1, s do`. Returns nil when any precondition
-// fails: single identifier declaration with an isProbablyInteger initializer;
-// incrementor with an extractable integer step; condition operator direction
-// matching the step sign (`<`/`<=` need step >= 0, `>`/`>=` need step <= 0;
-// `!==` etc. never optimize); isProbablyInteger condition RHS; loop variable
-// not mutated in the body. Emitted bounds: `<` -> offset(end, -1), `>` ->
-// offset(end, +1) — both constant-fold through offsetExpr when the bound is a
-// literal (`i < 10` -> `9`) and stay symbolic otherwise (`i < limit` ->
-// `limit - 1`); `<=`/`>=` use the bound as-is.
+// transformForStatementOptimized uses numeric-for only when all header
+// expressions are stable integers and the body preserves the induction variable.
 func transformForStatementOptimized(s *State, node *ast.Node) *luau.List[luau.Statement] {
 	forStatement := node.AsForStatement()
 	initializer, condition, incrementor := forStatement.Initializer, forStatement.Condition, forStatement.Incrementor
 	statement := forStatement.Statement
 
-	// validate initializer exists and is a single identifier `x` with a value
-	// that is _probably_ an integer
+	// Require one block-scoped induction variable.
 
 	if initializer == nil || !ast.IsVariableDeclarationList(initializer) ||
+		initializer.Flags&ast.NodeFlagsLet == 0 ||
 		len(initializer.AsVariableDeclarationList().Declarations.Nodes) != 1 {
 		return nil
 	}
@@ -603,28 +452,35 @@ func transformForStatementOptimized(s *State, node *ast.Node) *luau.List[luau.St
 		return nil
 	}
 
-	if !isProbablyInteger(s, decInit) {
+	if _, ok := getConstantLoopInteger(s, decInit, false); !ok {
 		return nil
 	}
 
-	// validate incrementor exists and is _probably_ an integer change in `x`
+	// A numeric-for cannot represent a zero or changing step.
 
 	if incrementor == nil {
 		return nil
 	}
 
 	stepValue, ok := getOptimizedIncrementorStepValue(s, incrementor, idSymbol)
-	if !ok {
+	if !ok || stepValue == 0 {
 		return nil
 	}
 
 	// validate condition exists and is a BinaryExpression with an operator
 	// that matches the incrementor
 
-	if condition == nil || !ast.IsBinaryExpression(condition) {
+	if condition == nil {
+		return nil
+	}
+	condition = SkipDownwards(condition)
+	if !ast.IsBinaryExpression(condition) {
 		return nil
 	}
 	conditionBinary := condition.AsBinaryExpression()
+	if !isLoopVariable(s, conditionBinary.Left, idSymbol) {
+		return nil
+	}
 	operatorKind := conditionBinary.OperatorToken.Kind
 
 	switch operatorKind {
@@ -645,7 +501,7 @@ func transformForStatementOptimized(s *State, node *ast.Node) *luau.List[luau.St
 		return nil
 	}
 
-	if !isProbablyInteger(s, conditionBinary.Right) {
+	if _, ok := getConstantLoopInteger(s, conditionBinary.Right, false); !ok {
 		return nil
 	}
 

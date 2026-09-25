@@ -36,6 +36,30 @@ func validateTypes(s *State, node *ast.Node, baseType, assignmentType *checker.T
 	}
 }
 
+func validateMethodExpression(s *State, node *ast.Node) {
+	parent := SkipUpwards(node).Parent
+	if parent == nil || ast.IsPropertyAssignment(parent) || ast.IsShorthandPropertyAssignment(parent) {
+		return
+	}
+	t := s.GetType(node)
+	if !hasCallSignatures(s, t) {
+		return
+	}
+	contextualType := s.Checker.GetContextualType(node, checker.ContextFlagsNone)
+	if contextualType == nil || contextualType == t {
+		return
+	}
+	expression := SkipDownwards(node)
+	if ast.IsFunctionExpression(expression) && isMethod(s, expression) == isMethodFromType(s, node, contextualType) {
+		return
+	}
+	isAccess := ast.IsPropertyAccessExpression(expression) || ast.IsElementAccessExpression(expression)
+	if isAccess && !isValidMethodIndexWithoutCall(s, SkipUpwards(node)) && isMethodFromType(s, node, t) {
+		return
+	}
+	validateTypes(s, node, t, contextualType)
+}
+
 // validateObjectLiteralElement ports validateMethodAssignment.ts
 // validateObjectLiteralElement (L29-35): compare the element's own type
 // against its contextual type, when one exists and differs.
