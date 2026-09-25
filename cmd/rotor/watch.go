@@ -224,41 +224,61 @@ func settleChanges(base, first map[string]fileStamp, snap func() map[string]file
 	return current, diffStamps(base, current)
 }
 
+// checkWatchReporter renders a check watch session: styled terminal chrome or
+// the --json NDJSON stream. Each buildStart is followed by exactly one
+// buildEnd.
+type checkWatchReporter interface {
+	// buildStart runs before each check; changed is nil for the initial check.
+	buildStart(changed []string)
+	buildEnd(core checkCore)
+}
+
+type styledCheckWatchReporter struct {
+	out   io.Writer
+	stats *watchStats
+}
+
+func (r *styledCheckWatchReporter) buildStart(changed []string) {
+	if changed != nil {
+		newUI(r.out).watchChanges(changed)
+	}
+}
+
+func (r *styledCheckWatchReporter) buildEnd(core checkCore) {
+	res := reportCheck(r.out, core)
+	r.stats.record(res.elapsed)
+	newUI(r.out).watchBanner(len(res.watchFiles), r.stats)
+}
+
 // runWatch runs an initial check, then polls the watched file set (the parsed
 // file list plus tsconfig.json) and re-runs the full check whenever anything
 // changes. Exits only via Ctrl+C.
 func runWatch(dir string, out io.Writer, checkers *int) int {
-	u := newUI(out)
-	stats := &watchStats{}
+	runCheckWatchLoop(context.Background(), dir, checkers, &styledCheckWatchReporter{out: out, stats: &watchStats{}})
+	return 0
+}
 
-	res := runCheck(dir, out, checkers)
-	stats.record(res.elapsed)
-	stamps := snapshotFiles(res.watchFiles)
-	u.watchBanner(len(res.watchFiles), stats)
-
+// runCheckWatchLoop checks once, then re-checks on every settled change to the
+// watched file set until ctx is done.
+func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep checkWatchReporter) {
+	var changed []string
+	var stamps map[string]fileStamp
 	for {
-		time.Sleep(watchMinInterval)
-		next := snapshotFiles(res.watchFiles)
-		changed := diffStamps(stamps, next)
-		if len(changed) == 0 {
-			continue
-		}
-		snap := func() map[string]fileStamp { return snapshotFiles(res.watchFiles) }
-		var settled map[string]fileStamp
-		settled, changed = settleChanges(stamps, next, snap, time.Sleep)
-		if len(changed) == 0 {
-			stamps = settled
-			continue
-		}
-		u.watchChanges(changed)
-
-		res = runCheck(dir, out, checkers)
-		stats.record(res.elapsed)
+		rep.buildStart(changed)
+		core := runCheckCore(dir, checkers)
 		// Stamp NEW files at their current state, but keep the pre-check
 		// stamps for surviving files so an edit made while the check ran is
-		// still detected on the next tick.
-		stamps = mergePreStamps(snapshotFiles(res.watchFiles), settled)
-		u.watchBanner(len(res.watchFiles), stats)
+		// still detected on the next tick. Stamping before buildEnd means an
+		// edit made after a consumer sees buildEnd is never absorbed.
+		stamps = mergePreStamps(snapshotFiles(core.watchFiles), stamps)
+		rep.buildEnd(core)
+
+		interval := func() time.Duration { return watchMinInterval }
+		snap := func() map[string]fileStamp { return snapshotFiles(core.watchFiles) }
+		stamps, changed = awaitChanges(ctx, interval, snap, stamps)
+		if changed == nil {
+			return
+		}
 	}
 }
 
@@ -343,29 +363,28 @@ func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts proje
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
 		pruneStamps(baseline, w.skipDirs)
 
-		baseline, changed = awaitTreeChanges(ctx, w, baseline)
+		baseline, changed = awaitChanges(ctx, w.interval, w.snapshot, baseline)
 		if changed == nil {
 			return
 		}
 	}
 }
 
-// awaitTreeChanges polls the tree until a settled batch of changes lands and
-// returns the new baseline plus the changed paths, or nil changes once ctx is
-// done.
-func awaitTreeChanges(ctx context.Context, w *treeWatcher, baseline map[string]fileStamp) (map[string]fileStamp, []string) {
+// awaitChanges polls snap until a settled batch of changes lands and returns
+// the new baseline plus the changed paths, or nil changes once ctx is done.
+func awaitChanges(ctx context.Context, interval func() time.Duration, snap func() map[string]fileStamp, baseline map[string]fileStamp) (map[string]fileStamp, []string) {
 	for {
 		select {
 		case <-ctx.Done():
 			return baseline, nil
-		case <-time.After(w.interval()):
+		case <-time.After(interval()):
 		}
-		next := w.snapshot()
+		next := snap()
 		if len(diffStamps(baseline, next)) == 0 {
 			continue
 		}
 		var changed []string
-		baseline, changed = settleChanges(baseline, next, w.snapshot, time.Sleep)
+		baseline, changed = settleChanges(baseline, next, snap, time.Sleep)
 		if len(changed) > 0 {
 			return baseline, changed
 		}

@@ -192,3 +192,33 @@ func TestBuildWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
 	nextWatchEvent(t, events, "buildStart")
 	nextWatchEvent(t, events, "buildEnd")
 }
+
+func TestCheckWatchJSONEmitsPairedEventsPerCheck(t *testing.T) {
+	dir := writeBuildableProject(t, "")
+	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {
+		runCheckWatchLoop(ctx, dir, nil, newCheckWatchJSONReporter(out, dir))
+	})
+
+	start := nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); changed == nil || len(changed) != 0 {
+		t.Errorf("initial changed = %v, want []", start["changed"])
+	}
+	end := nextWatchEvent(t, events, "buildEnd")
+	if end["ok"] != true || end["files"].(float64) <= 0 {
+		t.Errorf("initial buildEnd = %v, want ok with files", end)
+	}
+
+	mustWrite(t, filepath.Join(dir, "src", "main.ts"), "export const s: string = 5;\n")
+	start = nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); len(changed) != 1 || changed[0] != "src/main.ts" {
+		t.Errorf("changed = %v, want [src/main.ts]", start["changed"])
+	}
+	end = nextWatchEvent(t, events, "buildEnd")
+	diags, _ := end["diagnostics"].([]any)
+	if end["ok"] != false || len(diags) == 0 {
+		t.Fatalf("buildEnd = %v, want failure with diagnostics", end)
+	}
+	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["file"] != "src/main.ts" {
+		t.Errorf("diagnostic = %v, want TS2322 in src/main.ts", diag)
+	}
+}

@@ -76,3 +76,14 @@ func (r *jsonBuildWatchReporter) buildStart(changed []string) { r.events.buildSt
 func (r *jsonBuildWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
 	r.events.buildEnd(buildJSONResult(result, diags, elapsed, err))
 }
+
+// jsonCheckWatchReporter is the `check --watch --json` reporter.
+type jsonCheckWatchReporter struct{ events *watchEventWriter }
+
+func newCheckWatchJSONReporter(w io.Writer, dir string) checkWatchReporter {
+	return &jsonCheckWatchReporter{events: newWatchEventWriter(w, dir)}
+}
+
+func (r *jsonCheckWatchReporter) buildStart(changed []string) { r.events.buildStart(changed) }
+
+func (r *jsonCheckWatchReporter) buildEnd(core checkCore) { r.events.buildEnd(checkJSONResult(core)) }
