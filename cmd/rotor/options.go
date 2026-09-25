@@ -33,6 +33,11 @@ type projectOptions struct {
 
 	emitDeclarationOnly bool
 
+	// argv is the command-line layer of the merge. A --build solution replays
+	// it over each referenced project's own rbxts key, so a reference gets the
+	// options its direct build would.
+	argv *partialProjectOptions
+
 	builders       *int
 	checkers       *int
 	singleThreaded *bool
@@ -149,6 +154,23 @@ func findTsConfigPath(projectArg string) (string, error) {
 func readRbxtsOptions(tsConfigPath string) *partialProjectOptions {
 	options, _ := readRbxtsOptionsChecked(tsConfigPath)
 	return options
+}
+
+// rbxtsOptions is the rbxts-key subset of the layer; nil when there is no layer.
+func (p *partialProjectOptions) rbxtsOptions() *compile.RbxtsOptions {
+	if p == nil {
+		return nil
+	}
+	return &compile.RbxtsOptions{
+		AllowCommentDirectives: p.allowCommentDirectives,
+		IncludePath:            p.includePath,
+		LogTruthyChanges:       p.logTruthyChanges,
+		Luau:                   p.luau,
+		NoInclude:              p.noInclude,
+		OptimizedLoops:         p.optimizedLoops,
+		Rojo:                   p.rojo,
+		Type:                   p.typeName,
+	}
 }
 
 func readRbxtsOptionsChecked(tsConfigPath string) (*partialProjectOptions, error) {

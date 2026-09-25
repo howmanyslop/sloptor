@@ -115,6 +115,7 @@ func runDiagnosticsCommand(streams cliStreams, args *diagnosticsArgs, cmd *cobra
 		return runtimeFailure(err)
 	}
 	merged := mergeProjectOptions(defaultProjectOptions, rbxtsOptions)
+	merged.argv = &partialProjectOptions{}
 	merged.allowCommentDirectives = false
 
 	opts := projectCompileOptions(tsConfigPath, merged)
