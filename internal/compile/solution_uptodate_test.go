@@ -48,3 +48,31 @@ func TestSolutionBuildReusesDirectReferencedProjectBuild(t *testing.T) {
 		}
 	}
 }
+
+func TestSolutionGraphLayersReferencedRbxtsOptions(t *testing.T) {
+	// Given: a coordinator and a reference that each declare rbxts options,
+	// and a command line that sets one of them.
+	root := t.TempDir()
+	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./lib"}],"rbxts":{"optimizedLoops":false,"luau":false,"noInclude":true}}`)
+	writeSolutionFile(t, root, "lib/tsconfig.json", `{"rbxts":{"luau":true,"optimizedLoops":true}}`)
+	optimizedLoops := false
+	entry := ProjectOptions{LuaExtension: true, NoOptimizedLoops: true, SolutionArgv: &RbxtsOptions{OptimizedLoops: &optimizedLoops}}
+
+	// When
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Then: defaults < coordinator rbxts < own rbxts < argv.
+	lib := graph.Projects[0].Options
+	if lib.LuaExtension {
+		t.Error("reference's luau did not override the coordinator's")
+	}
+	if !lib.NoOptimizedLoops {
+		t.Error("command-line optimizedLoops did not override the reference's")
+	}
+	if lib.EmitIncludeFiles {
+		t.Error("coordinator's noInclude did not reach the reference")
+	}
+}

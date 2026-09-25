@@ -303,7 +303,7 @@ Use `"$schema": "./rbxts-tsconfig.schema.json"` in `tsconfig.json`. The `rbxts` 
 
 ### Project references, source maps, plugins, and build state
 
-`sloptor build --build` drains project references in dependency order. A coordinator tsconfig with only `references` is not compiled as a project of its own. `--emitDeclarationOnly` applies to the solution build and cannot be watched. `--build --watch` watches the solution's tsconfig extends chain and Rojo topology, invalidating dependent projects when a referenced project changes.
+`sloptor build --build` drains project references in dependency order. A coordinator tsconfig with only `references` is not compiled as a project of its own. Each referenced project gets the options its own direct build would: defaults, then its `rbxts` key, then the command line. The entry project's `rbxts` key does not reach its references. A coordinator's `rbxts` key applies to every project, below each project's own key, and a project without an `rbxts` key inherits the coordinator's `type` and `rojo`. `--emitDeclarationOnly` applies to the solution build and cannot be watched. `--build --watch` watches the solution's tsconfig extends chain and Rojo topology, invalidating dependent projects when a referenced project changes.
 
 With `compilerOptions.sourceMap: true`, Rotor writes an adjacent `.luau.map` for each Luau output. The map's `sourcesContent` is the original pre-transformer TypeScript, and source-map files are not counted as emitted Luau files. Declaration maps are kept while their corresponding source exists.
 

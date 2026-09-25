@@ -557,6 +557,18 @@ type ProjectOptions struct {
 	// `.lua` (createPathTranslator.ts L17).
 	LuaExtension bool
 
+	// SolutionArgv is the command-line layer of the rbxts option merge; nil
+	// fields were not passed. When set, a solution build merges each
+	// referenced project's rbxts options the way its direct build would
+	// (defaults < own rbxts < argv), so the entry's rbxts key cannot leak into
+	// it. Nil keeps deriving references from the entry options.
+	SolutionArgv *RbxtsOptions
+
+	// solutionCoordinatorRbxts is a coordinator root's own rbxts key, set by
+	// BuildSolutionGraph: it sits between the defaults and a referenced
+	// project's rbxts when SolutionArgv is set.
+	solutionCoordinatorRbxts *RbxtsOptions
+
 	// WriteOnlyChanged ports the build write-phase and copyItem byte-compare
 	// skip: unchanged compiled outputs and copied passthrough files are left
 	// untouched on disk.
@@ -624,41 +636,67 @@ func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string
 	if err != nil {
 		return ProjectOptions{}, err
 	}
-	if declared == nil {
-		if !inheritEntryTypeAndRojo {
-			entry.Type = ""
-			entry.RojoConfigPath = ""
+	referenced := entry
+	if entry.SolutionArgv != nil {
+		// Same layering as a direct build of this project, so the two agree
+		// on its incremental salt. A coordinator root's rbxts key is the one
+		// solution-wide layer.
+		referenced.IncludePath = ""
+		referenced.EmitIncludeFiles = true
+		referenced.LogTruthyChanges = false
+		referenced.AllowCommentDirectives = false
+		referenced.NoOptimizedLoops = false
+		referenced.LuaExtension = false
+		if inheritEntryTypeAndRojo {
+			applyRbxtsOptions(&referenced, entry.solutionCoordinatorRbxts)
 		}
-		return entry, nil
+		applyRbxtsOptions(&referenced, declared)
+		applyRbxtsOptions(&referenced, entry.SolutionArgv)
+	} else {
+		applyRbxtsOptions(&referenced, declared)
 	}
 
-	entry.Type = ""
-	entry.RojoConfigPath = ""
-	if declared.IncludePath != nil {
-		entry.IncludePath = *declared.IncludePath
+	// Type and Rojo config come from the project's own rbxts key; only a
+	// coordinator root hands the entry's down, and only to a project that
+	// declares no rbxts key at all.
+	if declared == nil && inheritEntryTypeAndRojo {
+		return referenced, nil
 	}
-	if declared.Rojo != nil {
-		entry.RojoConfigPath = *declared.Rojo
+	referenced.Type = ""
+	referenced.RojoConfigPath = ""
+	if declared != nil && declared.Rojo != nil {
+		referenced.RojoConfigPath = *declared.Rojo
 	}
-	if declared.Type != nil {
-		entry.Type = transformer.ProjectType(*declared.Type)
+	if declared != nil && declared.Type != nil {
+		referenced.Type = transformer.ProjectType(*declared.Type)
 	}
-	if declared.LogTruthyChanges != nil {
-		entry.LogTruthyChanges = *declared.LogTruthyChanges
+	return referenced, nil
+}
+
+// applyRbxtsOptions layers the rbxts fields other than type and rojo onto
+// options; nil fields keep the earlier value.
+func applyRbxtsOptions(options *ProjectOptions, layer *RbxtsOptions) {
+	if layer == nil {
+		return
 	}
-	if declared.AllowCommentDirectives != nil {
-		entry.AllowCommentDirectives = *declared.AllowCommentDirectives
+	if layer.IncludePath != nil {
+		options.IncludePath = *layer.IncludePath
 	}
-	if declared.NoInclude != nil {
-		entry.EmitIncludeFiles = !*declared.NoInclude
+	if layer.LogTruthyChanges != nil {
+		options.LogTruthyChanges = *layer.LogTruthyChanges
 	}
-	if declared.OptimizedLoops != nil {
-		entry.NoOptimizedLoops = !*declared.OptimizedLoops
+	if layer.AllowCommentDirectives != nil {
+		options.AllowCommentDirectives = *layer.AllowCommentDirectives
 	}
-	if declared.Luau != nil {
-		entry.LuaExtension = !*declared.Luau
+	if layer.NoInclude != nil {
+		options.EmitIncludeFiles = !*layer.NoInclude
 	}
-	return entry, nil
+	if layer.OptimizedLoops != nil {
+		options.NoOptimizedLoops = !*layer.OptimizedLoops
+	}
+	if layer.Luau != nil {
+		options.LuaExtension = !*layer.Luau
+	}
 }
 
 // CompileProject compiles every file of the project rooted at projectDir —

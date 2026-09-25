@@ -82,6 +82,12 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 		options := entry
 		if len(stack) == 1 {
 			rootIsCoordinator = coordinator
+			if coordinator && entry.SolutionArgv != nil {
+				entry.solutionCoordinatorRbxts, err = ReadRbxtsOptions(configPath)
+				if err != nil {
+					return fmt.Errorf("compile: read solution options %q: %w", configPath, err)
+				}
+			}
 		} else {
 			// Derive from the entry, not the referencing project: a project's
 			// options, and so its incremental salt, must not depend on which

@@ -63,6 +63,7 @@ func runDevCommand(streams cliStreams, cmd *cobra.Command, flags *buildFlags, se
 		return runtimeFailure(err)
 	}
 	opts := mergeProjectOptions(defaultProjectOptions, readRbxtsOptions(tsConfigPath), &ba.opts)
+	opts.argv = &ba.opts
 	opts.watch = true
 	logservice.Verbose = opts.verbose
 	dir := filepath.Dir(tsConfigPath)

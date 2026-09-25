@@ -333,6 +333,7 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 		return runtimeFailure(err)
 	}
 	opts := mergeProjectOptions(defaultProjectOptions, rbxtsOptions, &parsed.opts)
+	opts.argv = &parsed.opts
 	opts.minify = parsed.minify // rotor extension: CLI-only, outside the rbxts merge
 	opts.emitDeclarationOnly = parsed.emitDeclarationOnly
 	opts.builders = parsed.builders
@@ -530,6 +531,7 @@ func newBuildOptionsReload(tsConfigPath string, parsed *buildArgs) func() (proje
 			return projectOptions{}, err
 		}
 		next := mergeProjectOptions(defaultProjectOptions, declared, &parsed.opts)
+		next.argv = &parsed.opts
 		next.minify = parsed.minify
 		next.emitDeclarationOnly = parsed.emitDeclarationOnly
 		next.builders = parsed.builders
@@ -593,6 +595,7 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		Builders:               opts.builders,
 		Checkers:               opts.checkers,
 		SingleThreaded:         opts.singleThreaded,
+		SolutionArgv:           opts.argv.rbxtsOptions(),
 	}
 }
 
