@@ -87,7 +87,10 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			inheritEntryTypeAndRojo = coordinator
 		}
 		for _, reference := range references {
-			referenceOptions, err := ProjectOptionsForReferencedConfig(options, reference, inheritEntryTypeAndRojo)
+			// Derive from the entry, not the referencing project: a project's
+			// options, and so its incremental salt, must not depend on which
+			// project referenced it, or it never matches its own direct build.
+			referenceOptions, err := ProjectOptionsForReferencedConfig(entry, reference, inheritEntryTypeAndRojo)
 			if err != nil {
 				return fmt.Errorf("compile: read referenced project options %q: %w", reference, err)
 			}
