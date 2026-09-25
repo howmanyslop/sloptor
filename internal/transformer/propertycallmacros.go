@@ -75,6 +75,16 @@ var propertyCallMacroTable = map[string]map[string]PropertyCallMacro{
 	"Vector3":      makeMathSet("+", "-", "*", "/", "//"),
 	"Vector3int16": makeMathSet("+", "-", "*", "/"),
 	"Number":       makeMathSet("//"),
+	// rotor extension — upstream PROPERTY_CALL_MACROS has no `vector` row
+	// (propertyCallMacros.ts L919-939). Luau's native `vector` mirrors
+	// Vector3's math methods exactly, so `a.sub(b)` compiles to `a - b`
+	// instead of the meaningless `a:sub(b)` (a vector value has no methods —
+	// indexing one at runtime errors). The types side (`declare interface
+	// vector` carrying the same add/sub/mul/div/idiv macro math API) ships
+	// with newer @rbxts/types releases; see macromanager.go
+	// optionalPropertyCallClasses for why its absence is tolerated instead of
+	// failing the registration audit.
+	"vector": makeMathSet("+", "-", "*", "/", "//"),
 
 	"String":        stringCallbacks,
 	"ArrayLike":     arrayLikeMethods,
