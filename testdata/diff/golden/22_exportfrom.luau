@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 local TS = require(script.Parent.include.RuntimeLib)
 local exports = {}
 for _k, _v in TS.import(script, script.Parent, "22a_base") or {} do

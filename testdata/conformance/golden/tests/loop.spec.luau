@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 local function difference(set1, set2)
 	local result = {}
 	for value in set1 do

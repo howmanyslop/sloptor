@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 local a = 5
 local b = 3.25
 local c = 0xff

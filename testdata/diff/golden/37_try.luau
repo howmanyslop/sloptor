@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 local TS = require(script.Parent.include.RuntimeLib)
 local function f1()
 	TS.try(function()

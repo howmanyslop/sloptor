@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 local fns = {}
 for i = 0, 2 do
 	fns[i + 1] = function()

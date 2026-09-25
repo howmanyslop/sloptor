@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.5.0
+-- Compiled with sloptor v2.6.0
 return function()
 	it("should support static parameter decorators", function()
 		local buzz

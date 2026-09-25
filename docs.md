@@ -276,11 +276,11 @@ Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; me
   With `-w/--watch`, stdout is an NDJSON stream (one object per line, no styled output) for tools that supervise the watcher. Each build (the initial one too) prints a `buildStart` event (`at`, `changed` paths relative to the project) and then exactly one `buildEnd` event (`at` plus the one-shot result fields). Pairs never nest, so "build in progress" is a toggle. The first event carries `version`, and one `watching` event (`at`, `files`: the watched file count) follows the initial `buildEnd`. Compiler warnings go to stderr. Works with `--build --watch` too.
 
   ```jsonc
-  {"event":"buildStart","at":"2026-09-25T17:59:59.000Z","version":"2.5.0","changed":[]}
-  {"event":"buildEnd","at":"2026-09-25T17:59:59.300Z","version":"2.5.0","ok":true,"files":222,"durationMs":300,"diagnostics":[]}
+  {"event":"buildStart","at":"2026-09-25T17:59:59.000Z","version":"2.6.0","changed":[]}
+  {"event":"buildEnd","at":"2026-09-25T17:59:59.300Z","version":"2.6.0","ok":true,"files":222,"durationMs":300,"diagnostics":[]}
   {"event":"watching","at":"2026-09-25T17:59:59.310Z","files":240}
   {"event":"buildStart","at":"2026-09-25T18:00:00.000Z","changed":["src/a.ts"]}
-  {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.5.0","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
+  {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.6.0","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
   ```
 - **One-shot diagnostics** — `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, and `--timings` can be combined on one build. Rotor finalizes requested profiles even when the build fails, which keeps failed-build traces usable. `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence, excluding profile serialization); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. Go CPU/block/mutex/heap profiles cover the parent process only — they do not include Node transformer-sidecar CPU or heap. Profile flush can add CLI wall time after the timing JSON is closed; `--verbose` prints a `finalize profiles` stage for that tail.
 
