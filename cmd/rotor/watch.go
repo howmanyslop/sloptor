@@ -231,8 +231,9 @@ type checkWatchReporter interface {
 	// buildStart runs before each check; changed is nil for the initial check.
 	buildStart(changed []string)
 	buildEnd(core checkCore)
-	// watching runs once, after the initial check, with the watched file count.
-	watching(files int)
+	// watching runs once, after the initial check. files counts the watched
+	// files; it is lazy because only the JSON stream reports it.
+	watching(files func() int)
 }
 
 type styledCheckWatchReporter struct {
@@ -253,7 +254,7 @@ func (r *styledCheckWatchReporter) buildEnd(core checkCore) {
 }
 
 // watching is a no-op: the styled banner already follows every check.
-func (r *styledCheckWatchReporter) watching(int) {}
+func (r *styledCheckWatchReporter) watching(func() int) {}
 
 // runWatch runs an initial check, then polls the watched file set (the parsed
 // file list plus tsconfig.json) and re-runs the full check whenever anything
@@ -282,7 +283,7 @@ func runCheckWatchLoop(ctx context.Context, dir string, checkers *int, rep check
 		stamps = mergePreStamps(snap(), stamps)
 		rep.buildEnd(core)
 		if changed == nil {
-			rep.watching(len(files))
+			rep.watching(func() int { return len(files) })
 		}
 
 		stamps, changed = awaitChanges(ctx, interval, snap, stamps)
@@ -319,8 +320,9 @@ type buildWatchReporter interface {
 	// buildStart runs before each build; changed is nil for the initial build.
 	buildStart(changed []string)
 	buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error)
-	// watching runs once, after the initial build, with the watched file count.
-	watching(files int)
+	// watching runs once, after the initial build. files counts the watched
+	// files; it is lazy because only the JSON stream reports it.
+	watching(files func() int)
 }
 
 type styledBuildWatchReporter struct {
@@ -342,7 +344,7 @@ func (r *styledBuildWatchReporter) buildEnd(result *compile.BuildResult, diags [
 }
 
 // watching is a no-op: the styled idle line already follows every build.
-func (r *styledBuildWatchReporter) watching(int) {}
+func (r *styledBuildWatchReporter) watching(func() int) {}
 
 func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
 	runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, &styledBuildWatchReporter{
@@ -378,7 +380,8 @@ func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts proje
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
 		pruneStamps(baseline, w.skipDirs)
 		if changed == nil {
-			rep.watching(len(baseline))
+			count := len(baseline)
+			rep.watching(func() int { return count })
 		}
 
 		baseline, changed = awaitChanges(ctx, w.interval, w.snapshot, baseline)

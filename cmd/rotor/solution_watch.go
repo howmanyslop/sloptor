@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -136,7 +138,8 @@ func solutionWatchDirectoryIsArtifact(directory string, artifactDirectories []st
 }
 
 // styledSolutionWatchReporter renders `build --build --watch` passes in the
-// terminal: only the build result, with no change list or idle stats.
+// terminal: only the build result, with no change list or idle stats (the
+// solution watcher's output before reporters existed).
 type styledSolutionWatchReporter struct{ maxErrors int }
 
 func (r *styledSolutionWatchReporter) buildStart([]string) {}
@@ -145,7 +148,7 @@ func (r *styledSolutionWatchReporter) buildEnd(result *compile.BuildResult, diag
 	reportBuildPass(newUI(fmtWriter{}), result, diags, elapsed, err, &watchStats{maxErrors: r.maxErrors})
 }
 
-func (r *styledSolutionWatchReporter) watching(int) {}
+func (r *styledSolutionWatchReporter) watching(func() int) {}
 
 func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func() (projectOptions, error), wopts watchOptions) int {
 	return runBuildSolutionWatchLoop(context.Background(), tsConfigPath, opts, reload, &styledSolutionWatchReporter{maxErrors: wopts.maxErrors})
@@ -218,20 +221,13 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		if len(events.projects) > 0 || len(events.configs) > 0 {
 			var changed []string
 			if !initial {
-				changed = make([]string, 0, len(events.paths))
-				for path := range events.paths {
-					changed = append(changed, path)
-				}
-				sort.Strings(changed)
+				changed = slices.Sorted(maps.Keys(events.paths))
 			}
+			initial = false
 			start := time.Now()
 			rep.buildStart(changed)
 			result, diags, reloaded, err := rebuild(events)
 			rep.buildEnd(result, diags, time.Since(start), err)
-			if initial {
-				initial = false
-				rep.watching(solutionWatchedFileCount(coordinator.WatchSets()))
-			}
 			if !reloaded {
 				return
 			}
@@ -297,6 +293,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 	}
 	gate.Trigger()
 	gate.Drain()
+	rep.watching(func() int { return solutionWatchedFileCount(coordinator.WatchSets()) })
 	<-ctx.Done()
 	gate.Drain()
 	for _, watch := range watches {

@@ -68,8 +68,8 @@ func (w *watchEventWriter) buildEnd(res jsonResult) {
 }
 
 // watching reports that startup is done and how many files are watched.
-func (w *watchEventWriter) watching(files int) {
-	_ = w.enc.Encode(watchWatchingEvent{Event: "watching", At: w.stamp(), Files: files})
+func (w *watchEventWriter) watching(files func() int) {
+	_ = w.enc.Encode(watchWatchingEvent{Event: "watching", At: w.stamp(), Files: files()})
 }
 
 func (w *watchEventWriter) stamp() string {
