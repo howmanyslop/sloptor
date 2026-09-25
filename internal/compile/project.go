@@ -564,11 +564,6 @@ type ProjectOptions struct {
 	// it. Nil keeps deriving references from the entry options.
 	SolutionArgv *RbxtsOptions
 
-	// solutionCoordinatorRbxts is a coordinator root's own rbxts key, set by
-	// BuildSolutionGraph: it sits between the defaults and a referenced
-	// project's rbxts when SolutionArgv is set.
-	solutionCoordinatorRbxts *RbxtsOptions
-
 	// WriteOnlyChanged ports the build write-phase and copyItem byte-compare
 	// skip: unchanged compiled outputs and copied passthrough files are left
 	// untouched on disk.
@@ -632,6 +627,13 @@ type ProjectOptions struct {
 }
 
 func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string, inheritEntryTypeAndRojo bool) (ProjectOptions, error) {
+	return referencedProjectOptions(entry, tsConfigPath, inheritEntryTypeAndRojo, nil)
+}
+
+// referencedProjectOptions derives a referenced project's options.
+// coordinatorRbxts is a coordinator root's own rbxts key, the one
+// solution-wide layer; it applies only with inheritEntryTypeAndRojo.
+func referencedProjectOptions(entry ProjectOptions, tsConfigPath string, inheritEntryTypeAndRojo bool, coordinatorRbxts *RbxtsOptions) (ProjectOptions, error) {
 	declared, err := ReadRbxtsOptions(tsConfigPath)
 	if err != nil {
 		return ProjectOptions{}, err
@@ -639,19 +641,13 @@ func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string
 	referenced := entry
 	if entry.SolutionArgv != nil {
 		// Same layering as a direct build of this project, so the two agree
-		// on its incremental salt. A coordinator root's rbxts key is the one
-		// solution-wide layer.
-		referenced.IncludePath = ""
-		referenced.EmitIncludeFiles = true
-		referenced.LogTruthyChanges = false
-		referenced.AllowCommentDirectives = false
-		referenced.NoOptimizedLoops = false
-		referenced.LuaExtension = false
+		// on its incremental salt.
+		resetRbxtsOptions(&referenced)
+		layers := declared
 		if inheritEntryTypeAndRojo {
-			applyRbxtsOptions(&referenced, entry.solutionCoordinatorRbxts)
+			layers = mergeRbxtsOptions(coordinatorRbxts, declared)
 		}
-		applyRbxtsOptions(&referenced, declared)
-		applyRbxtsOptions(&referenced, entry.SolutionArgv)
+		applyRbxtsOptions(&referenced, mergeRbxtsOptions(layers, entry.SolutionArgv))
 	} else {
 		applyRbxtsOptions(&referenced, declared)
 	}
@@ -659,18 +655,32 @@ func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string
 	// Type and Rojo config come from the project's own rbxts key; only a
 	// coordinator root hands the entry's down, and only to a project that
 	// declares no rbxts key at all.
-	if declared == nil && inheritEntryTypeAndRojo {
-		return referenced, nil
+	if declared == nil {
+		if inheritEntryTypeAndRojo {
+			return referenced, nil
+		}
+		declared = &RbxtsOptions{}
 	}
 	referenced.Type = ""
 	referenced.RojoConfigPath = ""
-	if declared != nil && declared.Rojo != nil {
+	if declared.Rojo != nil {
 		referenced.RojoConfigPath = *declared.Rojo
 	}
-	if declared != nil && declared.Type != nil {
+	if declared.Type != nil {
 		referenced.Type = transformer.ProjectType(*declared.Type)
 	}
 	return referenced, nil
+}
+
+// resetRbxtsOptions restores the rbxts fields other than type and rojo to
+// DEFAULT_PROJECT_OPTIONS (cmd/rotor defaultProjectOptions).
+func resetRbxtsOptions(options *ProjectOptions) {
+	options.IncludePath = ""
+	options.EmitIncludeFiles = true
+	options.LogTruthyChanges = false
+	options.AllowCommentDirectives = false
+	options.NoOptimizedLoops = false
+	options.LuaExtension = false
 }
 
 // applyRbxtsOptions layers the rbxts fields other than type and rojo onto

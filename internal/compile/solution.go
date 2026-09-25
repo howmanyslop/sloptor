@@ -55,6 +55,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	// rootIsCoordinator is set by the root visit before any reference is
 	// visited: a coordinator root hands its entry type and Rojo config down.
 	rootIsCoordinator := false
+	var coordinatorRbxts *RbxtsOptions
 	var visit func(string) error
 	visit = func(configPath string) error {
 		configPath, err := filepath.Abs(configPath)
@@ -83,7 +84,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 		if len(stack) == 1 {
 			rootIsCoordinator = coordinator
 			if coordinator && entry.SolutionArgv != nil {
-				entry.solutionCoordinatorRbxts, err = ReadRbxtsOptions(configPath)
+				coordinatorRbxts, err = ReadRbxtsOptions(configPath)
 				if err != nil {
 					return fmt.Errorf("compile: read solution options %q: %w", configPath, err)
 				}
@@ -92,7 +93,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			// Derive from the entry, not the referencing project: a project's
 			// options, and so its incremental salt, must not depend on which
 			// project referenced it, or it never matches its own direct build.
-			options, err = ProjectOptionsForReferencedConfig(entry, configPath, rootIsCoordinator)
+			options, err = referencedProjectOptions(entry, configPath, rootIsCoordinator, coordinatorRbxts)
 			if err != nil {
 				return fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
 			}
