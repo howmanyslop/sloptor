@@ -170,6 +170,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		return 1
 	}
 	var mu sync.Mutex
+	stopped := false // guarded by mu; set once ctx is done
 	var watches []fswatch.Watch
 	watcher := fswatch.Default()
 	refresh := func() {}
@@ -223,11 +224,14 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			if !initial {
 				changed = slices.Sorted(maps.Keys(events.paths))
 			}
-			initial = false
 			start := time.Now()
 			rep.buildStart(changed)
 			result, diags, reloaded, err := rebuild(events)
 			rep.buildEnd(result, diags, time.Since(start), err)
+			if initial {
+				initial = false
+				rep.watching(func() int { return solutionWatchedFileCount(coordinator.WatchSets()) })
+			}
 			if !reloaded {
 				return
 			}
@@ -254,12 +258,18 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			rootCallback := func(events []fswatch.Event, watchErr error) {
 				mu.Lock()
 				defer mu.Unlock()
+				if stopped {
+					return
+				}
 				s.add(project, events, watchErr)
 				gate.Trigger()
 			}
 			rojoCallback := func(events []fswatch.Event, watchErr error) {
 				mu.Lock()
 				defer mu.Unlock()
+				if stopped {
+					return
+				}
 				s.addRojo(project, events, watchErr)
 				gate.Trigger()
 			}
@@ -275,11 +285,14 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
 				if watch, watchErr := watcher.WatchFile(config, func(events []fswatch.Event, watchErr error) {
 					mu.Lock()
+					defer mu.Unlock()
+					if stopped {
+						return
+					}
 					s.configs[config] = struct{}{}
 					for _, event := range events {
 						s.paths[event.Path] = struct{}{}
 					}
-					mu.Unlock()
 					gate.Trigger()
 				}); watchErr == nil {
 					watches = append(watches, watch)
@@ -292,9 +305,12 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		s.projects[set.ProjectPath] = struct{}{}
 	}
 	gate.Trigger()
-	gate.Drain()
-	rep.watching(func() int { return solutionWatchedFileCount(coordinator.WatchSets()) })
 	<-ctx.Done()
+	// Stop callbacks from queueing cycles, let the running one finish (it may
+	// refresh the watches), then close the watches it left behind.
+	mu.Lock()
+	stopped = true
+	mu.Unlock()
 	gate.Drain()
 	for _, watch := range watches {
 		_ = watch.Close()
