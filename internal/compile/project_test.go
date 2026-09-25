@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"rotor/internal/forkparity"
 	"rotor/internal/includefiles"
 	"rotor/internal/transformer"
 	"rotor/tsgo/core"
@@ -134,14 +135,22 @@ func TestCompileProjectNestedRojoProjectFile(t *testing.T) {
 	}
 }
 
-// CompileProject over the differential fixture project must reproduce every
-// golden byte-for-byte — the whole-project path emits exactly what the
-// per-file path (and rbxtsc) does. Task 6 moves the diff harness onto this.
 func TestCompileProjectFixtureParity(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
+	ledger, err := forkparity.ReadDivergenceLedger(filepath.Join(root, "testdata", "forkparity", "divergence-ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrections := map[string]string{}
+	for _, row := range ledger.Rows {
+		if row.Classification == forkparity.DivergenceUpstreamCorrected {
+			corrections[row.ID] = row.BehavioralTest
+		}
+	}
+	verifiedCorrections := map[string]bool{}
 	files, diags, err := CompileProject(filepath.Join(root, "testdata", "diff", "project"))
 	if err != nil {
 		t.Fatalf("CompileProject: %v (diags: %v)", err, diags)
@@ -163,6 +172,18 @@ func TestCompileProjectFixtureParity(t *testing.T) {
 		got, ok := files["out/"+strings.TrimSuffix(name, ".luau")+".luau"]
 		if !ok {
 			t.Errorf("%s: missing from CompileProject output (%v)", name, keys(files))
+			continue
+		}
+		if behavioralTest, corrected := corrections["differential/"+strings.TrimSuffix(name, ".luau")]; corrected {
+			if !verifiedCorrections[behavioralTest] {
+				if err := forkparity.VerifyBehavioralTest(t.Context(), root, behavioralTest); err != nil {
+					t.Fatal(err)
+				}
+				verifiedCorrections[behavioralTest] = true
+			}
+			if got != string(want) {
+				t.Logf("%s: upstream-corrected output differs from the retained golden; runtime verified by %s", name, behavioralTest)
+			}
 			continue
 		}
 		if got != string(want) {

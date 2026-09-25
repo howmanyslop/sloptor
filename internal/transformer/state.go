@@ -27,7 +27,8 @@ const (
 // whole compilation step, shared across every file of that pass (recreated on
 // each watch rebuild). Pure cache container, no methods.
 type MultiState struct {
-	IsMethodCache                        map[*ast.Symbol]bool
+	IsMethodCache                        map[*checker.Type]bool
+	IsReportedByNoUnstableThisType       map[*ast.Node]bool
 	IsDefinedAsLetCache                  map[*ast.Symbol]bool
 	IsReportedByNoAnyCache               map[*ast.Symbol]bool
 	IsReportedByMultipleDefinitionsCache map[*ast.Symbol]bool
@@ -83,7 +84,8 @@ type RojoContext struct {
 // NewMultiState returns an empty compilation-step cache container.
 func NewMultiState() *MultiState {
 	return &MultiState{
-		IsMethodCache:                        make(map[*ast.Symbol]bool),
+		IsMethodCache:                        make(map[*checker.Type]bool),
+		IsReportedByNoUnstableThisType:       make(map[*ast.Node]bool),
 		IsDefinedAsLetCache:                  make(map[*ast.Symbol]bool),
 		IsReportedByNoAnyCache:               make(map[*ast.Symbol]bool),
 		IsReportedByMultipleDefinitionsCache: make(map[*ast.Symbol]bool),

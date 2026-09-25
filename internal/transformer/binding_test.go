@@ -172,9 +172,8 @@ print(d1, d2, e1)
 // TestIterationAccessors: the non-array binding accessors —
 // IterableFunction<LuaTuple<T>> packs each element read in `{ _binding() }`;
 // an omitted IterableFunction<T> element calls the function as a bare
-// statement to advance; an omitted Set element calls `next(_binding)` as a
-// statement WITHOUT pushing the result onto the idStack, so the following
-// element re-reads from the start (upstream quirk, ported verbatim).
+// statement to advance. Corrected collection behavior is covered by the
+// shared iterator-rest compatibility fixture.
 func TestIterationAccessors(t *testing.T) {
 	want := `local p1 = { pairsIter() }
 local p2 = { pairsIter() }
@@ -182,10 +181,6 @@ print(p1[1], p2[2])
 nums()
 local second = nums()
 print(second)
-next(tags)
-local _value = next(tags)
-local t2 = _value
-print(t2)
 `
 	if got := renderDestructuringFile(t, "src/iteraccessors.ts"); got != want {
 		t.Errorf("rendered output differs from rbxtsc:\ngot:\n%s\nwant:\n%s", got, want)

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 )
 
 type MatrixRunner struct {
@@ -38,6 +39,7 @@ type MatrixRowResult struct {
 	Status               string            `json:"status"`
 	Artifacts            map[string]string `json:"artifacts,omitempty"`
 	Drifts               []MatrixDrift     `json:"drifts"`
+	ArchiveDifferences   []MatrixDrift     `json:"archiveDifferences,omitempty"`
 }
 
 func (r MatrixRunner) Run(ctx context.Context) (MatrixReport, error) {
@@ -93,7 +95,14 @@ func (r MatrixRunner) Run(ctx context.Context) (MatrixReport, error) {
 		if err != nil {
 			return MatrixReport{}, fmt.Errorf("run transformer fixture %q: %w", fixture.Name, err)
 		}
-		report.Rows = append(report.Rows, matrixRowFromResult(rowsByID["transformer/"+fixture.Name], result))
+		ledgerRow := rowsByID["transformer/"+fixture.Name]
+		row := matrixRowFromResult(ledgerRow, result)
+		if ledgerRow.Classification == DivergenceUpstreamCorrected {
+			if err := r.verifyUpstreamCorrection(ctx, ledgerRow, &row); err != nil {
+				return MatrixReport{}, err
+			}
+		}
+		report.Rows = append(report.Rows, row)
 	}
 	for _, fixture := range projectFixtures {
 		result, err := r.runProjectFixture(ctx, rotorBin, projectNodeModules, fixture)
@@ -102,10 +111,17 @@ func (r MatrixRunner) Run(ctx context.Context) (MatrixReport, error) {
 		}
 		report.Rows = append(report.Rows, matrixRowFromResult(rowsByID["project/"+fixture.Name], result))
 	}
+	verifiedTests := map[string]bool{}
 	for _, id := range caseIDs {
 		row := rowsByID[id]
-		if row.Classification == DivergenceForkAuthoritative {
+		if strings.HasPrefix(id, "transformer/") || strings.HasPrefix(id, "project/") {
 			continue
+		}
+		if row.Classification == DivergenceUpstreamCorrected && !verifiedTests[row.BehavioralTest] {
+			if err := VerifyBehavioralTest(ctx, r.RepoRoot, row.BehavioralTest); err != nil {
+				return MatrixReport{}, fmt.Errorf("verify upstream correction %q: %w", row.ID, err)
+			}
+			verifiedTests[row.BehavioralTest] = true
 		}
 		report.Rows = append(report.Rows, matrixReferenceRow(row))
 	}

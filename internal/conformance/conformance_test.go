@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"rotor/internal/compile"
+	"rotor/internal/forkparity"
 )
 
 func repoRoot(t *testing.T) string {
@@ -49,6 +50,18 @@ func TestConformance(t *testing.T) {
 	root := repoRoot(t)
 	projDir := filepath.Join(root, "testdata", "conformance", "project")
 	goldenDir := filepath.Join(root, "testdata", "conformance", "golden")
+	ledger, err := forkparity.ReadDivergenceLedger(filepath.Join(root, "testdata", "forkparity", "divergence-ledger.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrections := map[string]string{}
+	for _, row := range ledger.Rows {
+		if row.Classification == forkparity.DivergenceUpstreamCorrected {
+			corrections[row.ID] = row.BehavioralTest
+		}
+	}
+	verifiedCorrections := map[string]bool{}
+	verifiedRuntime := false
 
 	goldens := goldenPaths(t, goldenDir)
 	if len(goldens) == 0 {
@@ -99,6 +112,22 @@ func TestConformance(t *testing.T) {
 			got, err := compileConformanceFixture(root, projDir, rel)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if behavioralTest, corrected := corrections["conformance/"+rel]; corrected {
+				if !verifiedRuntime {
+					if err := runBehavioralSuite(root, requireCompatibilityRuntimeTools(t)); err != nil {
+						t.Fatal(err)
+					}
+					verifiedRuntime = true
+				}
+				if !verifiedCorrections[behavioralTest] {
+					runPinnedCompatibilityFixture(t, strings.TrimPrefix(behavioralTest, "TestPinnedCompatibility/"))
+					verifiedCorrections[behavioralTest] = true
+				}
+				if got != string(want) {
+					t.Logf("upstream-corrected output differs from the retained frozen golden; runtime verified by %s", behavioralTest)
+				}
+				return
 			}
 			if got != string(want) {
 				t.Errorf("output differs from rbxtsc golden")

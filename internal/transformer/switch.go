@@ -9,12 +9,8 @@ import (
 // switch — statements/transformSwitchStatement.ts (COMPLETE)
 // ---------------------------------------------------------------------------
 
-// transformCaseClauseExpression ports transformCaseClauseExpression (L8-52):
-// builds one clause's condition plus its prereq statements. The case
-// expression is ALWAYS wrapped in a ParenthesizedExpression (L17) — the
-// renderer drops the parens again around simple expressions, so `case 0:`
-// still renders `n == 0`. Fallthrough plumbing when the previous clause can
-// reach this one (canFallThroughTo):
+// transformCaseClauseExpression builds a clause condition and the statements
+// needed to evaluate its value once. When the previous clause can fall through:
 //
 //   - the case expression produced prereqs: they must only run when not
 //     already falling through, so they are wrapped in
@@ -33,7 +29,11 @@ func transformCaseClauseExpression(
 		expression = TransformExpression(s, caseClauseExpression)
 	})
 
-	expression = luau.NewParenthesized(expression)
+	if expressionMightMutate(s, expression, caseClauseExpression) {
+		caseValueID := luau.TempID("caseValue")
+		prereqStatements.Push(luau.NewVariableDeclaration(caseValueID, expression))
+		expression = caseValueID
+	}
 
 	var condition luau.Expression = luau.NewBinary(switchExpression, "==", expression)
 
@@ -124,14 +124,39 @@ func transformCaseClause(
 	}
 }
 
-// transformSwitchStatement ports transformSwitchStatement (L112-165): the
-// whole switch becomes `repeat ... until true`, with each case clause an
+// canCompareSwitchIdentifierDirectly keeps literal-only switches compact when
+// the case block still resolves the operand to the same binding.
+func canCompareSwitchIdentifierDirectly(s *State, node *ast.Node, expression luau.Expression) bool {
+	switchStatement := node.AsSwitchStatement()
+	identifier := SkipDownwards(switchStatement.Expression)
+	if !ast.IsIdentifier(identifier) || expression.Kind() != luau.KindIdentifier {
+		return false
+	}
+	if s.Checker.ResolveName(identifier.Text(), switchStatement.CaseBlock, ast.SymbolFlagsValue, false) !=
+		s.Checker.GetSymbolAtLocation(identifier) {
+		return false
+	}
+	for _, clause := range switchStatement.CaseBlock.AsCaseBlock().Clauses.Nodes {
+		if ast.IsDefaultClause(clause) {
+			continue
+		}
+		label := SkipDownwards(clause.AsCaseOrDefaultClause().Expression)
+		switch label.Kind {
+		case ast.KindStringLiteral, ast.KindNoSubstitutionTemplateLiteral, ast.KindNumericLiteral,
+			ast.KindTrueKeyword, ast.KindFalseKeyword:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// transformSwitchStatement lowers the whole switch to `repeat ... until true`, with each case clause an
 // `if` block inside (TS `break` -> plain Luau `break` exits the repeat).
 //
-//   - The switch subject goes through PushToVarIfComplex (a complex subject
-//     gets `local _exp = ...`; an identifier compares directly). NOT
-//     captured — subject prereqs flow to the outer statement list, before the
-//     repeat.
+//   - Mutable subjects are captured before case evaluation unless every label
+//     is a literal and the case block resolves the same identifier. Subject
+//     prereqs flow to the outer statement list, before the repeat.
 //   - `local _fallthrough = false` is unshifted ONLY when some case clause can
 //     fall through (isFallThroughFlagNeeded — set even when the falling clause
 //     is the LAST case clause, which declares a never-read flag; verbatim).
@@ -152,7 +177,13 @@ func transformSwitchStatement(s *State, node *ast.Node) *luau.List[luau.Statemen
 	s.EnterBreakScope()
 	defer s.ExitBreakScope()
 
-	expression := s.PushToVarIfComplex(TransformExpression(s, switchStatement.Expression), "exp")
+	expression := TransformExpression(s, switchStatement.Expression)
+	if expressionMightMutate(s, expression, switchStatement.Expression) &&
+		!canCompareSwitchIdentifierDirectly(s, node, expression) {
+		expression = s.PushToVar(expression, "exp")
+	} else {
+		expression = s.PushToVarIfComplex(expression, "exp")
+	}
 	fallThroughFlagID := luau.TempID("fallthrough")
 
 	isFallThroughFlagNeeded := false

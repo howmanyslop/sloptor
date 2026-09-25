@@ -1,0 +1,6 @@
+{
+	"name": "@rbxts/compat-library",
+	"version": "1.0.0",
+	"main": "out/init.lua",
+	"types": "out/index.d.ts"
+}

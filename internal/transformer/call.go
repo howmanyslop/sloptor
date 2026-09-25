@@ -361,6 +361,10 @@ func transformCallExpressionInner(s *State, node *ast.Node, expression luau.Expr
 	}
 	s.PrereqList(prereqs)
 
+	if isMethodFromType(s, call.Expression, expType) {
+		args = append([]luau.Expression{luau.Nil()}, args...)
+	}
+
 	exp := luau.NewCall(convertToIndexableExpression(expression), luau.NewList(args...))
 
 	return wrapReturnIfLuaTuple(s, node, exp)
@@ -379,11 +383,13 @@ func transformPropertyCallExpressionInner(s *State, node *ast.Node, expression *
 	validateNotAnyType(s, call.Expression)
 
 	if ast.IsSuperProperty(expression) {
-		// QUIRK: super method calls pass self explicitly — dot-call, never `:`.
+		args := ensureTransformOrder(s, call.Arguments.Nodes)
+		if isMethod(s, expression) {
+			args = append([]luau.Expression{luau.GlobalID("self")}, args...)
+		}
 		return luau.NewCall(
 			luau.NewPropertyAccess(convertToIndexableExpression(baseExpression), propertyAccess.Name().Text()),
-			luau.NewList(append([]luau.Expression{luau.GlobalID("self")},
-				ensureTransformOrder(s, call.Arguments.Nodes)...)...),
+			luau.NewList(args...),
 		)
 	}
 	if optimized := tryTransformOptimizableVarArgsSizeCall(s, node); optimized != nil {
@@ -452,15 +458,17 @@ func transformElementCallExpressionInner(s *State, node *ast.Node, expression *a
 	validateNotAnyType(s, call.Expression)
 
 	if ast.IsSuperProperty(expression) {
-		// QUIRK: no addOneIfArrayType here (upstream omits it for super
-		// element calls); self is explicit, never `:`.
+		index := TransformExpression(s, elementAccess.ArgumentExpression)
+		args := ensureTransformOrder(s, call.Arguments.Nodes)
+		if isMethod(s, expression) {
+			args = append([]luau.Expression{luau.GlobalID("self")}, args...)
+		}
 		return luau.NewCall(
 			luau.NewComputedIndex(
 				convertToIndexableExpression(baseExpression),
-				TransformExpression(s, elementAccess.ArgumentExpression),
+				index,
 			),
-			luau.NewList(append([]luau.Expression{luau.GlobalID("self")},
-				ensureTransformOrder(s, call.Arguments.Nodes)...)...),
+			luau.NewList(args...),
 		)
 	}
 	if optimized := tryTransformOptimizableVarArgsSizeCall(s, node); optimized != nil {

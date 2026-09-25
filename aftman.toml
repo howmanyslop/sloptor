@@ -1,8 +1,8 @@
 # Roblox toolchain pins for running the conformance runtime suite LOCALLY: rojo
 # builds the test place from the compiled Luau and lune executes it under TestEZ.
 # Install with `aftman install` (or `rokit install`), then run
-# `go test ./internal/conformance`. CI does NOT install these — it gates on the
-# byte-parity tests, and the runtime suite skips gracefully without rojo/lune.
+# `go test ./internal/conformance`. CI installs the same pins through mise
+# (.github/actions/setup); the pinned compatibility suite fails without them.
 [tools]
 rojo = "rojo-rbx/rojo@7.6.1"
 lune = "lune-org/lune@0.10.1"
