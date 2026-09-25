@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"io"
@@ -281,14 +282,48 @@ func snapshotFiles(files []string) map[string]fileStamp {
 	return stamps
 }
 
-func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
-	u := newUI(os.Stdout)
-	stats := &watchStats{
-		maxErrors:   wopts.maxErrors,
-		bell:        wopts.bell,
-		clearScreen: wopts.clearScreen,
-	}
+// buildWatchReporter renders a build watch session: styled terminal chrome or
+// the --json NDJSON stream. Each buildStart is followed by exactly one
+// buildEnd.
+type buildWatchReporter interface {
+	// buildStart runs before each build; changed is nil for the initial build.
+	buildStart(changed []string)
+	buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error)
+}
 
+type styledBuildWatchReporter struct {
+	u     *ui
+	stats *watchStats
+}
+
+func (r *styledBuildWatchReporter) buildStart(changed []string) {
+	if changed == nil {
+		return
+	}
+	clearForRebuild(os.Stdout, r.stats)
+	r.u.watchChanges(changed)
+}
+
+func (r *styledBuildWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
+	r.stats.record(elapsed)
+	reportBuildPass(r.u, result, diags, elapsed, err, r.stats)
+}
+
+func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOptions) int {
+	runBuildWatchLoop(context.Background(), dir, tsConfigPath, opts, &styledBuildWatchReporter{
+		u: newUI(os.Stdout),
+		stats: &watchStats{
+			maxErrors:   wopts.maxErrors,
+			bell:        wopts.bell,
+			clearScreen: wopts.clearScreen,
+		},
+	})
+	return 0
+}
+
+// runBuildWatchLoop builds once, then rebuilds on every settled change to the
+// project tree until ctx is done.
+func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts projectOptions, rep buildWatchReporter) {
 	w := newTreeWatcher(dir)
 	w.setSkipDirs(guessedOutputDir(dir, nil), watchIncludeDir(dir, opts))
 
@@ -297,34 +332,43 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 	// of being silently absorbed (the v1 lost-update bug). Build outputs land
 	// in the pruned out/include dirs and never dirty the baseline.
 	baseline := w.snapshot()
-	result, diags, elapsed, err := runBuildOnce(dir, tsConfigPath, opts)
-	stats.record(elapsed)
-	reportBuildPass(u, result, diags, elapsed, err, stats)
-	// The build reveals the real output dir (it may not be out/); prune the
-	// baseline to match the refreshed skip set, or the now-unwalked entries
-	// would read as deletions and trigger a spurious rebuild.
-	w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
-	pruneStamps(baseline, w.skipDirs)
-
+	var changed []string
 	for {
-		time.Sleep(w.interval())
-		next := w.snapshot()
-		changed := diffStamps(baseline, next)
-		if len(changed) == 0 {
-			continue
-		}
-		baseline, changed = settleChanges(baseline, next, w.snapshot, time.Sleep)
-		if len(changed) == 0 {
-			continue
-		}
-		clearForRebuild(os.Stdout, stats)
-		u.watchChanges(changed)
-
-		result, diags, elapsed, err = runBuildOnce(dir, tsConfigPath, opts)
-		stats.record(elapsed)
-		reportBuildPass(u, result, diags, elapsed, err, stats)
+		rep.buildStart(changed)
+		result, diags, elapsed, err := runBuildOnce(dir, tsConfigPath, opts)
+		rep.buildEnd(result, diags, elapsed, err)
+		// The build reveals the real output dir (it may not be out/); prune the
+		// baseline to match the refreshed skip set, or the now-unwalked entries
+		// would read as deletions and trigger a spurious rebuild.
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
 		pruneStamps(baseline, w.skipDirs)
+
+		baseline, changed = awaitTreeChanges(ctx, w, baseline)
+		if changed == nil {
+			return
+		}
+	}
+}
+
+// awaitTreeChanges polls the tree until a settled batch of changes lands and
+// returns the new baseline plus the changed paths, or nil changes once ctx is
+// done.
+func awaitTreeChanges(ctx context.Context, w *treeWatcher, baseline map[string]fileStamp) (map[string]fileStamp, []string) {
+	for {
+		select {
+		case <-ctx.Done():
+			return baseline, nil
+		case <-time.After(w.interval()):
+		}
+		next := w.snapshot()
+		if len(diffStamps(baseline, next)) == 0 {
+			continue
+		}
+		var changed []string
+		baseline, changed = settleChanges(baseline, next, w.snapshot, time.Sleep)
+		if len(changed) > 0 {
+			return baseline, changed
+		}
 	}
 }
 

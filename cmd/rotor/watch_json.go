@@ -5,6 +5,8 @@ import (
 	"io"
 	"path/filepath"
 	"time"
+
+	"rotor/internal/compile"
 )
 
 // watchEventWriter prints the `--watch --json` NDJSON stream: one object per
@@ -60,4 +62,17 @@ func (w *watchEventWriter) buildEnd(res jsonResult) {
 
 func (w *watchEventWriter) stamp() string {
 	return w.now().UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
+// jsonBuildWatchReporter is the `build --watch --json` reporter.
+type jsonBuildWatchReporter struct{ events *watchEventWriter }
+
+func newBuildWatchJSONReporter(w io.Writer, dir string) buildWatchReporter {
+	return &jsonBuildWatchReporter{events: newWatchEventWriter(w, dir)}
+}
+
+func (r *jsonBuildWatchReporter) buildStart(changed []string) { r.events.buildStart(changed) }
+
+func (r *jsonBuildWatchReporter) buildEnd(result *compile.BuildResult, diags []compile.DiagnosticInfo, elapsed time.Duration, err error) {
+	r.events.buildEnd(buildJSONResult(result, diags, elapsed, err))
 }

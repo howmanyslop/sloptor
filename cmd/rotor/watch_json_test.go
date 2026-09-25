@@ -1,8 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,4 +92,103 @@ type countingWriter struct{ n int }
 func (c *countingWriter) Write(p []byte) (int, error) {
 	c.n++
 	return len(p), nil
+}
+
+// watchEventStream runs a JSON watch loop in the background and yields its
+// NDJSON lines as decoded maps. The loop stops when the test ends.
+func watchEventStream(t *testing.T, loop func(ctx context.Context, out io.Writer)) <-chan map[string]any {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	r, w := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		loop(ctx, w)
+		_ = w.Close()
+	}()
+	events := make(chan map[string]any, 16)
+	go func() {
+		defer close(events)
+		scanner := bufio.NewScanner(r)
+		scanner.Buffer(nil, 1<<20)
+		for scanner.Scan() {
+			var event map[string]any
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				t.Errorf("non-JSON line %q: %v", scanner.Text(), err)
+				continue
+			}
+			events <- event
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		go func() {
+			for range events {
+			}
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			t.Error("watch loop did not stop after cancel")
+		}
+	})
+	return events
+}
+
+func nextWatchEvent(t *testing.T, events <-chan map[string]any, want string) map[string]any {
+	t.Helper()
+	select {
+	case event, ok := <-events:
+		if !ok {
+			t.Fatalf("stream closed, want %s", want)
+		}
+		if event["event"] != want {
+			t.Fatalf("event = %v, want %s", event, want)
+		}
+		return event
+	case <-time.After(30 * time.Second):
+		t.Fatalf("timed out waiting for %s", want)
+	}
+	return nil
+}
+
+func TestBuildWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
+	dir := writeBuildableProject(t, "")
+	tsConfigPath := filepath.Join(dir, "tsconfig.json")
+	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {
+		runBuildWatchLoop(ctx, dir, tsConfigPath, defaultProjectOptions, newBuildWatchJSONReporter(out, dir))
+	})
+
+	// Initial build: a pair with no changed files.
+	start := nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); changed == nil || len(changed) != 0 {
+		t.Errorf("initial changed = %v, want []", start["changed"])
+	}
+	end := nextWatchEvent(t, events, "buildEnd")
+	if end["ok"] != true || end["files"].(float64) <= 0 {
+		t.Errorf("initial buildEnd = %v, want ok with files", end)
+	}
+
+	// A type error: the next pair names the file and carries the diagnostic.
+	mustWrite(t, filepath.Join(dir, "src", "main.ts"), "export const s: string = 5;\n")
+	start = nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); len(changed) != 1 || changed[0] != "src/main.ts" {
+		t.Errorf("changed = %v, want [src/main.ts]", start["changed"])
+	}
+	end = nextWatchEvent(t, events, "buildEnd")
+	diags, _ := end["diagnostics"].([]any)
+	if end["ok"] != false || len(diags) == 0 {
+		t.Fatalf("buildEnd = %v, want failure with diagnostics", end)
+	}
+	if diag := diags[0].(map[string]any); diag["code"] != "TS2322" || diag["severity"] != "error" {
+		t.Errorf("diagnostic = %v, want TS2322 error", diag)
+	}
+
+	// A save with no content change still yields exactly one pair.
+	later := time.Now().Add(2 * time.Second)
+	if err := os.Chtimes(filepath.Join(dir, "src", "main.ts"), later, later); err != nil {
+		t.Fatal(err)
+	}
+	nextWatchEvent(t, events, "buildStart")
+	nextWatchEvent(t, events, "buildEnd")
 }
