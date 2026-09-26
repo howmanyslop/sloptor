@@ -176,4 +176,9 @@ func TestFlameworkNativeFixtureEmitsServiceMetadata(t *testing.T) {
 	if !strings.Contains(serviceOut, "identifier") || !strings.Contains(serviceOut, "defineMetadata") {
 		t.Fatalf("native [flamework] mode did not inject identifier metadata:\n%s", serviceOut)
 	}
+	// addPaths expands to a static import so bundlers can follow it.
+	mainOut := result.Outputs["out/server/main.server.luau"]
+	if !strings.Contains(mainOut, `TS.import(script, game:GetService("ServerScriptService"), "TS", "services", "test.service")`) || strings.Contains(mainOut, "_addPaths") {
+		t.Fatalf("native addPaths did not expand to a static import:\n%s", mainOut)
+	}
 }
