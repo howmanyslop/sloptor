@@ -723,6 +723,26 @@ func TestApplySingleThreadedOverride(t *testing.T) {
 	}
 }
 
+func TestApplyAutomaticTypes(t *testing.T) {
+	options := &core.CompilerOptions{}
+	ApplyAutomaticTypes(options)
+	if len(options.Types) != 1 || options.Types[0] != "*" {
+		t.Fatalf("missing types became %v, want [*]", options.Types)
+	}
+
+	explicitEmpty := &core.CompilerOptions{Types: []string{}}
+	ApplyAutomaticTypes(explicitEmpty)
+	if explicitEmpty.Types == nil || len(explicitEmpty.Types) != 0 {
+		t.Fatalf("explicit empty types changed to %v", explicitEmpty.Types)
+	}
+
+	explicit := &core.CompilerOptions{Types: []string{"compiler-types", "jest-extended"}}
+	ApplyAutomaticTypes(explicit)
+	if len(explicit.Types) != 2 || explicit.Types[0] != "compiler-types" || explicit.Types[1] != "jest-extended" {
+		t.Fatalf("explicit types changed to %v", explicit.Types)
+	}
+}
+
 func TestEffectiveSolutionBuildersSingleThreaded(t *testing.T) {
 	builders := 4
 	enabled := true

@@ -269,6 +269,67 @@ func TestSanitizeTSConfigLeavesValidConfigsAlone(t *testing.T) {
 	if co["module"] != "commonjs" || co["strict"] != true {
 		t.Errorf("options altered: %v", co)
 	}
+	if _, present := co["types"]; present {
+		t.Errorf("types must be applied after inheritance is resolved: %v", co)
+	}
+}
+
+func TestSanitizeFSRespectsInheritedTypes(t *testing.T) {
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, "tsconfig.base.json")
+	configPath := filepath.Join(dir, "tsconfig.json")
+
+	base := `{"compilerOptions":{"typeRoots":["./types"],"types":["compiler-types","jest-extended"]}}`
+	if err := os.WriteFile(basePath, []byte(base), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"extends":"./tsconfig.base.json","compilerOptions":{"declaration":true},"include":["src"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"src/main.ts":                     "compilerType; jestExtended;\n",
+		"types/compiler-types/index.d.ts": "declare const compilerType: true;\n",
+		"types/jest-extended/index.d.ts":  "declare const jestExtended: true;\n",
+		// This directory is visible under typeRoots but is not a valid type
+		// package. A wildcard would try to load it and report TS2688.
+		"types/test-utils/package.json": `{"name":"test-utils","types":"missing.d.ts"}`,
+	}
+	for name, contents := range files {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	slashDir := filepath.ToSlash(dir)
+	fs := SanitizeFSWithConfigPath(osvfs.FS(), configPath)
+	host := compiler.NewCompilerHost(slashDir, fs, bundled.LibPath(), nil, nil)
+	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(filepath.ToSlash(configPath), nil, nil, host, nil)
+	if len(configDiags) > 0 {
+		t.Fatalf("config parse diagnostics: %v", diagnosticStrings(configDiags))
+	}
+	ApplyAutomaticTypes(parsed.CompilerOptions())
+
+	want := []string{"compiler-types", "jest-extended"}
+	got := parsed.CompilerOptions().Types
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("resolved types = %v, want %v", got, want)
+	}
+
+	program := compiler.NewProgram(compiler.ProgramOptions{Host: host, Config: parsed})
+	if diags := program.GetProgramDiagnostics(); len(diags) > 0 {
+		t.Fatalf("program diagnostics: %v", diagnosticStrings(diags))
+	}
+	source := program.GetSourceFile(slashDir + "/src/main.ts")
+	if source == nil {
+		t.Fatal("src/main.ts not found in program")
+	}
+	if diags := program.GetSemanticDiagnostics(context.Background(), source); len(diags) > 0 {
+		t.Fatalf("semantic diagnostics: %v", diagnosticStrings(diags))
+	}
 }
 
 func TestSanitizeTSConfigMalformedJSONPassesThrough(t *testing.T) {
@@ -298,6 +359,10 @@ func TestFixtureProjectTypechecks(t *testing.T) {
 			t.Errorf("config diagnostic: %v", d.String())
 		}
 		t.FailNow()
+	}
+	ApplyAutomaticTypes(parsed.CompilerOptions())
+	if types := parsed.CompilerOptions().Types; len(types) != 1 || types[0] != "*" {
+		t.Fatalf("automatic types = %#v, want [*]", types)
 	}
 
 	program := compiler.NewProgram(compiler.ProgramOptions{Host: host, Config: parsed})

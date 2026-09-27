@@ -186,7 +186,7 @@ func TestValidateCompilerOptions(t *testing.T) {
 			want:      nil,
 		},
 		{
-			// The sanitizer injects `"types": ["*"]` when absent; validation
+			// ApplyAutomaticTypes adds `"*"` when types are absent; validation
 			// must see the user's (absent) types — covered by the canonical
 			// case above. Present-but-unresolvable entries error...
 			name:      "types entry not found",

@@ -120,14 +120,10 @@ func RewriteIterableArity(src string) string {
 //   - "importsNotUsedAsValues" (any value) -> removed (validation still
 //     rejects it with upstream's text, from the raw config)
 //
-// One TS5->TS7 semantic repair on top of the removals: TS7 no longer
-// auto-includes every package under typeRoots when "types" is unspecified
-// (module.GetAutomaticTypeDirectiveNames returns [] unless the types array
-// holds the "*" wildcard — tsgo/module/resolver.go:2075-2081). rbxtsc
-// projects depend on auto-inclusion to load @rbxts/types globals (print,
-// Array, ...), so when "types" is absent the sanitizer injects
-// "types": ["*"], which reproduces TS5's typeRoots walk exactly. An explicit
-// "types" array is left untouched (TS5 also disabled auto-inclusion then).
+// TS5's automatic typeRoots inclusion is restored after config inheritance is
+// resolved (see ApplyAutomaticTypes). Doing it here would put "types": ["*"]
+// into a child config that omits the option and incorrectly replace an
+// explicit list inherited from its base config.
 //
 // moduleResolution choice, determined empirically against the fixture project
 // (testdata/diff/project, module=commonjs, typeRoots=node_modules/@rbxts):
@@ -178,9 +174,6 @@ func SanitizeTSConfig(src string) string {
 		case "node", "node10":
 			co["moduleResolution"] = "bundler"
 		}
-	}
-	if _, hasTypes := co["types"]; !hasTypes {
-		co["types"] = []any{"*"}
 	}
 	out, err := json.MarshalIndent(root, "", "\t")
 	if err != nil {

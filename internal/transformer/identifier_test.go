@@ -43,6 +43,7 @@ func buildState(t *testing.T, projDir, relPath string) *transformer.State {
 	if len(configDiags) > 0 {
 		t.Fatalf("config diagnostics: %v", configDiags)
 	}
+	compile.ApplyAutomaticTypes(parsed.CompilerOptions())
 
 	program := compiler.NewProgram(compiler.ProgramOptions{Host: host, Config: parsed})
 	ctx := context.Background()

@@ -176,12 +176,13 @@ type checkCore struct {
 
 func newCheckProgram(dir, configPath string, checkers *int) (*compiler.Program, *tsoptions.ParsedCommandLine, []*ast.Diagnostic) {
 	slashDir := filepath.ToSlash(dir)
-	fs := cachedvfs.From(compile.SanitizeFS(bundled.WrapFS(osvfs.FS())))
+	fs := cachedvfs.From(compile.SanitizeFSWithConfigPath(bundled.WrapFS(osvfs.FS()), configPath))
 	host := compiler.NewCompilerHost(slashDir, fs, bundled.LibPath(), nil, nil)
 	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(configPath, nil, nil, host, nil)
 	if parsed == nil {
 		return nil, nil, configDiags
 	}
+	compile.ApplyAutomaticTypes(parsed.CompilerOptions())
 	compile.ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
 	return compiler.NewProgram(compiler.ProgramOptions{
 		Host:   host,
