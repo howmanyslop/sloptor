@@ -33,7 +33,7 @@ func analyzeArrayAppendStatements(s *State, statements []*ast.Node) map[*ast.Nod
 		}
 
 		definition := getFreshArrayDefinition(s, statements[index-1])
-		if definition == nil {
+		if definition == nil || hasUnsafeOutsideLoopReference(s, definition, loop) {
 			continue
 		}
 
@@ -60,6 +60,18 @@ func analyzeArrayAppendStatements(s *State, statements []*ast.Node) map[*ast.Nod
 		}
 	}
 	return plans
+}
+
+func hasUnsafeOutsideLoopReference(s *State, definition, loop *ast.Node) bool {
+	definitionFunction := ast.FindAncestor(definition, ast.IsFunctionLike)
+	sourceFile := ast.GetSourceFileOfNode(definition)
+	return ForEachSymbolReference(s.Checker, definition, sourceFile.AsNode(), func(reference *ast.Node) bool {
+		if isAncestorOf(loop, reference) {
+			return false
+		}
+		return reference.Pos() < definition.Pos() ||
+			ast.FindAncestor(reference, ast.IsFunctionLike) != definitionFunction
+	})
 }
 
 func getFreshArrayDefinition(s *State, statement *ast.Node) *ast.Node {

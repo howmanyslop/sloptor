@@ -182,3 +182,17 @@ func TestOptimizedArrayAppendsFallsBackWhenSafetyCannotBeProved(t *testing.T) {
 		t.Errorf("user-defined push did not retain a method call:\n%s", got)
 	}
 }
+
+func TestOptimizedArrayAppendsRejectsOutOfLoopCaptures(t *testing.T) {
+	got := renderArrayAppendFixture(t, "capture", true)
+
+	if strings.Contains(got, "_resultLength") {
+		t.Errorf("captured array was optimized with a stale counter:\n%s", got)
+	}
+	if strings.Count(got, "table.insert(result") != 2 {
+		t.Errorf("captured array did not retain both Array.push calls:\n%s", got)
+	}
+	if strings.Count(got, "table.insert(later") != 2 {
+		t.Errorf("array captured by a later declaration did not retain both Array.push calls:\n%s", got)
+	}
+}
