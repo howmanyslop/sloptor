@@ -35,7 +35,7 @@ var arrayMethods = map[string]PropertyCallMacro{
 				))
 			}
 			if !isUsedAsStatement(node) {
-				return target.lengthID
+				return s.PushToVar(target.lengthID, "length")
 			}
 			return luau.NewNone()
 		}

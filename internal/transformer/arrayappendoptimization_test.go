@@ -29,11 +29,6 @@ func renderArrayAppendFixture(t *testing.T, name string, enabled bool, expectedD
 }
 
 func TestOptimizedArrayAppendsEmitsLoopCarriedIndex(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "arrayappendoptimization"), "src/basic.ts")
-	s.OptimizedArrayAppends = true
-
-	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
-
 	want := `local result = {}
 local _resultLength = 0
 for _, value in source do
@@ -44,21 +39,13 @@ for _, value in source do
 end
 print(result)
 `
-	if got := render.RenderAST(statements); got != want {
+	if got := renderArrayAppendFixture(t, "basic", true); got != want {
 		t.Errorf("rendered output differs from optimized append form:\ngot:\n%s\nwant:\n%s", got, want)
-	}
-
-	if ds := s.Diags.Flush(); len(ds) != 0 {
-		t.Errorf("unexpected diagnostics: %v", ds)
 	}
 }
 
 func TestOptimizedArrayAppendsHandlesLabeledLoops(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "arrayappendoptimization"), "src/labeled.ts")
-	s.OptimizedArrayAppends = true
-
-	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
-	got := render.RenderAST(statements)
+	got := renderArrayAppendFixture(t, "labeled", true)
 
 	if strings.Contains(got, "table.insert") {
 		t.Errorf("labeled loop retained table.insert:\n%s", got)
@@ -66,29 +53,16 @@ func TestOptimizedArrayAppendsHandlesLabeledLoops(t *testing.T) {
 	if !strings.Contains(got, "local _resultLength = 0") || !strings.Contains(got, "result[_resultLength] = value") {
 		t.Errorf("labeled loop did not use a loop-carried index:\n%s", got)
 	}
-
-	if ds := s.Diags.Flush(); len(ds) != 0 {
-		t.Errorf("unexpected diagnostics: %v", ds)
-	}
 }
 
 func TestOptimizedArrayAppendsSkipsZeroArgumentPush(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "arrayappendoptimization"), "src/zero.ts")
-	s.OptimizedArrayAppends = true
-
-	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
-
 	want := `local result = {}
 for index = 0, 2 do
 	local _ = #result
 end
 `
-	if got := render.RenderAST(statements); got != want {
+	if got := renderArrayAppendFixture(t, "zero", true); got != want {
 		t.Errorf("zero-argument push should retain the baseline output:\ngot:\n%s\nwant:\n%s", got, want)
-	}
-
-	if ds := s.Diags.Flush(); len(ds) != 0 {
-		t.Errorf("unexpected diagnostics: %v", ds)
 	}
 }
 
@@ -132,7 +106,8 @@ func TestOptimizedArrayAppendsPreservesArgumentOrderAndReturnLength(t *testing.T
 	if strings.Count(got, "_resultLength += 1") != 4 {
 		t.Errorf("multi-site push emitted the wrong number of increments:\n%s", got)
 	}
-	if !strings.Contains(got, "local length = _resultLength") {
+	if !strings.Contains(got, "local _length = _resultLength") ||
+		!strings.Contains(got, "local length = _length") {
 		t.Errorf("push return value did not use the loop-carried length:\n%s", got)
 	}
 	if !strings.Contains(got, "local unchanged = #result") {
@@ -194,5 +169,26 @@ func TestOptimizedArrayAppendsRejectsOutOfLoopCaptures(t *testing.T) {
 	}
 	if strings.Count(got, "table.insert(later") != 2 {
 		t.Errorf("array captured by a later declaration did not retain both Array.push calls:\n%s", got)
+	}
+}
+
+func TestOptimizedArrayAppendsSnapshotsConsumedReturnValues(t *testing.T) {
+	got := renderArrayAppendFixture(t, "valueuses", true)
+
+	if strings.Contains(got, "table.insert") {
+		t.Errorf("consumed push retained table.insert:\n%s", got)
+	}
+	for _, snapshot := range []string{
+		"local _length = _resultLength",
+		"local _length_1 = _resultLength",
+		"local _length_2 = _resultLength",
+	} {
+		if !strings.Contains(got, snapshot) {
+			t.Errorf("missing return-value snapshot %q:\n%s", snapshot, got)
+		}
+	}
+	if !strings.Contains(got, "print(_length, _length_1)") ||
+		!strings.Contains(got, "result[_resultLength] = _length_2") {
+		t.Errorf("later pushes can change an earlier returned length:\n%s", got)
 	}
 }

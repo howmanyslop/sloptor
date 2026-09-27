@@ -11,8 +11,8 @@ type arrayAppendTarget struct {
 }
 
 type arrayAppendPlan struct {
-	calls   map[*ast.Node]*arrayAppendTarget
-	targets []*arrayAppendTarget
+	calls  map[*ast.Node]*arrayAppendTarget
+	target *arrayAppendTarget
 }
 
 var isNullType = TypeCheck{check: func(t *checker.Type) bool {
@@ -20,58 +20,61 @@ var isNullType = TypeCheck{check: func(t *checker.Type) bool {
 }}
 
 func analyzeArrayAppendStatements(s *State, statements []*ast.Node) map[*ast.Node]*arrayAppendPlan {
-	plans := make(map[*ast.Node]*arrayAppendPlan)
 	if !s.OptimizedArrayAppends {
-		return plans
+		return nil
 	}
 
+	var plans map[*ast.Node]*arrayAppendPlan
 	for index := 1; index < len(statements); index++ {
 		loop := statements[index]
-		body := getArrayAppendLoopBody(loop)
-		if body == nil {
-			continue
-		}
-
 		definition := getFreshArrayDefinition(s, statements[index-1])
-		if definition == nil || hasUnsafeOutsideLoopReference(s, definition, loop) {
+		if definition == nil {
 			continue
 		}
 
-		target := &arrayAppendTarget{lengthID: luau.TempID(definition.Text() + "Length")}
-		plan := &arrayAppendPlan{
-			calls:   make(map[*ast.Node]*arrayAppendTarget),
-			targets: []*arrayAppendTarget{target},
-		}
-		valid := true
-		ForEachSymbolReference(s.Checker, definition, loop, func(reference *ast.Node) bool {
-			call := getOptimizableArrayPushCall(s, body, reference)
-			if call == nil {
-				valid = false
-				return true
+		if plan := createArrayAppendPlan(s, definition, loop); plan != nil {
+			if plans == nil {
+				plans = make(map[*ast.Node]*arrayAppendPlan)
 			}
-			if len(call.AsCallExpression().Arguments.Nodes) > 0 {
-				plan.calls[call] = target
-			}
-			return false
-		})
-
-		if valid && len(plan.calls) > 0 {
 			plans[loop] = plan
 		}
 	}
 	return plans
 }
 
-func hasUnsafeOutsideLoopReference(s *State, definition, loop *ast.Node) bool {
+func createArrayAppendPlan(s *State, definition, loop *ast.Node) *arrayAppendPlan {
+	body := getArrayAppendLoopBody(loop)
+	if body == nil {
+		return nil
+	}
+
+	target := &arrayAppendTarget{lengthID: luau.TempID(definition.Text() + "Length")}
+	plan := &arrayAppendPlan{calls: make(map[*ast.Node]*arrayAppendTarget), target: target}
 	definitionFunction := ast.FindAncestor(definition, ast.IsFunctionLike)
-	sourceFile := ast.GetSourceFileOfNode(definition)
-	return ForEachSymbolReference(s.Checker, definition, sourceFile.AsNode(), func(reference *ast.Node) bool {
-		if isAncestorOf(loop, reference) {
-			return false
+	searchContainer := ast.GetSourceFileOfNode(definition).AsNode()
+	if definitionFunction != nil {
+		searchContainer = definitionFunction
+	}
+
+	unsafe := ForEachSymbolReference(s.Checker, definition, searchContainer, func(reference *ast.Node) bool {
+		if !isAncestorOf(loop, reference) {
+			return reference.Pos() < definition.Pos() ||
+				ast.FindAncestor(reference, ast.IsFunctionLike) != definitionFunction
 		}
-		return reference.Pos() < definition.Pos() ||
-			ast.FindAncestor(reference, ast.IsFunctionLike) != definitionFunction
+
+		call := getOptimizableArrayPushCall(s, body, reference)
+		if call == nil {
+			return true
+		}
+		if len(call.AsCallExpression().Arguments.Nodes) > 0 {
+			plan.calls[call] = target
+		}
+		return false
 	})
+	if unsafe || len(plan.calls) == 0 {
+		return nil
+	}
+	return plan
 }
 
 func getFreshArrayDefinition(s *State, statement *ast.Node) *ast.Node {
@@ -80,7 +83,7 @@ func getFreshArrayDefinition(s *State, statement *ast.Node) *ast.Node {
 	}
 
 	declarationList := statement.AsVariableStatement().DeclarationList
-	if declarationList.Flags&ast.NodeFlagsConst == 0 || declarationList.Flags&ast.NodeFlagsUsing != 0 {
+	if !ast.IsVarConst(declarationList) {
 		return nil
 	}
 	declarations := declarationList.AsVariableDeclarationList().Declarations.Nodes
@@ -121,18 +124,10 @@ func getArrayAppendLoopBody(node *ast.Node) *ast.Node {
 	for ast.IsLabeledStatement(node) {
 		node = node.AsLabeledStatement().Statement
 	}
-	switch node.Kind {
-	case ast.KindForStatement:
-		return node.AsForStatement().Statement
-	case ast.KindForOfStatement:
-		return node.AsForInOrOfStatement().Statement
-	case ast.KindWhileStatement:
-		return node.AsWhileStatement().Statement
-	case ast.KindDoStatement:
-		return node.AsDoStatement().Statement
-	default:
+	if ast.IsForInStatement(node) || !ast.IsIterationStatement(node, false) {
 		return nil
 	}
+	return node.Statement()
 }
 
 func getOptimizableArrayPushCall(s *State, body, reference *ast.Node) *ast.Node {

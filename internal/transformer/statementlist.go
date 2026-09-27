@@ -63,9 +63,7 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 				panic("transformer: statement dispatch not wired")
 			}
 			if plan := arrayAppendPlans[statement]; plan != nil {
-				for _, target := range plan.targets {
-					s.Prereq(luau.NewVariableDeclaration(target.lengthID, luau.Num(0)))
-				}
+				s.Prereq(luau.NewVariableDeclaration(plan.target.lengthID, luau.Num(0)))
 				s.withArrayAppendPlan(plan, func() {
 					transformed = TransformStatement(s, statement)
 				})
