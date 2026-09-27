@@ -153,6 +153,9 @@ func getOptimizableArrayPushCall(s *State, body, reference *ast.Node) *ast.Node 
 
 	callType := s.Checker.GetNonOptionalType(s.GetType(call.Expression))
 	callSymbol := GetFirstDefinedSymbol(s, callType)
+	if callSymbol == nil {
+		return nil
+	}
 	macro := s.Macros().GetPropertyCallMacro(callSymbol)
 	if macro == nil || macro.Name != "Array.push" {
 		return nil
