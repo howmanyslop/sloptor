@@ -27,7 +27,7 @@ type WatchAssetEvent struct {
 }
 
 func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
-	sets := make([]SolutionWatchSet, 0, len(c.graph.Projects))
+	sets := make([]SolutionWatchSet, 0, len(c.graph.Projects)+len(c.graph.coordinatorConfigChains))
 	for _, project := range c.graph.Projects {
 		set := SolutionWatchSet{ProjectPath: project.ConfigPath}
 		_, set.TsConfigPaths, _ = ReadRbxtsOptionsWithChain(project.ConfigPath)
@@ -57,6 +57,12 @@ func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
 			}
 		}
 		sets = append(sets, set)
+	}
+	for _, chain := range c.graph.coordinatorConfigChains {
+		sets = append(sets, SolutionWatchSet{
+			ProjectPath:   chain.projectPath,
+			TsConfigPaths: canonicalWatchPaths(chain.configPaths),
+		})
 	}
 	return sets
 }

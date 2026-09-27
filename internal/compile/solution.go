@@ -14,7 +14,13 @@ type SolutionProject struct {
 }
 
 type SolutionGraph struct {
-	Projects []SolutionProject
+	Projects                []SolutionProject
+	coordinatorConfigChains []solutionConfigChain
+}
+
+type solutionConfigChain struct {
+	projectPath string
+	configPaths []string
 }
 
 type SolutionProjectDrainer interface {
@@ -49,6 +55,7 @@ const (
 
 func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGraph, error) {
 	projects := map[string]SolutionProject{}
+	configPathsByProject := map[string][]string{}
 	visits := map[string]solutionProjectVisit{}
 	stack := []string{}
 
@@ -76,7 +83,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			stack = stack[:len(stack)-1]
 		}()
 
-		references, coordinator, err := readProjectReferencePaths(configPath)
+		references, coordinator, configPaths, err := readProjectReferencePaths(configPath)
 		if err != nil {
 			return fmt.Errorf("compile: read project reference %q: %w", configPath, err)
 		}
@@ -104,6 +111,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			Options:     options,
 			Coordinator: coordinator,
 		}
+		configPathsByProject[configPath] = configPaths
 		for _, reference := range references {
 			if err := visit(reference); err != nil {
 				return err
@@ -124,9 +132,14 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	graph := &SolutionGraph{}
 	for _, configPath := range postOrderProjectPaths(rootPath, projects) {
 		project := projects[configPath]
-		if !project.Coordinator {
-			graph.Projects = append(graph.Projects, project)
+		if project.Coordinator {
+			graph.coordinatorConfigChains = append(graph.coordinatorConfigChains, solutionConfigChain{
+				projectPath: configPath,
+				configPaths: configPathsByProject[configPath],
+			})
+			continue
 		}
+		graph.Projects = append(graph.Projects, project)
 	}
 	return graph, nil
 }

@@ -163,7 +163,10 @@ func TestSolutionGraphSkipsCoordinatorWithInheritedEmptyFiles(t *testing.T) {
 	root := t.TempDir()
 	packageDir := filepath.Join(root, "package")
 	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./package"},{"path":"./package/tsconfig.lib.json"}]}`)
-	writeSolutionFile(t, packageDir, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.base.json", `{
+		"files": [],
+		"include": [], // inherited reference-only coordinator
+	}`)
 	writeSolutionFile(t, packageDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"},{"path":"./tsconfig.spec.json"}]}`)
 	writeSolutionFile(t, packageDir, "tsconfig.lib.json", `{}`)
 	writeSolutionFile(t, packageDir, "tsconfig.spec.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"}],"include":["test"]}`)
@@ -175,6 +178,23 @@ func TestSolutionGraphSkipsCoordinatorWithInheritedEmptyFiles(t *testing.T) {
 	want := []string{filepath.Join(packageDir, "tsconfig.lib.json"), filepath.Join(packageDir, "tsconfig.spec.json")}
 	if len(graph.Projects) != len(want) || graph.Projects[0].ConfigPath != want[0] || graph.Projects[1].ConfigPath != want[1] {
 		t.Fatalf("projects = %+v, want emitting projects %v", graph.Projects, want)
+	}
+}
+
+func TestSolutionGraphResolvesCoordinatorExtendsWithPackageTSConfig(t *testing.T) {
+	root := t.TempDir()
+	basePackage := filepath.Join(root, "node_modules", "@scope", "base")
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"@scope/base","references":[{"path":"./child"}]}`)
+	writeSolutionFile(t, basePackage, "package.json", `{"tsconfig":"config.json"}`)
+	writeSolutionFile(t, basePackage, "config.json", `{"files":[],"include":[]}`)
+	writeSolutionConfig(t, filepath.Join(root, "child"), "tsconfig.json", nil, false)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	if got, want := solutionProjectNames(graph.Projects), []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project order = %v, want %v", got, want)
 	}
 }
 

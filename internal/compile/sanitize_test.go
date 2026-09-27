@@ -14,6 +14,19 @@ import (
 	"rotor/tsgo/vfs/osvfs"
 )
 
+func TestStripJSONCAllowsCommentsAfterTrailingCommas(t *testing.T) {
+	source := `{
+		"files": [],
+		"include": [], // line comment after a trailing comma
+		"references": [
+			{"path": "./child"}, /* block comment after a trailing comma */
+		],
+	}`
+	if stripped := stripJSONC(source); !json.Valid([]byte(stripped)) {
+		t.Fatalf("stripJSONC produced invalid JSON:\n%s", stripped)
+	}
+}
+
 func TestSanitizeTSConfigStripsRejectedOptions(t *testing.T) {
 	src := `{
 	// rbxtsc requires these three options; tsgo (TS7) rejects them.

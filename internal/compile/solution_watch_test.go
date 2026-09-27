@@ -117,8 +117,15 @@ func TestTsconfigChainReload(t *testing.T) {
 	}
 	watchSets := coordinator.WatchSets()
 	wantTsConfigPaths := canonicalWatchPaths([]string{childConfig, baseConfig})
-	if len(watchSets) != 1 || !reflect.DeepEqual(watchSets[0].TsConfigPaths, wantTsConfigPaths) {
-		t.Fatalf("TsConfigPaths = %#v, want %#v", watchSets, wantTsConfigPaths)
+	var childConfigPaths []string
+	for _, set := range watchSets {
+		if set.ProjectPath == childConfig {
+			childConfigPaths = set.TsConfigPaths
+			break
+		}
+	}
+	if !reflect.DeepEqual(childConfigPaths, wantTsConfigPaths) {
+		t.Fatalf("child TsConfigPaths = %#v, want %#v", childConfigPaths, wantTsConfigPaths)
 	}
 
 	if err := os.WriteFile(baseConfig, []byte(`{"rbxts":{"rojo":"./second.project.json"}}`), 0o644); err != nil {
@@ -134,6 +141,30 @@ func TestTsconfigChainReload(t *testing.T) {
 	if want := filepath.Join(root, "second.project.json"); state.Project.Options.RojoConfigPath != want {
 		t.Fatalf("RojoConfigPath = %q, want %q", state.Project.Options.RojoConfigPath, want)
 	}
+}
+
+func TestWatchSetsIncludeSkippedCoordinatorConfigChain(t *testing.T) {
+	root := t.TempDir()
+	rootConfig := filepath.Join(root, "tsconfig.json")
+	baseConfig := filepath.Join(root, "tsconfig.base.json")
+	writeSolutionFile(t, root, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./child"}]}`)
+	writeBuildableSolutionProject(t, filepath.Join(root, "child"))
+
+	coordinator, err := NewSolutionCoordinator(rootConfig, ProjectOptions{})
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinator: %v", err)
+	}
+	for _, set := range coordinator.WatchSets() {
+		if set.ProjectPath == rootConfig {
+			want := canonicalWatchPaths([]string{rootConfig, baseConfig})
+			if !reflect.DeepEqual(set.TsConfigPaths, want) {
+				t.Fatalf("coordinator config paths = %v, want %v", set.TsConfigPaths, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("WatchSets() = %+v, want skipped coordinator config chain", coordinator.WatchSets())
 }
 
 func TestTsconfigChainReloadCleansStaleLuaExtension(t *testing.T) {

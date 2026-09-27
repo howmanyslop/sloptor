@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 )
 
-func readProjectReferencePaths(tsConfigPath string) ([]string, bool, error) {
+func readProjectReferencePaths(tsConfigPath string) ([]string, bool, []string, error) {
 	config, err := readProjectConfig(tsConfigPath)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	references, _ := config["references"].([]any)
 	paths := make([]string, 0, len(references))
@@ -33,11 +33,11 @@ func readProjectReferencePaths(tsConfigPath string) ([]string, bool, error) {
 	}
 	fileSpecs, err := readEffectiveProjectFileSpecs(tsConfigPath, make(map[string]struct{}))
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
 	}
 	emptyFiles := fileSpecs.files.present && fileSpecs.files.valid && len(fileSpecs.files.values) == 0
 	emptyInclude := !fileSpecs.include.present || fileSpecs.include.valid && len(fileSpecs.include.values) == 0
-	return paths, len(paths) > 0 && emptyFiles && emptyInclude, nil
+	return paths, len(paths) > 0 && emptyFiles && emptyInclude, fileSpecs.configPaths, nil
 }
 
 type projectFileSpec struct {
@@ -47,8 +47,9 @@ type projectFileSpec struct {
 }
 
 type projectFileSpecs struct {
-	files   projectFileSpec
-	include projectFileSpec
+	files       projectFileSpec
+	include     projectFileSpec
+	configPaths []string
 }
 
 // readEffectiveProjectFileSpecs follows TypeScript's config inheritance for
@@ -71,13 +72,13 @@ func readEffectiveProjectFileSpecs(tsConfigPath string, visiting map[string]stru
 		return projectFileSpecs{}, err
 	}
 
-	var result projectFileSpecs
+	result := projectFileSpecs{configPaths: []string{normalized}}
 	extends, err := projectExtends(config, normalized)
 	if err != nil {
 		return projectFileSpecs{}, err
 	}
 	for _, extends := range extends {
-		parent, err := resolveExtendsPath(filepath.Dir(normalized), extends)
+		parent, err := resolveExtendedConfig(normalized, extends)
 		if err != nil {
 			return projectFileSpecs{}, err
 		}
@@ -91,6 +92,7 @@ func readEffectiveProjectFileSpecs(tsConfigPath string, visiting map[string]stru
 		if parentSpecs.include.present {
 			result.include = parentSpecs.include
 		}
+		result.configPaths = append(result.configPaths, parentSpecs.configPaths...)
 	}
 	if value, present := config["files"]; present {
 		result.files = projectFileSpecFrom(value)
