@@ -94,56 +94,7 @@ func readRbxtsOptions(tsConfigPath string, visited map[string]struct{}, chain *[
 }
 
 func resolveExtendsPath(dir, extends string) (string, error) {
-	if filepath.IsAbs(extends) || isRelativeExtendsPath(extends) {
-		path := extends
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(dir, filepath.FromSlash(path))
-		}
-		if resolved, ok := resolveConfigFile(path); ok {
-			return resolved, nil
-		}
-		return path, nil
-	}
-
-	for current := filepath.Clean(dir); ; current = filepath.Dir(current) {
-		path := filepath.Join(current, "node_modules", filepath.FromSlash(extends))
-		if resolved, ok := resolveConfigFile(path); ok {
-			return resolved, nil
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-	}
-
-	return "", fmt.Errorf("Failed to resolve tsconfig extends %q from %s", extends, dir)
-}
-
-func isRelativeExtendsPath(path string) bool {
-	return path == "." || path == ".." ||
-		len(path) >= 2 && (path[:2] == "./" || path[:2] == `.\`) ||
-		len(path) >= 3 && (path[:3] == "../" || path[:3] == `..\`)
-}
-
-func resolveConfigFile(path string) (string, bool) {
-	for _, candidate := range []string{path, path + ".json"} {
-		if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-			return filepath.Clean(candidate), true
-		}
-	}
-
-	packagePath := filepath.Join(path, "package.json")
-	data, err := os.ReadFile(packagePath)
-	if err != nil {
-		return "", false
-	}
-	var pkg struct {
-		Main string `json:"main"`
-	}
-	if json.Unmarshal(data, &pkg) != nil || pkg.Main == "" {
-		return "", false
-	}
-	return resolveConfigFile(filepath.Join(path, filepath.FromSlash(pkg.Main)))
+	return resolveExtendedConfig(filepath.Join(dir, "tsconfig.json"), extends)
 }
 
 func parseRbxtsOptions(raw map[string]any, configPath string) (*RbxtsOptions, error) {

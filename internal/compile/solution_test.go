@@ -112,6 +112,41 @@ func TestSolutionCoordinatorBlocksDependentAfterFailure(t *testing.T) {
 	}
 }
 
+func TestSolutionCoordinatorBlocksDependentThroughSkippedCoordinator(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	bridgeDir := filepath.Join(root, "bridge")
+	brokenDir := filepath.Join(root, "broken")
+	writeSolutionConfig(t, root, "tsconfig.json", []string{"./app"}, true)
+	writeSolutionConfig(t, appDir, "tsconfig.json", []string{"../bridge"}, false)
+	writeSolutionFile(t, bridgeDir, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, bridgeDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"../broken"}]}`)
+	writeSolutionConfig(t, brokenDir, "tsconfig.json", nil, false)
+	brokenConfig := filepath.Join(brokenDir, "tsconfig.json")
+	drainer := &recordingSolutionDrainer{fail: brokenConfig}
+
+	builders := 1
+	coordinator, err := NewSolutionCoordinatorWithDrainer(
+		filepath.Join(root, "tsconfig.json"),
+		ProjectOptions{Builders: &builders},
+		drainer,
+	)
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err == nil {
+		t.Fatal("Drain unexpectedly succeeded")
+	}
+
+	if want := []string{"broken"}; !reflect.DeepEqual(drainer.drained, want) {
+		t.Fatalf("drained projects = %v, want %v", drainer.drained, want)
+	}
+	state, ok := coordinator.ProjectState(filepath.Join(appDir, "tsconfig.json"))
+	if !ok || state.BlockedBy != brokenConfig {
+		t.Fatalf("app state = %+v, found = %t, want blocked by %s", state, ok, brokenConfig)
+	}
+}
+
 func TestSolutionCoordinatorSkipsUpToDateProjects(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "child")
@@ -156,6 +191,75 @@ func TestReferenceOnlySolutionCoordinatorAllowsEmptyInclude(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "out")); !os.IsNotExist(err) {
 		t.Fatalf("coordinator output stat error = %v, want not exists", err)
+	}
+}
+
+func TestSolutionGraphSkipsCoordinatorWithInheritedEmptyFiles(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "package")
+	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./package"},{"path":"./package/tsconfig.lib.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.base.json", `{
+		"files": [],
+		"include": [], // inherited reference-only coordinator
+	}`)
+	writeSolutionFile(t, packageDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"},{"path":"./tsconfig.spec.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.lib.json", `{}`)
+	writeSolutionFile(t, packageDir, "tsconfig.spec.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"}],"include":["test"]}`)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	want := []string{filepath.Join(packageDir, "tsconfig.lib.json"), filepath.Join(packageDir, "tsconfig.spec.json")}
+	if len(graph.Projects) != len(want) || graph.Projects[0].ConfigPath != want[0] || graph.Projects[1].ConfigPath != want[1] {
+		t.Fatalf("projects = %+v, want emitting projects %v", graph.Projects, want)
+	}
+}
+
+func TestSolutionGraphResolvesCoordinatorExtendsWithPackageTSConfig(t *testing.T) {
+	root := t.TempDir()
+	basePackage := filepath.Join(root, "node_modules", "@scope", "base")
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"@scope/base","references":[{"path":"./child"}]}`)
+	writeSolutionFile(t, basePackage, "package.json", `{"tsconfig":"config.json"}`)
+	writeSolutionFile(t, basePackage, "config.json", `{"files":[],"include":[]}`)
+	writeSolutionConfig(t, filepath.Join(root, "child"), "tsconfig.json", nil, false)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{SolutionArgv: &RbxtsOptions{}})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	if got, want := solutionProjectNames(graph.Projects), []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project order = %v, want %v", got, want)
+	}
+}
+
+func TestSolutionGraphResolvesExtensionlessCoordinatorExtends(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionFile(t, root, "base", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"./base","references":[{"path":"./child"}]}`)
+	writeSolutionConfig(t, filepath.Join(root, "child"), "tsconfig.json", nil, false)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	if got, want := solutionProjectNames(graph.Projects), []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project order = %v, want %v", got, want)
+	}
+}
+
+func TestSolutionGraphResolvesDottedCoordinatorExtends(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionFile(t, root, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"./tsconfig.base","references":[{"path":"./child"}]}`)
+	writeSolutionConfig(t, filepath.Join(root, "child"), "tsconfig.json", nil, false)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	if got, want := solutionProjectNames(graph.Projects), []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project order = %v, want %v", got, want)
 	}
 }
 

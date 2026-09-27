@@ -14,7 +14,14 @@ type SolutionProject struct {
 }
 
 type SolutionGraph struct {
-	Projects []SolutionProject
+	Projects                []SolutionProject
+	coordinatorConfigChains []solutionConfigChain
+}
+
+type solutionConfigChain struct {
+	projectPath string
+	configPaths []string
+	references  []string
 }
 
 type SolutionProjectDrainer interface {
@@ -49,6 +56,7 @@ const (
 
 func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGraph, error) {
 	projects := map[string]SolutionProject{}
+	configPathsByProject := map[string][]string{}
 	visits := map[string]solutionProjectVisit{}
 	stack := []string{}
 
@@ -76,7 +84,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			stack = stack[:len(stack)-1]
 		}()
 
-		references, coordinator, err := readProjectReferencePaths(configPath)
+		references, coordinator, configPaths, err := readProjectReferencePaths(configPath)
 		if err != nil {
 			return fmt.Errorf("compile: read project reference %q: %w", configPath, err)
 		}
@@ -104,6 +112,7 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			Options:     options,
 			Coordinator: coordinator,
 		}
+		configPathsByProject[configPath] = configPaths
 		for _, reference := range references {
 			if err := visit(reference); err != nil {
 				return err
@@ -124,11 +133,47 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 	graph := &SolutionGraph{}
 	for _, configPath := range postOrderProjectPaths(rootPath, projects) {
 		project := projects[configPath]
-		if !project.Coordinator {
-			graph.Projects = append(graph.Projects, project)
+		if project.Coordinator {
+			graph.coordinatorConfigChains = append(graph.coordinatorConfigChains, solutionConfigChain{
+				projectPath: configPath,
+				configPaths: configPathsByProject[configPath],
+				references:  project.References,
+			})
+			continue
 		}
+		project.References = emittingProjectReferences(project.References, projects)
+		graph.Projects = append(graph.Projects, project)
 	}
 	return graph, nil
+}
+
+func emittingProjectReferences(references []string, projects map[string]SolutionProject) []string {
+	result := make([]string, 0, len(references))
+	seen := map[string]struct{}{}
+	expandedCoordinators := map[string]struct{}{}
+	var appendReference func(string)
+	appendReference = func(configPath string) {
+		project, ok := projects[configPath]
+		if !ok || !project.Coordinator {
+			if _, ok := seen[configPath]; ok {
+				return
+			}
+			seen[configPath] = struct{}{}
+			result = append(result, configPath)
+			return
+		}
+		if _, ok := expandedCoordinators[configPath]; ok {
+			return
+		}
+		expandedCoordinators[configPath] = struct{}{}
+		for _, reference := range project.References {
+			appendReference(reference)
+		}
+	}
+	for _, reference := range references {
+		appendReference(reference)
+	}
+	return result
 }
 
 func NewSolutionCoordinator(tsConfigPath string, entry ProjectOptions) (*SolutionCoordinator, error) {
@@ -196,22 +241,55 @@ func (c *SolutionCoordinator) ProjectState(tsConfigPath string) (SolutionProject
 }
 
 func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
-	reverse := map[string][]string{}
+	references := make(map[string][]string, len(c.graph.Projects)+len(c.graph.coordinatorConfigChains))
 	for _, project := range c.graph.Projects {
-		for _, reference := range project.References {
-			reverse[reference] = append(reverse[reference], project.ConfigPath)
+		references[project.ConfigPath] = project.References
+	}
+	for _, chain := range c.graph.coordinatorConfigChains {
+		references[chain.projectPath] = chain.references
+	}
+	reverse := map[string][]string{}
+	for configPath, projectReferences := range references {
+		for _, reference := range projectReferences {
+			reverse[reference] = append(reverse[reference], configPath)
 		}
 	}
 	direct := map[string]struct{}{}
 	queue := []string{}
+	addDirect := func(configPath string) {
+		if _, ok := direct[configPath]; ok {
+			return
+		}
+		direct[configPath] = struct{}{}
+		queue = append(queue, configPath)
+	}
 	for _, path := range paths {
 		absolute, err := filepath.Abs(path)
-		if err == nil {
-			configPath := filepath.Clean(absolute)
-			if _, ok := c.states[configPath]; ok {
-				direct[configPath] = struct{}{}
-				queue = append(queue, configPath)
+		if err != nil {
+			continue
+		}
+		configPath := filepath.Clean(absolute)
+		if _, ok := c.states[configPath]; ok {
+			addDirect(configPath)
+			continue
+		}
+		coordinatorReferences, ok := references[configPath]
+		if !ok {
+			continue
+		}
+		descendants := append([]string(nil), coordinatorReferences...)
+		descendantSeen := map[string]struct{}{}
+		for len(descendants) > 0 {
+			descendant := descendants[0]
+			descendants = descendants[1:]
+			if _, ok := descendantSeen[descendant]; ok {
+				continue
 			}
+			descendantSeen[descendant] = struct{}{}
+			if _, ok := c.states[descendant]; ok {
+				addDirect(descendant)
+			}
+			descendants = append(descendants, references[descendant]...)
 		}
 	}
 	seen := map[string]struct{}{}

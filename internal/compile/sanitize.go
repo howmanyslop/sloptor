@@ -341,14 +341,8 @@ func stripJSONC(src string) string {
 			i++ // land on '/'; loop increment steps past it
 		case c == ',':
 			// Trailing comma: drop if the next non-whitespace,
-			// non-comment byte closes an object/array. Cheap scan that
-			// only skips whitespace — a comma separated from its
-			// closer by a comment is rare enough to leave to the JSON
-			// parser.
-			j := i + 1
-			for j < len(src) && (src[j] == ' ' || src[j] == '\t' || src[j] == '\r' || src[j] == '\n') {
-				j++
-			}
+			// non-comment byte closes an object/array.
+			j := skipJSONCTrivia(src, i+1)
 			if j < len(src) && (src[j] == '}' || src[j] == ']') {
 				continue
 			}
@@ -358,4 +352,29 @@ func stripJSONC(src string) string {
 		}
 	}
 	return b.String()
+}
+
+func skipJSONCTrivia(src string, index int) int {
+	for index < len(src) {
+		switch {
+		case src[index] == ' ' || src[index] == '\t' || src[index] == '\r' || src[index] == '\n':
+			index++
+		case index+1 < len(src) && src[index] == '/' && src[index+1] == '/':
+			index += 2
+			for index < len(src) && src[index] != '\n' {
+				index++
+			}
+		case index+1 < len(src) && src[index] == '/' && src[index+1] == '*':
+			index += 2
+			for index+1 < len(src) && (src[index] != '*' || src[index+1] != '/') {
+				index++
+			}
+			if index+1 < len(src) {
+				index += 2
+			}
+		default:
+			return index
+		}
+	}
+	return index
 }
