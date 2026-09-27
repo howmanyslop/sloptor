@@ -125,17 +125,20 @@ func TestRbxtsOptionsResolvePackageExportExtends(t *testing.T) {
 	if opts == nil || opts.Type == nil || *opts.Type != "package" {
 		t.Fatalf("package-export extends options = %+v, want inherited package type", opts)
 	}
-	if opts.Rojo == nil || *opts.Rojo != filepath.Join(filepath.Dir(baseConfig), "default.project.json") {
-		t.Errorf("rojo = %v, want path relative to exported config", opts.Rojo)
-	}
 	wantChain := []string{projectConfig, baseConfig}
 	if len(chain) != len(wantChain) {
 		t.Fatalf("config chain = %v, want %v", chain, wantChain)
 	}
-	for index := range wantChain {
-		if chain[index] != wantChain[index] {
-			t.Errorf("config chain[%d] = %q, want %q", index, chain[index], wantChain[index])
+	for index, want := range wantChain {
+		gotInfo, gotErr := os.Stat(chain[index])
+		wantInfo, wantErr := os.Stat(want)
+		if gotErr != nil || wantErr != nil || !os.SameFile(gotInfo, wantInfo) {
+			t.Errorf("config chain[%d] = %q, want %q", index, chain[index], want)
 		}
+	}
+	wantRojo := filepath.Join(filepath.Dir(chain[1]), "default.project.json")
+	if opts.Rojo == nil || *opts.Rojo != wantRojo {
+		t.Errorf("rojo = %v, want %q relative to exported config", opts.Rojo, wantRojo)
 	}
 }
 
