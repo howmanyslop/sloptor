@@ -1,0 +1,14 @@
+{
+	"compilerOptions": {
+		"module": "commonjs",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"forceConsistentCasingInFileNames": true,
+		"moduleDetection": "force",
+		"strict": true,
+		"target": "ESNext",
+		"typeRoots": ["../../../../testdata/diff/project/node_modules/@rbxts"],
+		"rootDir": "src"
+	},
+	"include": ["src"]
+}

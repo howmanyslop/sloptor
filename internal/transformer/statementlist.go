@@ -49,6 +49,7 @@ func TransformStatementList(s *State, parent *ast.Node, statements []*ast.Node, 
 
 func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.Node, exportInfo *ExportInfo) *luau.List[luau.Statement] {
 	result := luau.NewList[luau.Statement]()
+	arrayAppendPlans := analyzeArrayAppendStatements(s, statements)
 
 	for _, statement := range statements {
 		// Capture prerequisite statements for the ts.Statement while
@@ -61,7 +62,16 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 			if TransformStatement == nil {
 				panic("transformer: statement dispatch not wired")
 			}
-			transformed = TransformStatement(s, statement)
+			if plan := arrayAppendPlans[statement]; plan != nil {
+				for _, target := range plan.targets {
+					s.Prereq(luau.NewVariableDeclaration(target.lengthID, luau.Num(0)))
+				}
+				s.withArrayAppendPlan(plan, func() {
+					transformed = TransformStatement(s, statement)
+				})
+			} else {
+				transformed = TransformStatement(s, statement)
+			}
 		})
 
 		if !s.RemoveComments() {

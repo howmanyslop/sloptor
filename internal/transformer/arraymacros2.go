@@ -25,6 +25,20 @@ var arrayMethods = map[string]PropertyCallMacro{
 		}
 
 		expression = s.PushToVarIfComplex(expression, "exp")
+		if target := s.getArrayAppendTarget(node); target != nil {
+			for _, argument := range args {
+				s.Prereq(luau.NewAssignment(target.lengthID, "+=", luau.Num(1)))
+				s.Prereq(luau.NewAssignment(
+					luau.NewComputedIndex(convertToIndexableExpression(expression), target.lengthID),
+					"=",
+					argument,
+				))
+			}
+			if !isUsedAsStatement(node) {
+				return target.lengthID
+			}
+			return luau.NewNone()
+		}
 
 		for i := range args {
 			s.Prereq(luau.NewCallStatement(
