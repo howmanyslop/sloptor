@@ -93,6 +93,52 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	}
 }
 
+func TestRbxtsOptionsResolvePackageExportExtends(t *testing.T) {
+	// Given
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "node_modules", "@isentinel", "tsconfig")
+	baseConfig := filepath.Join(packageDir, "configs", "roblox", "tsconfig.json")
+	projectDir := filepath.Join(root, "packages", "core")
+	projectConfig := filepath.Join(projectDir, "tsconfig.json")
+	for _, dir := range []string{filepath.Dir(baseConfig), projectDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(packageDir, "package.json"), []byte(`{"exports":{"./roblox":"./configs/roblox/tsconfig.json"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(baseConfig, []byte(`{"rbxts":{"type":"package","rojo":"./default.project.json"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectConfig, []byte(`{"extends":"@isentinel/tsconfig/roblox"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// When
+	opts, chain, err := ReadRbxtsOptionsWithChain(projectConfig)
+
+	// Then
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts == nil || opts.Type == nil || *opts.Type != "package" {
+		t.Fatalf("package-export extends options = %+v, want inherited package type", opts)
+	}
+	if opts.Rojo == nil || *opts.Rojo != filepath.Join(filepath.Dir(baseConfig), "default.project.json") {
+		t.Errorf("rojo = %v, want path relative to exported config", opts.Rojo)
+	}
+	wantChain := []string{projectConfig, baseConfig}
+	if len(chain) != len(wantChain) {
+		t.Fatalf("config chain = %v, want %v", chain, wantChain)
+	}
+	for index := range wantChain {
+		if chain[index] != wantChain[index] {
+			t.Errorf("config chain[%d] = %q, want %q", index, chain[index], wantChain[index])
+		}
+	}
+}
+
 func TestCommittedRbxtsSchemaMatchesConstant(t *testing.T) {
 	data, err := os.ReadFile("../../rbxts-tsconfig.schema.json")
 	if err != nil {
