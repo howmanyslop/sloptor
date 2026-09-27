@@ -160,6 +160,26 @@ func TestIncrementalSaltMovesWithTheTransformerPluginEntry(t *testing.T) {
 	}
 }
 
+func TestIncrementalSaltMovesWithOptimizedArrayAppends(t *testing.T) {
+	dir := writeProject(t, "@scope/array-append-salt", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+
+	before, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{OptimizedArrayAppends: true}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("optimizedArrayAppends did not invalidate incremental outputs")
+	}
+}
+
 // A `transform` that names a subpath inside the package resolves to that file,
 // not to the package entry.
 func TestTransformerPluginFingerprintsResolveSubpathSpecifiers(t *testing.T) {

@@ -35,39 +35,41 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		return "", err
 	}
 	payload, err := tsjson.Marshal(struct {
-		Version              string                         `json:"version"`
-		CompilerOptions      *core.CompilerOptions          `json:"compilerOptions"`
-		ConfigFilePath       string                         `json:"configFilePath"`
-		OutDir               string                         `json:"outDir"`
-		TsBuildInfoFile      string                         `json:"tsBuildInfoFile"`
-		PathTranslatorTarget string                         `json:"pathTranslatorBuildInfoPath"`
-		Type                 string                         `json:"type"`
-		RojoConfigPath       string                         `json:"rojoConfigPath"`
-		IncludePath          string                         `json:"includePath"`
-		LuaExtension         bool                           `json:"luaExtension"`
-		Declaration          bool                           `json:"declaration"`
-		EmitDeclarationOnly  bool                           `json:"emitDeclarationOnly"`
-		NoOptimizedLoops     bool                           `json:"noOptimizedLoops"`
-		MinifyOutput         bool                           `json:"minifyOutput"`
-		FlameworkSalt        string                         `json:"flameworkSalt,omitempty"`
-		TransformerPlugins   []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
+		Version               string                         `json:"version"`
+		CompilerOptions       *core.CompilerOptions          `json:"compilerOptions"`
+		ConfigFilePath        string                         `json:"configFilePath"`
+		OutDir                string                         `json:"outDir"`
+		TsBuildInfoFile       string                         `json:"tsBuildInfoFile"`
+		PathTranslatorTarget  string                         `json:"pathTranslatorBuildInfoPath"`
+		Type                  string                         `json:"type"`
+		RojoConfigPath        string                         `json:"rojoConfigPath"`
+		IncludePath           string                         `json:"includePath"`
+		LuaExtension          bool                           `json:"luaExtension"`
+		Declaration           bool                           `json:"declaration"`
+		EmitDeclarationOnly   bool                           `json:"emitDeclarationOnly"`
+		OptimizedArrayAppends bool                           `json:"optimizedArrayAppends"`
+		NoOptimizedLoops      bool                           `json:"noOptimizedLoops"`
+		MinifyOutput          bool                           `json:"minifyOutput"`
+		FlameworkSalt         string                         `json:"flameworkSalt,omitempty"`
+		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
 	}{
-		Version:              "rotor-incremental-v2",
-		CompilerOptions:      options,
-		ConfigFilePath:       options.ConfigFilePath,
-		OutDir:               options.OutDir,
-		TsBuildInfoFile:      options.TsBuildInfoFile,
-		PathTranslatorTarget: pathTranslatorBuildInfoPath,
-		Type:                 string(opts.Type),
-		RojoConfigPath:       opts.RojoConfigPath,
-		IncludePath:          opts.IncludePath,
-		LuaExtension:         !opts.LuaExtension,
-		Declaration:          options.Declaration.IsTrue(),
-		EmitDeclarationOnly:  opts.EmitDeclarationOnly,
-		NoOptimizedLoops:     opts.NoOptimizedLoops,
-		MinifyOutput:         opts.MinifyOutput,
-		FlameworkSalt:        flameworkSalt,
-		TransformerPlugins:   plugins,
+		Version:               "rotor-incremental-v2",
+		CompilerOptions:       options,
+		ConfigFilePath:        options.ConfigFilePath,
+		OutDir:                options.OutDir,
+		TsBuildInfoFile:       options.TsBuildInfoFile,
+		PathTranslatorTarget:  pathTranslatorBuildInfoPath,
+		Type:                  string(opts.Type),
+		RojoConfigPath:        opts.RojoConfigPath,
+		IncludePath:           opts.IncludePath,
+		LuaExtension:          !opts.LuaExtension,
+		Declaration:           options.Declaration.IsTrue(),
+		EmitDeclarationOnly:   opts.EmitDeclarationOnly,
+		OptimizedArrayAppends: opts.OptimizedArrayAppends,
+		NoOptimizedLoops:      opts.NoOptimizedLoops,
+		MinifyOutput:          opts.MinifyOutput,
+		FlameworkSalt:         flameworkSalt,
+		TransformerPlugins:    plugins,
 	})
 	if err != nil {
 		return "", err

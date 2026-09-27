@@ -17,6 +17,7 @@ const RbxtsTsConfigSchema = `{
         "logTruthyChanges": {"type": "boolean", "description": "Log changes to truthiness evaluation from Lua truthiness rules."},
         "luau": {"type": "boolean", "description": "Emit files with .luau extension."},
         "noInclude": {"type": "boolean", "description": "Do not copy include files."},
+        "optimizedArrayAppends": {"type": "boolean", "description": "Replace eligible Array.push calls in loops with indexed writes."},
         "optimizedLoops": {"type": "boolean", "description": "Enable numeric-for loop optimization."},
         "rojo": {"type": "string", "description": "Path to the Rojo configuration file. Resolved relative to this tsconfig.json. If omitted, roblox-ts auto-detects a *.project.json in the project root."},
         "type": {"enum": ["game", "model", "package"], "description": "Override project type."}
