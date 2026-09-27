@@ -4,6 +4,9 @@ bun.lock
 bun.lockb
 *.test
 /tmp/
+/node_modules/
+/scripts/node_modules/
+/.omp/node_modules/
 
 # Local Claude Code state (machine-specific symlinks, settings, worktrees)
 /.claude/
