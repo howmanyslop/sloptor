@@ -67,19 +67,27 @@ local format_steps = new Mapping<String, Step> {
   ["detect-private-key"] = Builtins.detect_private_key
   // `gitleaks dir` takes a single path: handed several it silently scans the whole working
   // directory instead (node_modules, ignored scratch state), so scan one file per process.
-  // Process startup dominates (~240ms each), hence xargs -P; it exits 123 if any scan failed.
+  // The Node helper keeps scans parallel and works with both Windows cmd and POSIX shells.
   ["gitleaks"] = (Builtins.gitleaks) {
     check = new CommandSpec {
-      command =
-        """
-        for file in {{files}}; do echo "$file"; done |
-        xargs -P 8 -I{} gitleaks dir --redact --no-banner --log-level=error {}
-        """
+      command = "node scripts/check-hook-tools.mjs gitleaks {{ files }}"
       effect = "read"
     }
   }
   ["typos"] = (Builtins.typos) {
     exclude = binary_excludes
+    check = new CommandSpec {
+      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
+      effect = "read"
+    }
+    check_diff = new CommandSpec {
+      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
+      effect = "read"
+    }
+    check_list_files = new CommandSpec {
+      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
+      effect = "read"
+    }
   }
   ["gofmt"] = Builtins.go_fmt
   ["biome"] = Builtins.biome
@@ -95,14 +103,7 @@ local format_steps = new Mapping<String, Step> {
       effect = "read"
     }
     check_list_files = new CommandSpec {
-      command =
-        """
-        files=$(shfmt -i 4 -l --apply-ignore {{ files }})
-        if [ -n "$files" ]; then
-        echo "$files"
-        exit 1
-        fi
-        """
+      command = "node scripts/check-hook-tools.mjs shfmt {{ files }}"
       effect = "read"
     }
     fix = new CommandSpec {
