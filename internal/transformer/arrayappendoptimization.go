@@ -49,7 +49,9 @@ func analyzeArrayAppendStatements(s *State, statements []*ast.Node) map[*ast.Nod
 				valid = false
 				return true
 			}
-			plan.calls[call] = target
+			if len(call.AsCallExpression().Arguments.Nodes) > 0 {
+				plan.calls[call] = target
+			}
 			return false
 		})
 
@@ -104,6 +106,9 @@ func isFreshEmptyArray(s *State, initializer *ast.Node) bool {
 }
 
 func getArrayAppendLoopBody(node *ast.Node) *ast.Node {
+	for ast.IsLabeledStatement(node) {
+		node = node.AsLabeledStatement().Statement
+	}
 	switch node.Kind {
 	case ast.KindForStatement:
 		return node.AsForStatement().Statement
