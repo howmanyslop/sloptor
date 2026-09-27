@@ -453,6 +453,10 @@ func transformImportExpression(s *State, node *ast.Node) luau.Expression {
 	if arguments := node.Arguments(); len(arguments) > 0 {
 		moduleSpecifier = arguments[0]
 	}
+	staticImport := flameworkStaticImportSpecifier(node)
+	if staticImport != nil {
+		moduleSpecifier = staticImport
+	}
 
 	if moduleSpecifier == nil || !ast.IsStringLiteral(moduleSpecifier) {
 		s.Diags.Add(DiagNoNonStringModuleSpecifier(node))
@@ -460,6 +464,9 @@ func transformImportExpression(s *State, node *ast.Node) luau.Expression {
 	}
 
 	importExpression := createImportExpression(s, ast.GetSourceFileOfNode(node), moduleSpecifier)
+	if staticImport != nil {
+		return importExpression
+	}
 	resolveID := luau.ID("resolve")
 
 	return luau.NewCall(
@@ -472,4 +479,21 @@ func transformImportExpression(s *State, node *ast.Node) luau.Expression {
 			)),
 		)),
 	)
+}
+
+const FlameworkStaticImportMarker = "sloptor:flamework-static-import"
+
+func flameworkStaticImportSpecifier(node *ast.Node) *ast.Node {
+	arguments := node.Arguments()
+	if len(arguments) != 1 || !ast.IsBinaryExpression(arguments[0]) {
+		return nil
+	}
+	binary := arguments[0].AsBinaryExpression()
+	if binary.OperatorToken.Kind != ast.KindPlusToken || !ast.IsStringLiteral(binary.Left) || !ast.IsStringLiteral(binary.Right) {
+		return nil
+	}
+	if binary.Right.Text() != FlameworkStaticImportMarker {
+		return nil
+	}
+	return binary.Left
 }

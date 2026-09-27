@@ -176,4 +176,62 @@ func TestFlameworkNativeFixtureEmitsServiceMetadata(t *testing.T) {
 	if !strings.Contains(serviceOut, "identifier") || !strings.Contains(serviceOut, "defineMetadata") {
 		t.Fatalf("native [flamework] mode did not inject identifier metadata:\n%s", serviceOut)
 	}
+	// addPaths expands to a static import so bundlers can follow it.
+	mainOut := result.Outputs["out/server/main.server.luau"]
+	importLine := `TS.import(script, game:GetService("ServerScriptService"), "TS", "services", "test.service")`
+	before := strings.Index(mainOut, `print("before addPaths")`)
+	importAt := strings.Index(mainOut, importLine)
+	after := strings.Index(mainOut, `print("after addPaths")`)
+	if before < 0 || importAt <= before || after <= importAt || strings.Contains(mainOut, "_addPaths") || strings.Contains(mainOut, "TS.Promise.new") {
+		t.Fatalf("native addPaths did not expand to a static import:\n%s", mainOut)
+	}
+}
+
+func TestFlameworkNativeAddPathsRebuildsOnAddedAndRemovedModule(t *testing.T) {
+	fixture := nativeFlameworkFixtureDir(t)
+	dir := t.TempDir()
+	copyDir(t, filepath.Join(fixture, "src"), filepath.Join(dir, "src"))
+	for _, name := range []string{"default.project.json", "package.json", "tsconfig.json", "rotor.toml"} {
+		contents, err := os.ReadFile(filepath.Join(fixture, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), contents, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(fixture, "node_modules"), filepath.Join(dir, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	build := func() string {
+		t.Helper()
+		result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+		if err != nil || len(diags) > 0 {
+			t.Fatalf("BuildProjectWithOptions: %v (diags: %v)", err, diags)
+		}
+		return result.Outputs["out/server/main.server.luau"]
+	}
+	module := filepath.Join(dir, "src", "server", "services", "added.ts")
+	if output := build(); strings.Contains(output, `"added"`) {
+		t.Fatalf("initial build imported nonexistent module:\n%s", output)
+	}
+	if err := os.WriteFile(module, []byte("export {};\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if output := build(); !strings.Contains(output, `"services", "added"`) {
+		t.Fatalf("added module did not invalidate addPaths:\n%s", output)
+	}
+	if err := os.Remove(module); err != nil {
+		t.Fatal(err)
+	}
+	if output := build(); strings.Contains(output, `"services", "added"`) {
+		t.Fatalf("removed module survived addPaths rebuild:\n%s", output)
+	}
+	buildInfo, err := os.ReadFile(filepath.Join(dir, "flamework.build"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(buildInfo), `"globs"`) {
+		t.Fatalf("plain addPaths changed runtime glob metadata: %s", buildInfo)
+	}
 }

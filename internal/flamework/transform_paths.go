@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/checker"
 )
@@ -13,17 +14,12 @@ func buildPathGlobIntrinsic(state *TransformState, trace *ast.Node, pathType *ch
 		return nil, invalidMacro(trace, "Path is invalid, expected string literal and got: %s", state.checker.TypeToString(pathType))
 	}
 	glob := stringLiteralValue(pathType)
-	absoluteGlob := glob
-	if strings.HasPrefix(glob, ".") {
-		file := ast.GetSourceFileOfNode(trace)
-		absolute := filepath.Join(filepath.Dir(file.FileName()), filepath.FromSlash(glob))
-		relative, err := filepath.Rel(state.project.RootDirectory(), absolute)
-		if err != nil {
-			return nil, invalidMacro(trace, "Could not resolve path glob %q", glob)
-		}
-		absoluteGlob = filepath.ToSlash(relative)
+	file := ast.GetSourceFileOfNode(trace)
+	absoluteGlob, ok := projectGlob(state, file, glob)
+	if !ok {
+		return nil, invalidMacro(trace, "Could not resolve path glob %q", glob)
 	}
-	fileID, err := projectRelativePath(state.project.RootDirectory(), ast.GetSourceFileOfNode(trace).FileName())
+	fileID, err := projectRelativePath(state.project.RootDirectory(), file.FileName())
 	if err != nil {
 		return nil, err
 	}
@@ -35,16 +31,24 @@ func buildPathGlobIntrinsic(state *TransformState, trace *ast.Node, pathType *ch
 	return state.factory.NewStringLiteral(value, ast.TokenFlagsNone), nil
 }
 
+// projectGlob makes a file-relative ("."-prefixed) glob project-relative.
+func projectGlob(state *TransformState, file *ast.SourceFile, glob string) (string, bool) {
+	if !strings.HasPrefix(glob, ".") {
+		return glob, true
+	}
+	absolute := filepath.Join(filepath.Dir(file.FileName()), filepath.FromSlash(glob))
+	relative, err := filepath.Rel(state.project.RootDirectory(), absolute)
+	if err != nil {
+		return "", false
+	}
+	return filepath.ToSlash(relative), true
+}
+
 func buildPathIntrinsic(state *TransformState, trace *ast.Node, pathType *checker.Type) (*ast.Node, error) {
 	if !pathType.IsStringLiteral() {
 		return nil, invalidMacro(trace, "Path is invalid, expected string literal and got: %s", state.checker.TypeToString(pathType))
 	}
-	input := stringLiteralValue(pathType)
-	if !filepath.IsAbs(input) {
-		input = filepath.Join(state.project.RootDirectory(), filepath.FromSlash(input))
-	}
-	output := state.project.PathTranslator().GetOutputPath(input)
-	rbxPath, ok := state.project.RojoResolver().GetRbxPathFromFilePath(output)
+	rbxPath, ok := pathIntrinsicRbxPath(state, projectPathInput(state, stringLiteralValue(pathType)))
 	if !ok {
 		return nil, invalidMacro(trace, "Could not find Rojo data for '%s'", stringLiteralValue(pathType))
 	}
@@ -54,4 +58,16 @@ func buildPathIntrinsic(state *TransformState, trace *ast.Node, pathType *checke
 	}
 	pathExpression := state.factory.NewArrayLiteralExpression(state.factory.NewNodeList(parts), true)
 	return state.factory.NewArrayLiteralExpression(state.factory.NewNodeList([]*ast.Node{pathExpression}), true), nil
+}
+
+// projectPathInput resolves a path intrinsic input against the project root.
+func projectPathInput(state *TransformState, input string) string {
+	if filepath.IsAbs(input) {
+		return input
+	}
+	return filepath.Join(state.project.RootDirectory(), filepath.FromSlash(input))
+}
+
+func pathIntrinsicRbxPath(state *TransformState, input string) (rojo.RbxPath, bool) {
+	return state.project.RojoResolver().GetRbxPathFromFilePath(state.project.PathTranslator().GetOutputPath(input))
 }

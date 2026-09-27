@@ -65,9 +65,9 @@ func transformFlameworkCall(state *TransformState, node *ast.Node, runtime Macro
 
 	callee := node.Expression()
 	imports := make([]MacroImport, 0, 1)
-	if symbols := metadata.symbols["intrinsic-flamework-rewrite"]; len(symbols) > 0 && symbols[0].Parent != nil {
-		namespace := symbols[0].Parent.Name
-		callee = state.factory.NewElementAccessExpression(state.factory.NewIdentifier(namespace), nil, state.factory.NewStringLiteral(symbols[0].Name, ast.TokenFlagsNone), ast.NodeFlagsNone)
+	if target := flameworkRewriteSymbol(metadata); target != nil {
+		namespace := target.Parent.Name
+		callee = state.factory.NewElementAccessExpression(state.factory.NewIdentifier(namespace), nil, state.factory.NewStringLiteral(target.Name, ast.TokenFlagsNone), ast.NodeFlagsNone)
 		imports = append(imports, MacroImport{Module: flameworkCoreModule, Export: namespace, Local: namespace})
 	}
 	argumentList := state.factory.NewNodeList(arguments)
@@ -79,6 +79,15 @@ func transformFlameworkCall(state *TransformState, node *ast.Node, runtime Macro
 	constructor := node.AsNewExpression()
 	updated := state.factory.UpdateNewExpression(constructor, callee, constructor.TypeArguments, argumentList)
 	return MacroTransformResult{Expression: updated, Prerequisites: prerequisites, Imports: imports}, nil
+}
+
+// flameworkRewriteSymbol returns the namespace member a macro's
+// intrinsic-flamework-rewrite metadata redirects the call to, or nil.
+func flameworkRewriteSymbol(metadata macroMetadata) *ast.Symbol {
+	if symbols := metadata.symbols["intrinsic-flamework-rewrite"]; len(symbols) > 0 && symbols[0].Parent != nil {
+		return symbols[0]
+	}
+	return nil
 }
 
 func buildUserMacro(state *TransformState, trace *ast.Node, macro userMacro, runtime MacroRuntime) (*ast.Node, []*ast.Node, error) {

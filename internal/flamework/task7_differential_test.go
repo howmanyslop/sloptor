@@ -189,8 +189,9 @@ func task7Manifest(t *testing.T, root string) []string {
 		if err != nil {
 			return err
 		}
-		sum := sha256.Sum256(stripTask7LuauHeader(data))
-		entries = append(entries, fmt.Sprintf("%x  %s", sum, filepath.ToSlash(relative)))
+		relative = filepath.ToSlash(relative)
+		sum := sha256.Sum256(normalizedTask7Luau(relative, data))
+		entries = append(entries, fmt.Sprintf("%x  %s", sum, relative))
 		return nil
 	})
 	if err != nil {
@@ -599,6 +600,26 @@ func linkTask7Modules(t *testing.T, install, root string) {
 	}
 }
 
+// Intended fork divergence: top-level addPaths/addPathsGlob calls expand to
+// static imports so bundlers can follow them. addPaths("src/server") matches
+// only a Script, so the glob's modules are the only imports.
+var task7AddPathsRuntime = regexp.MustCompile(`(?m)^Flamework\._addPaths\(.*\)\nFlamework\._addPathsGlob\(.*\)\n`)
+
+const task7AddPathsImports = `TS.import(script, game:GetService("ReplicatedStorage"), "TS", "component-attributes")
+TS.import(script, game:GetService("ReplicatedStorage"), "TS", "guards")
+TS.import(script, game:GetService("ReplicatedStorage"), "TS", "networking")
+`
+
+// normalizedTask7Luau strips the compiler banner and maps the oracle's runtime
+// addPaths calls to the imports the fork emits instead.
+func normalizedTask7Luau(relative string, data []byte) []byte {
+	data = stripTask7LuauHeader(data)
+	if strings.HasSuffix(relative, "shared/macros.luau") {
+		data = task7AddPathsRuntime.ReplaceAll(data, []byte(task7AddPathsImports))
+	}
+	return data
+}
+
 func compareTask7Trees(t *testing.T, oracle, native string) {
 	t.Helper()
 	want, got := map[string][]byte{}, map[string][]byte{}
@@ -615,7 +636,8 @@ func compareTask7Trees(t *testing.T, oracle, native string) {
 			if err != nil {
 				return err
 			}
-			target[filepath.ToSlash(relative)] = stripTask7LuauHeader(data)
+			relative = filepath.ToSlash(relative)
+			target[relative] = normalizedTask7Luau(relative, data)
 			return nil
 		})
 		if err != nil {

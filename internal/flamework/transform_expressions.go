@@ -87,6 +87,10 @@ func transformFlameworkExpressionsInSourceFileWithRuntime(state *TransformState,
 	if sourceFile == nil {
 		return nil, fmt.Errorf("%w: expression source file is nil", ErrInvalidTransformInput)
 	}
+	sourceFile, err := expandAddPaths(state, sourceFile)
+	if err != nil {
+		return nil, err
+	}
 	var transformErr error
 	attributeSetterRequired := false
 	imports := make([]MacroImport, 0)

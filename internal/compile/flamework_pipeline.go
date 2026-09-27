@@ -22,6 +22,7 @@ type compilePipelineResult struct {
 type flameworkPipeline struct {
 	config  *config.FlameworkConfig
 	project *flamework.Project
+	program *compiler.Program
 	plugins []transformerPluginConfig
 	prefix  []transformerPluginConfig
 	suffix  []transformerPluginConfig
@@ -75,7 +76,7 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 	if err != nil {
 		return nil, []string{err.Error()}, fmt.Errorf("compile: open native Flamework project: %w", err)
 	}
-	return &flameworkPipeline{config: configured, project: project, plugins: plugins, prefix: prefix, suffix: suffix}, nil, nil
+	return &flameworkPipeline{config: configured, project: project, program: program, plugins: plugins, prefix: prefix, suffix: suffix}, nil, nil
 }
 
 func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program) error {

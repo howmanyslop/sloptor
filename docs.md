@@ -39,6 +39,8 @@ rotor **compiles multi-file TypeScript projects with upstream or fork-authoritat
 
 Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests. It runs in the native pipeline.
 
+One intended divergence: a standalone `Flamework.addPaths(path)` or `Flamework.addPathsGlob(glob)` call becomes one immediate `TS.import` per matching module, sorted by path, at the call site. This includes calls inside functions and blocks. Bundlers can follow these imports but not Flamework's runtime requires of Instances. Scripts (`.server.ts`, `.client.ts`), declaration files, the calling file, and TypeScript files excluded by tsconfig are skipped. Calls that match a hand-written Lua module keep the runtime behavior. Added or deleted modules under plain `addPaths` directories change the incremental input without changing `flamework.build` or `globs.json`.
+
 The Node sidecar remains for external tsconfig transformer plugins, including `rbxts-transformer-flamework` when native Flamework is not enabled.
 
 Anything not yet ported fails loudly with a clear "not yet supported" diagnostic — rotor **never silently emits wrong output**. On unaffected surfaces, compiled output remains byte-identical to `rbxtsc` 3.0.0; fork-changed surfaces follow the verified fork behavior instead.
@@ -282,6 +284,7 @@ Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; me
   {"event":"buildStart","at":"2026-09-25T18:00:00.000Z","changed":["src/a.ts"]}
   {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.6.0","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
   ```
+
 - **One-shot diagnostics** — `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, and `--timings` can be combined on one build. Rotor finalizes requested profiles even when the build fails, which keeps failed-build traces usable. `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence, excluding profile serialization); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. Go CPU/block/mutex/heap profiles cover the parent process only — they do not include Node transformer-sidecar CPU or heap. Profile flush can add CLI wall time after the timing JSON is closed; `--verbose` prints a `finalize profiles` stage for that tail.
 
 ### Shell completion

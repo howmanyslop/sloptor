@@ -1,4 +1,10 @@
 import { Flamework } from "@flamework/core";
 
-Flamework.addPaths("src/server/services");
-Flamework.ignite();
+function startup() {
+	print("before addPaths");
+	Flamework.addPaths("src/server/services");
+	print("after addPaths");
+	Flamework.ignite();
+}
+
+startup();
