@@ -159,6 +159,25 @@ func TestReferenceOnlySolutionCoordinatorAllowsEmptyInclude(t *testing.T) {
 	}
 }
 
+func TestSolutionGraphSkipsCoordinatorWithInheritedEmptyFiles(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "package")
+	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./package"},{"path":"./package/tsconfig.lib.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"},{"path":"./tsconfig.spec.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.lib.json", `{}`)
+	writeSolutionFile(t, packageDir, "tsconfig.spec.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"}],"include":["test"]}`)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	want := []string{filepath.Join(packageDir, "tsconfig.lib.json"), filepath.Join(packageDir, "tsconfig.spec.json")}
+	if len(graph.Projects) != len(want) || graph.Projects[0].ConfigPath != want[0] || graph.Projects[1].ConfigPath != want[1] {
+		t.Fatalf("projects = %+v, want emitting projects %v", graph.Projects, want)
+	}
+}
+
 func TestSolutionBuildOrder(t *testing.T) {
 	root := t.TempDir()
 	writeSolutionConfig(t, root, "tsconfig.json", []string{"./app"}, true)

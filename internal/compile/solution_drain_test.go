@@ -56,6 +56,42 @@ func TestDrainInvalidatedProject(t *testing.T) {
 	}
 }
 
+func TestInheritedReferenceOnlyCoordinatorPreservesLeafDeclarations(t *testing.T) {
+	root := t.TempDir()
+	packageDir := filepath.Join(root, "package")
+	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./package"},{"path":"./package/tsconfig.lib.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.base.json", `{
+		"compilerOptions": {
+			"allowSyntheticDefaultImports": true,
+			"composite": true,
+			"module": "CommonJS",
+			"moduleResolution": "Node",
+			"noLib": true,
+			"moduleDetection": "force",
+			"strict": true,
+			"target": "ESNext",
+			"types": ["globals"],
+			"typeRoots": ["node_modules/@rbxts"],
+			"rootDir": "src",
+			"outDir": "out"
+		},
+		"files": [],
+		"include": []
+	}`)
+	writeSolutionFile(t, packageDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./tsconfig.lib.json"}]}`)
+	writeSolutionFile(t, packageDir, "tsconfig.lib.json", `{"extends":"./tsconfig.base.json","compilerOptions":{"declaration":true},"include":["src"]}`)
+	writeSolutionFile(t, packageDir, "package.json", `{"name":"@scope/package"}`)
+	writeSolutionFile(t, packageDir, "node_modules/@rbxts/globals/index.d.ts", noLibGlobalStubs)
+	writeSolutionFile(t, packageDir, "src/index.ts", "export const value = 1;\n")
+
+	if _, messages, err := BuildSolutionWithOptions(filepath.Join(root, "tsconfig.json"), ProjectOptions{}); err != nil {
+		t.Fatalf("BuildSolutionWithOptions: %v (%v)", err, messages)
+	}
+	if _, err := os.Stat(filepath.Join(packageDir, "out", "index.d.ts")); err != nil {
+		t.Fatalf("leaf declaration was removed: %v", err)
+	}
+}
+
 func TestCrossProjectDeclarations(t *testing.T) {
 	root, libDir, gameDir := writeCrossProjectSolution(t)
 
