@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"rotor/internal/config"
+	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/printer"
 )
@@ -109,13 +110,16 @@ func TestTransform_expandsAddPathsToSideEffectImports_whenCallIsTopLevel(t *test
 	}
 }
 
-func TestTransform_keepsRuntimeAddPaths_whenCallIsNotTopLevel(t *testing.T) {
+func TestTransform_expandsAddPathsAtNestedCallSite(t *testing.T) {
 	// Given
 	directory := t.TempDir()
 	writeAddPathsFixture(t, directory, strings.Join([]string{
 		`import { Flamework } from "@flamework/core";`,
 		`function load() {`,
+		`    const before = 1;`,
 		`    Flamework.addPathsGlob("src/shared/components/*.ts");`,
+		`    Flamework.addPaths("src/server/services");`,
+		`    const after = 2;`,
 		`}`,
 		`load();`,
 	}, "\n"))
@@ -124,8 +128,80 @@ func TestTransform_keepsRuntimeAddPaths_whenCallIsNotTopLevel(t *testing.T) {
 	printed, _ := transformAddPathsFixture(t, directory)
 
 	// Then
-	if !strings.Contains(printed, `Flamework["_addPathsGlob"]("src/shared/components/*.ts" as never);`) || strings.Contains(printed, `import "`) {
-		t.Fatalf("transformed source =\n%s\nwant runtime _addPathsGlob call", printed)
+	if strings.Contains(printed, `_addPaths`) {
+		t.Fatalf("transformed source =\n%s\nwant static imports", printed)
+	}
+	for _, module := range []string{"../shared/components/x", "../shared/components/y", "./services/a", "./services/b", "./services/nested/index"} {
+		if !strings.Contains(printed, `import("`+module+`" + "`+transformer.FlameworkStaticImportMarker+`")`) {
+			t.Fatalf("transformed source =\n%s\nmissing import %q", printed, module)
+		}
+	}
+	if !strings.Contains(printed, "const before = 1;") || !strings.Contains(printed, "const after = 2;") {
+		t.Fatalf("transformed source =\n%s\nlost statements around call", printed)
+	}
+}
+
+func TestTransform_ignoresTsconfigExcludedMatches(t *testing.T) {
+	// Given: test files exist in the Rojo source directory but are not compiled.
+	directory := t.TempDir()
+	writeAddPathsFixture(t, directory, strings.Join([]string{
+		`import { Flamework } from "@flamework/core";`,
+		`function load() { Flamework.addPaths("src/server/services"); }`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/server/services/player.test.ts", "export {};\n")
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"moduleResolution":"node","rootDir":"src","outDir":"out"},"include":["src/**/*.ts"],"exclude":["src/**/*.test.ts"]}`)
+
+	// When
+	printed, _ := transformAddPathsFixture(t, directory)
+
+	// Then
+	if strings.Contains(printed, `_addPaths`) || strings.Contains(printed, "player.test") || !strings.Contains(printed, `import("./services/a" + "`+transformer.FlameworkStaticImportMarker+`")`) {
+		t.Fatalf("transformed source =\n%s\nwant only compiled modules as imports", printed)
+	}
+}
+
+func TestTransform_keepsUnbracedConditionalAroundExpandedCall(t *testing.T) {
+	directory := t.TempDir()
+	writeAddPathsFixture(t, directory, strings.Join([]string{
+		`import { Flamework } from "@flamework/core";`,
+		`function load(enabled: boolean) {`,
+		`    if (enabled) Flamework.addPaths("src/server/services");`,
+		`}`,
+	}, "\n"))
+	printed, _ := transformAddPathsFixture(t, directory)
+	if !strings.Contains(printed, `if (enabled) {`) || !strings.Contains(printed, `import("./services/a" + "`+transformer.FlameworkStaticImportMarker+`")`) || strings.Contains(printed, `_addPaths`) {
+		t.Fatalf("transformed source =\n%s\nwant conditional static imports", printed)
+	}
+}
+
+func TestStaticAddPathsMatches_tracksCompiledFilesWithoutChangingRuntimeGlobs(t *testing.T) {
+	directory := t.TempDir()
+	writeAddPathsFixture(t, directory, strings.Join([]string{
+		`import { Flamework } from "@flamework/core";`,
+		`function load() { Flamework.addPaths("src/server/services"); }`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"moduleResolution":"node","rootDir":"src","outDir":"out"},"include":["src/**/*.ts"],"exclude":["src/**/*.test.ts"]}`)
+	project, err := OpenProject(ProjectOptions{ProjectDir: directory, RootDir: "src", OutDir: "out", Config: config.FlameworkConfig{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := StaticAddPathsMatches(newTransformProgram(t, directory), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTransformFixture(t, directory, "src/server/services/new.ts", "export {};\n")
+	writeTransformFixture(t, directory, "src/server/services/excluded.test.ts", "export {};\n")
+	after, err := StaticAddPathsMatches(newTransformProgram(t, directory), project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := "src/server/services/**"
+	if slices.Contains(before[pattern], "./services/new") || !slices.Contains(after[pattern], "./services/new") || slices.Contains(after[pattern], "./services/excluded.test") {
+		t.Fatalf("plain addPaths matches before=%v after=%v", before[pattern], after[pattern])
+	}
+	if project.BuildInfoSnapshot().Metadata.Globs != nil {
+		t.Fatal("plain addPaths changed flamework.build runtime glob metadata")
 	}
 }
 

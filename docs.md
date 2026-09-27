@@ -39,7 +39,7 @@ rotor **compiles multi-file TypeScript projects with upstream or fork-authoritat
 
 Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests. It runs in the native pipeline.
 
-One intended divergence: a top-level `Flamework.addPaths(path)` or `Flamework.addPathsGlob(glob)` statement becomes one side-effect import per matching module, sorted by path, in place of the call. Bundlers can follow static imports but not Flamework's runtime requires of Instances. Scripts (`.server.ts`, `.client.ts`), declaration files, and the calling file are skipped. Calls nested in a function or block, and calls that match a module a static import cannot load (a hand-written Lua module or a tsconfig-excluded file), keep the runtime behavior. A new or deleted module under an `addPaths` directory needs a recompile of the calling file; `addPathsGlob` matches already trigger one.
+One intended divergence: a standalone `Flamework.addPaths(path)` or `Flamework.addPathsGlob(glob)` call becomes one immediate `TS.import` per matching module, sorted by path, at the call site. This includes calls inside functions and blocks. Bundlers can follow these imports but not Flamework's runtime requires of Instances. Scripts (`.server.ts`, `.client.ts`), declaration files, the calling file, and TypeScript files excluded by tsconfig are skipped. Calls that match a hand-written Lua module keep the runtime behavior. Added or deleted modules under plain `addPaths` directories change the incremental input without changing `flamework.build` or `globs.json`.
 
 The Node sidecar remains for external tsconfig transformer plugins, including `rbxts-transformer-flamework` when native Flamework is not enabled.
 

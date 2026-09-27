@@ -1,6 +1,7 @@
 package flamework
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -10,19 +11,128 @@ import (
 	"strings"
 
 	"rotor/internal/rojo"
+	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
+	"rotor/tsgo/compiler"
 	"rotor/tsgo/tspath"
 )
 
-// expandTopLevelAddPaths replaces each top-level Flamework.addPaths or
-// addPathsGlob statement with one side-effect import per matching module, in
-// path order. Bundlers cannot follow Flamework's runtime requires of
-// Instances, but they can follow static imports. Calls it cannot expand keep
-// the runtime rewrite and its diagnostics.
-func expandTopLevelAddPaths(state *TransformState, sourceFile *ast.SourceFile) (*ast.SourceFile, error) {
+// StaticAddPathsMatches is the compile-time module set of each plain
+// addPaths call. It is an incremental input only; it is not written to
+// flamework.build or globs.json, which describe runtime addPathsGlob calls.
+func StaticAddPathsMatches(program *compiler.Program, project *Project) (map[string][]string, error) {
+	if program == nil || project == nil || project.RojoResolver() == nil {
+		return nil, nil
+	}
+	checker, release := program.GetTypeChecker(context.Background())
+	defer release()
+	state := &TransformState{program: program, checker: checker, project: project}
+	matches := make(map[string][]string)
+	for _, file := range program.GetSourceFiles() {
+		if file.IsDeclarationFile || program.IsSourceFileFromExternalLibrary(file) {
+			continue
+		}
+		var visitErr error
+		var visit func(*ast.Node) bool
+		visit = func(node *ast.Node) bool {
+			if visitErr != nil {
+				return true
+			}
+			if ast.IsCallExpression(node) && len(node.Arguments()) > 0 && isAddPathsCallee(node.Expression()) && callMayBeFlameworkMacro(state, node) {
+				signature := checker.GetResolvedSignature(node)
+				if signature != nil {
+					target := flameworkRewriteSymbol(readMacroMetadata(state, signature.Declaration()))
+					argumentType := checker.GetTypeAtLocation(node.Arguments()[0])
+					if target != nil && target.Parent.Name == "Flamework" && target.Name == "_addPaths" && argumentType != nil && argumentType.IsStringLiteral() {
+						pattern, ok := addPathsPattern(state, stringLiteralValue(argumentType))
+						if ok {
+							clean, err := cleanGlobPattern(pattern)
+							if err != nil {
+								visitErr = err
+								return true
+							}
+							modules, sources, err := addPathsModules(state, file, clean)
+							if err != nil {
+								visitErr = err
+								return true
+							}
+							unimportable, err := hasUnimportableModule(state, clean, sources)
+							if err != nil {
+								visitErr = err
+								return true
+							}
+							if unimportable {
+								modules = append(modules, "<runtime-only-module>")
+							}
+							matches[clean] = append(matches[clean], modules...)
+						}
+					}
+				}
+			}
+			return node.ForEachChild(visit)
+		}
+		visit(file.AsNode())
+		if visitErr != nil {
+			return nil, visitErr
+		}
+	}
+	return matches, nil
+}
+
+// expandAddPaths replaces each standalone Flamework.addPaths or addPathsGlob
+// call with side-effect imports at the call site. Bundlers can follow those
+// static imports while runtime Instance requires are opaque to them. Calls it
+// cannot expand keep the runtime rewrite and its diagnostics.
+func expandAddPaths(state *TransformState, sourceFile *ast.SourceFile) (*ast.SourceFile, error) {
 	if state.project.RojoResolver() == nil {
 		return sourceFile, nil
 	}
+	sourceFile, err := expandTopLevelAddPaths(state, sourceFile)
+	if err != nil {
+		return nil, err
+	}
+	var transformErr error
+	var visitor *ast.NodeVisitor
+	visitor = ast.NewNodeVisitor(func(node *ast.Node) *ast.Node {
+		if transformErr != nil {
+			return node
+		}
+		if ast.IsExpressionStatement(node) {
+			imports, ok, err := expandAddPathsStatement(state, sourceFile, node)
+			if err != nil {
+				transformErr = err
+				return node
+			}
+			if ok {
+				statements := make([]*ast.Node, len(imports))
+				for index, declaration := range imports {
+					statements[index] = staticImportCall(state.factory, declaration.AsImportDeclaration().ModuleSpecifier)
+				}
+				if node.Parent != nil && !ast.IsBlock(node.Parent) && !ast.IsSourceFile(node.Parent) {
+					return state.factory.NewBlock(state.factory.NewNodeList(statements), true)
+				}
+				return state.factory.NewSyntaxList(statements)
+			}
+		}
+		return visitor.VisitEachChild(node)
+	}, state.factory, ast.NodeVisitorHooks{})
+	transformed := visitor.VisitSourceFile(sourceFile)
+	return transformed, transformErr
+}
+
+// A nested TypeScript import declaration is syntactically invalid. Use an
+// import() expression with a private string suffix; the Luau transformer
+// recognizes it and emits an immediate TS.import at this point. The binary
+// expression keeps the marker valid under the project's CommonJS module mode.
+func staticImportCall(factory *ast.NodeFactory, moduleSpecifier *ast.Node) *ast.Node {
+	markedSpecifier := factory.NewBinaryExpression(nil, moduleSpecifier, nil, factory.NewToken(ast.KindPlusToken),
+		factory.NewStringLiteral(transformer.FlameworkStaticImportMarker, ast.TokenFlagsNone))
+	call := factory.NewCallExpression(factory.NewKeywordExpression(ast.KindImportKeyword), nil, nil,
+		factory.NewNodeList([]*ast.Node{markedSpecifier}), ast.NodeFlagsNone)
+	return factory.NewExpressionStatement(call)
+}
+
+func expandTopLevelAddPaths(state *TransformState, sourceFile *ast.SourceFile) (*ast.SourceFile, error) {
 	statements := make([]*ast.Node, 0, len(sourceFile.Statements.Nodes))
 	changed := false
 	for _, statement := range sourceFile.Statements.Nodes {
@@ -179,9 +289,8 @@ func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string
 
 // hasUnimportableModule reports a file on disk that pattern matches and Rojo
 // places as a module but that is not a program source, such as a hand-written
-// Lua module or a tsconfig-excluded file. A static import cannot load it, so
-// the call keeps the runtime rewrite. Only the pattern's literal directory
-// prefix is walked.
+// Lua module. TypeScript files excluded by tsconfig emit no output and cannot
+// be runtime matches. Only the pattern's literal directory prefix is walked.
 func hasUnimportableModule(state *TransformState, pattern string, sources map[string]bool) (bool, error) {
 	prefix := globLiteralPrefix(pattern)
 	directory := filepath.Join(state.project.RootDirectory(), filepath.FromSlash(prefix))
@@ -211,7 +320,7 @@ func hasUnimportableModule(state *TransformState, pattern string, sources map[st
 	return found, err
 }
 
-var unimportableModuleExtensions = map[string]bool{".lua": true, ".luau": true, ".ts": true, ".tsx": true}
+var unimportableModuleExtensions = map[string]bool{".lua": true, ".luau": true}
 
 // globLiteralPrefix returns the leading directory segments of pattern that
 // contain no glob syntax.

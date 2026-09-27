@@ -58,6 +58,13 @@ func flameworkIncrementalInputs(state *flameworkPipeline) (*FlameworkIncremental
 		EffectivePlugins:   rawTransformerPlugins(state.plugins),
 		RelevantGlobs:      incrementalGlobs(rootBuild.Metadata),
 	}
+	staticMatches, err := flamework.StaticAddPathsMatches(state.program, project)
+	if err != nil {
+		return nil, fmt.Errorf("collect static addPaths matches: %w", err)
+	}
+	for pattern, matches := range staticMatches {
+		inputs.RelevantGlobs = append(inputs.RelevantGlobs, FlameworkIncrementalGlob{Pattern: pattern, Matches: matches})
+	}
 	if rootBuild.Metadata != nil && rootBuild.Metadata.Config != nil {
 		runtimeConfig, err := json.Marshal(rootBuild.Metadata.Config)
 		if err != nil {
