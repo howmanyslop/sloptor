@@ -72,7 +72,8 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if moduleOpts == nil || moduleOpts.Rojo == nil || *moduleOpts.Rojo != filepath.Join(filepath.Dir(moduleBase), "base.project.json") {
+	wantModuleRojo := filepath.Join(filepath.Dir(moduleBase), "base.project.json")
+	if moduleOpts == nil || moduleOpts.Rojo == nil || canonicalWatchDirectory(*moduleOpts.Rojo) != canonicalWatchDirectory(wantModuleRojo) {
 		t.Errorf("module extends rojo = %+v, want base-relative path", moduleOpts)
 	}
 
