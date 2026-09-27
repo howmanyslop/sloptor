@@ -141,9 +141,39 @@ func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGra
 			})
 			continue
 		}
+		project.References = emittingProjectReferences(project.References, projects)
 		graph.Projects = append(graph.Projects, project)
 	}
 	return graph, nil
+}
+
+func emittingProjectReferences(references []string, projects map[string]SolutionProject) []string {
+	result := make([]string, 0, len(references))
+	seen := map[string]struct{}{}
+	expandedCoordinators := map[string]struct{}{}
+	var appendReference func(string)
+	appendReference = func(configPath string) {
+		project, ok := projects[configPath]
+		if !ok || !project.Coordinator {
+			if _, ok := seen[configPath]; ok {
+				return
+			}
+			seen[configPath] = struct{}{}
+			result = append(result, configPath)
+			return
+		}
+		if _, ok := expandedCoordinators[configPath]; ok {
+			return
+		}
+		expandedCoordinators[configPath] = struct{}{}
+		for _, reference := range project.References {
+			appendReference(reference)
+		}
+	}
+	for _, reference := range references {
+		appendReference(reference)
+	}
+	return result
 }
 
 func NewSolutionCoordinator(tsConfigPath string, entry ProjectOptions) (*SolutionCoordinator, error) {

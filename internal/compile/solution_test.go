@@ -112,6 +112,41 @@ func TestSolutionCoordinatorBlocksDependentAfterFailure(t *testing.T) {
 	}
 }
 
+func TestSolutionCoordinatorBlocksDependentThroughSkippedCoordinator(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, "app")
+	bridgeDir := filepath.Join(root, "bridge")
+	brokenDir := filepath.Join(root, "broken")
+	writeSolutionConfig(t, root, "tsconfig.json", []string{"./app"}, true)
+	writeSolutionConfig(t, appDir, "tsconfig.json", []string{"../bridge"}, false)
+	writeSolutionFile(t, bridgeDir, "tsconfig.base.json", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, bridgeDir, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"../broken"}]}`)
+	writeSolutionConfig(t, brokenDir, "tsconfig.json", nil, false)
+	brokenConfig := filepath.Join(brokenDir, "tsconfig.json")
+	drainer := &recordingSolutionDrainer{fail: brokenConfig}
+
+	builders := 1
+	coordinator, err := NewSolutionCoordinatorWithDrainer(
+		filepath.Join(root, "tsconfig.json"),
+		ProjectOptions{Builders: &builders},
+		drainer,
+	)
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err == nil {
+		t.Fatal("Drain unexpectedly succeeded")
+	}
+
+	if want := []string{"broken"}; !reflect.DeepEqual(drainer.drained, want) {
+		t.Fatalf("drained projects = %v, want %v", drainer.drained, want)
+	}
+	state, ok := coordinator.ProjectState(filepath.Join(appDir, "tsconfig.json"))
+	if !ok || state.BlockedBy != brokenConfig {
+		t.Fatalf("app state = %+v, found = %t, want blocked by %s", state, ok, brokenConfig)
+	}
+}
+
 func TestSolutionCoordinatorSkipsUpToDateProjects(t *testing.T) {
 	root := t.TempDir()
 	child := filepath.Join(root, "child")
