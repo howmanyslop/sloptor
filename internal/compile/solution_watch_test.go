@@ -167,6 +167,44 @@ func TestWatchSetsIncludeSkippedCoordinatorConfigChain(t *testing.T) {
 	t.Fatalf("WatchSets() = %+v, want skipped coordinator config chain", coordinator.WatchSets())
 }
 
+func TestSkippedCoordinatorConfigInvalidatesReferencedProjects(t *testing.T) {
+	root := t.TempDir()
+	rootConfig := filepath.Join(root, "tsconfig.json")
+	childConfig := filepath.Join(root, "child", "tsconfig.json")
+	writeSolutionFile(t, root, "tsconfig.base.json", `{"files":[],"include":[],"rbxts":{"luau":true}}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"./tsconfig.base.json","references":[{"path":"./child"}]}`)
+	writeBuildableSolutionProject(t, filepath.Join(root, "child"))
+	drainer := &recordingSolutionDrainer{}
+	entry := ProjectOptions{SolutionArgv: &RbxtsOptions{}}
+
+	coordinator, err := NewSolutionCoordinatorWithDrainer(rootConfig, entry, drainer)
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
+	}
+	if _, _, err := coordinator.Drain(); err != nil {
+		t.Fatalf("initial Drain: %v", err)
+	}
+	drainer.drained = nil
+
+	writeSolutionFile(t, root, "tsconfig.base.json", `{"files":[],"include":[],"rbxts":{"luau":false}}`)
+	cleanStaleOutputs, err := coordinator.ReloadForWatch(rootConfig, entry)
+	if err != nil {
+		t.Fatalf("ReloadForWatch: %v", err)
+	}
+	if got, want := coordinator.Invalidate(rootConfig), []string{childConfig}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Invalidate(root coordinator) = %v, want %v", got, want)
+	}
+	if _, _, err := coordinator.Drain(); err != nil {
+		t.Fatalf("reloaded Drain: %v", err)
+	}
+	if err := cleanStaleOutputs(); err != nil {
+		t.Fatalf("clean stale outputs: %v", err)
+	}
+	if got, want := drainer.drained, []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("drained projects = %v, want %v", got, want)
+	}
+}
+
 func TestTsconfigChainReloadCleansStaleLuaExtension(t *testing.T) {
 	root := t.TempDir()
 	childDir := filepath.Join(root, "child")

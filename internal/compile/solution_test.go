@@ -198,6 +198,21 @@ func TestSolutionGraphResolvesCoordinatorExtendsWithPackageTSConfig(t *testing.T
 	}
 }
 
+func TestSolutionGraphResolvesExtensionlessCoordinatorExtends(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionFile(t, root, "base", `{"files":[],"include":[]}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"extends":"./base","references":[{"path":"./child"}]}`)
+	writeSolutionConfig(t, filepath.Join(root, "child"), "tsconfig.json", nil, false)
+
+	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), ProjectOptions{})
+	if err != nil {
+		t.Fatalf("BuildSolutionGraph: %v", err)
+	}
+	if got, want := solutionProjectNames(graph.Projects), []string{"child"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("project order = %v, want %v", got, want)
+	}
+}
+
 func TestSolutionBuildOrder(t *testing.T) {
 	root := t.TempDir()
 	writeSolutionConfig(t, root, "tsconfig.json", []string{"./app"}, true)

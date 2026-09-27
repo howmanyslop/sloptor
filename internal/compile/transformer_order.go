@@ -126,6 +126,11 @@ func resolveExtendedConfig(configPath, extended string) (string, error) {
 		path = filepath.Join(filepath.Dir(configPath), filepath.FromSlash(path))
 	}
 	if filepath.Ext(path) == "" {
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return filepath.Clean(path), nil
+		} else if err != nil && !os.IsNotExist(err) {
+			return "", fmt.Errorf("%s: resolve extends %q: %w", configPath, extended, err)
+		}
 		path += ".json"
 	}
 	if _, err := os.Stat(path); err != nil {
