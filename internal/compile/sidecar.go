@@ -1214,6 +1214,7 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 	if len(configDiags) > 0 {
 		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
 	}
+	ApplyAutomaticTypes(parsed.CompilerOptions())
 	ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
 	ApplySingleThreadedOverride(parsed.CompilerOptions(), singleThreaded)
 

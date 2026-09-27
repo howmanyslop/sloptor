@@ -1053,10 +1053,11 @@ func createPathTranslator(program *compiler.Program, useLuauExtension bool) *roj
 //     "bundler" (TS7 removed node10), so the parsed option can never equal
 //     Node10 — upstream's check (L57-59) is only satisfiable against the raw
 //     value.
-//   - types: SanitizeTSConfig injects `"types": ["*"]` when the user wrote
-//     none (TS5 auto-inclusion repair); upstream's per-entry existence check
-//     (L70-86) must see the USER's entries — none, when absent — or the
-//     injected "*" would produce a spurious "were not found" error.
+//   - types: ApplyAutomaticTypes adds the `"*"` compatibility marker when the
+//     resolved config has no types list (TS5 auto-inclusion repair); upstream's
+//     per-entry existence check (L70-86) must see the USER's entries — none,
+//     when absent — or the marker would produce a spurious "were not found"
+//     error.
 //   - importsNotUsedAsValues: tsgo doesn't declare the option at all (removed
 //     post-TS5), so tsoptions would fail with "Unknown compiler option" before
 //     validation ever ran; SanitizeTSConfig strips it and the raw value feeds
@@ -1207,7 +1208,7 @@ func validateCompilerOptions(options *core.CompilerOptions, projectPath string, 
 
 	// L70-86: every raw "types" entry must exist under some typeRoot (parsed
 	// typeRoots, or upstream's literal fallback when undefined), as-is or with
-	// the .d.ts extension. Raw entries (sanitizer injects "*" when absent);
+	// the .d.ts extension. Raw entries exclude ApplyAutomaticTypes' "*" marker;
 	// upstream runs this even when the typeRoots check above already failed.
 	typeRoots := options.TypeRoots
 	if typeRoots == nil {
