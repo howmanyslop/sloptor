@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -140,15 +141,14 @@ func TestSourceMapEmission(t *testing.T) {
 		if err := json.Unmarshal(mapBytes, &sourceMap); err != nil {
 			t.Fatalf("unmarshal source map: %v", err)
 		}
-		wantSource := filepath.ToSlash(filepath.Join(dir, "src", "main.ts"))
 		if sourceMap.Version != 3 {
 			t.Errorf("version = %d, want 3", sourceMap.Version)
 		}
-		if sourceMap.File != strings.TrimSuffix(wantSource, ".ts")+".luau" {
-			t.Errorf("file = %q, want %q", sourceMap.File, strings.TrimSuffix(wantSource, ".ts")+".luau")
+		if sourceMap.File != "main.luau" {
+			t.Errorf("file = %q, want main.luau", sourceMap.File)
 		}
-		if len(sourceMap.Sources) != 1 || sourceMap.Sources[0] != wantSource {
-			t.Errorf("sources = %v, want [%s]", sourceMap.Sources, wantSource)
+		if len(sourceMap.Sources) != 1 || sourceMap.Sources[0] != "../src/main.ts" {
+			t.Errorf("sources = %v, want [../src/main.ts]", sourceMap.Sources)
 		}
 		if len(sourceMap.SourcesContent) != 1 || sourceMap.SourcesContent[0] != source {
 			t.Errorf("sourcesContent = %v, want original source", sourceMap.SourcesContent)
@@ -181,6 +181,41 @@ func TestSourceMapEmission(t *testing.T) {
 		}
 		if _, err := os.Stat(mapPath); !os.IsNotExist(err) {
 			t.Fatalf("orphaned source map err = %v, want not-exist", err)
+		}
+	})
+
+	t.Run("maps are independent of the checkout path", func(t *testing.T) {
+		build := func(name string) []byte {
+			t.Helper()
+			dir := writeProject(t, name, "")
+			source := "export const answer = 42;\n"
+			if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte(source), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			tsconfigPath := filepath.Join(dir, "tsconfig.json")
+			tsconfig, err := os.ReadFile(tsconfigPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tsconfig = []byte(strings.Replace(string(tsconfig), `"outDir": "out"`, `"outDir": "out", "sourceMap": true`, 1))
+			if err := os.WriteFile(tsconfigPath, tsconfig, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+				t.Fatalf("build: %v (diags: %v)", err, diags)
+			}
+			contents, err := os.ReadFile(filepath.Join(dir, "out", "main.luau.map"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return contents
+		}
+
+		first := build("@scope/source-map-portable-one")
+		second := build("@scope/source-map-portable-two")
+		if !bytes.Equal(first, second) {
+			t.Errorf("source maps differ across checkout paths\nfirst:  %s\nsecond: %s", first, second)
 		}
 	})
 
@@ -364,6 +399,15 @@ func TestBuildProjectHashMatchRecreatesMissingOutput(t *testing.T) {
 
 func TestBuildProjectLuaExtension(t *testing.T) {
 	dir := writeProject(t, "@scope/lua-ext-fixture", "")
+	tsconfigPath := filepath.Join(dir, "tsconfig.json")
+	tsconfig, err := os.ReadFile(tsconfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(tsconfig), `"outDir": "out"`, `"outDir": "out", "sourceMap": true`, 1)
+	if err := os.WriteFile(tsconfigPath, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{LuaExtension: true})
 	if err != nil {
@@ -380,6 +424,19 @@ func TestBuildProjectLuaExtension(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "out", "main.luau")); !os.IsNotExist(err) {
 		t.Fatalf("out/main.luau err = %v, want not-exist", err)
+	}
+	mapBytes, err := os.ReadFile(filepath.Join(dir, "out", "main.lua.map"))
+	if err != nil {
+		t.Fatalf("read source map: %v", err)
+	}
+	var sourceMap struct {
+		File string `json:"file"`
+	}
+	if err := json.Unmarshal(mapBytes, &sourceMap); err != nil {
+		t.Fatalf("unmarshal source map: %v", err)
+	}
+	if sourceMap.File != "main.lua" {
+		t.Errorf("source map file = %q, want main.lua", sourceMap.File)
 	}
 }
 
