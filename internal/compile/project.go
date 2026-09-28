@@ -762,6 +762,7 @@ func projectSourceFiles(program *compiler.Program) []*ast.SourceFile {
 	for _, sourceFile := range program.SourceFiles() {
 		fileName := sourceFile.FileName()
 		if sourceFile.IsDeclarationFile ||
+			program.IsSourceFileFromExternalLibrary(sourceFile) ||
 			program.IsSourceFromProjectReference(sourceFile.Path()) ||
 			(!strings.HasSuffix(fileName, ".ts") && !strings.HasSuffix(fileName, ".tsx")) {
 			continue

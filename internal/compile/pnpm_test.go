@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -186,5 +187,92 @@ func TestCompileProjectPnpmSymlinksWithNodeModulesRojoPath(t *testing.T) {
 		"return nil\n"
 	if got := files["out/main.luau"]; got != want {
 		t.Errorf("out/main.luau:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestCompileProjectExcludesWorkspaceDependencySource(t *testing.T) {
+	workspace := t.TempDir()
+	game := filepath.Join(workspace, "e2e", "default")
+	dependency := filepath.Join(workspace, "packages", "core")
+
+	gameFiles := map[string]string{
+		"package.json":         `{"name":"flux-e2e"}`,
+		"default.project.json": `{"name":"game","tree":{"$className":"DataModel","ReplicatedStorage":{"out":{"$path":"out"},"include":{"$path":"include"},"rbxts_include":{"$className":"Folder","node_modules":{"$className":"Folder","@flux":{"$path":"node_modules/@flux"}}}}}}`,
+		"tsconfig.json": `{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"module": "Preserve",
+		"moduleResolution": "Bundler",
+		"customConditions": ["source"],
+		"noLib": true,
+		"moduleDetection": "force",
+		"strict": true,
+		"target": "ESNext",
+		"types": [],
+		"typeRoots": ["node_modules/@flux", "node_modules/@rbxts"],
+		"rootDir": "src",
+		"outDir": "out"
+	},
+	"include": ["src"]
+}`,
+		"src/globals.d.ts": noLibGlobalStubs,
+		"src/main.ts": `import { value } from "@flux/core";
+import { first } from "./first";
+import { second } from "./second";
+import { third } from "./third";
+print(value, first, second, third);`,
+		"src/first.ts":  "export const first = 1;\n",
+		"src/second.ts": "export const second = 2;\n",
+		"src/third.ts":  "export const third = 3;\n",
+	}
+	dependencyFiles := map[string]string{
+		"package.json":         `{"name":"@flux/core","version":"1.0.0","main":"dist/init.luau","types":"dist/index.d.ts","exports":{".":{"source":"./src/index.ts","import":"./dist/init.luau","types":"./dist/index.d.ts"}}}`,
+		"default.project.json": `{"name":"core","tree":{"$path":"dist"}}`,
+		"src/index.ts":         "export const value = 42;\n",
+		"dist/index.d.ts":      "export declare const value: number;\n",
+		"dist/init.luau":       "return { value = 42 }\n",
+	}
+	for root, files := range map[string]map[string]string{game: gameFiles, dependency: dependencyFiles} {
+		for name, content := range files {
+			path := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	link := filepath.Join(game, "node_modules", "@flux", "core")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, dependency).CombinedOutput(); err != nil {
+			t.Fatalf("mklink /J: %v: %s", err, output)
+		}
+	} else if err := os.Symlink(dependency, link); err != nil {
+		t.Fatal(err)
+	}
+
+	files, diags, err := CompileProject(game)
+	if err != nil {
+		t.Fatalf("CompileProject: %v (diags: %v)", err, diags)
+	}
+	if len(diags) > 0 {
+		t.Fatalf("diagnostics: %v", diags)
+	}
+	if len(files) != 4 {
+		t.Fatalf("produced %d files, want the 4 game files only (%v)", len(files), keys(files))
+	}
+	main := files["out/main.luau"]
+	if !strings.Contains(main, `"rbxts_include", "node_modules", "@flux", "core"`) {
+		t.Fatalf("workspace import did not target the package runtime:\n%s", main)
+	}
+	for _, name := range []string{"first", "second", "third"} {
+		if _, ok := files["out/"+name+".luau"]; !ok {
+			t.Errorf("out/%s.luau missing (%v)", name, keys(files))
+		}
 	}
 }
