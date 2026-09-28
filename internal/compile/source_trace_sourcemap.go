@@ -7,7 +7,42 @@ import (
 
 	"rotor/internal/transformer"
 	"rotor/tsgo/sourcemap"
+	"rotor/tsgo/tspath"
+	"rotor/tsgo/vfs/osvfs"
 )
+
+func rewriteSourceMapPaths(raw, generatedFileName string) (string, error) {
+	var sourceMap rawSourceMap
+	if err := json.Unmarshal([]byte(raw), &sourceMap); err != nil {
+		return "", fmt.Errorf("parse Luau source map: %w", err)
+	}
+	if sourceMap.Version != 3 {
+		return "", fmt.Errorf("parse Luau source map: version = %d, want 3", sourceMap.Version)
+	}
+
+	generatedFileName = tspath.NormalizePath(generatedFileName)
+	generatedDirectory := tspath.GetDirectoryPath(generatedFileName)
+	pathOptions := tspath.ComparePathsOptions{
+		UseCaseSensitiveFileNames: osvfs.FS().UseCaseSensitiveFileNames(),
+	}
+	sourceMap.File = tspath.GetBaseFileName(generatedFileName)
+	for i, source := range sourceMap.Sources {
+		// Match TypeScript's source-map generator: make sources relative when
+		// their roots match and use a file URL across Windows volumes.
+		sourceMap.Sources[i] = tspath.GetRelativePathToDirectoryOrUrl(
+			generatedDirectory,
+			tspath.NormalizePath(source),
+			true,
+			pathOptions,
+		)
+	}
+
+	encoded, err := json.Marshal(sourceMap)
+	if err != nil {
+		return "", fmt.Errorf("encode Luau source map: %w", err)
+	}
+	return string(encoded), nil
+}
 
 func rewriteSourceMapWithTrace(raw string, trace *sourceTraceMap) (string, error) {
 	var sourceMap rawSourceMap

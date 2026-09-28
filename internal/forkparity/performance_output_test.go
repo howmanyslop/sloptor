@@ -34,6 +34,7 @@ func TestPerformanceOutputFixture(t *testing.T) {
 		CompilerVersion                 string `json:"compilerVersion"`
 		ZipDigest                       string `json:"zipDigest"`
 		BaselineCaptureCommand          string `json:"baselineCaptureCommand"`
+		SourceMapGoldenRefresh          string `json:"sourceMapGoldenRefresh"`
 		DirectArchiveExecutionAvailable bool   `json:"directArchiveExecutionAvailable"`
 	}
 	if err := json.Unmarshal(provenanceBytes, &provenance); err != nil {
@@ -64,6 +65,9 @@ func TestPerformanceOutputFixture(t *testing.T) {
 	}
 	if provenance.BaselineCaptureCommand == "" {
 		t.Fatal("baseline capture command is empty")
+	}
+	if provenance.SourceMapGoldenRefresh == "" {
+		t.Fatal("source-map golden refresh provenance is empty")
 	}
 	if got := forkRuntimeDependenciesAvailable(extractDir); got != provenance.DirectArchiveExecutionAvailable {
 		t.Fatalf("direct archive availability = %t, want provenance %t", got, provenance.DirectArchiveExecutionAvailable)

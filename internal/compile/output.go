@@ -348,6 +348,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		sourceFilesByOutput[relOut] = sourceFile
 	}
 	for i, relOut := range relOuts {
+		absOut := filepath.Join(filepath.FromSlash(dir), filepath.FromSlash(relOut))
 		sourceMap, hasSourceMap := sourceMaps[relOut+".map"]
 		if hasSourceMap {
 			timings.addScheduledSourceMapWrite()
@@ -361,6 +362,11 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 					return nil, nil, err
 				}
 			}
+			sourceMap, err = rewriteSourceMapPaths(sourceMap, absOut)
+			if err != nil {
+				stopCompiledOutputWrites()
+				return nil, nil, err
+			}
 		}
 		jobs[i] = func() error {
 			// Defense-in-depth: output paths are derived from source/Rojo path
@@ -368,7 +374,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			if err := assertLocalOutputPath(relOut); err != nil {
 				return err
 			}
-			absOut := filepath.Join(filepath.FromSlash(dir), filepath.FromSlash(relOut))
 			w, err := writer.write(absOut, outputs[relOut], opts.WriteOnlyChanged)
 			wrote[i] = w
 			timings.recordOutputWrite(absOut, w)
@@ -379,7 +384,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			timings.recordOutputWrite(absOut+".map", mapWrote)
 			return err
 		}
-		absOut := filepath.Join(filepath.FromSlash(dir), filepath.FromSlash(relOut))
 		writePaths = append(writePaths, absOut)
 		if hasSourceMap {
 			writePaths = append(writePaths, absOut+".map")

@@ -178,6 +178,8 @@ func TestTransformerSourceMapOriginalContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sourceMap struct {
+		File           string   `json:"file"`
+		Sources        []string `json:"sources"`
 		SourcesContent []string `json:"sourcesContent"`
 		Mappings       string   `json:"mappings"`
 	}
@@ -186,6 +188,12 @@ func TestTransformerSourceMapOriginalContent(t *testing.T) {
 	}
 	if len(sourceMap.SourcesContent) != 1 || sourceMap.SourcesContent[0] != original {
 		t.Fatalf("sourcesContent = %q, want original source %q", sourceMap.SourcesContent, original)
+	}
+	if sourceMap.File != "main.luau" {
+		t.Errorf("file = %q, want main.luau", sourceMap.File)
+	}
+	if len(sourceMap.Sources) != 1 || sourceMap.Sources[0] != "../src/main.ts" {
+		t.Errorf("sources = %q, want [../src/main.ts]", sourceMap.Sources)
 	}
 	if sourceMap.Mappings == "" {
 		t.Fatal("transformed source map has no mappings")
