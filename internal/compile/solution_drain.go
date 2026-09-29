@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime/trace"
+	"sort"
 )
 
 type solutionBuildDrainer struct {
@@ -12,6 +13,13 @@ type solutionBuildDrainer struct {
 }
 
 func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
+	result, _, messages, err := c.DrainWithProjectResults()
+	return result, messages, err
+}
+
+// DrainWithProjectResults drains one union and returns a terminal, owned
+// outcome for every emitted project in deterministic graph order.
+func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []SolutionProjectResult, []string, error) {
 	if c.timings != nil {
 		defer c.timings.finish()
 	}
@@ -36,12 +44,12 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 	}
 
 	type drainOutcome struct {
-		skip      bool
-		blockedBy string
-		result    *BuildResult
-		messages  []string
-		err       error
-		persists  []func() error
+		skip     bool
+		blockers []string
+		result   *BuildResult
+		messages []string
+		err      error
+		persists []func() error
 	}
 	outcomes := make([]drainOutcome, len(c.graph.Projects))
 	cache := newSolutionCompileCache()
@@ -62,13 +70,14 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 			return nil
 		}
 		for _, predecessor := range tasks[index].predecessors {
-			if outcomes[predecessor].err == nil {
-				continue
+			if outcomes[predecessor].err != nil {
+				outcome.blockers = append(outcome.blockers, c.graph.Projects[predecessor].ConfigPath)
 			}
-			outcome.blockedBy = c.graph.Projects[predecessor].ConfigPath
-			outcome.err = fmt.Errorf("compile: project %s blocked by failed dependency %s", project.ConfigPath, outcome.blockedBy)
+		}
+		if len(outcome.blockers) > 0 {
+			outcome.err = fmt.Errorf("compile: project %s blocked by failed dependency %s", project.ConfigPath, outcome.blockers[0])
 			if c.timings != nil {
-				c.timings.setProjectStatus(project.ConfigPath, ProjectTimingStatusBlocked, outcome.blockedBy)
+				c.timings.setProjectStatus(project.ConfigPath, ProjectTimingStatusBlocked, outcome.blockers[0])
 			}
 			return outcome.err
 		}
@@ -120,13 +129,29 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 				}
 			}
 		}
+		if outcome.err != nil && (outcome.result == nil || len(outcome.result.Diagnostics) == 0) {
+			diagnostics := stringDiagnostics(outcome.messages)
+			if len(diagnostics) == 0 {
+				diagnostics = []DiagnosticInfo{{Message: outcome.err.Error()}}
+			}
+			if outcome.result == nil {
+				outcome.result = &BuildResult{Outputs: map[string]string{}}
+			}
+			outcome.result.Diagnostics = diagnostics
+		}
 		return outcome.err
 	})
 
 	var firstErr error
+	projectResults := make([]SolutionProjectResult, 0, len(c.graph.Projects))
 	for index, project := range c.graph.Projects {
 		outcome := outcomes[index]
 		if outcome.skip {
+			projectResults = append(projectResults, SolutionProjectResult{
+				ConfigPath: project.ConfigPath,
+				Status:     SolutionProjectNoChange,
+				Timings:    c.projectTiming(project.ConfigPath, ProjectTimingStatusSkipped),
+			})
 			continue
 		}
 		if appender, ok := c.drainer.(interface{ appendPersists([]func() error) }); ok {
@@ -138,8 +163,8 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 			mergeSolutionBuildResult(result, project, outcome.result)
 		}
 		if outcome.err != nil {
-			if outcome.blockedBy != "" {
-				state.BlockedBy = outcome.blockedBy
+			if len(outcome.blockers) > 0 {
+				state.BlockedBy = outcome.blockers[0]
 				state.Err = outcome.err
 				result.Diagnostics = append(result.Diagnostics, DiagnosticInfo{Message: outcome.err.Error()})
 			} else {
@@ -160,16 +185,61 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 			state.forceFullBuild = false
 		}
 		c.states[project.ConfigPath] = state
+
+		projectResult := SolutionProjectResult{
+			ConfigPath: project.ConfigPath,
+			Blockers:   append([]string(nil), outcome.blockers...),
+		}
+		if outcome.result != nil {
+			projectResult.Diagnostics = append([]DiagnosticInfo(nil), outcome.result.Diagnostics...)
+			projectResult.Outputs = make([]string, 0, len(outcome.result.Outputs))
+			for output := range outcome.result.Outputs {
+				projectResult.Outputs = append(projectResult.Outputs, filepath.ToSlash(output))
+			}
+			sort.Strings(projectResult.Outputs)
+			projectResult.OutputCount = len(projectResult.Outputs)
+		}
+		switch {
+		case len(outcome.blockers) > 0:
+			projectResult.Status = SolutionProjectBlocked
+			projectResult.Diagnostics = nil
+		case outcome.err != nil:
+			projectResult.Status = SolutionProjectFailed
+		default:
+			projectResult.Status = SolutionProjectSuccess
+		}
+		projectResult.Timings = c.projectTiming(project.ConfigPath, string(projectResult.Status))
+		if projectResult.Status == SolutionProjectSuccess &&
+			projectResult.Timings.Counts.TotalSources > 0 &&
+			projectResult.Timings.Counts.SelectedSources == 0 &&
+			projectResult.Timings.Counts.EmittedEntries == 0 {
+			projectResult.Status = SolutionProjectNoChange
+			projectResult.Timings.Status = string(SolutionProjectNoChange)
+		}
+		projectResults = append(projectResults, projectResult)
 	}
 	if firstErr != nil {
-		return result, diagnosticInfoMessages(result.Diagnostics), firstErr
+		return result, projectResults, diagnosticInfoMessages(result.Diagnostics), firstErr
 	}
 	if drainer, ok := c.drainer.(interface{ persist() error }); ok {
 		if err := drainer.persist(); err != nil {
-			return result, diagnosticInfoMessages(result.Diagnostics), err
+			return result, projectResults, diagnosticInfoMessages(result.Diagnostics), err
 		}
 	}
-	return result, nil, nil
+	return result, projectResults, nil, nil
+}
+
+func (c *SolutionCoordinator) projectTiming(configPath, fallbackStatus string) ProjectBuildTimings {
+	timing := ProjectBuildTimings{ConfigPath: configPath, Status: fallbackStatus}
+	if c.timings == nil {
+		return timing
+	}
+	c.timings.mu.Lock()
+	defer c.timings.mu.Unlock()
+	if index, ok := c.timings.projectIndex[configPath]; ok {
+		return c.timings.Projects[index]
+	}
+	return timing
 }
 
 func EffectiveSolutionBuilders(entry ProjectOptions) int {

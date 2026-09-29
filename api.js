@@ -107,9 +107,23 @@ class BuildSession {
 		if (this.#disposed) {
 			return Promise.reject(new SloptorClientError("SESSION_DISPOSED", "The Sloptor build session is disposed"));
 		}
-		if (!request || typeof request.project !== "string" || request.project.length === 0) {
+		const hasProject = request && request.project !== undefined;
+		const hasRoots = request && request.roots !== undefined;
+		if (hasProject === hasRoots) {
+			return Promise.reject(new SloptorClientError("INVALID_REQUEST", "provide project or roots, not both"));
+		}
+		if (hasProject && (typeof request.project !== "string" || request.project.length === 0)) {
 			return Promise.reject(new SloptorClientError("INVALID_REQUEST", "project must be a non-empty path"));
 		}
+		if (
+			hasRoots &&
+			(!Array.isArray(request.roots) ||
+				request.roots.length === 0 ||
+				request.roots.some((root) => typeof root !== "string" || root.length === 0))
+		) {
+			return Promise.reject(new SloptorClientError("INVALID_REQUEST", "roots must contain one or more non-empty paths"));
+		}
+		const roots = hasProject ? [request.project] : request.roots;
 
 		const operation = this.#queue.then(async () => {
 			if (request.signal?.aborted) {
@@ -126,7 +140,7 @@ class BuildSession {
 				await this.#abortSession();
 				throw new SloptorClientError("BUILD_CANCELLED", "The build was cancelled");
 			}
-			const result = await this.#request("build", { project: path.resolve(request.project) }, request.signal);
+			const result = await this.#request("build", { roots: roots.map((root) => path.resolve(root)) }, request.signal);
 			return this.#validateBuildResult(result);
 		});
 		this.#queue = operation.catch(() => {});
@@ -374,6 +388,42 @@ class BuildSession {
 			(diagnostic.code === undefined || typeof diagnostic.code === "string") &&
 			(diagnostic.severity === "error" || diagnostic.severity === "warning") &&
 			typeof diagnostic.message === "string";
+		const validCounts = (counts) =>
+			counts !== null &&
+			typeof counts === "object" &&
+			Object.values(counts).every((value) => Number.isSafeInteger(value) && value >= 0);
+		const validStages = (stages) =>
+			stages !== null &&
+			typeof stages === "object" &&
+			Object.values(stages).every((value) => Number.isSafeInteger(value) && value >= 0);
+		const validProject = (project) =>
+			project !== null &&
+			typeof project === "object" &&
+			typeof project.config === "string" &&
+			["success", "no-change", "blocked", "failed"].includes(project.status) &&
+			Array.isArray(project.blockers) &&
+			project.blockers.every((blocker) => typeof blocker === "string") &&
+			Array.isArray(project.diagnostics) &&
+			project.diagnostics.every(validDiagnostic) &&
+			Array.isArray(project.outputs) &&
+			project.outputs.every((output) => typeof output === "string") &&
+			Number.isSafeInteger(project.outputCount) &&
+			project.outputCount >= 0 &&
+			project.timings !== null &&
+			typeof project.timings === "object" &&
+			Number.isSafeInteger(project.timings.durationMs) &&
+			project.timings.durationMs >= 0 &&
+			validStages(project.timings.stages) &&
+			validCounts(project.timings.counts);
+		const validTelemetry = (telemetry) =>
+			telemetry !== null &&
+			typeof telemetry === "object" &&
+			Number.isSafeInteger(telemetry.scheduledProjects) &&
+			telemetry.scheduledProjects >= 0 &&
+			Number.isSafeInteger(telemetry.transformedProjects) &&
+			telemetry.transformedProjects >= 0 &&
+			Number.isSafeInteger(telemetry.emittedProjects) &&
+			telemetry.emittedProjects >= 0;
 		const valid =
 			result !== null &&
 			typeof result === "object" &&
@@ -385,7 +435,10 @@ class BuildSession {
 			Array.isArray(result.diagnostics) &&
 			result.diagnostics.every(validDiagnostic) &&
 			Array.isArray(result.outputs) &&
-			result.outputs.every((output) => typeof output === "string");
+			result.outputs.every((output) => typeof output === "string") &&
+			Array.isArray(result.projects) &&
+			result.projects.every(validProject) &&
+			validTelemetry(result.telemetry);
 		if (!valid) {
 			const error = new SloptorClientError("PROTOCOL_ERROR", "Sloptor API server sent an invalid build result");
 			await this.#terminate(error);

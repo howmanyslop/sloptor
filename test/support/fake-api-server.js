@@ -48,7 +48,15 @@ lines.on("line", (line) => {
 				result:
 					mode === "malformed-result"
 						? { ok: "yes" }
-						: { ok: true, files: 0, durationMs: 0, diagnostics: [], outputs: [] },
+						: {
+							ok: true,
+							files: 0,
+							durationMs: 0,
+							diagnostics: [],
+							outputs: [],
+							projects: [],
+							telemetry: { scheduledProjects: 0, transformedProjects: 0, emittedProjects: 0 },
+						},
 			})}\n`,
 		);
 		return;

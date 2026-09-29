@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"composite": true,
+		"declaration": true,
+		"downlevelIteration": true,
+		"module": "commonjs",
+		"moduleDetection": "force",
+		"moduleResolution": "node",
+		"noLib": true,
+		"outDir": "out",
+		"rootDir": "src",
+		"strict": true,
+		"target": "esnext",
+		"typeRoots": ["node_modules/@rbxts"],
+		"types": []
+	},
+	"include": ["src"],
+	"references": [
+		{
+			"path": "../shared"
+		}
+	]
+}

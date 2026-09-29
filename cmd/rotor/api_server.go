@@ -31,26 +31,35 @@ func newAPIServerCommand(streams cliStreams) *cobra.Command {
 	}
 }
 
-func runAPIBuild(_ context.Context, project string) (buildapi.BuildResult, error) {
+func runAPIBuild(_ context.Context, requestedRoots []string) (buildapi.BuildResult, error) {
 	started := time.Now()
-	tsConfigPath, err := findTsConfigPath(project)
-	if err != nil {
-		return buildapi.ResultFromCompile(project, nil, nil, time.Since(started), err), nil
-	}
-	declared, err := readRbxtsOptionsChecked(tsConfigPath)
-	if err != nil {
-		return buildapi.ResultFromCompile(project, nil, nil, time.Since(started), err), nil
-	}
-	opts := mergeProjectOptions(defaultProjectOptions, declared, nil)
-	opts.watch = false
-
-	dir := filepath.Dir(tsConfigPath)
 	timings := compile.NewBuildTimings()
 	timings.SetProductVersion(version)
-	compileOptions := projectCompileOptions(tsConfigPath, opts)
-	compileOptions.Timings = timings
+	roots := make([]compile.SolutionRoot, 0, len(requestedRoots))
+	for _, requestedRoot := range requestedRoots {
+		tsConfigPath, err := findTsConfigPath(requestedRoot)
+		if err != nil {
+			return buildapi.ResultFromCompile(requestedRoot, nil, nil, time.Since(started), err), nil
+		}
+		declared, err := readRbxtsOptionsChecked(tsConfigPath)
+		if err != nil {
+			return buildapi.ResultFromCompile(requestedRoot, nil, nil, time.Since(started), err), nil
+		}
+		opts := mergeProjectOptions(defaultProjectOptions, declared)
+		opts.watch = false
+		// An empty argv layer makes referenced projects derive from defaults and
+		// their own rbxts options, exactly like `build --build` with no flags.
+		opts.argv = &partialProjectOptions{}
+		compileOptions := projectCompileOptions(tsConfigPath, opts)
+		compileOptions.Timings = timings
+		roots = append(roots, compile.SolutionRoot{ConfigPath: tsConfigPath, Options: compileOptions})
+	}
 
-	result, messages, buildErr := compile.BuildProjectWithOptions(dir, compileOptions)
-	diagnostics := buildDiagnostics(result, messages)
-	return buildapi.ResultFromCompile(dir, result, diagnostics, time.Since(started), buildErr), nil
+	coordinator, err := compile.NewSolutionCoordinatorForRootOptions(roots)
+	if err != nil {
+		return buildapi.ResultFromCompile(filepath.Dir(roots[0].ConfigPath), nil, nil, time.Since(started), err), nil
+	}
+	_, projects, _, buildErr := coordinator.DrainWithProjectResults()
+	timings.SetOK(buildErr == nil)
+	return buildapi.ResultFromSolution(projects, timings, time.Since(started), buildErr), nil
 }

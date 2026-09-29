@@ -875,6 +875,9 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	stopDiagnostics()
 
 	stopTransform := opts.Timings.startStage(nativeTransformRenderStage)
+	if len(sourceFiles) > 0 {
+		opts.Timings.markProjectTransformed()
+	}
 	wg = core.NewWorkGroup(program.SingleThreaded() || len(groups) <= 1)
 	for _, group := range groups {
 		group := group

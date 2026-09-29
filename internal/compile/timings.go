@@ -112,6 +112,9 @@ type BuildTimingStages struct {
 }
 
 type BuildTimingCounts struct {
+	ScheduledProjects          int   `json:"scheduledProjects"`
+	TransformedProjects        int   `json:"transformedProjects"`
+	EmittedProjects            int   `json:"emittedProjects"`
 	TotalSources               int   `json:"totalSources"`
 	SelectedSources            int   `json:"selectedSources"`
 	EmittedEntries             int   `json:"emittedEntries"`
@@ -521,6 +524,18 @@ func (timings *BuildTimings) setEmittedEntries(entries int) {
 	timings.mu.Lock()
 	defer timings.mu.Unlock()
 	timings.Counts.EmittedEntries = entries
+	if entries > 0 {
+		timings.Counts.EmittedProjects = 1
+	}
+}
+
+func (timings *BuildTimings) markProjectTransformed() {
+	if timings == nil {
+		return
+	}
+	timings.mu.Lock()
+	defer timings.mu.Unlock()
+	timings.Counts.TransformedProjects = 1
 }
 
 func (timings *BuildTimings) finish() {
@@ -567,8 +582,12 @@ func (timings *BuildTimings) initProjects(projects []SolutionProject) {
 	defer timings.mu.Unlock()
 	timings.Projects = make([]ProjectBuildTimings, len(projects))
 	timings.projectIndex = make(map[string]int, len(projects))
+	timings.Counts.ScheduledProjects = len(projects)
 	for index, project := range projects {
-		timings.Projects[index] = ProjectBuildTimings{ConfigPath: project.ConfigPath}
+		timings.Projects[index] = ProjectBuildTimings{
+			ConfigPath: project.ConfigPath,
+			Counts:     BuildTimingCounts{ScheduledProjects: 1},
+		}
 		timings.projectIndex[project.ConfigPath] = index
 	}
 }
@@ -580,6 +599,7 @@ func (timings *BuildTimings) newProject(configPath string) *BuildTimings {
 	child := NewBuildTimings()
 	child.parent = timings
 	child.configPath = configPath
+	child.Counts.ScheduledProjects = 1
 	child.ctx = pprof.WithLabels(context.Background(), pprof.Labels("project", configPath))
 	return child
 }
@@ -658,6 +678,8 @@ func (timings *BuildTimings) attachProject(snapshot ProjectBuildTimings, child *
 	timings.Counts.TotalSources += snapshot.Counts.TotalSources
 	timings.Counts.SelectedSources += snapshot.Counts.SelectedSources
 	timings.Counts.EmittedEntries += snapshot.Counts.EmittedEntries
+	timings.Counts.TransformedProjects += snapshot.Counts.TransformedProjects
+	timings.Counts.EmittedProjects += snapshot.Counts.EmittedProjects
 	timings.Counts.ScheduledSourceMapWrites += snapshot.Counts.ScheduledSourceMapWrites
 	timings.Counts.ScheduledDeclarationWrites += snapshot.Counts.ScheduledDeclarationWrites
 	timings.Counts.ActualWrites += snapshot.Counts.ActualWrites

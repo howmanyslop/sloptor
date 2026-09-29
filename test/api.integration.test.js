@@ -58,6 +58,75 @@ test("one session builds a project repeatedly through one native server", async 
 	await assert.rejects(session.build({ project }), { code: "SESSION_DISPOSED" });
 });
 
+test("one request builds a canonical union with project-owned results and CLI byte parity", async () => {
+	const apiRoot = path.join(temporaryRoot, "multi-root-api");
+	const cliRoot = path.join(temporaryRoot, "multi-root-cli");
+	const fixture = path.join(__dirname, "fixtures", "multi-root");
+	fs.cpSync(fixture, apiRoot, { recursive: true });
+	fs.cpSync(fixture, cliRoot, { recursive: true });
+
+	const productionConfig = path.join(apiRoot, "production", "tsconfig.json");
+	const testsConfig = path.join(apiRoot, "tests", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({
+			roots: [productionConfig, path.join(apiRoot, "production", "..", "production", "tsconfig.json"), testsConfig],
+		});
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.diagnostics, []);
+	assert.equal(result.projects.length, 3);
+	assert.equal(new Set(result.projects.map((project) => project.config.toLowerCase())).size, 3);
+	assert.deepEqual(result.projects.map((project) => project.status), ["success", "success", "success"]);
+	assert.deepEqual(result.projects.map((project) => project.timings.counts.scheduledProjects), [1, 1, 1]);
+	assert.deepEqual(result.telemetry, { scheduledProjects: 3, transformedProjects: 3, emittedProjects: 3 });
+	for (const project of result.projects) {
+		assert.deepEqual(project.blockers, []);
+		assert.deepEqual(project.diagnostics, []);
+		assert.equal(project.outputCount, project.outputs.length);
+		assert.ok(project.outputCount > 0);
+	}
+
+	for (const root of ["production", "tests"]) {
+		execFileSync(executable, ["build", "--build", "--project", path.join(cliRoot, root, "tsconfig.json")], {
+			cwd: cliRoot,
+			stdio: "pipe",
+		});
+	}
+	assert.deepEqual(outputArtifacts(apiRoot), outputArtifacts(cliRoot));
+});
+
+test("a union failure owns one diagnostic and explicitly blocks every dependent", async () => {
+	const root = path.join(temporaryRoot, "multi-root-failure");
+	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	fs.writeFileSync(path.join(root, "shared", "src", "value.ts"), "export const sharedValue: string = 40;\n");
+
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({
+			roots: [path.join(root, "production", "tsconfig.json"), path.join(root, "tests", "tsconfig.json")],
+		});
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, false);
+	assert.equal(result.diagnostics.length, 1);
+	assert.equal(result.diagnostics[0].code, "TS2322");
+	assert.deepEqual(result.projects.map((project) => project.status), ["failed", "blocked", "blocked"]);
+	assert.equal(result.projects[0].diagnostics.length, 1);
+	for (const project of result.projects.slice(1)) {
+		assert.deepEqual(project.diagnostics, []);
+		assert.deepEqual(project.blockers, [result.projects[0].config]);
+	}
+	assert.deepEqual(result.telemetry, { scheduledProjects: 3, transformedProjects: 0, emittedProjects: 0 });
+});
+
 test("an installed package resolves its native executable without an override", async () => {
 	const installedPackage = path.join(temporaryRoot, "installed-package");
 	fs.mkdirSync(path.join(installedPackage, "bin"), { recursive: true });
@@ -81,3 +150,16 @@ test("an installed package resolves its native executable without an override", 
 		await session.dispose();
 	}
 });
+
+function outputArtifacts(root) {
+	const artifacts = {};
+	for (const project of ["shared", "production", "tests"]) {
+		const output = path.join(root, project, "out");
+		for (const entry of fs.readdirSync(output, { recursive: true, withFileTypes: true })) {
+			if (!entry.isFile() || entry.name === "rbxts.copyfiles.json") continue;
+			const file = path.join(entry.parentPath, entry.name);
+			artifacts[path.relative(root, file).split(path.sep).join("/")] = fs.readFileSync(file).toString("base64");
+		}
+	}
+	return artifacts;
+}

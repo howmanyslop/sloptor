@@ -32,18 +32,42 @@ type Diagnostic struct {
 	Message  string `json:"message"`
 }
 
-// BuildResult is the complete single-project response at the protocol seam.
+// BuildResult is the complete request response at the protocol seam.
 type BuildResult struct {
-	OK          bool         `json:"ok"`
-	Files       int          `json:"files"`
-	DurationMS  int64        `json:"durationMs"`
-	Diagnostics []Diagnostic `json:"diagnostics"`
-	Outputs     []string     `json:"outputs"`
+	OK          bool            `json:"ok"`
+	Files       int             `json:"files"`
+	DurationMS  int64           `json:"durationMs"`
+	Diagnostics []Diagnostic    `json:"diagnostics"`
+	Outputs     []string        `json:"outputs"`
+	Projects    []ProjectResult `json:"projects"`
+	Telemetry   BuildTelemetry  `json:"telemetry"`
+}
+
+type BuildTelemetry struct {
+	ScheduledProjects   int `json:"scheduledProjects"`
+	TransformedProjects int `json:"transformedProjects"`
+	EmittedProjects     int `json:"emittedProjects"`
+}
+
+type ProjectResult struct {
+	Config      string                        `json:"config"`
+	Status      compile.SolutionProjectStatus `json:"status"`
+	Blockers    []string                      `json:"blockers"`
+	Diagnostics []Diagnostic                  `json:"diagnostics"`
+	Outputs     []string                      `json:"outputs"`
+	OutputCount int                           `json:"outputCount"`
+	Timings     ProjectTimings                `json:"timings"`
+}
+
+type ProjectTimings struct {
+	DurationMS int64                     `json:"durationMs"`
+	Stages     compile.BuildTimingStages `json:"stages"`
+	Counts     compile.BuildTimingCounts `json:"counts"`
 }
 
 // BuildFunc performs one build. Build failures belong in BuildResult;
 // returned errors are reserved for cancellation or server failures.
-type BuildFunc func(ctx context.Context, project string) (BuildResult, error)
+type BuildFunc func(ctx context.Context, roots []string) (BuildResult, error)
 
 // Server owns one initialized connection and at most one active build.
 type Server struct {
@@ -115,6 +139,7 @@ func ResultFromCompile(projectDir string, result *compile.BuildResult, diagnosti
 		DurationMS:  elapsed.Milliseconds(),
 		Diagnostics: []Diagnostic{},
 		Outputs:     []string{},
+		Projects:    []ProjectResult{},
 	}
 	if result != nil {
 		response.Outputs = make([]string, 0, len(result.Outputs))
@@ -144,6 +169,83 @@ func ResultFromCompile(projectDir string, result *compile.BuildResult, diagnosti
 		response.Diagnostics = append(response.Diagnostics, Diagnostic{Severity: "error", Message: buildErr.Error()})
 	}
 	return response
+}
+
+// ResultFromSolution converts coordinator-owned outcomes without reconstructing
+// diagnostic or output ownership from the aggregate result.
+func ResultFromSolution(projects []compile.SolutionProjectResult, timings *compile.BuildTimings, elapsed time.Duration, buildErr error) BuildResult {
+	response := BuildResult{
+		OK:          buildErr == nil,
+		DurationMS:  elapsed.Milliseconds(),
+		Diagnostics: []Diagnostic{},
+		Outputs:     []string{},
+		Projects:    make([]ProjectResult, 0, len(projects)),
+	}
+	if timings != nil {
+		response.Telemetry = BuildTelemetry{
+			ScheduledProjects:   timings.Counts.ScheduledProjects,
+			TransformedProjects: timings.Counts.TransformedProjects,
+			EmittedProjects:     timings.Counts.EmittedProjects,
+		}
+	}
+	for _, project := range projects {
+		projectDir := filepath.Dir(project.ConfigPath)
+		wire := ProjectResult{
+			Config:      filepath.ToSlash(project.ConfigPath),
+			Status:      project.Status,
+			Blockers:    make([]string, len(project.Blockers)),
+			Diagnostics: diagnosticsFromCompile(projectDir, project.Diagnostics),
+			Outputs:     append([]string{}, project.Outputs...),
+			OutputCount: project.OutputCount,
+			Timings: ProjectTimings{
+				DurationMS: project.Timings.BuildWallMs,
+				Stages:     project.Timings.Stages,
+				Counts:     project.Timings.Counts,
+			},
+		}
+		for index, blocker := range project.Blockers {
+			wire.Blockers[index] = filepath.ToSlash(blocker)
+		}
+		response.Projects = append(response.Projects, wire)
+		response.Files += project.OutputCount
+		if len(projects) == 1 {
+			response.Outputs = append(response.Outputs, project.Outputs...)
+		} else {
+			for _, output := range project.Outputs {
+				response.Outputs = append(response.Outputs, filepath.ToSlash(filepath.Join(projectDir, filepath.FromSlash(output))))
+			}
+		}
+		if project.Status == compile.SolutionProjectFailed {
+			response.Diagnostics = append(response.Diagnostics, wire.Diagnostics...)
+		}
+	}
+	sort.Strings(response.Outputs)
+	if buildErr != nil {
+		response.Files = 0
+		if len(response.Diagnostics) == 0 {
+			response.Diagnostics = append(response.Diagnostics, Diagnostic{Severity: "error", Message: buildErr.Error()})
+		}
+	}
+	return response
+}
+
+func diagnosticsFromCompile(projectDir string, diagnostics []compile.DiagnosticInfo) []Diagnostic {
+	result := make([]Diagnostic, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		severity := "error"
+		if diagnostic.Warning {
+			severity = "warning"
+		}
+		file := ""
+		if diagnostic.FileName != "" {
+			file = relativePath(projectDir, diagnostic.FileName)
+		}
+		result = append(result, Diagnostic{
+			File: file, Line: diagnostic.Line, Col: diagnostic.Col, Code: diagnostic.Code,
+			Severity: severity, Message: diagnostic.Message,
+		})
+	}
+	return result
 }
 
 type request struct {
@@ -176,7 +278,8 @@ type initializeResult struct {
 }
 
 type buildParams struct {
-	Project string `json:"project"`
+	Project string   `json:"project"`
+	Roots   []string `json:"roots"`
 }
 
 func (s *Server) initialize(id int64, raw json.RawMessage) {
@@ -215,9 +318,23 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 		s.respondError(id, "INVALID_REQUEST", err.Error())
 		return
 	}
-	if params.Project == "" {
-		s.respondError(id, "INVALID_REQUEST", "project must be a non-empty path")
+	if params.Project != "" && len(params.Roots) != 0 {
+		s.respondError(id, "INVALID_REQUEST", "provide project or roots, not both")
 		return
+	}
+	roots := params.Roots
+	if params.Project != "" {
+		roots = []string{params.Project}
+	}
+	if len(roots) == 0 {
+		s.respondError(id, "INVALID_REQUEST", "roots must contain at least one path")
+		return
+	}
+	for _, root := range roots {
+		if root == "" {
+			s.respondError(id, "INVALID_REQUEST", "roots must contain only non-empty paths")
+			return
+		}
 	}
 
 	s.activeMu.Lock()
@@ -234,7 +351,7 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 	s.builds.Add(1)
 	go func() {
 		defer s.builds.Done()
-		result, err := s.build(ctx, params.Project)
+		result, err := s.build(ctx, roots)
 
 		s.activeMu.Lock()
 		if s.activeID == id {
