@@ -34,7 +34,7 @@ test("one session builds a project repeatedly through one native server", async 
 		assert.deepEqual(first.diagnostics, []);
 		assert.equal(first.ok, true);
 		assert.equal(first.files, 1);
-		assert.deepEqual(first.outputs, ["out/main.luau"]);
+		assert.deepEqual(first.outputs, [path.join(project, "out", "main.luau").split(path.sep).join("/")]);
 		assert.match(fs.readFileSync(path.join(project, "out", "main.luau"), "utf8"), /answer = 42/);
 
 		fs.writeFileSync(path.join(project, "src", "main.ts"), "export const answer = 43;\n");
@@ -56,6 +56,47 @@ test("one session builds a project repeatedly through one native server", async 
 	}
 
 	await assert.rejects(session.build({ project }), { code: "SESSION_DISPOSED" });
+});
+
+test("project output ownership includes every cache artifact across no-change builds", async () => {
+	const project = path.join(temporaryRoot, "complete-output-ownership");
+	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	const configPath = path.join(project, "tsconfig.json");
+	const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+	Object.assign(config.compilerOptions, {
+		declaration: true,
+		declarationMap: true,
+		incremental: true,
+		sourceMap: true,
+		tsBuildInfoFile: "out/cache.tsbuildinfo",
+	});
+	fs.writeFileSync(configPath, JSON.stringify(config));
+	fs.writeFileSync(path.join(project, "src", "data.json"), '{"ok":true}\n');
+
+	const expected = [
+		"out/data.json",
+		"out/globals.d.ts",
+		"out/main.d.ts",
+		"out/main.d.ts.map",
+		"out/main.luau",
+		"out/main.luau.map",
+	];
+	const session = createBuildSession({ executable });
+	try {
+		const first = await session.build({ project });
+		const second = await session.build({ project });
+		assert.deepEqual([first.projects[0].status, second.projects[0].status], ["success", "no-change"]);
+		for (const result of [first, second]) {
+			assert.deepEqual(result.projects[0].outputs, expected);
+			assert.equal(result.projects[0].outputCount, expected.length);
+			assert.deepEqual(
+				result.outputs,
+				expected.map((output) => path.join(project, output).split(path.sep).join("/")),
+			);
+		}
+	} finally {
+		await session.dispose();
+	}
 });
 
 test("API transformer callbacks retain project state without spawning sidecars and match CLI bytes", async () => {
@@ -444,7 +485,7 @@ test("an installed package resolves its native executable without an override", 
 	try {
 		const result = await session.build({ project });
 		assert.equal(result.ok, true);
-		assert.deepEqual(result.outputs, ["out/main.luau"]);
+		assert.deepEqual(result.outputs, [path.join(project, "out", "main.luau").split(path.sep).join("/")]);
 	} finally {
 		await session.dispose();
 	}

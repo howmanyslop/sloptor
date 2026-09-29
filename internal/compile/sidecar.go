@@ -716,6 +716,15 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 
 func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
+	call := transformerCall{
+		dir:          dir,
+		configPath:   configPath,
+		compileFiles: compileFiles,
+		stampFiles:   stampFiles,
+		overlays:     overlays,
+		plugins:      plugins,
+		state:        state,
+	}
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, stats, err
@@ -725,16 +734,8 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 		return nil, stats, err
 	}
 
-	roundTripStage := sidecarRoundTripStage.traceName()
-	if logservice.Verbose {
-		if names := sidecarPluginNames(plugins, configPath); len(names) > 0 {
-			roundTripStage += " (" + strings.Join(names, ", ") + ")"
-		}
-	}
-
-	sidecarDirPath := canonicalSidecarPath(dir)
-	sidecarConfigPath := canonicalSidecarPath(configPath)
-	key := sidecarDirPath + "|" + sidecarConfigPath
+	roundTripStage := transformerRoundTripStageName(configPath, plugins)
+	sidecarDirPath, sidecarConfigPath, key := canonicalTransformerRequestPaths(dir, configPath)
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
@@ -765,35 +766,11 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 			}
 		}
 
-		stampNames := make([]string, 0, len(stampFiles))
-		for _, sourceFile := range stampFiles {
-			stampNames = append(stampNames, sourceFile.FileName())
-		}
-		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, true)
-		stats.reads += overlayReads
-		skipDiskScan := state != nil && state.diskScanned && len(session.stamps) > 0
-		changedFiles, ioStats, err := session.collectChangedFiles(stampNames, sidecarOverlays, skipDiskScan)
-		stats.stats += ioStats.stats
-		stats.reads += ioStats.reads
-		stats.changedFiles += ioStats.changedFiles
+		request, err := prepareTransformerRequest(call, session, sidecarDirPath, sidecarConfigPath, &stats)
 		if err != nil {
 			stats.prep += stopPrep()
 			return nil, stats, err
 		}
-
-		request := sidecarRequest{
-			Protocol:         1,
-			Operation:        "transform",
-			TsConfigPath:     filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:       filepath.FromSlash(sidecarDirPath),
-			CompileFileNames: make([]string, 0, len(compileFiles)),
-			ChangedFiles:     changedFiles,
-			Plugins:          plugins,
-		}
-		for _, sourceFile := range compileFiles {
-			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
-		}
-		request.RootFileNames = narrowedSidecarRoots(compileFiles, stampFiles)
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
@@ -801,7 +778,7 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 		}
 		stats.requestBytes += int64(len(payload))
 
-		ctx, cancel := context.WithTimeout(parent, timeout)
+		ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 		stopRoundTrip := logStageNamed(configPath, roundTripStage)
 		line, err := session.writeAndRead(ctx, payload)
 		stats.roundTrip += stopRoundTrip()
@@ -828,13 +805,7 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 			return nil, stats, session.fail(err)
 		}
 		stats.decode += time.Since(decodeStarted)
-		if response.Metrics != nil {
-			stats.nodeWallMs = response.Metrics.WallMs
-			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
-			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
-			stats.nodeVersion = response.Metrics.NodeVersion
-			logPluginMetrics(configPath, response.Metrics.Plugins)
-		}
+		applyTransformerResponseMetrics(&stats, &response, configPath)
 		return &response, stats, nil
 	}
 }
@@ -892,9 +863,7 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 		return nil, stats, err
 	}
 
-	sidecarDirPath := canonicalSidecarPath(dir)
-	sidecarConfigPath := canonicalSidecarPath(configPath)
-	key := sidecarDirPath + "|" + sidecarConfigPath
+	request, sidecarDirPath, _, key := prepareTransformerValidationRequest(dir, configPath)
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
@@ -921,12 +890,6 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 			}
 		}
 
-		request := sidecarRequest{
-			Protocol:     1,
-			Operation:    "validate",
-			TsConfigPath: filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:   filepath.FromSlash(sidecarDirPath),
-		}
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
@@ -934,7 +897,7 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 		}
 		stats.requestBytes += int64(len(payload))
 
-		ctx, cancel := context.WithTimeout(parent, timeout)
+		ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 		stopRoundTrip := logStageNamed(configPath, sidecarRoundTripStage.traceName())
 		line, err := session.writeAndRead(ctx, payload)
 		stats.roundTrip += stopRoundTrip()
@@ -955,12 +918,7 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 			return nil, stats, session.fail(err)
 		}
 		stats.decode += time.Since(decodeStarted)
-		if response.Metrics != nil {
-			stats.nodeWallMs = response.Metrics.WallMs
-			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
-			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
-			stats.nodeVersion = response.Metrics.NodeVersion
-		}
+		applyTransformerResponseMetrics(&stats, &response, configPath)
 		return &response, stats, nil
 	}
 }
@@ -975,6 +933,16 @@ func canonicalSidecarPath(path string) string {
 		return filepath.ToSlash(resolved)
 	}
 	return filepath.ToSlash(cleaned)
+}
+
+func transformerRoundTripStageName(configPath string, plugins []json.RawMessage) string {
+	stage := sidecarRoundTripStage.traceName()
+	if logservice.Verbose {
+		if names := sidecarPluginNames(plugins, configPath); len(names) > 0 {
+			stage += " (" + strings.Join(names, ", ") + ")"
+		}
+	}
+	return stage
 }
 
 func logPluginMetrics(configPath string, plugins []sidecarPluginMetric) {

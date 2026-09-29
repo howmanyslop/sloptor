@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 
 	"rotor/tsgo/ast"
 )
@@ -26,10 +27,18 @@ type TransformerChangedFile struct {
 }
 
 type TransformerResponse struct {
-	Diagnostics                   []TransformerDiagnostic     `json:"diagnostics"`
-	Transformed                   []TransformerOutputFile     `json:"transformed"`
-	Metrics                       *TransformerResponseMetrics `json:"metrics,omitempty"`
-	AfterDeclarationsTransformers int                         `json:"afterDeclarationsTransformers"`
+	Diagnostics                   []TransformerDiagnostic      `json:"diagnostics"`
+	Transformed                   []TransformerOutputFile      `json:"transformed"`
+	Metrics                       *TransformerResponseMetrics  `json:"metrics,omitempty"`
+	AfterDeclarationsTransformers int                          `json:"afterDeclarationsTransformers"`
+	Transport                     *TransformerTransportMetrics `json:"-"`
+}
+
+// TransformerTransportMetrics are populated by transports that can measure
+// the bytes they actually send and receive without serializing payloads again.
+type TransformerTransportMetrics struct {
+	RequestBytes  int64
+	ResponseBytes int64
 }
 
 type TransformerResponseMetrics struct {
@@ -78,6 +87,54 @@ type transformerCall struct {
 	overlays     map[string]string
 	plugins      []json.RawMessage
 	state        *sidecarBuildState
+}
+
+func canonicalTransformerRequestPaths(dir, configPath string) (string, string, string) {
+	dir = canonicalSidecarPath(dir)
+	configPath = canonicalSidecarPath(configPath)
+	return dir, configPath, dir + "|" + configPath
+}
+
+func prepareTransformerRequest(call transformerCall, tracker *sidecarSession, dir, configPath string, stats *sidecarCallStats) (sidecarRequest, error) {
+	stampNames := make([]string, 0, len(call.stampFiles))
+	for _, sourceFile := range call.stampFiles {
+		stampNames = append(stampNames, sourceFile.FileName())
+	}
+	overlays, overlayReads := mergeSidecarOverlays(call.compileFiles, call.overlays, call.state, true)
+	stats.reads += overlayReads
+	skipDiskScan := call.state != nil && call.state.diskScanned && len(tracker.stamps) > 0
+	changedFiles, ioStats, err := tracker.collectChangedFiles(stampNames, overlays, skipDiskScan)
+	stats.stats += ioStats.stats
+	stats.reads += ioStats.reads
+	stats.changedFiles += ioStats.changedFiles
+	if err != nil {
+		return sidecarRequest{}, err
+	}
+
+	request := sidecarRequest{
+		Protocol:         1,
+		Operation:        "transform",
+		TsConfigPath:     filepath.FromSlash(configPath),
+		ProjectDir:       filepath.FromSlash(dir),
+		CompileFileNames: make([]string, 0, len(call.compileFiles)),
+		ChangedFiles:     changedFiles,
+		Plugins:          call.plugins,
+	}
+	for _, sourceFile := range call.compileFiles {
+		request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
+	}
+	request.RootFileNames = narrowedSidecarRoots(call.compileFiles, call.stampFiles)
+	return request, nil
+}
+
+func prepareTransformerValidationRequest(dir, configPath string) (sidecarRequest, string, string, string) {
+	dir, configPath, key := canonicalTransformerRequestPaths(dir, configPath)
+	return sidecarRequest{
+		Protocol:     1,
+		Operation:    "validate",
+		TsConfigPath: filepath.FromSlash(configPath),
+		ProjectDir:   filepath.FromSlash(dir),
+	}, dir, configPath, key
 }
 
 type transformerCallbackContext struct {

@@ -16,6 +16,15 @@ type recordingSolutionDrainer struct {
 	fail    string
 }
 
+type ownedOutputSolutionDrainer struct{}
+
+func (ownedOutputSolutionDrainer) Drain(SolutionProject) (*BuildResult, []string, error) {
+	return &BuildResult{
+		Outputs:      map[string]string{"out/main.luau": "compiled"},
+		OwnedOutputs: []string{"out/main.d.ts", "out/main.luau"},
+	}, nil, nil
+}
+
 func (d *recordingSolutionDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
 	d.mu.Lock()
 	d.drained = append(d.drained, filepath.Base(filepath.Dir(project.ConfigPath)))
@@ -261,6 +270,29 @@ func TestSolutionCoordinatorReportsNoChangeForUpToDateProject(t *testing.T) {
 	}
 	if first[0].Status != SolutionProjectSuccess || second[0].Status != SolutionProjectNoChange {
 		t.Fatalf("statuses = %q then %q, want success then no-change", first[0].Status, second[0].Status)
+	}
+}
+
+func TestSolutionCoordinatorRetainsCompleteOutputOwnershipForNoChangeProjects(t *testing.T) {
+	root := t.TempDir()
+	writeSolutionConfig(t, root, "tsconfig.json", nil, false)
+	coordinator, err := NewSolutionCoordinatorWithDrainer(
+		filepath.Join(root, "tsconfig.json"),
+		ProjectOptions{},
+		ownedOutputSolutionDrainer{},
+	)
+	if err != nil {
+		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
+	}
+	want := []string{"out/main.d.ts", "out/main.luau"}
+	for attempt := 1; attempt <= 2; attempt++ {
+		_, projects, _, err := coordinator.DrainWithProjectResults()
+		if err != nil {
+			t.Fatalf("drain %d: %v", attempt, err)
+		}
+		if !reflect.DeepEqual(projects[0].Outputs, want) || projects[0].OutputCount != len(want) {
+			t.Fatalf("drain %d output ownership = %v (%d), want %v", attempt, projects[0].Outputs, projects[0].OutputCount, want)
+		}
 	}
 }
 

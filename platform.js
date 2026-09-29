@@ -56,6 +56,14 @@ function reinstallMessage(packageName, version) {
 	return `Reinstall @rotor-rbx/rotor@${version} with optional dependencies enabled, or install ${packageName}@${version} explicitly.`;
 }
 
+function platformExecutableName(target) {
+	return path.posix.basename(target.executable);
+}
+
+function releaseBinaryName(version, target) {
+	return `sloptor-v${version}-${target.goos}-${target.goarch}-bin${target.goos === "windows" ? ".exe" : ""}`;
+}
+
 function resolvePlatformBinary(options = {}) {
 	const platform = options.platform ?? process.platform;
 	const architecture = options.arch ?? process.arch;
@@ -114,4 +122,10 @@ function resolvePlatformBinary(options = {}) {
 	return executable;
 }
 
-module.exports = { PLATFORM_TARGETS, PlatformBinaryError, resolvePlatformBinary };
+module.exports = {
+	PLATFORM_TARGETS,
+	PlatformBinaryError,
+	platformExecutableName,
+	releaseBinaryName,
+	resolvePlatformBinary,
+};

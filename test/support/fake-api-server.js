@@ -81,6 +81,12 @@ lines.on("line", (line) => {
 			);
 			return;
 		}
+		if (mode === "missing-callback-id" || mode === "non-string-callback-id") {
+			const callback = { jsonrpc: "2.0", method: "transform", params: { protocol: 1 } };
+			if (mode === "non-string-callback-id") callback.id = 1;
+			process.stdout.write(`${JSON.stringify(callback)}\n`);
+			return;
+		}
 		process.stdout.write(
 			`${JSON.stringify({
 				jsonrpc: "2.0",
@@ -88,7 +94,33 @@ lines.on("line", (line) => {
 				result:
 					mode === "malformed-result"
 						? { ok: "yes" }
-						: {
+						: mode === "missing-timing-fields"
+							? {
+								ok: true,
+								files: 0,
+								durationMs: 0,
+								diagnostics: [],
+								outputs: [],
+								projects: [
+									{
+										config: "fixture/tsconfig.json",
+										status: "success",
+										blockers: [],
+										diagnostics: [],
+										outputs: [],
+										outputCount: 0,
+										timings: { durationMs: 0, stages: {}, counts: {} },
+									},
+								],
+								telemetry: {
+									selectedProjects: 0,
+									satisfiedProjects: 0,
+									scheduledProjects: 0,
+									transformedProjects: 0,
+									emittedProjects: 0,
+								},
+							}
+							: {
 							ok: true,
 							files: 0,
 							durationMs: 0,

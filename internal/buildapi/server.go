@@ -114,6 +114,11 @@ func (s *Server) Run(in io.Reader, out io.Writer) error {
 		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
 			return fmt.Errorf("build API: malformed request: %w", err)
 		}
+		if message.JSONRPC != "2.0" {
+			s.stopActiveBuild()
+			s.builds.Wait()
+			return errors.New(`build API: message jsonrpc must be "2.0"`)
+		}
 		if message.Method == "" {
 			if err := s.completeCallback(message); err != nil {
 				s.stopActiveBuild()
@@ -170,27 +175,14 @@ func ResultFromCompile(projectDir string, result *compile.BuildResult, diagnosti
 	if result != nil {
 		response.Outputs = make([]string, 0, len(result.Outputs))
 		for output := range result.Outputs {
-			response.Outputs = append(response.Outputs, output)
+			response.Outputs = append(response.Outputs, projectOutputPath(projectDir, output))
 		}
 		sort.Strings(response.Outputs)
 		if buildErr == nil {
 			response.Files = len(result.Outputs)
 		}
 	}
-	for _, diagnostic := range diagnostics {
-		severity := "error"
-		if diagnostic.Warning {
-			severity = "warning"
-		}
-		file := ""
-		if diagnostic.FileName != "" {
-			file = relativePath(projectDir, diagnostic.FileName)
-		}
-		response.Diagnostics = append(response.Diagnostics, Diagnostic{
-			File: file, Line: diagnostic.Line, Col: diagnostic.Col, Code: diagnostic.Code,
-			Severity: severity, Message: diagnostic.Message,
-		})
-	}
+	response.Diagnostics = diagnosticsFromCompile(projectDir, diagnostics)
 	if buildErr != nil && len(response.Diagnostics) == 0 {
 		response.Diagnostics = append(response.Diagnostics, Diagnostic{Severity: "error", Message: buildErr.Error()})
 	}
@@ -236,12 +228,8 @@ func ResultFromSolution(projects []compile.SolutionProjectResult, timings *compi
 		}
 		response.Projects = append(response.Projects, wire)
 		response.Files += project.OutputCount
-		if len(projects) == 1 {
-			response.Outputs = append(response.Outputs, project.Outputs...)
-		} else {
-			for _, output := range project.Outputs {
-				response.Outputs = append(response.Outputs, filepath.ToSlash(filepath.Join(projectDir, filepath.FromSlash(output))))
-			}
+		for _, output := range project.Outputs {
+			response.Outputs = append(response.Outputs, projectOutputPath(projectDir, output))
 		}
 		if project.Status == compile.SolutionProjectFailed {
 			response.Diagnostics = append(response.Diagnostics, wire.Diagnostics...)
@@ -255,6 +243,14 @@ func ResultFromSolution(projects []compile.SolutionProjectResult, timings *compi
 		}
 	}
 	return response
+}
+
+func projectOutputPath(projectDir, output string) string {
+	path := filepath.FromSlash(output)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(projectDir, path)
+	}
+	return filepath.ToSlash(path)
 }
 
 func diagnosticsFromCompile(projectDir string, diagnostics []compile.DiagnosticInfo) []Diagnostic {
@@ -277,11 +273,12 @@ func diagnosticsFromCompile(projectDir string, diagnostics []compile.DiagnosticI
 }
 
 type incomingMessage struct {
-	ID     json.RawMessage `json:"id,omitempty"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  *responseError  `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *responseError  `json:"error,omitempty"`
 }
 
 type callbackRequest struct {
@@ -439,7 +436,7 @@ func (s *Server) callTransformer(ctx context.Context, request compile.Transforme
 	s.callbacks[id] = result
 	s.callbackMu.Unlock()
 
-	s.respondCallback(callbackRequest{ID: id, Method: "transform", Params: request})
+	requestBytes := s.respondCallback(callbackRequest{ID: id, Method: "transform", Params: request})
 	if err := s.responseError(); err != nil {
 		s.removeCallback(id)
 		return compile.TransformerResponse{}, err
@@ -453,6 +450,10 @@ func (s *Server) callTransformer(ctx context.Context, request compile.Transforme
 		var response compile.TransformerResponse
 		if err := json.Unmarshal(completed.result, &response); err != nil {
 			return compile.TransformerResponse{}, fmt.Errorf("build API: invalid transformer callback response: %w", err)
+		}
+		response.Transport = &compile.TransformerTransportMetrics{
+			RequestBytes:  requestBytes,
+			ResponseBytes: int64(len(completed.result)),
 		}
 		return response, nil
 	case <-ctx.Done():
@@ -512,13 +513,18 @@ func (s *Server) respond(message response) {
 	}
 }
 
-func (s *Server) respondCallback(message callbackRequest) {
+func (s *Server) respondCallback(message callbackRequest) int64 {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	message.JSONRPC = "2.0"
-	if err := json.NewEncoder(s.out).Encode(message); err != nil && s.writeErr == nil {
+	payload, err := json.Marshal(message)
+	if err == nil {
+		_, err = s.out.Write(append(payload, '\n'))
+	}
+	if err != nil && s.writeErr == nil {
 		s.writeErr = fmt.Errorf("build API: write callback: %w", err)
 	}
+	return int64(len(payload))
 }
 
 func (s *Server) responseError() error {

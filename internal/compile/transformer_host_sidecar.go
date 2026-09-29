@@ -2,13 +2,8 @@ package compile
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"path/filepath"
-	"strings"
 	"sync"
-
-	"rotor/internal/logservice"
 )
 
 type sidecarTransformerHost struct{}
@@ -43,9 +38,8 @@ func (h *callbackTransformerHost) transform(parent context.Context, call transfo
 		return nil, stats, err
 	}
 
-	dir := canonicalSidecarPath(call.dir)
-	configPath := canonicalSidecarPath(call.configPath)
-	slot := h.slot(dir + "|" + configPath)
+	dir, configPath, key := canonicalTransformerRequestPaths(call.dir, call.configPath)
+	slot := h.slot(key)
 	stopWait := logStage(call.configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
 	stats.wait = stopWait()
@@ -55,47 +49,16 @@ func (h *callbackTransformerHost) transform(parent context.Context, call transfo
 	if slot.tracker == nil {
 		slot.tracker = &sidecarSession{stamps: map[string]sidecarFileStamp{}, overlaid: map[string]string{}}
 	}
-	stampNames := make([]string, 0, len(call.stampFiles))
-	for _, sourceFile := range call.stampFiles {
-		stampNames = append(stampNames, sourceFile.FileName())
-	}
-	overlays, overlayReads := mergeSidecarOverlays(call.compileFiles, call.overlays, call.state, true)
-	stats.reads += overlayReads
-	skipDiskScan := call.state != nil && call.state.diskScanned && len(slot.tracker.stamps) > 0
-	changedFiles, ioStats, err := slot.tracker.collectChangedFiles(stampNames, overlays, skipDiskScan)
-	stats.stats += ioStats.stats
-	stats.reads += ioStats.reads
-	stats.changedFiles += ioStats.changedFiles
+	request, err := prepareTransformerRequest(call, slot.tracker, dir, configPath, &stats)
 	if err != nil {
 		stats.prep += stopPrep()
 		return nil, stats, err
 	}
-
-	request := sidecarRequest{
-		Protocol: 1, Operation: "transform",
-		TsConfigPath: filepath.FromSlash(configPath), ProjectDir: filepath.FromSlash(dir),
-		CompileFileNames: make([]string, 0, len(call.compileFiles)),
-		ChangedFiles:     changedFiles, Plugins: call.plugins,
-	}
-	for _, sourceFile := range call.compileFiles {
-		request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
-	}
-	request.RootFileNames = narrowedSidecarRoots(call.compileFiles, call.stampFiles)
-	payload, err := json.Marshal(request)
 	stats.prep += stopPrep()
-	if err != nil {
-		return nil, stats, err
-	}
-	stats.requestBytes = int64(len(payload))
 
 	ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 	defer cancel()
-	stage := sidecarRoundTripStage.traceName()
-	if logservice.Verbose {
-		if names := sidecarPluginNames(call.plugins, call.configPath); len(names) > 0 {
-			stage += " (" + strings.Join(names, ", ") + ")"
-		}
-	}
+	stage := transformerRoundTripStageName(call.configPath, call.plugins)
 	stopRoundTrip := logStageNamed(call.configPath, stage)
 	response, err := h.callback(ctx, request)
 	stats.roundTrip = stopRoundTrip()
@@ -105,10 +68,11 @@ func (h *callbackTransformerHost) transform(parent context.Context, call transfo
 	if call.state != nil {
 		call.state.diskScanned = true
 	}
-	if encoded, encodeErr := json.Marshal(response); encodeErr == nil {
-		stats.responseBytes = int64(len(encoded))
+	if response.Transport != nil {
+		stats.requestBytes = response.Transport.RequestBytes
+		stats.responseBytes = response.Transport.ResponseBytes
 	}
-	applyCallbackMetrics(&stats, &response, call.configPath)
+	applyTransformerResponseMetrics(&stats, &response, call.configPath)
 	return &response, stats, nil
 }
 
@@ -118,18 +82,13 @@ func (h *callbackTransformerHost) validate(parent context.Context, dir, configPa
 	if err != nil {
 		return nil, stats, err
 	}
-	dir = canonicalSidecarPath(dir)
-	configPath = canonicalSidecarPath(configPath)
-	slot := h.slot(dir + "|" + configPath)
+	request, dir, configPath, key := prepareTransformerValidationRequest(dir, configPath)
+	slot := h.slot(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
 	stats.wait = stopWait()
 	defer slot.mu.Unlock()
 
-	request := sidecarRequest{Protocol: 1, Operation: "validate", TsConfigPath: filepath.FromSlash(configPath), ProjectDir: filepath.FromSlash(dir)}
-	if encoded, encodeErr := json.Marshal(request); encodeErr == nil {
-		stats.requestBytes = int64(len(encoded))
-	}
 	ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 	defer cancel()
 	stopRoundTrip := logStage(configPath, sidecarRoundTripStage)
@@ -138,10 +97,11 @@ func (h *callbackTransformerHost) validate(parent context.Context, dir, configPa
 	if err != nil {
 		return nil, stats, fmt.Errorf("transformer callback failed: %w", err)
 	}
-	if encoded, encodeErr := json.Marshal(response); encodeErr == nil {
-		stats.responseBytes = int64(len(encoded))
+	if response.Transport != nil {
+		stats.requestBytes = response.Transport.RequestBytes
+		stats.responseBytes = response.Transport.ResponseBytes
 	}
-	applyCallbackMetrics(&stats, &response, configPath)
+	applyTransformerResponseMetrics(&stats, &response, configPath)
 	return &response, stats, nil
 }
 
@@ -154,7 +114,7 @@ func (h *callbackTransformerHost) slot(key string) *callbackTransformerSlot {
 	return h.slots[key]
 }
 
-func applyCallbackMetrics(stats *sidecarCallStats, response *sidecarResponse, configPath string) {
+func applyTransformerResponseMetrics(stats *sidecarCallStats, response *sidecarResponse, configPath string) {
 	if response.Metrics == nil {
 		return
 	}

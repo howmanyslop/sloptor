@@ -242,12 +242,9 @@ func canonicalSolutionConfigPath(path string) (string, string, error) {
 		return "", "", err
 	}
 	canonical := filepath.Clean(absolute)
-	identity := canonical
-	if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
-		identity = filepath.Clean(resolved)
-		if pathHasExplicitSymlink(canonical) {
-			canonical = identity
-		}
+	identity := filepath.Clean(filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(canonical))))
+	if pathHasExplicitSymlink(canonical) {
+		canonical = identity
 	}
 	key := identity
 	if !osvfs.FS().UseCaseSensitiveFileNames() {

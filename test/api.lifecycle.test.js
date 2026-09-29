@@ -72,6 +72,26 @@ test("malformed build results terminate the session", async () => {
 	fs.rmSync(marker.directory, { force: true, recursive: true });
 });
 
+test("build results require every non-optional timing field", async () => {
+	const marker = temporaryPath("pid");
+	const session = fakeSession("missing-timing-fields", marker.file);
+	await assert.rejects(session.build({ project: __dirname }), { code: "PROTOCOL_ERROR" });
+	await session.dispose();
+	fs.rmSync(marker.directory, { force: true, recursive: true });
+});
+
+for (const mode of ["missing-callback-id", "non-string-callback-id"]) {
+	test(`${mode} terminates the session as a protocol error`, async () => {
+		const marker = temporaryPath("pid");
+		const session = fakeSession(mode, marker.file);
+		await assert.rejects(session.build({ project: __dirname, signal: AbortSignal.timeout(500) }), {
+			code: "PROTOCOL_ERROR",
+		});
+		await session.dispose();
+		fs.rmSync(marker.directory, { force: true, recursive: true });
+	});
+}
+
 test("transformer callbacks run in the API client process", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("transform-callback", marker.file);

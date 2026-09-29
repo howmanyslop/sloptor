@@ -8,7 +8,7 @@
 const path = require("node:path");
 
 const pkg = require(path.join(__dirname, "..", "package.json"));
-const { PLATFORM_TARGETS, resolvePlatformBinary } = require("../platform.js");
+const { PLATFORM_TARGETS, releaseBinaryName, resolvePlatformBinary } = require("../platform.js");
 
 const MIN_BINARY_SIZE = 1024 * 1024;
 
@@ -19,8 +19,7 @@ function binaryPath() {
 function assetUrl() {
 	const target = PLATFORM_TARGETS[`${process.platform}-${process.arch}`];
 	if (!target) return undefined;
-	const extension = target.goos === "windows" ? ".exe" : "";
-	return `https://github.com/howmanyslop/sloptor/releases/download/v${pkg.version}/sloptor-v${pkg.version}-${target.goos}-${target.goarch}-bin${extension}`;
+	return `https://github.com/howmanyslop/sloptor/releases/download/v${pkg.version}/${releaseBinaryName(pkg.version, target)}`;
 }
 
 async function install() {

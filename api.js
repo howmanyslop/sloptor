@@ -17,6 +17,42 @@ const REQUIRED_CAPABILITIES = [
 	"terminal-cancel",
 	"transformer-callback",
 ];
+const REQUIRED_TIMING_STAGES = [
+	"cleanupMs",
+	"compiledOutputWritesMs",
+	"declarationEmitMs",
+	"declarationEmitWritesMs",
+	"includeCopyMs",
+	"incrementalManifestMs",
+	"incrementalSelectionMs",
+	"initialProgramMs",
+	"nativeTransformRenderMs",
+	"nonCompiledCopyMs",
+	"overlayProgramMs",
+	"persistenceMs",
+	"projectContextMs",
+	"semanticDiagnosticsMs",
+	"sidecarPreparationMs",
+	"sidecarResponseDecodeMs",
+	"sidecarRoundTripMs",
+	"sidecarSessionWaitMs",
+];
+const REQUIRED_TIMING_COUNTS = [
+	"actualWrites",
+	"effectiveWriteWorkers",
+	"emittedEntries",
+	"emittedProjects",
+	"hashSkips",
+	"satisfiedProjects",
+	"scheduledDeclarationWrites",
+	"scheduledProjects",
+	"scheduledSourceMapWrites",
+	"selectedProjects",
+	"selectedSources",
+	"totalSources",
+	"transformedProjects",
+	"uniquePreparedDirectories",
+];
 
 class SloptorClientError extends Error {
 	constructor(code, message, options) {
@@ -302,7 +338,10 @@ class BuildSession {
 	}
 
 	#receiveServerRequest(message) {
-		if (typeof message.id !== "string") return;
+		if (typeof message.id !== "string" || message.id.length === 0) {
+			this.#protocolFailure("Sloptor API server sent an invalid callback request id");
+			return;
+		}
 		if (message.method !== "transform") {
 			this.#send({
 				id: message.id,
@@ -423,14 +462,13 @@ class BuildSession {
 			(diagnostic.code === undefined || typeof diagnostic.code === "string") &&
 			(diagnostic.severity === "error" || diagnostic.severity === "warning") &&
 			typeof diagnostic.message === "string";
-		const validCounts = (counts) =>
-			counts !== null &&
-			typeof counts === "object" &&
-			Object.values(counts).every((value) => Number.isSafeInteger(value) && value >= 0);
-		const validStages = (stages) =>
-			stages !== null &&
-			typeof stages === "object" &&
-			Object.values(stages).every((value) => Number.isSafeInteger(value) && value >= 0);
+		const validMetrics = (metrics, required) =>
+			metrics !== null &&
+			typeof metrics === "object" &&
+			required.every(
+				(field) => Object.hasOwn(metrics, field) && Number.isSafeInteger(metrics[field]) && metrics[field] >= 0,
+			) &&
+			Object.values(metrics).every((value) => Number.isSafeInteger(value) && value >= 0);
 		const validProject = (project) =>
 			project !== null &&
 			typeof project === "object" &&
@@ -448,8 +486,8 @@ class BuildSession {
 			typeof project.timings === "object" &&
 			Number.isSafeInteger(project.timings.durationMs) &&
 			project.timings.durationMs >= 0 &&
-			validStages(project.timings.stages) &&
-			validCounts(project.timings.counts);
+			validMetrics(project.timings.stages, REQUIRED_TIMING_STAGES) &&
+			validMetrics(project.timings.counts, REQUIRED_TIMING_COUNTS);
 		const validTelemetry = (telemetry) =>
 			telemetry !== null &&
 			typeof telemetry === "object" &&

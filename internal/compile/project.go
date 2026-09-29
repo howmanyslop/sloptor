@@ -743,7 +743,7 @@ func CompileProjectWithOptions(projectDir string, opts ProjectOptions) (map[stri
 	if err != nil {
 		return nil, diags, err
 	}
-	if err := maybeCopyInclude(dir, opts); err != nil {
+	if _, err := maybeCopyInclude(dir, opts); err != nil {
 		return nil, nil, err
 	}
 	outputs, infos, err := compileProjectProgram(dir, program, opts)

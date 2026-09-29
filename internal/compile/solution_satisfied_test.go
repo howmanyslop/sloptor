@@ -1,11 +1,30 @@
 package compile
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestSatisfiedDeclarationValidationReusesSolutionParseCache(t *testing.T) {
+	declaration := filepath.Join(t.TempDir(), "restored.d.ts")
+	if err := os.WriteFile(declaration, []byte("export declare const restored: number;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	project := SolutionProject{ConfigPath: filepath.Join(filepath.Dir(declaration), "tsconfig.json")}
+	drainer := &solutionBuildDrainer{restoredDeclarations: map[string][]string{project.ConfigPath: {declaration}}}
+	cache := newSolutionCompileCache()
+	for attempt := 1; attempt <= 2; attempt++ {
+		if selectionErr := drainer.validateSatisfiedProject(project, cache); selectionErr != nil {
+			t.Fatalf("validation %d: %s", attempt, selectionErr.message)
+		}
+	}
+	if cache.misses.Load() != 1 || cache.hits.Load() != 1 {
+		t.Fatalf("parse cache hits=%d misses=%d, want one of each", cache.hits.Load(), cache.misses.Load())
+	}
+}
 
 func TestSolutionCoordinatorBuildsSelectedProjectFromSatisfiedDependency(t *testing.T) {
 	root := t.TempDir()

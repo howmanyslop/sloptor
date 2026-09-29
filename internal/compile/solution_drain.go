@@ -224,10 +224,13 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 		}
 		outcome := outcomes[index]
 		if outcome.skip {
+			outputs := solutionOwnedOutputs(c.states[project.ConfigPath].Result)
 			projectResults = append(projectResults, SolutionProjectResult{
-				ConfigPath: project.ConfigPath,
-				Status:     SolutionProjectNoChange,
-				Timings:    c.projectTiming(project.ConfigPath, ProjectTimingStatusSkipped),
+				ConfigPath:  project.ConfigPath,
+				Status:      SolutionProjectNoChange,
+				Outputs:     outputs,
+				OutputCount: len(outputs),
+				Timings:     c.projectTiming(project.ConfigPath, ProjectTimingStatusSkipped),
 			})
 			continue
 		}
@@ -269,11 +272,7 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 		}
 		if outcome.result != nil {
 			projectResult.Diagnostics = append([]DiagnosticInfo(nil), outcome.result.Diagnostics...)
-			projectResult.Outputs = make([]string, 0, len(outcome.result.Outputs))
-			for output := range outcome.result.Outputs {
-				projectResult.Outputs = append(projectResult.Outputs, filepath.ToSlash(output))
-			}
-			sort.Strings(projectResult.Outputs)
+			projectResult.Outputs = solutionOwnedOutputs(outcome.result)
 			projectResult.OutputCount = len(projectResult.Outputs)
 		}
 		switch {
@@ -304,6 +303,23 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 		}
 	}
 	return result, projectResults, nil, nil
+}
+
+func solutionOwnedOutputs(result *BuildResult) []string {
+	if result == nil {
+		return nil
+	}
+	if result.OwnedOutputs != nil {
+		outputs := append([]string(nil), result.OwnedOutputs...)
+		sort.Strings(outputs)
+		return outputs
+	}
+	outputs := make([]string, 0, len(result.Outputs))
+	for output := range result.Outputs {
+		outputs = append(outputs, filepath.ToSlash(output))
+	}
+	sort.Strings(outputs)
+	return outputs
 }
 
 type solutionSelectionError struct {

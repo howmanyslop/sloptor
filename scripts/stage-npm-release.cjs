@@ -7,6 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { validateRelease } = require("./validate-release.cjs");
+const { platformExecutableName, releaseBinaryName } = require("../platform.js");
 
 function parseArguments(arguments_) {
 	const options = {};
@@ -61,8 +62,8 @@ function stageNpmRelease({ dist, output, root = path.resolve(__dirname, "..") })
 		for (const target of release.targets) {
 			const directory = target.packageName.slice("@rotor-rbx/".length);
 			const packageRoot = path.join(temporaryRoot, directory);
-			const executableName = target.goos === "windows" ? "sloptor.exe" : "sloptor";
-			const sourceName = `sloptor-v${release.version}-${target.goos}-${target.goarch}-bin${target.goos === "windows" ? ".exe" : ""}`;
+			const executableName = platformExecutableName(target);
+			const sourceName = releaseBinaryName(release.version, target);
 			const source = path.join(dist, sourceName);
 			if (!fs.statSync(source).isFile()) throw new Error(`missing release executable ${source}`);
 
