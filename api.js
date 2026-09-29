@@ -6,24 +6,10 @@ const readline = require("node:readline");
 const { spawn } = require("node:child_process");
 
 const pkg = require("./package.json");
+const { resolvePlatformBinary } = require("./platform.js");
 
 const PROTOCOL_VERSION = 1;
 const REQUIRED_CAPABILITIES = ["build", "shutdown", "terminal-cancel"];
-
-function binaryPath() {
-	const platforms = { win32: "windows", linux: "linux", darwin: "darwin" };
-	const architectures = { x64: "amd64", arm64: "arm64" };
-	const platform = platforms[process.platform];
-	const architecture = architectures[process.arch];
-	if (!platform || !architecture) {
-		throw new SloptorClientError(
-			"UNSUPPORTED_PLATFORM",
-			`Sloptor does not support ${process.platform}-${process.arch}; expected Windows, Linux, or macOS on x64 or arm64`,
-		);
-	}
-	const extension = platform === "windows" ? ".exe" : "";
-	return path.join(__dirname, "bin", `sloptor-${platform}-${architecture}${extension}`);
-}
 
 class SloptorClientError extends Error {
 	constructor(code, message, options) {
@@ -40,7 +26,7 @@ class BuildSession {
 	#disposed = false;
 	#executable;
 	#executableArgs;
-	#installIfMissing;
+	#resolveFromPlatformPackage;
 	#nextID = 1;
 	#pending = new Map();
 	#queue = Promise.resolve();
@@ -49,10 +35,10 @@ class BuildSession {
 	#stderr = "";
 	#abortPromise;
 
-	constructor(executable, executableArgs, installIfMissing) {
+	constructor(executable, executableArgs, resolveFromPlatformPackage) {
 		this.#executable = executable;
 		this.#executableArgs = executableArgs;
-		this.#installIfMissing = installIfMissing;
+		this.#resolveFromPlatformPackage = resolveFromPlatformPackage;
 	}
 
 	async #connect() {
@@ -354,21 +340,19 @@ class BuildSession {
 	}
 
 	async #resolveExecutable() {
-		if (fs.existsSync(this.#executable)) return;
-		if (this.#installIfMissing) {
+		if (this.#resolveFromPlatformPackage) {
 			try {
-				const { install } = require("./scripts/install.js");
-				this.#executable = await install({ quiet: true });
+				this.#executable = resolvePlatformBinary();
 			} catch (cause) {
 				const detail = cause instanceof Error ? cause.message : String(cause);
 				throw new SloptorClientError(
-					"EXECUTABLE_NOT_FOUND",
-					`Could not install the Sloptor executable: ${detail}`,
+					cause && typeof cause.code === "string" ? cause.code : "EXECUTABLE_NOT_FOUND",
+					detail,
 					{ cause },
 				);
 			}
 		}
-		if (!fs.existsSync(this.#executable)) {
+		if (typeof this.#executable !== "string" || !fs.existsSync(this.#executable)) {
 			throw new SloptorClientError(
 				"EXECUTABLE_NOT_FOUND",
 				`Sloptor executable was not found at ${this.#executable}`,
@@ -453,7 +437,7 @@ function createBuildSession(options = {}) {
 	if (!Array.isArray(executableArgs) || executableArgs.some((value) => typeof value !== "string")) {
 		throw new SloptorClientError("INVALID_REQUEST", "executableArgs must contain only strings");
 	}
-	return new BuildSession(options.executable || binaryPath(), [...executableArgs], options.executable === undefined);
+	return new BuildSession(options.executable, [...executableArgs], options.executable === undefined);
 }
 
 module.exports = { createBuildSession, SloptorClientError };

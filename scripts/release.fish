@@ -303,7 +303,7 @@ end
 function write_versions --argument-names new_ver
     if test $FLAG_DRY_RUN -eq 1
         info "[dry-run] would set Version = \"$new_ver\" in internal/version/version.go"
-        info "[dry-run] would set package.json version to $new_ver"
+        info "[dry-run] would set the main and platform package versions to $new_ver"
         return 0
     end
 
@@ -315,39 +315,18 @@ function write_versions --argument-names new_ver
     or die "rewrite of version.go did not stick"
     mv $tmp_go $VERSION_GO
 
-    # package.json — keep formatting (2-space, trailing comma on version line).
-    set -l tmp_pkg (mktemp)
-    if command -q node
-        node -e '
-const fs = require("fs");
-const p = process.argv[1];
-const v = process.argv[2];
-const text = fs.readFileSync(p, "utf8");
-const next = text.replace(
-  /^(\s*"version"\s*:\s*")([^"]+)(")/m,
-  (_, a, _old, c) => a + v + c
-);
-if (next === text) {
-  console.error("package.json version field not found");
-  process.exit(1);
-}
-fs.writeFileSync(p + ".tmp", next);
-' $PACKAGE_JSON $new_ver
-        or die "failed to rewrite package.json via node"
-        mv $PACKAGE_JSON.tmp $PACKAGE_JSON
-    else
-        sed "s/^  \"version\": \".*\",\$/  \"version\": \"$new_ver\",/" $PACKAGE_JSON >$tmp_pkg
-        or die "failed to rewrite package.json"
-        string match -q "*\"version\": \"$new_ver\"*" <$tmp_pkg
-        or die "rewrite of package.json did not stick"
-        mv $tmp_pkg $PACKAGE_JSON
-    end
+    command -q node
+    or die "node is required to synchronize npm package versions"
+    node $REPO_ROOT/scripts/sync-package-versions.cjs $new_ver --root $REPO_ROOT
+    or die "failed to synchronize npm package versions"
 
     # Verify lockstep.
     set -l code_v (read_code_version)
     set -l pkg_v (read_pkg_version)
     test "$code_v" = "$new_ver" -a "$pkg_v" = "$new_ver"
     or die "post-write mismatch: code=$code_v pkg=$pkg_v want=$new_ver"
+    node $REPO_ROOT/scripts/validate-release.cjs >/dev/null
+    or die "release package or protocol versions are out of sync after version bump"
 
     # Keep emitted `-- Compiled with sloptor v...` header comments in golden
     # files and Go test expectations in sync with the new version.
@@ -381,6 +360,8 @@ function preflight --argument-names expect_clean_for_bump
     if test "$code_v" != "$pkg_v"
         die "version mismatch before release: version.go=$code_v package.json=$pkg_v (fix lockstep first)"
     end
+    node $REPO_ROOT/scripts/validate-release.cjs >/dev/null
+    or die "release package or protocol versions are out of sync"
 
     if test $FLAG_SKIP_CHECKS -eq 1
         echo $code_v
@@ -1245,7 +1226,7 @@ function do_tag_only
     end
 
     # Require HEAD commit to include the version (soft check: version files match).
-    set -l dirty_versions (git status --porcelain -- internal/version/version.go package.json)
+    set -l dirty_versions (git status --porcelain -- internal/version/version.go package.json packages/)
     if test -n "$dirty_versions"
         die "version files are dirty — commit the bump before --tag-only"
     end

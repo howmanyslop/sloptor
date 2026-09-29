@@ -129,14 +129,21 @@ test("a union failure owns one diagnostic and explicitly blocks every dependent"
 
 test("an installed package resolves its native executable without an override", async () => {
 	const installedPackage = path.join(temporaryRoot, "installed-package");
-	fs.mkdirSync(path.join(installedPackage, "bin"), { recursive: true });
-	for (const file of ["api.js", "api.d.ts", "package.json"]) {
+	fs.mkdirSync(installedPackage, { recursive: true });
+	for (const file of ["api.js", "api.d.ts", "package.json", "platform.js"]) {
 		fs.copyFileSync(path.join(repoRoot, file), path.join(installedPackage, file));
 	}
-	const platform = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform];
-	const architecture = { arm64: "arm64", x64: "amd64" }[process.arch];
+	const packageName = `rotor-${process.platform}-${process.arch}`;
+	const platformPackage = path.join(installedPackage, "node_modules", "@rotor-rbx", packageName);
+	fs.mkdirSync(path.join(platformPackage, "bin"), { recursive: true });
 	const extension = process.platform === "win32" ? ".exe" : "";
-	fs.copyFileSync(executable, path.join(installedPackage, "bin", `sloptor-${platform}-${architecture}${extension}`));
+	fs.writeFileSync(
+		path.join(platformPackage, "package.json"),
+		`${JSON.stringify({ name: `@rotor-rbx/${packageName}`, version: "2.6.0" }, null, 2)}\n`,
+	);
+	const installedExecutable = path.join(platformPackage, "bin", `sloptor${extension}`);
+	fs.copyFileSync(executable, installedExecutable);
+	if (process.platform !== "win32") fs.chmodSync(installedExecutable, 0o755);
 
 	const installedClient = require(installedPackage);
 	const project = path.join(temporaryRoot, "installed-project");

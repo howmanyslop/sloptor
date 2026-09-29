@@ -1,7 +1,7 @@
 {
 	"name": "@rotor-rbx/rotor",
 	"version": "2.6.0",
-	"description": "All-in-one Roblox toolchain: native roblox-ts compiler, Luau bundler, minifier, dev loop, and packer. This package downloads the prebuilt rotor binary from GitHub Releases.",
+	"description": "All-in-one Roblox toolchain with a typed JavaScript client and native roblox-ts compiler.",
 	"keywords": [
 		"bundler",
 		"compiler",
@@ -25,6 +25,7 @@
 	"files": [
 		"api.js",
 		"api.d.ts",
+		"platform.js",
 		"bin/",
 		"scripts/install.js"
 	],
@@ -83,6 +84,14 @@
 		"type-fest": "catalog:dev",
 		"typescript": "catalog:dev",
 		"zx": "catalog:dev"
+	},
+	"optionalDependencies": {
+		"@rotor-rbx/rotor-darwin-arm64": "2.6.0",
+		"@rotor-rbx/rotor-darwin-x64": "2.6.0",
+		"@rotor-rbx/rotor-linux-arm64": "2.6.0",
+		"@rotor-rbx/rotor-linux-x64": "2.6.0",
+		"@rotor-rbx/rotor-win32-arm64": "2.6.0",
+		"@rotor-rbx/rotor-win32-x64": "2.6.0"
 	},
 	"engines": {
 		"node": ">=18"

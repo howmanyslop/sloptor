@@ -1,0 +1,26 @@
+{
+	"name": "@rotor-rbx/rotor-linux-x64",
+	"version": "2.6.0",
+	"description": "Sloptor native executable for Linux x64",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/howmanyslop/sloptor.git"
+	},
+	"files": [
+		"bin/"
+	],
+	"os": [
+		"linux"
+	],
+	"cpu": [
+		"x64"
+	],
+	"exports": {
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	}
+}
