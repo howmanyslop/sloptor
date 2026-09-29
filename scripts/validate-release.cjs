@@ -4,6 +4,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const CLIENT_PROTOCOL_PATTERN = /^const PROTOCOL_VERSION = (?<protocolVersion>[0-9]+);$/mu;
+const GO_VERSION_PATTERN = /^const Version = "(?<version>[^"]+)"$/mu;
+const SERVER_PROTOCOL_PATTERN = /^const ProtocolVersion = (?<protocolVersion>[0-9]+)$/mu;
+
 function readJson(file) {
 	return JSON.parse(fs.readFileSync(file, "utf8"));
 }
@@ -18,7 +22,7 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	const packageJson = readJson(path.join(root, "package.json"));
 	const codeVersion = readMatch(
 		path.join(root, "internal", "version", "version.go"),
-		/^const Version = "([^"]+)"$/m,
+		GO_VERSION_PATTERN,
 		"Go product version",
 	);
 	if (packageJson.version !== codeVersion) {
@@ -29,12 +33,12 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	}
 
 	const clientProtocol = Number(
-		readMatch(path.join(root, "api.js"), /^const PROTOCOL_VERSION = ([0-9]+);$/m, "client protocol version"),
+		readMatch(path.join(root, "api.js"), CLIENT_PROTOCOL_PATTERN, "client protocol version"),
 	);
 	const serverProtocol = Number(
 		readMatch(
 			path.join(root, "internal", "buildapi", "server.go"),
-			/^const ProtocolVersion = ([0-9]+)$/m,
+			SERVER_PROTOCOL_PATTERN,
 			"server protocol version",
 		),
 	);
@@ -56,15 +60,19 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	for (const target of targets) {
 		const dependencyVersion = packageJson.optionalDependencies[target.packageName];
 		if (dependencyVersion !== codeVersion) {
-			throw new Error(`${target.packageName} dependency must be exactly ${codeVersion}, found ${dependencyVersion}`);
+			throw new Error(
+				`${target.packageName} dependency must be exactly ${codeVersion}, found ${dependencyVersion}`,
+			);
 		}
-		const escapedName = target.packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const escapedName = target.packageName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 		const lockfile = fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
 		const lockfileSpecifier = lockfile.match(
-			new RegExp(` {6}'${escapedName}':\\r?\\n {8}specifier: ([^\\r\\n]+)`),
+			new RegExp(` {6}'${escapedName}':\\r?\\n {8}specifier: ([^\\r\\n]+)`, "u"),
 		)?.[1];
 		if (lockfileSpecifier !== codeVersion) {
-			throw new Error(`${target.packageName} lockfile specifier must be exactly ${codeVersion}, found ${lockfileSpecifier}`);
+			throw new Error(
+				`${target.packageName} lockfile specifier must be exactly ${codeVersion}, found ${lockfileSpecifier}`,
+			);
 		}
 		const directory = target.packageName.slice("@rotor-rbx/".length);
 		const manifest = readJson(path.join(root, "packages", directory, "package.json"));

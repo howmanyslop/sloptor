@@ -8,6 +8,7 @@ const path = require("node:path");
 
 function npmCommand(arguments_, options) {
 	const bundledNpm = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+	// biome-ignore lint/style/noProcessEnv: npm exposes the active CLI through this standard environment variable.
 	const npmCli = process.env.npm_execpath || (fs.existsSync(bundledNpm) ? bundledNpm : undefined);
 	const result = spawnSync(npmCli ? process.execPath : "npm", [...(npmCli ? [npmCli] : []), ...arguments_], {
 		encoding: "utf8",
@@ -24,7 +25,7 @@ function parseArguments(arguments_) {
 		else if (arguments_[index] === "--fixture") options.fixture = path.resolve(arguments_[++index]);
 		else throw new Error(`unknown argument ${arguments_[index]}`);
 	}
-	if (!options.bundle || !options.fixture) {
+	if (!(options.bundle && options.fixture)) {
 		throw new Error("usage: smoke-npm-release.cjs --bundle <directory> --fixture <project-directory>");
 	}
 	return options;
@@ -35,7 +36,8 @@ async function smokeNpmRelease({ bundle, fixture }) {
 	const platformName = `@rotor-rbx/rotor-${process.platform}-${process.arch}`;
 	const main = release.packages.find((entry) => entry.name === "@rotor-rbx/rotor");
 	const platformPackage = release.packages.find((entry) => entry.name === platformName);
-	if (!main || !platformPackage) throw new Error(`release bundle does not support ${process.platform}-${process.arch}`);
+	if (!(main && platformPackage))
+		throw new Error(`release bundle does not support ${process.platform}-${process.arch}`);
 
 	const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-npm-smoke-"));
 	try {
@@ -71,7 +73,7 @@ async function smokeNpmRelease({ bundle, fixture }) {
 		const session = createBuildSession();
 		try {
 			const result = await session.build({ project });
-			if (!result.ok || !result.outputs.includes("out/main.luau")) {
+			if (!(result.ok && result.outputs.includes("out/main.luau"))) {
 				throw new Error(`installed API build failed: ${JSON.stringify(result)}`);
 			}
 		} finally {

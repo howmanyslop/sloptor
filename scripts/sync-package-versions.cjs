@@ -4,6 +4,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$/u;
+
 function writeJson(file, value) {
 	const temporary = `${file}.tmp`;
 	fs.writeFileSync(temporary, `${JSON.stringify(value, null, "\t")}\n`);
@@ -14,8 +16,8 @@ function syncLockfile(root, packageNames, version) {
 	const lockfile = path.join(root, "pnpm-lock.yaml");
 	let contents = fs.readFileSync(lockfile, "utf8");
 	for (const packageName of packageNames) {
-		const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const pattern = new RegExp(`( {6}'${escapedName}':\\r?\\n {8}specifier: )[^\\r\\n]+`);
+		const escapedName = packageName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+		const pattern = new RegExp(`( {6}'${escapedName}':\\r?\\n {8}specifier: )[^\\r\\n]+`, "u");
 		if (!pattern.test(contents)) throw new Error(`could not find ${packageName} in ${lockfile}`);
 		contents = contents.replace(pattern, `$1${version}`);
 	}
@@ -25,7 +27,7 @@ function syncLockfile(root, packageNames, version) {
 }
 
 function syncPackageVersions(version, root = path.resolve(__dirname, "..")) {
-	if (!/^[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$/.test(version)) {
+	if (!VERSION_PATTERN.test(version)) {
 		throw new Error(`invalid release version ${version}`);
 	}
 	const { PLATFORM_TARGETS } = require(path.join(root, "platform.js"));
