@@ -40,11 +40,16 @@ jobs:
           set -euo pipefail
           (cd tools/sidecar && node --test test/*.test.js) &
           sidecar_pid=$!
+          node --test test/api.integration.test.js test/api.lifecycle.test.js &
+          api_pid=$!
           go test ./... -count=1 &
           go_test_pid=$!
 
           status=0
           if ! wait "$sidecar_pid"; then
+            status=1
+          fi
+          if ! wait "$api_pid"; then
             status=1
           fi
           if ! wait "$go_test_pid"; then
@@ -82,11 +87,16 @@ jobs:
           set -euo pipefail
           ( (cd tools/sidecar && node --test test/*.test.js) 2>&1 | tee "$RUNNER_TEMP/sidecar-test.log" ) &
           sidecar_pid=$!
+          (node --test test/api.integration.test.js test/api.lifecycle.test.js 2>&1 | tee "$RUNNER_TEMP/api-test.log") &
+          api_pid=$!
           (go test ./... -count=1 2>&1 | tee "$RUNNER_TEMP/go-test.log") &
           go_test_pid=$!
 
           status=0
           if ! wait "$sidecar_pid"; then
+            status=1
+          fi
+          if ! wait "$api_pid"; then
             status=1
           fi
           if ! wait "$go_test_pid"; then
@@ -103,6 +113,7 @@ jobs:
           name: windows-test-logs
           path: |
             ${{ runner.temp }}/sidecar-test.log
+            ${{ runner.temp }}/api-test.log
             ${{ runner.temp }}/go-test.log
           if-no-files-found: ignore
 

@@ -144,6 +144,7 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 	root.Annotations = map[string]string{"rotor/notes": "root"}
 
 	root.AddCommand(
+		newAPIServerCommand(streams),
 		newAddCommand(streams),
 		newAssetCommand(streams),
 		newBuildCommand(streams),

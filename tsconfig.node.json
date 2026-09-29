@@ -13,5 +13,5 @@
 		"types": ["bun", "node"]
 	},
 	"extends": "./tsconfig.base.json",
-	"include": ["scripts/**/*.ts"]
+	"include": ["api.d.ts", "scripts/**/*.ts"]
 }

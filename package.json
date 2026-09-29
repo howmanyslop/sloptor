@@ -23,9 +23,22 @@
 		"rotor": "bin/rotor.js"
 	},
 	"files": [
+		"api.js",
+		"api.d.ts",
 		"bin/",
 		"scripts/install.js"
 	],
+	"main": "api.js",
+	"types": "api.d.ts",
+	"exports": {
+		".": {
+			"types": "./api.d.ts",
+			"require": "./api.js",
+			"default": "./api.js"
+		},
+		"./scripts/install.js": "./scripts/install.js",
+		"./package.json": "./package.json"
+	},
 	"publishConfig": {
 		"access": "public",
 		"provenance": true
@@ -40,6 +53,7 @@
 		"oxfmt": "oxfmt",
 		"oxlint": "oxlint",
 		"skills": "skills",
+		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
 		"tsgo": "tsgo",
 		"type-check": "tsgo --noEmit",
 		"type-check:agent": "tsgo --noEmit --pretty false"
