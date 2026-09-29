@@ -530,7 +530,9 @@ module.exports = (program, config, helpers) => {
 	fs.writeFileSync(configPath, JSON.stringify(config));
 	const nodeModules = path.join(project, "node_modules");
 	fs.mkdirSync(nodeModules, { recursive: true });
-	fs.symlinkSync(path.dirname(require.resolve("typescript/package.json")), path.join(nodeModules, "typescript"), "junction");
+	const transformerFixture = path.join(repoRoot, "testdata", "transformers", "project");
+	const typescriptPackage = require.resolve("typescript/package.json", { paths: [transformerFixture] });
+	fs.symlinkSync(path.dirname(typescriptPackage), path.join(nodeModules, "typescript"), "junction");
 }
 
 function outputArtifactsForProject(root) {
