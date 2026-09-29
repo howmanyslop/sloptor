@@ -478,6 +478,9 @@ func resolveAgainst(base, p string) string {
 type ProjectOptions struct {
 	rojoCache *rojo.RojoResolverCache
 	Timings   *BuildTimings
+	// Context cancels build work and carries the API session's transformer
+	// callback. Nil preserves the CLI's process-owned lifecycle.
+	Context context.Context
 
 	crossProjectImportPathMap map[string]string
 	pendingSolutionPersists   *[]func() error
@@ -624,6 +627,13 @@ type ProjectOptions struct {
 	forceFullBuild bool
 
 	pendingSolutionDependencyPersists *[]func() error
+}
+
+func (opts ProjectOptions) context() context.Context {
+	if opts.Context != nil {
+		return opts.Context
+	}
+	return opts.Timings.context()
 }
 
 func ProjectOptionsForReferencedConfig(entry ProjectOptions, tsConfigPath string, inheritEntryTypeAndRojo bool) (ProjectOptions, error) {
@@ -796,7 +806,7 @@ type precheckedProjectSourceFile struct {
 }
 
 func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *projectContext, sourceFiles []*ast.SourceFile, opts ProjectOptions) (map[string]string, map[string]string, []DiagnosticInfo, error) {
-	ctx := opts.Timings.context()
+	ctx := opts.context()
 	pprof.SetGoroutineLabels(ctx)
 
 	// A non-nil collector is what turns census mode on; nil is stock.

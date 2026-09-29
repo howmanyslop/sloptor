@@ -58,6 +58,117 @@ test("one session builds a project repeatedly through one native server", async 
 	await assert.rejects(session.build({ project }), { code: "SESSION_DISPOSED" });
 });
 
+test("API transformer callbacks retain project state without spawning sidecars and match CLI bytes", async () => {
+	const apiProject = path.join(temporaryRoot, "transformer-api");
+	const cliProject = path.join(temporaryRoot, "transformer-cli");
+	createTransformerProject(apiProject);
+	createTransformerProject(cliProject);
+
+	const session = createBuildSession({ executable });
+	try {
+		const first = await session.build({ project: apiProject });
+		assert.equal(first.ok, true);
+		assert.equal(first.projects[0].timings.counts.sidecarSpawns ?? 0, 0);
+		assert.match(fs.readFileSync(path.join(apiProject, "out", "main.luau"), "utf8"), /callback:start/);
+
+		fs.writeFileSync(path.join(apiProject, "src", "main.ts"), 'export const phase = "next";\n');
+		const second = await session.build({ project: apiProject });
+		assert.equal(second.ok, true);
+		assert.equal(second.projects[0].timings.counts.sidecarSpawns ?? 0, 0);
+		assert.match(fs.readFileSync(path.join(apiProject, "out", "main.luau"), "utf8"), /callback:next/);
+	} finally {
+		await session.dispose();
+	}
+
+	fs.writeFileSync(path.join(cliProject, "src", "main.ts"), 'export const phase = "next";\n');
+	execFileSync(executable, ["build", "--project", path.join(cliProject, "tsconfig.json")], {
+		cwd: cliProject,
+		env: { ...process.env, ROTOR_SIDECAR_PATH: path.join(repoRoot, "tools", "sidecar") },
+		stdio: "pipe",
+	});
+	assert.deepEqual(outputArtifactsForProject(apiProject), outputArtifactsForProject(cliProject));
+});
+
+test("concurrent solution projects keep transformer callback state isolated", async () => {
+	const firstProject = path.join(temporaryRoot, "transformer-union-first");
+	const secondProject = path.join(temporaryRoot, "transformer-union-second");
+	createTransformerProject(firstProject, "first", "one");
+	createTransformerProject(secondProject, "second", "two");
+
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({
+			roots: [path.join(firstProject, "tsconfig.json"), path.join(secondProject, "tsconfig.json")],
+		});
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, true);
+	assert.equal(result.projects.length, 2);
+	assert.deepEqual(result.projects.map((project) => project.timings.counts.sidecarSpawns ?? 0), [0, 0]);
+	assert.match(fs.readFileSync(path.join(firstProject, "out", "main.luau"), "utf8"), /first:one/);
+	assert.match(fs.readFileSync(path.join(secondProject, "out", "main.luau"), "utf8"), /second:two/);
+});
+
+test("transformer callback failures belong to their project", async () => {
+	const failedProject = path.join(temporaryRoot, "transformer-union-failed");
+	const successfulProject = path.join(temporaryRoot, "transformer-union-success");
+	createTransformerProject(failedProject, "failed", "one");
+	createTransformerProject(successfulProject, "successful", "two");
+	fs.writeFileSync(path.join(failedProject, "transformer.js"), 'module.exports = () => { throw new Error("owned callback failure"); };\n');
+
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({
+			roots: [path.join(failedProject, "tsconfig.json"), path.join(successfulProject, "tsconfig.json")],
+		});
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, false);
+	assert.deepEqual(result.projects.map((project) => project.status), ["failed", "success"]);
+	assert.equal(result.projects[0].diagnostics.length, 1);
+	assert.match(result.projects[0].diagnostics[0].message, /owned callback failure/);
+	assert.deepEqual(result.projects[1].diagnostics, []);
+	assert.match(fs.readFileSync(path.join(successfulProject, "out", "main.luau"), "utf8"), /successful:two/);
+});
+
+test("transformer callback diagnostics map back to original source positions", async () => {
+	const project = path.join(temporaryRoot, "transformer-diagnostic-map");
+	createTransformerProject(project);
+	fs.writeFileSync(path.join(project, "src", "main.ts"), 'export const phase: string = "original";\n');
+	fs.writeFileSync(
+		path.join(project, "transformer.js"),
+		`module.exports = (program, config, helpers) => (context) => {
+  const ts = helpers.ts;
+  const visit = (node) => ts.isStringLiteral(node)
+    ? ts.factory.createNumericLiteral(123)
+    : ts.visitEachChild(node, visit, context);
+  return (sourceFile) => ts.visitNode(sourceFile, visit);
+};
+`,
+	);
+
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({ project });
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, false);
+	assert.equal(result.projects[0].diagnostics.length, 1);
+	assert.equal(result.projects[0].diagnostics[0].code, "TS2322");
+	assert.equal(result.projects[0].diagnostics[0].file, "src/main.ts");
+	assert.equal(result.projects[0].diagnostics[0].line, 1);
+	assert.match(result.projects[0].diagnostics[0].message, /not assignable to type 'string'/);
+});
+
 test("one request builds a canonical union with project-owned results and CLI byte parity", async () => {
 	const apiRoot = path.join(temporaryRoot, "multi-root-api");
 	const cliRoot = path.join(temporaryRoot, "multi-root-cli");
@@ -133,6 +244,14 @@ test("an installed package resolves its native executable without an override", 
 	for (const file of ["api.js", "api.d.ts", "package.json", "platform.js"]) {
 		fs.copyFileSync(path.join(repoRoot, file), path.join(installedPackage, file));
 	}
+	fs.mkdirSync(path.join(installedPackage, "tools", "sidecar"), { recursive: true });
+	fs.copyFileSync(
+		path.join(repoRoot, "tools", "sidecar", "index.js"),
+		path.join(installedPackage, "tools", "sidecar", "index.js"),
+	);
+	fs.cpSync(path.join(repoRoot, "tools", "sidecar", "lib"), path.join(installedPackage, "tools", "sidecar", "lib"), {
+		recursive: true,
+	});
 	const packageName = `rotor-${process.platform}-${process.arch}`;
 	const platformPackage = path.join(installedPackage, "node_modules", "@rotor-rbx", packageName);
 	fs.mkdirSync(path.join(platformPackage, "bin"), { recursive: true });
@@ -167,6 +286,43 @@ function outputArtifacts(root) {
 			const file = path.join(entry.parentPath, entry.name);
 			artifacts[path.relative(root, file).split(path.sep).join("/")] = fs.readFileSync(file).toString("base64");
 		}
+	}
+	return artifacts;
+}
+
+function createTransformerProject(project, prefix = "callback", phase = "start") {
+	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	fs.writeFileSync(path.join(project, "src", "main.ts"), `export const phase = ${JSON.stringify(phase)};\n`);
+	fs.writeFileSync(
+		path.join(project, "transformer.js"),
+		`const ts = require("typescript");
+module.exports = (program, config, helpers) => {
+  if (helpers.ts !== ts || !program.getTypeChecker()) throw new Error("typescript instance mismatch");
+  return (context) => {
+    const visit = (node) => ts.isStringLiteral(node)
+      ? ts.factory.createStringLiteral(config.prefix + ":" + node.text)
+      : ts.visitEachChild(node, visit, context);
+    return (sourceFile) => ts.visitNode(sourceFile, visit);
+  };
+};
+`,
+	);
+	const configPath = path.join(project, "tsconfig.json");
+	const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+	config.compilerOptions.plugins = [{ transform: "./transformer.js", prefix }];
+	fs.writeFileSync(configPath, JSON.stringify(config));
+	const nodeModules = path.join(project, "node_modules");
+	fs.mkdirSync(nodeModules, { recursive: true });
+	fs.symlinkSync(path.dirname(require.resolve("typescript/package.json")), path.join(nodeModules, "typescript"), "junction");
+}
+
+function outputArtifactsForProject(root) {
+	const artifacts = {};
+	const output = path.join(root, "out");
+	for (const entry of fs.readdirSync(output, { recursive: true, withFileTypes: true })) {
+		if (!entry.isFile() || entry.name === "rbxts.copyfiles.json") continue;
+		const file = path.join(entry.parentPath, entry.name);
+		artifacts[path.relative(root, file).split(path.sep).join("/")] = fs.readFileSync(file).toString("base64");
 	}
 	return artifacts;
 }

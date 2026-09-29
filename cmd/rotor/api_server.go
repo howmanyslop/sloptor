@@ -31,7 +31,7 @@ func newAPIServerCommand(streams cliStreams) *cobra.Command {
 	}
 }
 
-func runAPIBuild(_ context.Context, requestedRoots []string) (buildapi.BuildResult, error) {
+func runAPIBuild(ctx context.Context, requestedRoots []string) (buildapi.BuildResult, error) {
 	started := time.Now()
 	timings := compile.NewBuildTimings()
 	timings.SetProductVersion(version)
@@ -52,6 +52,7 @@ func runAPIBuild(_ context.Context, requestedRoots []string) (buildapi.BuildResu
 		opts.argv = &partialProjectOptions{}
 		compileOptions := projectCompileOptions(tsConfigPath, opts)
 		compileOptions.Timings = timings
+		compileOptions.Context = ctx
 		roots = append(roots, compile.SolutionRoot{ConfigPath: tsConfigPath, Options: compileOptions})
 	}
 
@@ -60,6 +61,9 @@ func runAPIBuild(_ context.Context, requestedRoots []string) (buildapi.BuildResu
 		return buildapi.ResultFromCompile(filepath.Dir(roots[0].ConfigPath), nil, nil, time.Since(started), err), nil
 	}
 	_, projects, _, buildErr := coordinator.DrainWithProjectResults()
+	if ctx.Err() != nil {
+		return buildapi.BuildResult{}, ctx.Err()
+	}
 	timings.SetOK(buildErr == nil)
 	return buildapi.ResultFromSolution(projects, timings, time.Since(started), buildErr), nil
 }

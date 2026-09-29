@@ -269,6 +269,8 @@ func pathHasExplicitSymlink(path string) bool {
 func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	left.Timings = nil
 	right.Timings = nil
+	left.Context = nil
+	right.Context = nil
 	left.TsConfigPath = ""
 	right.TsConfigPath = ""
 	left.SolutionArgv, right.SolutionArgv = nil, nil

@@ -4,12 +4,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
 const { spawn } = require("node:child_process");
+const { resolveTypeScript, SidecarServer } = require("./tools/sidecar");
 
 const pkg = require("./package.json");
 const { resolvePlatformBinary } = require("./platform.js");
 
 const PROTOCOL_VERSION = 1;
-const REQUIRED_CAPABILITIES = ["build", "shutdown", "terminal-cancel"];
+const REQUIRED_CAPABILITIES = ["build", "shutdown", "terminal-cancel", "transformer-callback"];
 
 class SloptorClientError extends Error {
 	constructor(code, message, options) {
@@ -34,6 +35,7 @@ class BuildSession {
 	#exitPromise;
 	#stderr = "";
 	#abortPromise;
+	#transformerServer = new SidecarServer(resolveTypeScript);
 
 	constructor(executable, executableArgs, resolveFromPlatformPackage) {
 		this.#executable = executable;
@@ -170,6 +172,7 @@ class BuildSession {
 				throw error;
 			} finally {
 				clearTimeout(timeout);
+				this.#transformerServer.dispose();
 			}
 		})();
 		this.#queue = operation.catch(() => {});
@@ -239,12 +242,7 @@ class BuildSession {
 			return;
 		}
 		if (typeof message.method === "string") {
-			if (typeof message.id === "string") {
-				this.#send({
-					id: message.id,
-					error: { code: "METHOD_NOT_FOUND", message: `Unsupported server method ${message.method}` },
-				});
-			}
+			this.#receiveServerRequest(message);
 			return;
 		}
 		const hasResult = "result" in message;
@@ -271,6 +269,28 @@ class BuildSession {
 			pending.reject(new SloptorClientError(message.error.code || "SERVER_ERROR", message.error.message || "Sloptor API server error"));
 		} else {
 			pending.resolve(message.result);
+		}
+	}
+
+	#receiveServerRequest(message) {
+		if (typeof message.id !== "string") return;
+		if (message.method !== "transform") {
+			this.#send({
+				id: message.id,
+				error: { code: "METHOD_NOT_FOUND", message: `Unsupported server method ${message.method}` },
+			});
+			return;
+		}
+		try {
+			this.#send({ id: message.id, result: this.#transformerServer.handleRequest(message.params) });
+		} catch (error) {
+			this.#send({
+				id: message.id,
+				error: {
+					code: "TRANSFORMER_CALLBACK_FAILED",
+					message: error instanceof Error ? error.message : String(error),
+				},
+			});
 		}
 	}
 
@@ -301,6 +321,7 @@ class BuildSession {
 	#fail(error) {
 		if (this.#terminalError) return;
 		this.#terminalError = error;
+		this.#transformerServer.dispose();
 		for (const pending of this.#pending.values()) {
 			pending.cleanup();
 			pending.reject(error);
@@ -321,6 +342,7 @@ class BuildSession {
 				"SESSION_TERMINAL",
 				"The Sloptor build session terminated after cancellation",
 			);
+			this.#transformerServer.dispose();
 			if (this.#child?.exitCode === null) this.#child.kill();
 			if (this.#exitPromise) await this.#exitPromise;
 			const cancellation = new SloptorClientError("BUILD_CANCELLED", "The build was cancelled");

@@ -150,7 +150,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		// cannot affect declaration output and must not create a discarded overlay.
 		originalProgram := program
 		if projectUsesTransformerPlugins(program.CommandLine()) {
-			if sidecarDiags, err := validateTransformerSidecar(dir, program); err != nil {
+			if sidecarDiags, err := validateTransformerHost(opts.context(), transformerHostFromContext(opts.context()), dir, program); err != nil {
 				return nil, sidecarDiags, err
 			}
 		}
@@ -278,7 +278,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	// Held across the pipeline because declaration emit reads it: declarations
 	// describe the source the user wrote, not the source transformers produced.
 	originalProgram := program
-	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
+	pipeline, diags, err := runCompilePipelineWithOptions(dir, program, selectedFiles, opts.Overlays, nativePipeline, opts)
 	if err != nil {
 		return nil, diags, err
 	}

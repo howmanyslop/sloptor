@@ -20,7 +20,7 @@ import (
 
 const ProtocolVersion = 1
 
-var capabilities = []string{"build", "shutdown", "terminal-cancel"}
+var capabilities = []string{"build", "shutdown", "terminal-cancel", "transformer-callback"}
 
 // Diagnostic is the stable wire representation of one compiler diagnostic.
 type Diagnostic struct {
@@ -82,11 +82,17 @@ type Server struct {
 	activeCancel context.CancelFunc
 	builds       sync.WaitGroup
 	initialized  bool
+	callbackMu   sync.Mutex
+	callbackNext uint64
+	callbacks    map[string]chan callbackResult
+	callbackBase context.Context
 }
 
 // NewServer creates a native build server behind a small build function seam.
 func NewServer(version string, build BuildFunc) *Server {
-	return &Server{version: version, build: build}
+	server := &Server{version: version, build: build, callbacks: map[string]chan callbackResult{}}
+	server.callbackBase = compile.WithTransformerCallback(context.Background(), server.callTransformer)
+	return server
 }
 
 // Run serves one newline-framed JSON-RPC connection until shutdown or EOF.
@@ -96,26 +102,38 @@ func (s *Server) Run(in io.Reader, out io.Writer) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
-		var request request
-		if err := json.Unmarshal(scanner.Bytes(), &request); err != nil {
+		var message incomingMessage
+		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
 			return fmt.Errorf("build API: malformed request: %w", err)
 		}
-		if request.ID == nil {
+		if message.Method == "" {
+			if err := s.completeCallback(message); err != nil {
+				s.stopActiveBuild()
+				s.builds.Wait()
+				return err
+			}
+			continue
+		}
+		if len(message.ID) == 0 {
 			return errors.New("build API: request is missing an id")
 		}
+		var id int64
+		if err := json.Unmarshal(message.ID, &id); err != nil {
+			return errors.New("build API: client request id must be an integer")
+		}
 
-		switch request.Method {
+		switch message.Method {
 		case "initialize":
-			s.initialize(*request.ID, request.Params)
+			s.initialize(id, message.Params)
 		case "build":
-			s.startBuild(*request.ID, request.Params)
+			s.startBuild(id, message.Params)
 		case "shutdown":
 			s.stopActiveBuild()
 			s.builds.Wait()
-			s.respond(response{ID: *request.ID, Result: struct{}{}})
+			s.respond(response{ID: id, Result: struct{}{}})
 			return s.responseError()
 		default:
-			s.respondError(*request.ID, "METHOD_NOT_FOUND", fmt.Sprintf("unknown method %q", request.Method))
+			s.respondError(id, "METHOD_NOT_FOUND", fmt.Sprintf("unknown method %q", message.Method))
 		}
 		if err := s.responseError(); err != nil {
 			s.stopActiveBuild()
@@ -248,10 +266,24 @@ func diagnosticsFromCompile(projectDir string, diagnostics []compile.DiagnosticI
 	return result
 }
 
-type request struct {
-	ID     *int64          `json:"id,omitempty"`
+type incomingMessage struct {
+	ID     json.RawMessage `json:"id,omitempty"`
 	Method string          `json:"method"`
 	Params json.RawMessage `json:"params,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *responseError  `json:"error,omitempty"`
+}
+
+type callbackRequest struct {
+	JSONRPC string                     `json:"jsonrpc"`
+	ID      string                     `json:"id"`
+	Method  string                     `json:"method"`
+	Params  compile.TransformerRequest `json:"params"`
+}
+
+type callbackResult struct {
+	result json.RawMessage
+	err    error
 }
 
 type response struct {
@@ -343,7 +375,7 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 		s.respondError(id, "BUILD_IN_PROGRESS", "the session already has an active build")
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(s.callbackBase)
 	s.activeID = id
 	s.activeCancel = cancel
 	s.activeMu.Unlock()
@@ -373,6 +405,66 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 	}()
 }
 
+func (s *Server) callTransformer(ctx context.Context, request compile.TransformerRequest) (compile.TransformerResponse, error) {
+	s.callbackMu.Lock()
+	s.callbackNext++
+	id := fmt.Sprintf("transform-%d", s.callbackNext)
+	result := make(chan callbackResult, 1)
+	s.callbacks[id] = result
+	s.callbackMu.Unlock()
+
+	s.respondCallback(callbackRequest{ID: id, Method: "transform", Params: request})
+	if err := s.responseError(); err != nil {
+		s.removeCallback(id)
+		return compile.TransformerResponse{}, err
+	}
+
+	select {
+	case completed := <-result:
+		if completed.err != nil {
+			return compile.TransformerResponse{}, completed.err
+		}
+		var response compile.TransformerResponse
+		if err := json.Unmarshal(completed.result, &response); err != nil {
+			return compile.TransformerResponse{}, fmt.Errorf("build API: invalid transformer callback response: %w", err)
+		}
+		return response, nil
+	case <-ctx.Done():
+		s.removeCallback(id)
+		return compile.TransformerResponse{}, fmt.Errorf("build API: transformer callback cancelled: %w", ctx.Err())
+	}
+}
+
+func (s *Server) completeCallback(message incomingMessage) error {
+	var id string
+	if err := json.Unmarshal(message.ID, &id); err != nil || id == "" {
+		return errors.New("build API: callback response id must be a string")
+	}
+	s.callbackMu.Lock()
+	pending := s.callbacks[id]
+	delete(s.callbacks, id)
+	s.callbackMu.Unlock()
+	if pending == nil {
+		return fmt.Errorf("build API: callback response has unknown id %q", id)
+	}
+	if message.Error != nil {
+		pending <- callbackResult{err: fmt.Errorf("transformer callback %s: %s", message.Error.Code, message.Error.Message)}
+		return nil
+	}
+	if len(message.Result) == 0 {
+		pending <- callbackResult{err: errors.New("transformer callback response is missing a result")}
+		return nil
+	}
+	pending <- callbackResult{result: message.Result}
+	return nil
+}
+
+func (s *Server) removeCallback(id string) {
+	s.callbackMu.Lock()
+	delete(s.callbacks, id)
+	s.callbackMu.Unlock()
+}
+
 func (s *Server) stopActiveBuild() {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
@@ -391,6 +483,15 @@ func (s *Server) respond(message response) {
 	message.JSONRPC = "2.0"
 	if err := json.NewEncoder(s.out).Encode(message); err != nil && s.writeErr == nil {
 		s.writeErr = fmt.Errorf("build API: write response: %w", err)
+	}
+}
+
+func (s *Server) respondCallback(message callbackRequest) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	message.JSONRPC = "2.0"
+	if err := json.NewEncoder(s.out).Encode(message); err != nil && s.writeErr == nil {
+		s.writeErr = fmt.Errorf("build API: write callback: %w", err)
 	}
 }
 

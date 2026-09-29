@@ -72,6 +72,18 @@ test("malformed build results terminate the session", async () => {
 	fs.rmSync(marker.directory, { force: true, recursive: true });
 });
 
+test("transformer callbacks run in the API client process", async () => {
+	const marker = temporaryPath("pid");
+	const session = fakeSession("transform-callback", marker.file);
+	try {
+		const result = await session.build({ project: __dirname });
+		assert.equal(result.ok, true);
+	} finally {
+		await session.dispose();
+		fs.rmSync(marker.directory, { force: true, recursive: true });
+	}
+});
+
 test("disposal does not suppress an in-flight server exit", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("exit", marker.file);

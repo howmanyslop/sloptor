@@ -44,6 +44,14 @@ node tools/sidecar/main.js
 The process reads newline-delimited JSON requests from `stdin` and writes one
 newline-delimited JSON response per request to `stdout`.
 
+Builds started through the JavaScript API use the same request and response
+objects without starting this process. The native API server sends a
+`transform` request back over the build connection, and the JavaScript client
+passes it to `SidecarServer` in-process. CLI builds continue to use the stdio
+worker. Both transports meet at one native transformer-host seam, so plugin
+resolution, ordering, options, overlay handling, and diagnostic trace maps are
+shared rather than reimplemented.
+
 **stdout is reserved for protocol responses.** `main.js` captures the real
 stdout writer and reroutes every other stdout write (plugin `console.log`,
 e.g. Flamework's logging) to stderr. Rotor streams the worker's stderr lines
@@ -77,7 +85,10 @@ fresh state.
 
 Inside the worker, one in-memory project session per
 `(projectDir, tsConfigPath)` holds the overlay map and reuses the TypeScript
-`LanguageService` program across requests.
+`LanguageService` program across requests. A stdio worker naturally owns one
+such session. The API client maps canonical project-and-config keys to sessions
+so concurrent solution projects cannot replace one another's TypeScript state;
+disposing the API session disposes the complete map.
 
 ## Protocol v1
 

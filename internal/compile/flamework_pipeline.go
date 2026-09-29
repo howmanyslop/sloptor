@@ -39,7 +39,7 @@ func prepareCompilePipeline(dir string, program *compiler.Program, sourceFiles [
 	if err != nil {
 		return nil, diags, err
 	}
-	return runCompilePipeline(dir, program, sourceFiles, overlays, pipeline)
+	return runCompilePipelineWithOptions(dir, program, sourceFiles, overlays, pipeline, opts)
 }
 
 func prepareFlameworkPipeline(dir string, program *compiler.Program, opts ProjectOptions) (*flameworkPipeline, []string, error) {
@@ -98,6 +98,12 @@ func rejectDirtyFlameworkIncrementalState(dir string, program *compiler.Program)
 // (emitDeclarationTexts), never from the overlaid program a transform
 // produces.
 func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline) (*compilePipelineResult, []string, error) {
+	return runCompilePipelineWithOptions(dir, program, sourceFiles, overlays, pipeline, ProjectOptions{})
+}
+
+func runCompilePipelineWithOptions(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline, opts ProjectOptions) (*compilePipelineResult, []string, error) {
+	ctx := opts.context()
+	host := transformerHostFromContext(ctx)
 	if len(overlays) > 0 {
 		// Project setup already rejects unmatched overlays for a single project
 		// and leaves them for the solution-wide check otherwise. Transformer and
@@ -105,7 +111,7 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 		overlays, _ = rekeyOverlaysToProgram(program, overlays)
 	}
 	if pipeline == nil {
-		prepared, diags, err := prepareTransformerProgram(dir, program, sourceFiles, overlays)
+		prepared, diags, err := prepareTransformerProgramWithHost(ctx, host, dir, program, sourceFiles, overlays)
 		if err != nil {
 			return nil, diags, err
 		}
@@ -127,7 +133,7 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
 	if len(pipeline.prefix) > 0 {
-		prepared, stageDiags, err := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
+		prepared, stageDiags, err := applyExternalTransformerStage(ctx, host, dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
 		if err != nil {
 			return nil, stageDiags, err
 		}
@@ -144,7 +150,7 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 	traces = prepared.sourceTraces
 	state.absorbSourceFiles(currentFiles)
 	if len(pipeline.suffix) > 0 {
-		next, stageDiags, stageErr := applyExternalTransformerStage(dir, program, currentFiles, overlays, traces, pipeline.suffix, state)
+		next, stageDiags, stageErr := applyExternalTransformerStage(ctx, host, dir, program, currentFiles, overlays, traces, pipeline.suffix, state)
 		if stageErr != nil {
 			return nil, stageDiags, stageErr
 		}
@@ -155,8 +161,8 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
 }
 
-func applyExternalTransformerStage(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPlugins(dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state)
+func applyExternalTransformerStage(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
+	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state)
 	if err != nil {
 		return nil, diags, err
 	}

@@ -387,6 +387,11 @@ class SidecarProjectSession {
       };
     }
   }
+
+  dispose() {
+    this.service?.dispose();
+    this.service = undefined;
+  }
 }
 
 // The trace map is not an emit artifact — rotor needs it to put every position
@@ -449,8 +454,7 @@ function validateRequest(request) {
 class SidecarServer {
   constructor(tsOrLoader) {
     this.loadTypeScript = typeof tsOrLoader === "function" ? tsOrLoader : () => tsOrLoader;
-    this.session = undefined;
-    this.sessionKey = "";
+    this.sessions = new Map();
   }
 
   handleRequest(request) {
@@ -475,34 +479,55 @@ class SidecarServer {
       return { diagnostics: [validationError], transformed: [] };
     }
 
-    const sessionKey = `${normalizePath(request.projectDir)}\u0000${normalizePath(request.tsConfigPath)}`;
-    if (!this.session || this.sessionKey !== sessionKey) {
-      let ts;
-      let tsModulePath;
-      try {
-        ts = this.loadTypeScript(request.projectDir);
-        if (typeof this.loadTypeScript.modulePathFor === "function") {
-          tsModulePath = this.loadTypeScript.modulePathFor(request.projectDir);
+    const previousCwd = process.cwd();
+    const previousArgv = [...process.argv];
+    try {
+      syncProjectProcessPaths(request.projectDir, request.tsConfigPath);
+      const canonicalPath = (fileName) => {
+        const normalized = normalizePath(fileName);
+        return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+      };
+      const sessionKey = `${canonicalPath(request.projectDir)}\u0000${canonicalPath(request.tsConfigPath)}`;
+      let session = this.sessions.get(sessionKey);
+      if (!session) {
+        let ts;
+        let tsModulePath;
+        try {
+          ts = this.loadTypeScript(request.projectDir);
+          if (typeof this.loadTypeScript.modulePathFor === "function") {
+            tsModulePath = this.loadTypeScript.modulePathFor(request.projectDir);
+          }
+        } catch (error) {
+          return {
+            diagnostics: [
+              createProtocolDiagnostic(
+                "error",
+                "typescript-not-found",
+                `Could not resolve the \`typescript\` package from ${request.projectDir}.\n` +
+                  `Transformer plugins require typescript in the project's node_modules (roblox-ts projects pin ~5.5.3).\n` +
+                  `More info: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+            ],
+            transformed: [],
+          };
         }
-      } catch (error) {
-        return {
-          diagnostics: [
-            createProtocolDiagnostic(
-              "error",
-              "typescript-not-found",
-              `Could not resolve the \`typescript\` package from ${request.projectDir}.\n` +
-                `Transformer plugins require typescript in the project's node_modules (roblox-ts projects pin ~5.5.3).\n` +
-                `More info: ${error instanceof Error ? error.message : String(error)}`,
-            ),
-          ],
-          transformed: [],
-        };
+        session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath);
+        this.sessions.set(sessionKey, session);
       }
-      this.session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath);
-      this.sessionKey = sessionKey;
-    }
 
-    return this.session.handleRequest(request);
+      syncProjectProcessPaths(session.projectDir, session.tsConfigPath);
+      return session.handleRequest(request);
+    } finally {
+      process.chdir(previousCwd);
+      process.argv.splice(0, process.argv.length, ...previousArgv);
+    }
+  }
+
+  dispose() {
+    for (const session of this.sessions.values()) {
+      session.dispose();
+    }
+    this.sessions.clear();
   }
 }
 

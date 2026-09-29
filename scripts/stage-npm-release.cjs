@@ -15,7 +15,8 @@ function parseArguments(arguments_) {
 		else if (arguments_[index] === "--output") options.output = path.resolve(arguments_[++index]);
 		else throw new Error(`unknown argument ${arguments_[index]}`);
 	}
-	if (!options.dist || !options.output) throw new Error("usage: stage-npm-release.cjs --dist <directory> --output <directory>");
+	if (!options.dist || !options.output)
+		throw new Error("usage: stage-npm-release.cjs --dist <directory> --output <directory>");
 	return options;
 }
 
@@ -29,7 +30,9 @@ function npmPack(packageRoot, output) {
 		shell: false,
 	});
 	if (result.status !== 0) {
-		throw new Error(`npm pack failed for ${packageRoot}: ${result.error?.message || result.stderr || result.stdout}`);
+		throw new Error(
+			`npm pack failed for ${packageRoot}: ${result.error?.message || result.stderr || result.stdout}`,
+		);
 	}
 	const packed = JSON.parse(result.stdout);
 	if (!Array.isArray(packed) || packed.length !== 1) throw new Error(`unexpected npm pack output for ${packageRoot}`);
@@ -64,8 +67,12 @@ function stageNpmRelease({ dist, output, root = path.resolve(__dirname, "..") })
 			if (!fs.statSync(source).isFile()) throw new Error(`missing release executable ${source}`);
 
 			fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
-			for (const file of ["README.md", "LICENSE"]) fs.copyFileSync(path.join(root, file), path.join(packageRoot, file));
-			fs.copyFileSync(path.join(root, "packages", directory, "package.json"), path.join(packageRoot, "package.json"));
+			for (const file of ["README.md", "LICENSE"])
+				fs.copyFileSync(path.join(root, file), path.join(packageRoot, file));
+			fs.copyFileSync(
+				path.join(root, "packages", directory, "package.json"),
+				path.join(packageRoot, "package.json"),
+			);
 			const executable = path.join(packageRoot, "bin", executableName);
 			fs.copyFileSync(source, executable);
 			fs.chmodSync(executable, 0o755);
@@ -78,7 +85,16 @@ function stageNpmRelease({ dist, output, root = path.resolve(__dirname, "..") })
 		}
 
 		const main = npmPack(root, output);
-		for (const file of ["api.js", "api.d.ts", "platform.js", "bin/rotor.js"]) {
+		for (const file of [
+			"api.js",
+			"api.d.ts",
+			"platform.js",
+			"bin/rotor.js",
+			"tools/sidecar/index.js",
+			"tools/sidecar/lib/diagnostics.js",
+			"tools/sidecar/lib/plugins.js",
+			"tools/sidecar/lib/session.js",
+		]) {
 			if (!main.files.some((entry) => entry.path === file)) {
 				throw new Error(`main package tarball does not contain ${file}`);
 			}

@@ -27,7 +27,9 @@
 		"api.d.ts",
 		"platform.js",
 		"bin/",
-		"scripts/install.js"
+		"scripts/install.js",
+		"tools/sidecar/index.js",
+		"tools/sidecar/lib/"
 	],
 	"main": "api.js",
 	"types": "api.d.ts",

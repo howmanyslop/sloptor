@@ -15,11 +15,16 @@ function stageMain(name) {
 	const root = path.join(temporaryRoot, name);
 	fs.mkdirSync(path.join(root, "bin"), { recursive: true });
 	fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+	fs.mkdirSync(path.join(root, "tools", "sidecar"), { recursive: true });
 	for (const file of ["api.js", "api.d.ts", "package.json", "platform.js"]) {
 		fs.copyFileSync(path.join(repoRoot, file), path.join(root, file));
 	}
 	fs.copyFileSync(path.join(repoRoot, "bin", "rotor.js"), path.join(root, "bin", "rotor.js"));
 	fs.copyFileSync(path.join(repoRoot, "scripts", "install.js"), path.join(root, "scripts", "install.js"));
+	fs.copyFileSync(path.join(repoRoot, "tools", "sidecar", "index.js"), path.join(root, "tools", "sidecar", "index.js"));
+	fs.cpSync(path.join(repoRoot, "tools", "sidecar", "lib"), path.join(root, "tools", "sidecar", "lib"), {
+		recursive: true,
+	});
 	return root;
 }
 
