@@ -422,7 +422,7 @@ test("invalid restored declarations fail without transforming or replacing the s
 	}
 });
 
-test("invalid ownership claims return actionable config-owned diagnostics before work starts", async () => {
+test("invalid ownership claims return one owned diagnostic and a terminal result for every selected project", async () => {
 	const root = path.join(temporaryRoot, "invalid-ownership");
 	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
 	const productionConfig = path.join(root, "production", "tsconfig.json");
@@ -435,15 +435,18 @@ test("invalid ownership claims return actionable config-owned diagnostics before
 			satisfied: [unknownConfig],
 		});
 		assert.equal(result.ok, false);
-		assert.equal(result.projects.length, 1);
-		assert.equal(result.projects[0].config, unknownConfig.split(path.sep).join("/"));
+		assert.equal(result.projects.length, 2);
+		assert.equal(result.projects[0].config, productionConfig.split(path.sep).join("/"));
 		assert.equal(result.projects[0].status, "failed");
-		assert.equal(result.projects[0].diagnostics[0].code, "SOLUTION_SELECTION_UNKNOWN");
-		assert.match(result.projects[0].diagnostics[0].message, /not part of the discovered solution graph/);
+		assert.equal(result.projects[0].diagnostics[0].code, "SOLUTION_SELECTION_MISSING_DEPENDENCY");
+		assert.equal(result.projects[1].config, unknownConfig.split(path.sep).join("/"));
+		assert.equal(result.projects[1].status, "failed");
+		assert.equal(result.projects[1].diagnostics[0].code, "SOLUTION_SELECTION_UNKNOWN");
+		assert.match(result.projects[1].diagnostics[0].message, /not part of the discovered solution graph/);
 		assert.deepEqual(result.telemetry, {
-			selectedProjects: 0,
+			selectedProjects: 1,
 			satisfiedProjects: 0,
-			scheduledProjects: 0,
+			scheduledProjects: 1,
 			transformedProjects: 0,
 			emittedProjects: 0,
 		});

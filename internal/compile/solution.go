@@ -87,6 +87,7 @@ type SolutionCoordinator struct {
 	states               map[string]SolutionProjectState
 	projectPaths         map[string]string
 	coordinatorPaths     map[string]string
+	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
 	builders             int
 	timings              *BuildTimings
@@ -403,6 +404,7 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		states:               states,
 		projectPaths:         projectPaths,
 		coordinatorPaths:     solutionCoordinatorPaths(graph),
+		writeRoots:           metadata.writeRoots,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
 		builders:             builders,
 		timings:              timings,
@@ -544,6 +546,7 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	c.projectPaths = projectPaths
 	c.coordinatorPaths = solutionCoordinatorPaths(graph)
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
+	c.writeRoots = metadata.writeRoots
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {

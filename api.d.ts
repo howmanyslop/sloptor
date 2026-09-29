@@ -89,8 +89,8 @@ export interface BuildTimingCounts {
 	readonly emittedEntries: number;
 	readonly emittedProjects: number;
 	readonly hashSkips: number;
-	readonly nodeCPUSystemUs?: number;
-	readonly nodeCPUUserUs?: number;
+	readonly nodeCpuSystemUs?: number;
+	readonly nodeCpuUserUs?: number;
 	readonly nodeWallMs?: number;
 	readonly parseCacheHits?: number;
 	readonly parseCacheMisses?: number;
