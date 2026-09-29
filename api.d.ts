@@ -38,11 +38,13 @@ export interface BuildResult {
 
 export interface BuildTelemetry {
 	readonly emittedProjects: number;
+	readonly satisfiedProjects: number;
 	readonly scheduledProjects: number;
+	readonly selectedProjects: number;
 	readonly transformedProjects: number;
 }
 
-export type ProjectBuildStatus = "success" | "no-change" | "blocked" | "failed";
+export type ProjectBuildStatus = "success" | "no-change" | "satisfied" | "blocked" | "failed";
 
 export interface ProjectBuildResult {
 	readonly blockers: readonly string[];
@@ -92,9 +94,11 @@ export interface BuildTimingCounts {
 	readonly nodeWallMs?: number;
 	readonly parseCacheHits?: number;
 	readonly parseCacheMisses?: number;
+	readonly satisfiedProjects: number;
 	readonly scheduledDeclarationWrites: number;
 	readonly scheduledProjects: number;
 	readonly scheduledSourceMapWrites: number;
+	readonly selectedProjects: number;
 	readonly selectedSources: number;
 	readonly sidecarChangedFiles?: number;
 	readonly sidecarRequestBytes?: number;
@@ -112,11 +116,16 @@ interface BuildRequestOptions {
 	readonly signal?: AbortSignal;
 }
 
+type BuildOwnership =
+	| { readonly selected?: never; readonly satisfied?: never }
+	| { readonly selected: readonly string[]; readonly satisfied: readonly string[] };
+
 export type BuildRequest = BuildRequestOptions &
 	(
 		| { readonly project: string; readonly roots?: never }
 		| { readonly project?: never; readonly roots: readonly string[] }
-	);
+	) &
+	BuildOwnership;
 
 export interface BuildSession extends AsyncDisposable {
 	build(request: BuildRequest): Promise<BuildResult>;

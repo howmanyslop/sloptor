@@ -10,7 +10,13 @@ const pkg = require("./package.json");
 const { resolvePlatformBinary } = require("./platform.js");
 
 const PROTOCOL_VERSION = 1;
-const REQUIRED_CAPABILITIES = ["build", "shutdown", "terminal-cancel", "transformer-callback"];
+const REQUIRED_CAPABILITIES = [
+	"build",
+	"project-selection",
+	"shutdown",
+	"terminal-cancel",
+	"transformer-callback",
+];
 
 class SloptorClientError extends Error {
 	constructor(code, message, options) {
@@ -111,7 +117,30 @@ class BuildSession {
 		) {
 			return Promise.reject(new SloptorClientError("INVALID_REQUEST", "roots must contain one or more non-empty paths"));
 		}
+		const hasSelected = request && request.selected !== undefined;
+		const hasSatisfied = request && request.satisfied !== undefined;
+		if (hasSelected !== hasSatisfied) {
+			return Promise.reject(
+				new SloptorClientError("INVALID_REQUEST", "provide selected and satisfied together, or omit both"),
+			);
+		}
+		if (
+			hasSelected &&
+			(!Array.isArray(request.selected) ||
+				!Array.isArray(request.satisfied) ||
+				request.selected.some((config) => typeof config !== "string" || config.length === 0) ||
+				request.satisfied.some((config) => typeof config !== "string" || config.length === 0))
+		) {
+			return Promise.reject(
+				new SloptorClientError("INVALID_REQUEST", "selected and satisfied must contain only non-empty paths"),
+			);
+		}
 		const roots = hasProject ? [request.project] : request.roots;
+		const params = { roots: roots.map((root) => path.resolve(root)) };
+		if (hasSelected) {
+			params.selected = request.selected.map((config) => path.resolve(config));
+			params.satisfied = request.satisfied.map((config) => path.resolve(config));
+		}
 
 		const operation = this.#queue.then(async () => {
 			if (request.signal?.aborted) {
@@ -128,7 +157,7 @@ class BuildSession {
 				await this.#abortSession();
 				throw new SloptorClientError("BUILD_CANCELLED", "The build was cancelled");
 			}
-			const result = await this.#request("build", { roots: roots.map((root) => path.resolve(root)) }, request.signal);
+			const result = await this.#request("build", params, request.signal);
 			return this.#validateBuildResult(result);
 		});
 		this.#queue = operation.catch(() => {});
@@ -406,7 +435,7 @@ class BuildSession {
 			project !== null &&
 			typeof project === "object" &&
 			typeof project.config === "string" &&
-			["success", "no-change", "blocked", "failed"].includes(project.status) &&
+			["success", "no-change", "satisfied", "blocked", "failed"].includes(project.status) &&
 			Array.isArray(project.blockers) &&
 			project.blockers.every((blocker) => typeof blocker === "string") &&
 			Array.isArray(project.diagnostics) &&
@@ -426,6 +455,10 @@ class BuildSession {
 			typeof telemetry === "object" &&
 			Number.isSafeInteger(telemetry.scheduledProjects) &&
 			telemetry.scheduledProjects >= 0 &&
+			Number.isSafeInteger(telemetry.selectedProjects) &&
+			telemetry.selectedProjects >= 0 &&
+			Number.isSafeInteger(telemetry.satisfiedProjects) &&
+			telemetry.satisfiedProjects >= 0 &&
 			Number.isSafeInteger(telemetry.transformedProjects) &&
 			telemetry.transformedProjects >= 0 &&
 			Number.isSafeInteger(telemetry.emittedProjects) &&

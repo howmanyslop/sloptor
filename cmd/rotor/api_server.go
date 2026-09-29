@@ -31,10 +31,11 @@ func newAPIServerCommand(streams cliStreams) *cobra.Command {
 	}
 }
 
-func runAPIBuild(ctx context.Context, requestedRoots []string) (buildapi.BuildResult, error) {
+func runAPIBuild(ctx context.Context, request buildapi.BuildRequest) (buildapi.BuildResult, error) {
 	started := time.Now()
 	timings := compile.NewBuildTimings()
 	timings.SetProductVersion(version)
+	requestedRoots := request.Roots
 	roots := make([]compile.SolutionRoot, 0, len(requestedRoots))
 	for _, requestedRoot := range requestedRoots {
 		tsConfigPath, err := findTsConfigPath(requestedRoot)
@@ -60,7 +61,7 @@ func runAPIBuild(ctx context.Context, requestedRoots []string) (buildapi.BuildRe
 	if err != nil {
 		return buildapi.ResultFromCompile(filepath.Dir(roots[0].ConfigPath), nil, nil, time.Since(started), err), nil
 	}
-	_, projects, _, buildErr := coordinator.DrainWithProjectResults()
+	_, projects, _, buildErr := coordinator.DrainWithProjectResultsForSelection(request.Selection)
 	if ctx.Err() != nil {
 		return buildapi.BuildResult{}, ctx.Err()
 	}

@@ -13,12 +13,12 @@ import (
 )
 
 func TestServerRoutesTransformerCallbacks(t *testing.T) {
-	server := NewServer("2.6.0", func(ctx context.Context, roots []string) (BuildResult, error) {
+	server := NewServer("2.6.0", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
 		callback := compile.TransformerCallbackFromContext(ctx)
 		if callback == nil {
 			t.Fatal("build context has no transformer callback")
 		}
-		response, err := callback(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate", ProjectDir: roots[0], TsConfigPath: roots[0] + "/tsconfig.json"})
+		response, err := callback(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate", ProjectDir: request.Roots[0], TsConfigPath: request.Roots[0] + "/tsconfig.json"})
 		if err != nil {
 			return BuildResult{}, err
 		}
@@ -78,7 +78,7 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	callbackStarted := make(chan struct{})
 	buildReturned := make(chan error, 1)
-	server := NewServer("2.6.0", func(ctx context.Context, _ []string) (BuildResult, error) {
+	server := NewServer("2.6.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		close(callbackStarted)
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate", ProjectDir: "fixture", TsConfigPath: "fixture/tsconfig.json"})
 		buildReturned <- err

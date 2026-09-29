@@ -5,11 +5,14 @@ import (
 	"path/filepath"
 	"runtime/trace"
 	"sort"
+	"strings"
 )
 
 type solutionBuildDrainer struct {
-	importPathMap map[string]string
-	persists      []func() error
+	importPathMap        map[string]string
+	restoredDeclarations map[string][]string
+	restoredMetadataErrs map[string]string
+	persists             []func() error
 }
 
 func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
@@ -20,27 +23,94 @@ func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
 // DrainWithProjectResults drains one union and returns a terminal, owned
 // outcome for every emitted project in deterministic graph order.
 func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []SolutionProjectResult, []string, error) {
+	return c.DrainWithProjectResultsForSelection(nil)
+}
+
+// DrainWithProjectResultsForSelection applies one request-scoped external
+// ownership decision without changing the coordinator's warm-build state.
+func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *SolutionProjectSelection) (*BuildResult, []SolutionProjectResult, []string, error) {
 	if c.timings != nil {
 		defer c.timings.finish()
 	}
 	result := &BuildResult{Outputs: map[string]string{}}
+	cache := newSolutionCompileCache()
+	if c.timings != nil {
+		defer func() {
+			c.timings.addParseCacheCounts(cache.hits.Load(), cache.misses.Load())
+		}()
+	}
+	if selection != nil && c.timings != nil {
+		c.timings.applyProjectSelection(nil, nil)
+	}
+	selected, satisfied, selectionErr := c.resolveProjectSelection(selection)
+	if selectionErr != nil {
+		diagnostic := DiagnosticInfo{Code: selectionErr.code, Message: selectionErr.message}
+		result.Diagnostics = []DiagnosticInfo{diagnostic}
+		return result, []SolutionProjectResult{{
+			ConfigPath:  selectionErr.configPath,
+			Status:      SolutionProjectFailed,
+			Diagnostics: []DiagnosticInfo{diagnostic},
+			Timings:     c.projectTiming(selectionErr.configPath, string(SolutionProjectFailed)),
+		}}, []string{selectionErr.message}, fmt.Errorf("compile: %s", selectionErr.message)
+	}
+	if selection != nil && c.timings != nil {
+		c.timings.applyProjectSelection(selected, satisfied)
+	}
+	if selectionErr := c.validateSatisfiedOutputs(satisfied, cache); selectionErr != nil {
+		diagnostic := DiagnosticInfo{Code: selectionErr.code, Message: selectionErr.message}
+		result.Diagnostics = []DiagnosticInfo{diagnostic}
+		projectResults := make([]SolutionProjectResult, 0, len(selected)+len(satisfied))
+		for _, project := range c.graph.Projects {
+			if _, ok := satisfied[project.ConfigPath]; ok {
+				projectResult := SolutionProjectResult{
+					ConfigPath: project.ConfigPath,
+					Status:     SolutionProjectSatisfied,
+					Timings:    c.projectTiming(project.ConfigPath, string(SolutionProjectSatisfied)),
+				}
+				if project.ConfigPath == selectionErr.configPath {
+					projectResult.Status = SolutionProjectFailed
+					projectResult.Diagnostics = []DiagnosticInfo{diagnostic}
+				}
+				projectResults = append(projectResults, projectResult)
+				continue
+			}
+			if _, ok := selected[project.ConfigPath]; ok {
+				projectResults = append(projectResults, SolutionProjectResult{
+					ConfigPath: project.ConfigPath,
+					Status:     SolutionProjectBlocked,
+					Blockers:   []string{selectionErr.configPath},
+					Timings:    c.projectTiming(project.ConfigPath, string(SolutionProjectBlocked)),
+				})
+			}
+		}
+		return result, projectResults, []string{selectionErr.message}, fmt.Errorf("compile: %s", selectionErr.message)
+	}
 	indexByConfigPath := make(map[string]int, len(c.graph.Projects))
 	for index, project := range c.graph.Projects {
+		if selection != nil {
+			if _, ok := selected[project.ConfigPath]; !ok {
+				continue
+			}
+		}
 		indexByConfigPath[project.ConfigPath] = index
 	}
-	tasks := make([]solutionTask, len(c.graph.Projects))
+	tasks := make([]solutionTask, 0, len(indexByConfigPath))
 	for index, project := range c.graph.Projects {
-		tasks[index] = solutionTask{index: index}
+		if _, ok := indexByConfigPath[project.ConfigPath]; !ok {
+			continue
+		}
+		task := solutionTask{index: index}
 		for _, reference := range project.References {
 			if predecessor, ok := indexByConfigPath[reference]; ok {
-				tasks[index].predecessors = append(tasks[index].predecessors, predecessor)
+				task.predecessors = append(task.predecessors, predecessor)
 			}
 		}
 		for _, dependency := range c.waitOnlyDependencies[project.ConfigPath] {
 			if predecessor, ok := indexByConfigPath[dependency]; ok {
-				tasks[index].waitOnly = append(tasks[index].waitOnly, predecessor)
+				task.waitOnly = append(task.waitOnly, predecessor)
 			}
 		}
+		tasks = append(tasks, task)
 	}
 
 	type drainOutcome struct {
@@ -52,12 +122,6 @@ func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []Solutio
 		persists []func() error
 	}
 	outcomes := make([]drainOutcome, len(c.graph.Projects))
-	cache := newSolutionCompileCache()
-	if c.timings != nil {
-		defer func() {
-			c.timings.addParseCacheCounts(cache.hits.Load(), cache.misses.Load())
-		}()
-	}
 	RunSolutionTasks(tasks, c.builders, func(index int) error {
 		project := c.graph.Projects[index]
 		state := c.states[project.ConfigPath]
@@ -69,9 +133,9 @@ func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []Solutio
 			}
 			return nil
 		}
-		for _, predecessor := range tasks[index].predecessors {
-			if outcomes[predecessor].err != nil {
-				outcome.blockers = append(outcome.blockers, c.graph.Projects[predecessor].ConfigPath)
+		for _, reference := range project.References {
+			if predecessor, ok := indexByConfigPath[reference]; ok && outcomes[predecessor].err != nil {
+				outcome.blockers = append(outcome.blockers, reference)
 			}
 		}
 		if len(outcome.blockers) > 0 {
@@ -145,6 +209,19 @@ func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []Solutio
 	var firstErr error
 	projectResults := make([]SolutionProjectResult, 0, len(c.graph.Projects))
 	for index, project := range c.graph.Projects {
+		if selection != nil {
+			if _, ok := satisfied[project.ConfigPath]; ok {
+				projectResults = append(projectResults, SolutionProjectResult{
+					ConfigPath: project.ConfigPath,
+					Status:     SolutionProjectSatisfied,
+					Timings:    c.projectTiming(project.ConfigPath, string(SolutionProjectSatisfied)),
+				})
+				continue
+			}
+			if _, ok := selected[project.ConfigPath]; !ok {
+				continue
+			}
+		}
 		outcome := outcomes[index]
 		if outcome.skip {
 			projectResults = append(projectResults, SolutionProjectResult{
@@ -227,6 +304,109 @@ func (c *SolutionCoordinator) DrainWithProjectResults() (*BuildResult, []Solutio
 		}
 	}
 	return result, projectResults, nil, nil
+}
+
+type solutionSelectionError struct {
+	configPath string
+	code       string
+	message    string
+}
+
+func (c *SolutionCoordinator) resolveProjectSelection(selection *SolutionProjectSelection) (map[string]struct{}, map[string]struct{}, *solutionSelectionError) {
+	if selection == nil {
+		return nil, nil, nil
+	}
+	resolve := func(paths []string, setName string) (map[string]struct{}, *solutionSelectionError) {
+		resolved := make(map[string]struct{}, len(paths))
+		for _, path := range paths {
+			if strings.TrimSpace(path) == "" {
+				return nil, &solutionSelectionError{
+					configPath: path,
+					code:       "SOLUTION_SELECTION_INVALID_PATH",
+					message:    fmt.Sprintf("%s configs must contain only non-empty paths", setName),
+				}
+			}
+			configPath, key, err := canonicalSolutionConfigPath(path)
+			if err != nil {
+				return nil, &solutionSelectionError{
+					configPath: path,
+					code:       "SOLUTION_SELECTION_INVALID_PATH",
+					message:    fmt.Sprintf("%s config %q cannot be canonicalized: %v", setName, path, err),
+				}
+			}
+			if configPath, ok := c.projectPaths[key]; ok {
+				resolved[configPath] = struct{}{}
+				continue
+			}
+			if coordinatorPath, ok := c.coordinatorPaths[key]; ok {
+				return nil, &solutionSelectionError{
+					configPath: coordinatorPath,
+					code:       "SOLUTION_SELECTION_COORDINATOR",
+					message:    fmt.Sprintf("%s config %s is coordinator-only and cannot own compiler work or restored outputs", setName, coordinatorPath),
+				}
+			}
+			return nil, &solutionSelectionError{
+				configPath: configPath,
+				code:       "SOLUTION_SELECTION_UNKNOWN",
+				message:    fmt.Sprintf("%s config %s is not part of the discovered solution graph", setName, configPath),
+			}
+		}
+		return resolved, nil
+	}
+	selected, selectionErr := resolve(selection.Selected, "selected")
+	if selectionErr != nil {
+		return nil, nil, selectionErr
+	}
+	satisfied, selectionErr := resolve(selection.Satisfied, "satisfied")
+	if selectionErr != nil {
+		return nil, nil, selectionErr
+	}
+	for configPath := range selected {
+		if _, ok := satisfied[configPath]; ok {
+			return nil, nil, &solutionSelectionError{
+				configPath: configPath,
+				code:       "SOLUTION_SELECTION_OVERLAP",
+				message:    fmt.Sprintf("project %s is both selected and satisfied; assign each config to exactly one set", configPath),
+			}
+		}
+	}
+	for _, project := range c.graph.Projects {
+		if _, ok := selected[project.ConfigPath]; !ok {
+			continue
+		}
+		for _, reference := range project.References {
+			if _, ok := selected[reference]; ok {
+				continue
+			}
+			if _, ok := satisfied[reference]; ok {
+				continue
+			}
+			return nil, nil, &solutionSelectionError{
+				configPath: project.ConfigPath,
+				code:       "SOLUTION_SELECTION_MISSING_DEPENDENCY",
+				message:    fmt.Sprintf("selected project %s depends on %s, which has no owner; add the dependency to selected or satisfied", project.ConfigPath, reference),
+			}
+		}
+	}
+	return selected, satisfied, nil
+}
+
+func (c *SolutionCoordinator) validateSatisfiedOutputs(satisfied map[string]struct{}, cache *solutionCompileCache) *solutionSelectionError {
+	validator, ok := c.drainer.(interface {
+		validateSatisfiedProject(SolutionProject, *solutionCompileCache) *solutionSelectionError
+	})
+	if !ok {
+		return nil
+	}
+	for _, project := range c.graph.Projects {
+		if _, ok := satisfied[project.ConfigPath]; !ok {
+			continue
+		}
+		if err := validator.validateSatisfiedProject(project, cache); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *SolutionCoordinator) projectTiming(configPath, fallbackStatus string) ProjectBuildTimings {

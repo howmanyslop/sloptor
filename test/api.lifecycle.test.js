@@ -84,6 +84,21 @@ test("transformer callbacks run in the API client process", async () => {
 	}
 });
 
+test("selected and satisfied ownership sets must be provided together", async () => {
+	const marker = temporaryPath("pid");
+	const session = fakeSession("success", marker.file);
+	await assert.rejects(session.build({ project: __dirname, selected: [__filename] }), {
+		code: "INVALID_REQUEST",
+		message: /selected and satisfied together/,
+	});
+	await assert.rejects(session.build({ project: __dirname, selected: [], satisfied: [""] }), {
+		code: "INVALID_REQUEST",
+		message: /non-empty paths/,
+	});
+	await session.dispose();
+	fs.rmSync(marker.directory, { force: true, recursive: true });
+});
+
 test("disposal does not suppress an in-flight server exit", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("exit", marker.file);

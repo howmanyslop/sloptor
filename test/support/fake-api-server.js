@@ -32,7 +32,13 @@ lines.on("line", (line) => {
 					diagnostics: [],
 					outputs: [],
 					projects: [],
-					telemetry: { scheduledProjects: 0, transformedProjects: 0, emittedProjects: 0 },
+					telemetry: {
+						selectedProjects: 0,
+						satisfiedProjects: 0,
+						scheduledProjects: 0,
+						transformedProjects: 0,
+						emittedProjects: 0,
+					},
 				},
 			})}\n`,
 		);
@@ -55,7 +61,7 @@ lines.on("line", (line) => {
 				result: {
 					protocolVersion: 1,
 					serverVersion: mode === "version-mismatch" ? "0.0.0" : "2.6.0",
-					capabilities: ["build", "shutdown", "terminal-cancel", "transformer-callback"],
+					capabilities: ["build", "project-selection", "shutdown", "terminal-cancel", "transformer-callback"],
 				},
 			})}\n`,
 		);
@@ -89,7 +95,13 @@ lines.on("line", (line) => {
 							diagnostics: [],
 							outputs: [],
 							projects: [],
-							telemetry: { scheduledProjects: 0, transformedProjects: 0, emittedProjects: 0 },
+							telemetry: {
+								selectedProjects: 0,
+								satisfiedProjects: 0,
+								scheduledProjects: 0,
+								transformedProjects: 0,
+								emittedProjects: 0,
+							},
 						},
 			})}\n`,
 		);

@@ -45,11 +45,20 @@ type SolutionProjectState struct {
 type SolutionProjectStatus string
 
 const (
-	SolutionProjectSuccess  SolutionProjectStatus = "success"
-	SolutionProjectNoChange SolutionProjectStatus = "no-change"
-	SolutionProjectBlocked  SolutionProjectStatus = "blocked"
-	SolutionProjectFailed   SolutionProjectStatus = "failed"
+	SolutionProjectSuccess   SolutionProjectStatus = "success"
+	SolutionProjectNoChange  SolutionProjectStatus = "no-change"
+	SolutionProjectSatisfied SolutionProjectStatus = "satisfied"
+	SolutionProjectBlocked   SolutionProjectStatus = "blocked"
+	SolutionProjectFailed    SolutionProjectStatus = "failed"
 )
+
+// SolutionProjectSelection is the external scheduler's ownership decision for
+// one drain. A nil selection keeps the legacy behavior of building the entire
+// discovered graph.
+type SolutionProjectSelection struct {
+	Selected  []string
+	Satisfied []string
+}
 
 // SolutionProjectResult owns the terminal outcome for one emitted config.
 // Diagnostics never flow into blocked dependants; blockers identify the
@@ -77,6 +86,7 @@ type SolutionCoordinator struct {
 	drainer              SolutionProjectDrainer
 	states               map[string]SolutionProjectState
 	projectPaths         map[string]string
+	coordinatorPaths     map[string]string
 	waitOnlyDependencies map[string][]string
 	builders             int
 	timings              *BuildTimings
@@ -341,7 +351,11 @@ func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordi
 		return nil, err
 	}
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
-	drainer := &solutionBuildDrainer{importPathMap: importPathMap}
+	drainer := &solutionBuildDrainer{
+		importPathMap:        importPathMap,
+		restoredDeclarations: metadata.restoredDeclarations,
+		restoredMetadataErrs: metadata.restoredMetadataErrs,
+	}
 	return newSolutionCoordinator(graph, drainer, metadata, solutionRootsBuilders(roots), solutionRootsTimings(roots))
 }
 
@@ -391,6 +405,7 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		drainer:              drainer,
 		states:               states,
 		projectPaths:         projectPaths,
+		coordinatorPaths:     solutionCoordinatorPaths(graph),
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
 		builders:             builders,
 		timings:              timings,
@@ -530,13 +545,29 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	c.graph = graph
 	c.states = states
 	c.projectPaths = projectPaths
+	c.coordinatorPaths = solutionCoordinatorPaths(graph)
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {
-		c.drainer = &solutionBuildDrainer{importPathMap: importPathMap}
+		c.drainer = &solutionBuildDrainer{
+			importPathMap:        importPathMap,
+			restoredDeclarations: metadata.restoredDeclarations,
+			restoredMetadataErrs: metadata.restoredMetadataErrs,
+		}
 	}
 	return nil
+}
+
+func solutionCoordinatorPaths(graph *SolutionGraph) map[string]string {
+	paths := make(map[string]string, len(graph.coordinatorConfigChains))
+	for _, chain := range graph.coordinatorConfigChains {
+		_, key, err := canonicalSolutionConfigPath(chain.projectPath)
+		if err == nil {
+			paths[key] = chain.projectPath
+		}
+	}
+	return paths
 }
 
 func postOrderProjectPaths(rootPath string, projects map[string]SolutionProject) []string {

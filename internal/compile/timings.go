@@ -113,6 +113,8 @@ type BuildTimingStages struct {
 
 type BuildTimingCounts struct {
 	ScheduledProjects          int   `json:"scheduledProjects"`
+	SelectedProjects           int   `json:"selectedProjects"`
+	SatisfiedProjects          int   `json:"satisfiedProjects"`
 	TransformedProjects        int   `json:"transformedProjects"`
 	EmittedProjects            int   `json:"emittedProjects"`
 	TotalSources               int   `json:"totalSources"`
@@ -583,10 +585,11 @@ func (timings *BuildTimings) initProjects(projects []SolutionProject) {
 	timings.Projects = make([]ProjectBuildTimings, len(projects))
 	timings.projectIndex = make(map[string]int, len(projects))
 	timings.Counts.ScheduledProjects = len(projects)
+	timings.Counts.SelectedProjects = len(projects)
 	for index, project := range projects {
 		timings.Projects[index] = ProjectBuildTimings{
 			ConfigPath: project.ConfigPath,
-			Counts:     BuildTimingCounts{ScheduledProjects: 1},
+			Counts:     BuildTimingCounts{ScheduledProjects: 1, SelectedProjects: 1},
 		}
 		timings.projectIndex[project.ConfigPath] = index
 	}
@@ -600,8 +603,34 @@ func (timings *BuildTimings) newProject(configPath string) *BuildTimings {
 	child.parent = timings
 	child.configPath = configPath
 	child.Counts.ScheduledProjects = 1
+	child.Counts.SelectedProjects = 1
 	child.ctx = pprof.WithLabels(context.Background(), pprof.Labels("project", configPath))
 	return child
+}
+
+func (timings *BuildTimings) applyProjectSelection(selected, satisfied map[string]struct{}) {
+	if timings == nil {
+		return
+	}
+	timings.mu.Lock()
+	defer timings.mu.Unlock()
+	timings.Counts.ScheduledProjects = len(selected)
+	timings.Counts.SelectedProjects = len(selected)
+	timings.Counts.SatisfiedProjects = len(satisfied)
+	for index := range timings.Projects {
+		project := &timings.Projects[index]
+		project.Counts.ScheduledProjects = 0
+		project.Counts.SelectedProjects = 0
+		project.Counts.SatisfiedProjects = 0
+		if _, ok := selected[project.ConfigPath]; ok {
+			project.Counts.ScheduledProjects = 1
+			project.Counts.SelectedProjects = 1
+		}
+		if _, ok := satisfied[project.ConfigPath]; ok {
+			project.Counts.SatisfiedProjects = 1
+			project.Status = string(SolutionProjectSatisfied)
+		}
+	}
 }
 
 func (timings *BuildTimings) setProjectStatus(configPath, status, blockedBy string) {

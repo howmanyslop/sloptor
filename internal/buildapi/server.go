@@ -20,7 +20,7 @@ import (
 
 const ProtocolVersion = 1
 
-var capabilities = []string{"build", "shutdown", "terminal-cancel", "transformer-callback"}
+var capabilities = []string{"build", "project-selection", "shutdown", "terminal-cancel", "transformer-callback"}
 
 // Diagnostic is the stable wire representation of one compiler diagnostic.
 type Diagnostic struct {
@@ -45,6 +45,8 @@ type BuildResult struct {
 
 type BuildTelemetry struct {
 	ScheduledProjects   int `json:"scheduledProjects"`
+	SelectedProjects    int `json:"selectedProjects"`
+	SatisfiedProjects   int `json:"satisfiedProjects"`
 	TransformedProjects int `json:"transformedProjects"`
 	EmittedProjects     int `json:"emittedProjects"`
 }
@@ -65,9 +67,15 @@ type ProjectTimings struct {
 	Counts     compile.BuildTimingCounts `json:"counts"`
 }
 
+// BuildRequest is the canonical request passed to the native build adapter.
+type BuildRequest struct {
+	Roots     []string
+	Selection *compile.SolutionProjectSelection
+}
+
 // BuildFunc performs one build. Build failures belong in BuildResult;
 // returned errors are reserved for cancellation or server failures.
-type BuildFunc func(ctx context.Context, roots []string) (BuildResult, error)
+type BuildFunc func(ctx context.Context, request BuildRequest) (BuildResult, error)
 
 // Server owns one initialized connection and at most one active build.
 type Server struct {
@@ -202,6 +210,8 @@ func ResultFromSolution(projects []compile.SolutionProjectResult, timings *compi
 	if timings != nil {
 		response.Telemetry = BuildTelemetry{
 			ScheduledProjects:   timings.Counts.ScheduledProjects,
+			SelectedProjects:    timings.Counts.SelectedProjects,
+			SatisfiedProjects:   timings.Counts.SatisfiedProjects,
 			TransformedProjects: timings.Counts.TransformedProjects,
 			EmittedProjects:     timings.Counts.EmittedProjects,
 		}
@@ -310,8 +320,10 @@ type initializeResult struct {
 }
 
 type buildParams struct {
-	Project string   `json:"project"`
-	Roots   []string `json:"roots"`
+	Project   string   `json:"project"`
+	Roots     []string `json:"roots"`
+	Selected  []string `json:"selected"`
+	Satisfied []string `json:"satisfied"`
 }
 
 func (s *Server) initialize(id int64, raw json.RawMessage) {
@@ -368,6 +380,20 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 			return
 		}
 	}
+	if (params.Selected == nil) != (params.Satisfied == nil) {
+		s.respondError(id, "INVALID_REQUEST", "provide selected and satisfied together, or omit both")
+		return
+	}
+	var selection *compile.SolutionProjectSelection
+	if params.Selected != nil {
+		for _, config := range append(append([]string(nil), params.Selected...), params.Satisfied...) {
+			if config == "" {
+				s.respondError(id, "INVALID_REQUEST", "selected and satisfied must contain only non-empty paths")
+				return
+			}
+		}
+		selection = &compile.SolutionProjectSelection{Selected: params.Selected, Satisfied: params.Satisfied}
+	}
 
 	s.activeMu.Lock()
 	if s.activeCancel != nil {
@@ -383,7 +409,7 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 	s.builds.Add(1)
 	go func() {
 		defer s.builds.Done()
-		result, err := s.build(ctx, roots)
+		result, err := s.build(ctx, BuildRequest{Roots: roots, Selection: selection})
 
 		s.activeMu.Lock()
 		if s.activeID == id {

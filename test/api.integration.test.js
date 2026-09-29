@@ -194,7 +194,13 @@ test("one request builds a canonical union with project-owned results and CLI by
 	assert.equal(new Set(result.projects.map((project) => project.config.toLowerCase())).size, 3);
 	assert.deepEqual(result.projects.map((project) => project.status), ["success", "success", "success"]);
 	assert.deepEqual(result.projects.map((project) => project.timings.counts.scheduledProjects), [1, 1, 1]);
-	assert.deepEqual(result.telemetry, { scheduledProjects: 3, transformedProjects: 3, emittedProjects: 3 });
+	assert.deepEqual(result.telemetry, {
+		selectedProjects: 3,
+		satisfiedProjects: 0,
+		scheduledProjects: 3,
+		transformedProjects: 3,
+		emittedProjects: 3,
+	});
 	for (const project of result.projects) {
 		assert.deepEqual(project.blockers, []);
 		assert.deepEqual(project.diagnostics, []);
@@ -235,7 +241,174 @@ test("a union failure owns one diagnostic and explicitly blocks every dependent"
 		assert.deepEqual(project.diagnostics, []);
 		assert.deepEqual(project.blockers, [result.projects[0].config]);
 	}
-	assert.deepEqual(result.telemetry, { scheduledProjects: 3, transformedProjects: 0, emittedProjects: 0 });
+	assert.deepEqual(result.telemetry, {
+		selectedProjects: 3,
+		satisfiedProjects: 0,
+		scheduledProjects: 3,
+		transformedProjects: 0,
+		emittedProjects: 0,
+	});
+});
+
+test("a mixed cache hit builds selected projects without touching restored dependencies", async () => {
+	const fixture = path.join(__dirname, "fixtures", "multi-root");
+	const referenceRoot = path.join(temporaryRoot, "mixed-hit-reference");
+	const mixedRoot = path.join(temporaryRoot, "mixed-hit-api");
+	fs.cpSync(fixture, referenceRoot, { recursive: true });
+	fs.cpSync(fixture, mixedRoot, { recursive: true });
+
+	const buildAll = async (root) => {
+		const session = createBuildSession({ executable });
+		try {
+			return await session.build({
+				roots: [path.join(root, "production", "tsconfig.json"), path.join(root, "tests", "tsconfig.json")],
+			});
+		} finally {
+			await session.dispose();
+		}
+	};
+	assert.equal((await buildAll(referenceRoot)).ok, true);
+	assert.equal((await buildAll(mixedRoot)).ok, true);
+	const restoredBefore = projectArtifacts(mixedRoot, "shared");
+	const restoredTimes = Object.fromEntries(
+		Object.keys(restoredBefore).map((file) => [file, fs.statSync(path.join(mixedRoot, file)).mtimeMs]),
+	);
+	fs.rmSync(path.join(mixedRoot, "production", "out"), { force: true, recursive: true });
+	fs.rmSync(path.join(mixedRoot, "tests", "out"), { force: true, recursive: true });
+
+	const productionConfig = path.join(mixedRoot, "production", "tsconfig.json");
+	const testsConfig = path.join(mixedRoot, "tests", "tsconfig.json");
+	const sharedConfig = path.join(mixedRoot, "shared", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	let result;
+	try {
+		result = await session.build({
+			roots: [productionConfig, testsConfig],
+			selected: [productionConfig, testsConfig],
+			satisfied: [sharedConfig],
+		});
+	} finally {
+		await session.dispose();
+	}
+
+	assert.equal(result.ok, true);
+	assert.deepEqual(result.projects.map((project) => project.status), ["satisfied", "success", "success"]);
+	assert.deepEqual(result.telemetry, {
+		selectedProjects: 2,
+		satisfiedProjects: 1,
+		scheduledProjects: 2,
+		transformedProjects: 2,
+		emittedProjects: 2,
+	});
+	assert.deepEqual(projectArtifacts(mixedRoot, "shared"), restoredBefore);
+	assert.deepEqual(
+		Object.fromEntries(Object.keys(restoredBefore).map((file) => [file, fs.statSync(path.join(mixedRoot, file)).mtimeMs])),
+		restoredTimes,
+	);
+	for (const project of ["production", "tests"]) {
+		assert.deepEqual(projectArtifacts(mixedRoot, project), projectArtifacts(referenceRoot, project));
+	}
+});
+
+test("missing restored declarations fail the selected project without rebuilding the satisfied dependency", async () => {
+	const root = path.join(temporaryRoot, "missing-restored-output");
+	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	const productionConfig = path.join(root, "production", "tsconfig.json");
+	const sharedConfig = path.join(root, "shared", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	try {
+		const initial = await session.build({ roots: [productionConfig] });
+		assert.equal(initial.ok, true);
+		const declaration = path.join(root, "shared", "out", "value.d.ts");
+		fs.rmSync(declaration);
+		fs.rmSync(path.join(root, "production", "out"), { force: true, recursive: true });
+
+		const result = await session.build({
+			roots: [productionConfig],
+			selected: [productionConfig],
+			satisfied: [sharedConfig],
+		});
+		assert.equal(result.ok, false);
+		assert.deepEqual(result.projects.map((project) => project.status), ["failed", "blocked"]);
+		assert.equal(result.projects[0].diagnostics[0].code, "SOLUTION_SATISFIED_OUTPUT_MISSING");
+		assert.match(result.projects[0].diagnostics[0].message, /restore the output or select the project for work/);
+		assert.deepEqual(result.projects[1].blockers, [result.projects[0].config]);
+		assert.equal(fs.existsSync(declaration), false);
+		assert.deepEqual(result.telemetry, {
+			selectedProjects: 1,
+			satisfiedProjects: 1,
+			scheduledProjects: 1,
+			transformedProjects: 0,
+			emittedProjects: 0,
+		});
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("invalid restored declarations fail without transforming or replacing the satisfied output", async () => {
+	const root = path.join(temporaryRoot, "invalid-restored-output");
+	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	const productionConfig = path.join(root, "production", "tsconfig.json");
+	const sharedConfig = path.join(root, "shared", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	try {
+		assert.equal((await session.build({ roots: [productionConfig] })).ok, true);
+		const declaration = path.join(root, "shared", "out", "value.d.ts");
+		const invalidDeclaration = "export declare const sharedValue: ;\n";
+		fs.writeFileSync(declaration, invalidDeclaration);
+		fs.rmSync(path.join(root, "production", "out"), { force: true, recursive: true });
+
+		const result = await session.build({
+			roots: [productionConfig],
+			selected: [productionConfig],
+			satisfied: [sharedConfig],
+		});
+		assert.equal(result.ok, false);
+		assert.deepEqual(result.projects.map((project) => project.status), ["failed", "blocked"]);
+		assert.equal(result.projects[0].diagnostics[0].code, "SOLUTION_SATISFIED_OUTPUT_INVALID");
+		assert.match(result.projects[0].diagnostics[0].message, /restore the output or select the project for work/);
+		assert.equal(fs.readFileSync(declaration, "utf8"), invalidDeclaration);
+		assert.deepEqual(result.telemetry, {
+			selectedProjects: 1,
+			satisfiedProjects: 1,
+			scheduledProjects: 1,
+			transformedProjects: 0,
+			emittedProjects: 0,
+		});
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("invalid ownership claims return actionable config-owned diagnostics before work starts", async () => {
+	const root = path.join(temporaryRoot, "invalid-ownership");
+	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	const productionConfig = path.join(root, "production", "tsconfig.json");
+	const unknownConfig = path.join(root, "unknown", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	try {
+		const result = await session.build({
+			roots: [productionConfig],
+			selected: [productionConfig],
+			satisfied: [unknownConfig],
+		});
+		assert.equal(result.ok, false);
+		assert.equal(result.projects.length, 1);
+		assert.equal(result.projects[0].config, unknownConfig.split(path.sep).join("/"));
+		assert.equal(result.projects[0].status, "failed");
+		assert.equal(result.projects[0].diagnostics[0].code, "SOLUTION_SELECTION_UNKNOWN");
+		assert.match(result.projects[0].diagnostics[0].message, /not part of the discovered solution graph/);
+		assert.deepEqual(result.telemetry, {
+			selectedProjects: 0,
+			satisfiedProjects: 0,
+			scheduledProjects: 0,
+			transformedProjects: 0,
+			emittedProjects: 0,
+		});
+	} finally {
+		await session.dispose();
+	}
 });
 
 test("an installed package resolves its native executable without an override", async () => {
@@ -277,9 +450,9 @@ test("an installed package resolves its native executable without an override", 
 	}
 });
 
-function outputArtifacts(root) {
+function outputArtifacts(root, projects = ["shared", "production", "tests"]) {
 	const artifacts = {};
-	for (const project of ["shared", "production", "tests"]) {
+	for (const project of projects) {
 		const output = path.join(root, project, "out");
 		for (const entry of fs.readdirSync(output, { recursive: true, withFileTypes: true })) {
 			if (!entry.isFile() || entry.name === "rbxts.copyfiles.json") continue;
@@ -325,4 +498,8 @@ function outputArtifactsForProject(root) {
 		artifacts[path.relative(root, file).split(path.sep).join("/")] = fs.readFileSync(file).toString("base64");
 	}
 	return artifacts;
+}
+
+function projectArtifacts(root, project) {
+	return outputArtifacts(root, [project]);
 }
