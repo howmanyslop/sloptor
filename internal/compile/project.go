@@ -858,11 +858,19 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 			// GetGlobalDiagnostics is unguarded for the same reason. Fixing the
 			// lock belongs in tools/mirror/overlay, not here.
 			for i, sourceFile := range group.files {
+				// A checker that saw a cancelled context panics on its next use.
+				if ctx.Err() != nil {
+					return
+				}
 				prechecks[group.indices[i]] = precheckProjectSourceFile(ctx, program, sourceFile, opts)
 			}
 		})
 	}
 	wg.RunAndWait()
+	if err := ctx.Err(); err != nil {
+		stopDiagnostics()
+		return nil, nil, nil, fmt.Errorf("compile: %w", err)
+	}
 
 	// Gate 2 of 4, the one that matters most: this returns at the FIRST file
 	// with type errors, before the transform work group below is ever queued —
