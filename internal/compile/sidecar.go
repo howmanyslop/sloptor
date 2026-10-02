@@ -432,18 +432,24 @@ type sidecarStderrTail struct {
 	pending []string
 }
 
+// sidecarStderrLineLimit caps the bytes kept per stderr line; the rest of
+// the line is still read and dropped.
+const (
+	sidecarStderrLineLimit = 64 * 1024
+	sidecarStderrTruncated = " [truncated]"
+)
+
 func newSidecarStderrTail(pipe io.Reader) *sidecarStderrTail {
 	t := &sidecarStderrTail{}
 	go func() {
-		// No line limit: a reader that stops early leaves the pipe full and
-		// blocks the worker on its next stderr write.
+		// Keep reading to EOF: a reader that stops early leaves the pipe full
+		// and blocks the worker on its next stderr write.
 		reader := bufio.NewReader(pipe)
 		for {
-			line, err := reader.ReadString('\n')
-			if line == "" && err != nil {
+			line, ok := readSidecarStderrLine(reader)
+			if !ok {
 				return
 			}
-			line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 			t.mu.Lock()
 			t.tail = append(t.tail, line)
 			if len(t.tail) > 50 {
@@ -454,6 +460,37 @@ func newSidecarStderrTail(pipe io.Reader) *sidecarStderrTail {
 		}
 	}()
 	return t
+}
+
+// readSidecarStderrLine reads one whole line and returns at most
+// sidecarStderrLineLimit bytes of it. ok is false once no bytes remain.
+func readSidecarStderrLine(reader *bufio.Reader) (line string, ok bool) {
+	var kept []byte
+	read, truncated := false, false
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		read = read || len(chunk) > 0
+		if err == nil {
+			chunk = chunk[:len(chunk)-1]
+		}
+		room := sidecarStderrLineLimit - len(kept)
+		if len(chunk) > room {
+			chunk, truncated = chunk[:room], true
+		}
+		kept = append(kept, chunk...)
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		if err != nil && !read {
+			return "", false
+		}
+		break
+	}
+	line = strings.TrimSuffix(string(kept), "\r")
+	if truncated {
+		line += sidecarStderrTruncated
+	}
+	return line, true
 }
 
 // drainTo writes lines buffered since the last drain to the compiler log.
