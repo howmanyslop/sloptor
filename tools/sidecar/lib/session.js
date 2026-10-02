@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const Module = require("node:module");
 const path = require("node:path");
 const {
   createInternalDiagnostic,
@@ -451,6 +452,49 @@ function validateRequest(request) {
   return undefined;
 }
 
+// projectModulePaths matches the NODE_PATH the CLI gives its sidecar
+// (sidecarEnv in internal/compile/sidecar.go): each node_modules above the
+// project, then the sidecar's own.
+function projectModulePaths(projectDir) {
+  const paths = [];
+  for (let dir = path.resolve(projectDir); ; dir = path.dirname(dir)) {
+    paths.push(path.join(dir, "node_modules"));
+    if (path.dirname(dir) === dir) {
+      break;
+    }
+  }
+  paths.push(path.join(__dirname, "..", "node_modules"));
+  return paths.filter((dir) => fs.existsSync(dir));
+}
+
+// withProjectModulePaths gives bare requests a NODE_PATH-style fallback for
+// one request only, so an in-process host (the JS API) resolves plugins like
+// the CLI sidecar without changing module resolution for the rest of its
+// process. NODE_PATH itself is read once at Node startup.
+function withProjectModulePaths(projectDir, run) {
+  const paths = projectModulePaths(projectDir);
+  const resolveFilename = Module._resolveFilename;
+  Module._resolveFilename = function (request, parent, isMain, options) {
+    try {
+      return resolveFilename.call(this, request, parent, isMain, options);
+    } catch (error) {
+      if (error?.code !== "MODULE_NOT_FOUND" || path.isAbsolute(request) || request.startsWith(".")) {
+        throw error;
+      }
+      try {
+        return resolveFilename.call(this, request, parent, isMain, { paths });
+      } catch {
+        throw error;
+      }
+    }
+  };
+  try {
+    return run();
+  } finally {
+    Module._resolveFilename = resolveFilename;
+  }
+}
+
 class SidecarServer {
   constructor(tsOrLoader) {
     this.loadTypeScript = typeof tsOrLoader === "function" ? tsOrLoader : () => tsOrLoader;
@@ -460,7 +504,9 @@ class SidecarServer {
   handleRequest(request) {
     const started = process.hrtime.bigint();
     const cpuStarted = process.cpuUsage();
-    const response = this.handleRequestUnmetered(request);
+    const response = typeof request?.projectDir === "string" && request.projectDir.length > 0
+      ? withProjectModulePaths(request.projectDir, () => this.handleRequestUnmetered(request))
+      : this.handleRequestUnmetered(request);
     const cpu = process.cpuUsage(cpuStarted);
     const wallNs = process.hrtime.bigint() - started;
     response.metrics = {
