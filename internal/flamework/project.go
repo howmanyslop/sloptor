@@ -54,9 +54,11 @@ type ProjectOptions struct {
 	RootDir          string
 	OutDir           string
 	IncludeDirectory string
-	RojoConfigPath   string
-	Declaration      bool
-	Config           config.FlameworkConfig
+	// NoInclude skips include/flamework artifacts, like rbxts noInclude skips include/.
+	NoInclude      bool
+	RojoConfigPath string
+	Declaration    bool
+	Config         config.FlameworkConfig
 }
 
 type Project struct {
@@ -64,6 +66,7 @@ type Project struct {
 	rootDirectory    string
 	outDirectory     string
 	includeDirectory string
+	noInclude        bool
 	packageName      string
 	packageVersion   string
 	hashPrefix       string
@@ -169,6 +172,7 @@ func OpenProject(options ProjectOptions) (*Project, error) {
 		rootDirectory:    projectRoot.packageDirectory,
 		outDirectory:     outDirectory,
 		includeDirectory: includeDirectory,
+		noInclude:        options.NoInclude,
 		packageName:      projectRoot.packageName,
 		packageVersion:   projectRoot.packageVersion,
 		hashPrefix:       hashPrefix,

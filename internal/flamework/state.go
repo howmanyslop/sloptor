@@ -101,7 +101,7 @@ func (p *Project) PackageBuildInfoSnapshots() []BuildInfoSnapshot {
 
 func (p *Project) PrepareArtifacts(configJSON, globsJSON []byte) ([]Artifact, error) {
 	var artifacts []Artifact
-	if !p.isGame {
+	if !p.isGame || p.noInclude {
 		buildJSON, err := p.buildInfo.MarshalOrderedJSON()
 		if err != nil {
 			return nil, err

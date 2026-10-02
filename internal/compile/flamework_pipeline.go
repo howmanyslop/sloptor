@@ -69,6 +69,7 @@ func prepareFlameworkPipeline(dir string, program *compiler.Program, opts Projec
 		RootDir:          createPathTranslator(program, false).RootDir,
 		OutDir:           filepath.FromSlash(program.Options().OutDir),
 		IncludeDirectory: opts.IncludePath,
+		NoInclude:        !opts.EmitIncludeFiles,
 		RojoConfigPath:   opts.RojoConfigPath,
 		Declaration:      program.Options().GetEmitDeclarations(),
 		Config:           *configured,
