@@ -89,7 +89,15 @@ local format_steps = new Mapping<String, Step> {
       effect = "read"
     }
   }
-  ["gofmt"] = Builtins.go_fmt
+  // The builtin's checks use `sh` syntax, which cmd.exe cannot run on Windows. `gofmt -d`
+  // exits 1 on a diff, so it needs no wrapper and serves as both the check and the file list.
+  ["gofmt"] = (Builtins.go_fmt) {
+    check_list_files = null
+    check_diff = new CommandSpec {
+      command = "gofmt -s -d {{ files }}"
+      effect = "read"
+    }
+  }
   // The builtin execs an argv directly, and Windows direct exec finds only `.exe` files, never
   // pnpm's `node_modules/.bin/biome.CMD` shim. A string command runs through the shell
   // (cmd.exe on Windows), which resolves the shim, so `package.json` stays the one biome pin.
