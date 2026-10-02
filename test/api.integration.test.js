@@ -130,6 +130,29 @@ test("API transformer callbacks retain project state without spawning sidecars a
 	assert.deepEqual(outputArtifactsForProject(apiProject), outputArtifactsForProject(cliProject));
 });
 
+test("API transformer plugins resolve project modules from outside the project like the CLI", async () => {
+	const apiProject = path.join(temporaryRoot, "linked-transformer-api");
+	const cliProject = path.join(temporaryRoot, "linked-transformer-cli");
+	createLinkedTransformerProject(apiProject);
+	createLinkedTransformerProject(cliProject);
+
+	const session = createBuildSession({ executable });
+	try {
+		const result = await session.build({ project: apiProject });
+		assert.equal(result.ok, true, JSON.stringify(result.diagnostics ?? result.projects?.[0]?.diagnostics));
+		assert.match(fs.readFileSync(path.join(apiProject, "out", "main.luau"), "utf8"), /linked:start/);
+	} finally {
+		await session.dispose();
+	}
+
+	execFileSync(executable, ["build", "--project", path.join(cliProject, "tsconfig.json")], {
+		cwd: cliProject,
+		env: { ...process.env, ROTOR_SIDECAR_PATH: path.join(repoRoot, "tools", "sidecar") },
+		stdio: "pipe",
+	});
+	assert.deepEqual(outputArtifactsForProject(apiProject), outputArtifactsForProject(cliProject));
+});
+
 test("concurrent solution projects keep transformer callback state isolated", async () => {
 	const firstProject = path.join(temporaryRoot, "transformer-union-first");
 	const secondProject = path.join(temporaryRoot, "transformer-union-second");
@@ -505,6 +528,22 @@ function outputArtifacts(root, projects = ["shared", "production", "tests"]) {
 		}
 	}
 	return artifacts;
+}
+
+// Mirrors a pnpm layout: the plugin's realpath sits outside the project, so
+// its own `require("typescript")` only resolves through the project.
+function createLinkedTransformerProject(project) {
+	createTransformerProject(project, "linked");
+	const store = `${project}-store`;
+	const plugin = path.join(store, "linked-transformer");
+	fs.mkdirSync(plugin, { recursive: true });
+	fs.renameSync(path.join(project, "transformer.js"), path.join(plugin, "index.js"));
+	fs.writeFileSync(path.join(plugin, "package.json"), '{"name":"linked-transformer","main":"index.js"}\n');
+	fs.symlinkSync(plugin, path.join(project, "node_modules", "linked-transformer"), "junction");
+	const configPath = path.join(project, "tsconfig.json");
+	const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+	config.compilerOptions.plugins = [{ transform: "linked-transformer", prefix: "linked" }];
+	fs.writeFileSync(configPath, JSON.stringify(config));
 }
 
 function createTransformerProject(project, prefix = "callback", phase = "start") {
