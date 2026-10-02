@@ -37,7 +37,7 @@ func TestTask7RuntimeFixtureMatchesPinnedFlameworkUpstreamOracle(t *testing.T) {
 		t.Fatalf("rbxts-transformer-flamework version = %q, want 1.3.2", manifest.Version)
 	}
 
-	oracleDir := t.TempDir()
+	oracleDir := task7ProjectDir(t, repo, modules)
 	copyDir(t, fixture, oracleDir)
 	if err := os.Symlink(modules, filepath.Join(oracleDir, "node_modules")); err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestTask7RuntimeFixtureMatchesPinnedFlameworkUpstreamOracle(t *testing.T) {
 		t.Fatalf("upstream flamework.build size = %d bytes, want 579", got)
 	}
 
-	nativeDir := t.TempDir()
+	nativeDir := task7ProjectDir(t, repo, modules)
 	copyDir(t, fixture, nativeDir)
 	if err := os.Symlink(modules, filepath.Join(nativeDir, "node_modules")); err != nil {
 		t.Fatal(err)
@@ -115,6 +115,29 @@ func TestTask7RuntimeFixtureMatchesPinnedFlameworkUpstreamOracle(t *testing.T) {
 		t.Fatalf("flamework.build mismatch (-oracle +native):\n%s", diff)
 	}
 	t.Logf("oracle=%s; Luau files=%d; flamework.build bytes=%d", manifest.Version, len(oracleOutputs), len(oracleBuildInfo))
+}
+
+// task7ProjectDir returns a temp project dir on the volume of modules. Upstream
+// Flamework treats a node_modules real path on another volume as project source.
+func task7ProjectDir(t *testing.T, repo, modules string) string {
+	t.Helper()
+	if strings.EqualFold(filepath.VolumeName(os.TempDir()), filepath.VolumeName(modules)) {
+		return t.TempDir()
+	}
+	parent := filepath.Join(repo, "tmp")
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.MkdirTemp(parent, "task7-runtime-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Error(err)
+		}
+	})
+	return dir
 }
 
 func readTask7LuauTree(t *testing.T, root string) map[string]string {
