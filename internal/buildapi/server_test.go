@@ -15,6 +15,10 @@ import (
 	"rotor/internal/compile"
 )
 
+// serverTestTimeout bounds every wait on the server, so a regression fails
+// instead of hanging the package.
+const serverTestTimeout = 5 * time.Second
+
 func TestServerRoutesTransformerCallbacks(t *testing.T) {
 	server := NewServer("2.7.0", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
 		callback := compile.TransformerCallbackFromContext(ctx)
@@ -34,50 +38,24 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 		return emptyBuildResult(), nil
 	})
 
-	inputReader, inputWriter := io.Pipe()
-	outputReader, outputWriter := io.Pipe()
-	done := make(chan error, 1)
-	go func() { done <- server.Run(inputReader, outputWriter) }()
-	t.Cleanup(func() {
-		_ = inputWriter.Close()
-		_ = outputReader.Close()
-	})
-
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
-	reader := bufio.NewReader(outputReader)
-	readJSONLine(t, reader)
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
-
-	callback := readJSONLine(t, reader)
-	if callback["method"] != "transform" {
-		t.Fatalf("callback method = %v", callback["method"])
-	}
-	callbackID, ok := callback["id"].(string)
-	if !ok || callbackID == "" {
-		t.Fatalf("callback id = %#v, want string", callback["id"])
-	}
-	writeJSONLine(t, inputWriter, map[string]any{
+	session := startCallbackSession(t, server)
+	writeJSONLine(t, session.input, map[string]any{
 		"jsonrpc": "2.0",
-		"id":      callbackID,
+		"id":      session.callbackID,
 		"result": map[string]any{
 			"diagnostics": []map[string]any{{"category": "error", "code": "fixture", "message": "fixture"}},
 			"transformed": []any{},
 		},
 	})
-	build := readJSONLine(t, reader)
+	build := readJSONLine(t, session.output)
 	if build["id"] != float64(2) || build["error"] != nil {
 		t.Fatalf("build response = %#v", build)
 	}
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": map[string]any{}})
-	readJSONLine(t, reader)
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not stop")
+	writeJSONLine(t, session.input, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": map[string]any{}})
+	readJSONLine(t, session.output)
+	if err := session.wait(t); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -105,12 +83,12 @@ func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 		if err == nil {
 			t.Fatal("callback unexpectedly succeeded after EOF")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(serverTestTimeout):
 		t.Fatal("callback stayed blocked after EOF")
 	}
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
+	case <-time.After(serverTestTimeout):
 		t.Fatal("server stayed blocked after EOF")
 	}
 }
@@ -134,37 +112,16 @@ func TestServerRejectsInvalidJSONRPCRequests(t *testing.T) {
 }
 
 func TestServerRejectsInvalidJSONRPCCallbackResponses(t *testing.T) {
-	callbackStarted := make(chan struct{})
 	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
-		close(callbackStarted)
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate"})
 		return BuildResult{}, err
 	})
-	inputReader, inputWriter := io.Pipe()
-	outputReader, outputWriter := io.Pipe()
-	done := make(chan error, 1)
-	go func() { done <- server.Run(inputReader, outputWriter) }()
-	t.Cleanup(func() {
-		_ = inputWriter.Close()
-		_ = outputReader.Close()
-	})
+	session := startCallbackSession(t, server)
+	writeJSONLine(t, session.input, map[string]any{"jsonrpc": "1.0", "id": session.callbackID, "result": map[string]any{}})
+	readJSONLine(t, session.output)
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
-	reader := bufio.NewReader(outputReader)
-	readJSONLine(t, reader)
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
-	<-callbackStarted
-	callback := readJSONLine(t, reader)
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "1.0", "id": callback["id"], "result": map[string]any{}})
-	readJSONLine(t, reader)
-
-	select {
-	case err := <-done:
-		if err == nil || !strings.Contains(err.Error(), "jsonrpc") {
-			t.Fatalf("Run() error = %v, want invalid jsonrpc error", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("server did not reject invalid callback response")
+	if err := session.wait(t); err == nil || !strings.Contains(err.Error(), "jsonrpc") {
+		t.Fatalf("Run() error = %v, want invalid jsonrpc error", err)
 	}
 }
 
@@ -225,7 +182,7 @@ func TestServerTransportFailureNamesCauseInBuildResponse(t *testing.T) {
 
 			// Then: the build response names the transport failure, not a
 			// client cancellation, and Run returns the same cause.
-			build := readJSONLineWithin(t, session.output, 5*time.Second)
+			build := readJSONLine(t, session.output)
 			buildError, _ := build["error"].(map[string]any)
 			if buildError == nil || buildError["code"] == "BUILD_CANCELLED" {
 				t.Fatalf("build response = %#v, want a transport failure", build)
@@ -276,7 +233,7 @@ func (s callbackSession) wait(t *testing.T) error {
 	select {
 	case err := <-s.done:
 		return err
-	case <-time.After(5 * time.Second):
+	case <-time.After(serverTestTimeout):
 		t.Fatal("server did not stop")
 		return nil
 	}
@@ -318,7 +275,7 @@ func writeJSONLine(t *testing.T, writer io.Writer, value any) {
 	}
 }
 
-func readJSONLineWithin(t *testing.T, reader *bufio.Reader, timeout time.Duration) map[string]any {
+func readJSONLine(t *testing.T, reader *bufio.Reader) map[string]any {
 	t.Helper()
 	type read struct {
 		line []byte
@@ -339,21 +296,8 @@ func readJSONLineWithin(t *testing.T, reader *bufio.Reader, timeout time.Duratio
 			t.Fatal(err)
 		}
 		return value
-	case <-time.After(timeout):
+	case <-time.After(serverTestTimeout):
 		t.Fatal("no response from server")
 		return nil
 	}
-}
-
-func readJSONLine(t *testing.T, reader *bufio.Reader) map[string]any {
-	t.Helper()
-	line, err := reader.ReadBytes('\n')
-	if err != nil {
-		t.Fatal(err)
-	}
-	var value map[string]any
-	if err := json.Unmarshal(line, &value); err != nil {
-		t.Fatal(err)
-	}
-	return value
 }
