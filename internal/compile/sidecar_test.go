@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // repoSidecarDir returns tools/sidecar in this repo checkout. Synthetic
@@ -561,4 +563,37 @@ func envValue(env []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestSidecarStderrTailKeepsDrainingAfterLinesOver1MiB(t *testing.T) {
+	// Given: a worker that writes one stderr line over 1 MiB, then another.
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	tail := newSidecarStderrTail(reader)
+	long := strings.Repeat("x", 2*1024*1024)
+
+	// When: both lines are written. A pipe write blocks until it is read,
+	// as a real worker blocks once the OS pipe buffer fills.
+	written := make(chan error, 1)
+	go func() {
+		_, err := io.WriteString(writer, long+"\nafter\n")
+		written <- err
+	}()
+
+	// Then: the reader drains both lines.
+	select {
+	case err := <-written:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stderr reader stopped draining after a long line")
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.HasSuffix(tail.String(), long+"\nafter") {
+		if time.Now().After(deadline) {
+			t.Fatalf("stderr tail is missing lines (len %d)", len(tail.String()))
+		}
+		time.Sleep(time.Millisecond)
+	}
 }

@@ -435,10 +435,15 @@ type sidecarStderrTail struct {
 func newSidecarStderrTail(pipe io.Reader) *sidecarStderrTail {
 	t := &sidecarStderrTail{}
 	go func() {
-		scanner := bufio.NewScanner(pipe)
-		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Text()
+		// No line limit: a reader that stops early leaves the pipe full and
+		// blocks the worker on its next stderr write.
+		reader := bufio.NewReader(pipe)
+		for {
+			line, err := reader.ReadString('\n')
+			if line == "" && err != nil {
+				return
+			}
+			line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
 			t.mu.Lock()
 			t.tail = append(t.tail, line)
 			if len(t.tail) > 50 {
