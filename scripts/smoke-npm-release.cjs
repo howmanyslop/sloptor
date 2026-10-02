@@ -73,7 +73,13 @@ async function smokeNpmRelease({ bundle, fixture }) {
 		const session = createBuildSession();
 		try {
 			const result = await session.build({ project });
-			if (!(result.ok && result.outputs.includes("out/main.luau"))) {
+			if (
+				!(
+					result.ok &&
+					result.projects[0]?.outputs.includes("out/main.luau") &&
+					result.outputs.some((output) => output.endsWith("/out/main.luau"))
+				)
+			) {
 				throw new Error(`installed API build failed: ${JSON.stringify(result)}`);
 			}
 		} finally {
