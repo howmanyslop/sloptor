@@ -171,8 +171,10 @@ func TestServerTransportFailureNamesCauseInBuildResponse(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			// Given: a build waiting on a transformer callback.
+			callbackErr := make(chan error, 1)
 			server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 				_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "transform"})
+				callbackErr <- err
 				return BuildResult{}, err
 			})
 			session := startCallbackSession(t, server)
@@ -191,6 +193,10 @@ func TestServerTransportFailureNamesCauseInBuildResponse(t *testing.T) {
 			err := session.wait(t)
 			if err == nil || !strings.Contains(message, err.Error()) {
 				t.Fatalf("build error message = %q, Run() error = %v; want the Run error in the message", message, err)
+			}
+			// The callback itself fails with the cause, not a bare cancel.
+			if got := <-callbackErr; got == nil || !strings.Contains(got.Error(), err.Error()) {
+				t.Fatalf("callback error = %v, want it to name %v", got, err)
 			}
 		})
 	}

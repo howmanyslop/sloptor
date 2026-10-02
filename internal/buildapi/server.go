@@ -468,7 +468,7 @@ func (s *Server) callTransformer(ctx context.Context, request compile.Transforme
 		return response, nil
 	case <-ctx.Done():
 		s.removeCallback(id)
-		return compile.TransformerResponse{}, fmt.Errorf("build API: transformer callback cancelled: %w", ctx.Err())
+		return compile.TransformerResponse{}, fmt.Errorf("build API: transformer callback cancelled: %w", context.Cause(ctx))
 	}
 }
 
