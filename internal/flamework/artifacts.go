@@ -63,6 +63,9 @@ func PersistArtifacts(projectRoot string, artifacts []Artifact) error {
 	artifactPersistenceMutex.Lock()
 	defer artifactPersistenceMutex.Unlock()
 
+	if err := rejectDuplicateArtifactPaths(artifacts); err != nil {
+		return err
+	}
 	root, err := os.OpenRoot(projectRoot)
 	if err != nil {
 		return fmt.Errorf("flamework: open artifact root: %w", err)
@@ -110,6 +113,21 @@ func stageArtifacts(transaction *artifactTransaction, artifacts []Artifact) ([]s
 		staged = append(staged, entry)
 	}
 	return staged, nil
+}
+
+func rejectDuplicateArtifactPaths(artifacts []Artifact) error {
+	seen := make(map[string]struct{}, len(artifacts))
+	for _, artifact := range artifacts {
+		path, err := localArtifactPath(artifact.Path)
+		if err != nil {
+			return err
+		}
+		if _, exists := seen[path]; exists {
+			return fmt.Errorf("flamework: duplicate artifact path %q", path)
+		}
+		seen[path] = struct{}{}
+	}
+	return nil
 }
 
 // changedArtifacts drops writes whose destination already holds the same bytes,

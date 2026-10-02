@@ -3,6 +3,7 @@ package flamework
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,5 +39,17 @@ func TestPersistArtifactsKeepsUnchangedMtimes(t *testing.T) {
 		if got, _ := os.ReadFile(path); string(got) != string(artifacts[index].Data) {
 			t.Errorf("%s = %q", artifacts[index].Path, got)
 		}
+	}
+}
+
+func TestPersistArtifactsRejectsUnchangedDuplicatePaths(t *testing.T) {
+	root := t.TempDir()
+	artifact := Artifact{Path: filepath.Join("include", "flamework", "config.json"), Data: []byte(`{"a":1}`)}
+	if err := PersistArtifacts(root, []Artifact{artifact}); err != nil {
+		t.Fatal(err)
+	}
+	err := PersistArtifacts(root, []Artifact{artifact, artifact})
+	if err == nil || !strings.Contains(err.Error(), "duplicate artifact path") {
+		t.Fatalf("err = %v, want duplicate artifact path", err)
 	}
 }
