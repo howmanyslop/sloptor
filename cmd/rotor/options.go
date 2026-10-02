@@ -22,6 +22,7 @@ type projectOptions struct {
 	logTruthyChanges       bool
 	writeOnlyChanged       bool
 	writeTransformedFiles  bool
+	optimizedArrayAppends  bool
 	optimizedLoops         bool
 	allowCommentDirectives bool
 	luau                   bool
@@ -68,6 +69,7 @@ type partialProjectOptions struct {
 	logTruthyChanges       *bool
 	writeOnlyChanged       *bool
 	writeTransformedFiles  *bool
+	optimizedArrayAppends  *bool
 	optimizedLoops         *bool
 	allowCommentDirectives *bool
 	luau                   *bool
@@ -112,6 +114,9 @@ func mergeProjectOptions(base projectOptions, layers ...*partialProjectOptions) 
 		}
 		if layer.writeTransformedFiles != nil {
 			out.writeTransformedFiles = *layer.writeTransformedFiles
+		}
+		if layer.optimizedArrayAppends != nil {
+			out.optimizedArrayAppends = *layer.optimizedArrayAppends
 		}
 		if layer.optimizedLoops != nil {
 			out.optimizedLoops = *layer.optimizedLoops
@@ -167,6 +172,7 @@ func (p *partialProjectOptions) rbxtsOptions() *compile.RbxtsOptions {
 		LogTruthyChanges:       p.logTruthyChanges,
 		Luau:                   p.luau,
 		NoInclude:              p.noInclude,
+		OptimizedArrayAppends:  p.optimizedArrayAppends,
 		OptimizedLoops:         p.optimizedLoops,
 		Rojo:                   p.rojo,
 		Type:                   p.typeName,
@@ -184,6 +190,7 @@ func readRbxtsOptionsChecked(tsConfigPath string) (*partialProjectOptions, error
 		typeName:               r.Type,
 		noInclude:              r.NoInclude,
 		logTruthyChanges:       r.LogTruthyChanges,
+		optimizedArrayAppends:  r.OptimizedArrayAppends,
 		optimizedLoops:         r.OptimizedLoops,
 		allowCommentDirectives: r.AllowCommentDirectives,
 		luau:                   r.Luau,

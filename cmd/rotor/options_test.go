@@ -31,9 +31,9 @@ func TestMergeProjectOptions(t *testing.T) {
 		},
 		{
 			name:  "absent CLI booleans do not clobber rbxts values",
-			rbxts: &partialProjectOptions{optimizedLoops: boolPtr(false), logTruthyChanges: boolPtr(true)},
+			rbxts: &partialProjectOptions{optimizedArrayAppends: boolPtr(true), optimizedLoops: boolPtr(false), logTruthyChanges: boolPtr(true)},
 			argv:  &partialProjectOptions{}, // nothing passed on the CLI
-			want:  projectOptions{optimizedLoops: false, logTruthyChanges: true, luau: true},
+			want:  projectOptions{optimizedArrayAppends: true, optimizedLoops: false, logTruthyChanges: true, luau: true},
 		},
 		{
 			name:  "CLI overrides rbxts",
@@ -128,6 +128,7 @@ func TestReadRbxtsOptions(t *testing.T) {
 			"compilerOptions": { "strict": true },
 			"rbxts": {
 				"luau": false,
+				"optimizedArrayAppends": true,
 				"type": "model", /* block */
 				"includePath": "runtime",
 			},
@@ -141,6 +142,9 @@ func TestReadRbxtsOptions(t *testing.T) {
 		}
 		if got.luau == nil || *got.luau {
 			t.Error("luau=false not parsed")
+		}
+		if got.optimizedArrayAppends == nil || !*got.optimizedArrayAppends {
+			t.Error("optimizedArrayAppends=true not parsed")
 		}
 		if got.typeName == nil || *got.typeName != "model" {
 			t.Error("type not parsed")

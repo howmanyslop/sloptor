@@ -179,6 +179,11 @@ type State struct {
 	// so option-free call sites keep the upstream-default behavior.
 	OptimizedLoops bool
 
+	// OptimizedArrayAppends enables rotor's loop-carried index optimization
+	// for eligible Array.push calls. It defaults off because the emitted code
+	// intentionally differs from rbxtsc.
+	OptimizedArrayAppends bool
+
 	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
 	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
 	// that would have been TS2304 can reach the transformer with no symbol.
@@ -211,6 +216,8 @@ type State struct {
 	// break/continue), and which checks must be emitted after a boundary ends.
 	labelStack []*labelEntry
 	breakDepth int
+
+	arrayAppendPlans []*arrayAppendPlan
 
 	// getTypeCache memoizes GetType by the ORIGINAL node pointer (not the
 	// SkipUpwards result).
@@ -282,6 +289,21 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 		multi.macroManager = NewMacroManager(chk)
 	}
 	return s
+}
+
+func (s *State) withArrayAppendPlan(plan *arrayAppendPlan, callback func()) {
+	s.arrayAppendPlans = append(s.arrayAppendPlans, plan)
+	defer func() { s.arrayAppendPlans = s.arrayAppendPlans[:len(s.arrayAppendPlans)-1] }()
+	callback()
+}
+
+func (s *State) getArrayAppendTarget(call *ast.Node) *arrayAppendTarget {
+	for index := len(s.arrayAppendPlans) - 1; index >= 0; index-- {
+		if target := s.arrayAppendPlans[index].calls[call]; target != nil {
+			return target
+		}
+	}
+	return nil
 }
 
 // SourcePosition is a 0-indexed Source Map v3 source coordinate. Columns use

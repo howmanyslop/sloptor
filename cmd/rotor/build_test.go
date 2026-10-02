@@ -58,12 +58,17 @@ func TestParseBuildArgs(t *testing.T) {
 		if got.opts.optimizedLoops == nil || *got.opts.optimizedLoops {
 			t.Error("--optimizedLoops=false not parsed")
 		}
+		got = parseBuildArgsForTest(t, []string{"--optimizedArrayAppends=false"})
+		if got.opts.optimizedArrayAppends == nil || *got.opts.optimizedArrayAppends {
+			t.Error("--optimizedArrayAppends=false not parsed")
+		}
 	})
 
 	t.Run("plain boolean flags set true", func(t *testing.T) {
 		got := parseBuildArgsForTest(t, []string{
 			"--verbose", "--noInclude", "--logTruthyChanges",
 			"--writeOnlyChanged", "--writeTransformedFiles", "--allowCommentDirectives",
+			"--optimizedArrayAppends",
 		})
 		for name, p := range map[string]*bool{
 			"verbose":                got.opts.verbose,
@@ -72,6 +77,7 @@ func TestParseBuildArgs(t *testing.T) {
 			"writeOnlyChanged":       got.opts.writeOnlyChanged,
 			"writeTransformedFiles":  got.opts.writeTransformedFiles,
 			"allowCommentDirectives": got.opts.allowCommentDirectives,
+			"optimizedArrayAppends":  got.opts.optimizedArrayAppends,
 		} {
 			if p == nil || !*p {
 				t.Errorf("--%s not parsed", name)

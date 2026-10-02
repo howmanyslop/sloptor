@@ -53,10 +53,11 @@ func TestSolutionGraphLayersReferencedRbxtsOptions(t *testing.T) {
 	// Given: a coordinator and a reference that each declare rbxts options,
 	// and a command line that sets one of them.
 	root := t.TempDir()
-	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./lib"}],"rbxts":{"optimizedLoops":false,"luau":false,"noInclude":true}}`)
-	writeSolutionFile(t, root, "lib/tsconfig.json", `{"rbxts":{"luau":true,"optimizedLoops":true}}`)
+	writeSolutionFile(t, root, "tsconfig.json", `{"files":[],"references":[{"path":"./lib"}],"rbxts":{"optimizedArrayAppends":true,"optimizedLoops":false,"luau":false,"noInclude":true}}`)
+	writeSolutionFile(t, root, "lib/tsconfig.json", `{"rbxts":{"luau":true,"optimizedArrayAppends":false,"optimizedLoops":true}}`)
+	optimizedArrayAppends := true
 	optimizedLoops := false
-	entry := ProjectOptions{LuaExtension: true, NoOptimizedLoops: true, SolutionArgv: &RbxtsOptions{OptimizedLoops: &optimizedLoops}}
+	entry := ProjectOptions{LuaExtension: true, NoOptimizedLoops: true, SolutionArgv: &RbxtsOptions{OptimizedArrayAppends: &optimizedArrayAppends, OptimizedLoops: &optimizedLoops}}
 
 	// When
 	graph, err := BuildSolutionGraph(filepath.Join(root, "tsconfig.json"), entry)
@@ -71,6 +72,9 @@ func TestSolutionGraphLayersReferencedRbxtsOptions(t *testing.T) {
 	}
 	if !lib.NoOptimizedLoops {
 		t.Error("command-line optimizedLoops did not override the reference's")
+	}
+	if !lib.OptimizedArrayAppends {
+		t.Error("command-line optimizedArrayAppends did not override the reference's")
 	}
 	if lib.EmitIncludeFiles {
 		t.Error("coordinator's noInclude did not reach the reference")

@@ -75,6 +75,7 @@ type buildFlags struct {
 	logTruthyChanges       bool
 	writeOnlyChanged       bool
 	writeTransformedFiles  bool
+	optimizedArrayAppends  bool
 	optimizedLoops         bool
 	allowCommentDirectives bool
 	luau                   bool
@@ -119,6 +120,8 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 		"skip rewriting output files whose contents are unchanged")
 	addBoolFlag(cmd, &flags.writeTransformedFiles, "writeTransformedFiles", "", false,
 		"not supported by sloptor (parsed and ignored)")
+	addBoolFlag(cmd, &flags.optimizedArrayAppends, "optimizedArrayAppends", "", false,
+		"replace eligible Array.push calls in loops with indexed writes")
 	addBoolFlag(cmd, &flags.optimizedLoops, "optimizedLoops", "", true,
 		"numeric-for loop optimization (default true)")
 	f.VarP(newEnumValue(&flags.typeName, "game", "model", "package"), "type", "",
@@ -181,7 +184,8 @@ func collectBuildArgs(f *pflag.FlagSet, argv []string, flags *buildFlags, ba *bu
 		"watch": &ba.opts.watch, "usePolling": &ba.opts.usePolling,
 		"verbose": &ba.opts.verbose, "noInclude": &ba.opts.noInclude,
 		"logTruthyChanges": &ba.opts.logTruthyChanges, "writeOnlyChanged": &ba.opts.writeOnlyChanged,
-		"writeTransformedFiles": &ba.opts.writeTransformedFiles, "optimizedLoops": &ba.opts.optimizedLoops,
+		"writeTransformedFiles": &ba.opts.writeTransformedFiles, "optimizedArrayAppends": &ba.opts.optimizedArrayAppends,
+		"optimizedLoops":         &ba.opts.optimizedLoops,
 		"allowCommentDirectives": &ba.opts.allowCommentDirectives, "luau": &ba.opts.luau,
 	} {
 		if f.Changed(name) {
@@ -603,6 +607,7 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		RojoConfigPath:         opts.rojo,
 		LogTruthyChanges:       opts.logTruthyChanges,
 		AllowCommentDirectives: opts.allowCommentDirectives,
+		OptimizedArrayAppends:  opts.optimizedArrayAppends,
 		NoOptimizedLoops:       !opts.optimizedLoops,
 		LuaExtension:           !opts.luau,
 		WriteOnlyChanged:       opts.writeOnlyChanged,

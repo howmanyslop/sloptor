@@ -547,6 +547,11 @@ type ProjectOptions struct {
 	// documented "disables TypeScript's own semantic diagnostics" flag.
 	SkipSemanticDiagnostics bool
 
+	// OptimizedArrayAppends gates rotor's loop-carried index optimization for
+	// eligible Array.push calls. Unlike optimizedLoops, this rotor extension
+	// defaults off, so the zero value preserves rbxtsc output.
+	OptimizedArrayAppends bool
+
 	// NoOptimizedLoops is the INVERSE of upstream optimizedLoops (default
 	// true, DEFAULT_PROJECT_OPTIONS), inverted so this struct's zero value
 	// keeps the upstream-default (optimized) behavior for all existing
@@ -689,6 +694,7 @@ func resetRbxtsOptions(options *ProjectOptions) {
 	options.EmitIncludeFiles = true
 	options.LogTruthyChanges = false
 	options.AllowCommentDirectives = false
+	options.OptimizedArrayAppends = false
 	options.NoOptimizedLoops = false
 	options.LuaExtension = false
 }
@@ -710,6 +716,9 @@ func applyRbxtsOptions(options *ProjectOptions, layer *RbxtsOptions) {
 	}
 	if layer.NoInclude != nil {
 		options.EmitIncludeFiles = !*layer.NoInclude
+	}
+	if layer.OptimizedArrayAppends != nil {
+		options.OptimizedArrayAppends = *layer.OptimizedArrayAppends
 	}
 	if layer.OptimizedLoops != nil {
 		options.NoOptimizedLoops = !*layer.OptimizedLoops
@@ -1000,6 +1009,7 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 		state.Files = pctx.files
 		state.Stamps = pctx.stamps
 		state.LogTruthyChanges = opts.LogTruthyChanges
+		state.OptimizedArrayAppends = opts.OptimizedArrayAppends
 		state.OptimizedLoops = !opts.NoOptimizedLoops
 		state.SkipSemanticDiagnostics = opts.SkipSemanticDiagnostics
 
