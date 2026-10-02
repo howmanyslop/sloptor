@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.6.0
+-- Compiled with sloptor v2.7.0
 return function()
 	it("should support typeOf", function()
 		expect(typeof({})).to.equal("table")

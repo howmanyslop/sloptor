@@ -60,7 +60,7 @@ lines.on("line", (line) => {
 				id: request.id,
 				result: {
 					protocolVersion: 1,
-					serverVersion: mode === "version-mismatch" ? "0.0.0" : "2.6.0",
+					serverVersion: mode === "version-mismatch" ? "0.0.0" : "2.7.0",
 					capabilities: ["build", "project-selection", "shutdown", "terminal-cancel", "transformer-callback"],
 				},
 			})}\n`,

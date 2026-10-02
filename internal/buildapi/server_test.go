@@ -15,7 +15,7 @@ import (
 )
 
 func TestServerRoutesTransformerCallbacks(t *testing.T) {
-	server := NewServer("2.6.0", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.0", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
 		callback := compile.TransformerCallbackFromContext(ctx)
 		if callback == nil {
 			t.Fatal("build context has no transformer callback")
@@ -42,7 +42,7 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 		_ = outputReader.Close()
 	})
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.6.0"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
 	reader := bufio.NewReader(outputReader)
 	readJSONLine(t, reader)
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
@@ -83,7 +83,7 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	callbackStarted := make(chan struct{})
 	buildReturned := make(chan error, 1)
-	server := NewServer("2.6.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		close(callbackStarted)
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate", ProjectDir: "fixture", TsConfigPath: "fixture/tsconfig.json"})
 		buildReturned <- err
@@ -94,7 +94,7 @@ func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- server.Run(inputReader, &output) }()
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.6.0"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
 	<-callbackStarted
 	_ = inputWriter.Close()
@@ -120,7 +120,7 @@ func TestServerRejectsInvalidJSONRPCRequests(t *testing.T) {
 		"wrong":   `{"jsonrpc":"1.0","id":1,"method":"initialize","params":{}}` + "\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			server := NewServer("2.6.0", func(context.Context, BuildRequest) (BuildResult, error) {
+			server := NewServer("2.7.0", func(context.Context, BuildRequest) (BuildResult, error) {
 				t.Fatal("build must not run")
 				return BuildResult{}, nil
 			})
@@ -134,7 +134,7 @@ func TestServerRejectsInvalidJSONRPCRequests(t *testing.T) {
 
 func TestServerRejectsInvalidJSONRPCCallbackResponses(t *testing.T) {
 	callbackStarted := make(chan struct{})
-	server := NewServer("2.6.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		close(callbackStarted)
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate"})
 		return BuildResult{}, err
@@ -148,7 +148,7 @@ func TestServerRejectsInvalidJSONRPCCallbackResponses(t *testing.T) {
 		_ = outputReader.Close()
 	})
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.6.0"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
 	reader := bufio.NewReader(outputReader)
 	readJSONLine(t, reader)
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})

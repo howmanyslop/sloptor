@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor-win32-x64",
-	"version": "2.6.0",
+	"version": "2.7.0",
 	"description": "Sloptor native executable for Windows x64",
 	"license": "MIT",
 	"repository": {
