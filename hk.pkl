@@ -89,7 +89,15 @@ local format_steps = new Mapping<String, Step> {
       effect = "read"
     }
   }
-  ["gofmt"] = Builtins.go_fmt
+  // The builtin's checks use `sh` syntax, which cmd.exe cannot run on Windows. `gofmt -d`
+  // exits 1 on a diff, so it needs no wrapper and serves as both the check and the file list.
+  ["gofmt"] = (Builtins.go_fmt) {
+    check_list_files = null
+    check_diff = new CommandSpec {
+      command = "gofmt -s -d {{ files }}"
+      effect = "read"
+    }
+  }
   ["biome"] = Builtins.biome
   ["oxfmt"] = Builtins.oxfmt
   // `-i 4`: the repo's shell scripts are 4-space indented; shfmt's tab default would
