@@ -1,5 +1,6 @@
 export type SloptorClientErrorCode =
 	| "BUILD_CANCELLED"
+	| "BUILD_FAILED"
 	| "CAPABILITY_MISMATCH"
 	| "EXECUTABLE_NOT_FOUND"
 	| "INVALID_REQUEST"

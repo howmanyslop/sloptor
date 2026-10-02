@@ -4,7 +4,6 @@
 package buildapi
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,7 +86,7 @@ type Server struct {
 	writeErr     error
 	activeMu     sync.Mutex
 	activeID     int64
-	activeCancel context.CancelFunc
+	activeCancel context.CancelCauseFunc
 	builds       sync.WaitGroup
 	initialized  bool
 	callbackMu   sync.Mutex
@@ -103,26 +102,42 @@ func NewServer(version string, build BuildFunc) *Server {
 	return server
 }
 
-// Run serves one newline-framed JSON-RPC connection until shutdown or EOF.
+// Run serves one JSON-RPC connection until shutdown or EOF. Requests are
+// decoded as a stream, so no message size limit applies.
 func (s *Server) Run(in io.Reader, out io.Writer) error {
 	s.out = out
+	err := s.serve(json.NewDecoder(in))
+	// A nil cause reports the active build as cancelled; any other cause
+	// becomes its failure message.
+	s.stopActiveBuild(err)
+	s.builds.Wait()
+	if err != nil {
+		return err
+	}
+	return s.responseError()
+}
 
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
-	for scanner.Scan() {
+// serve dispatches messages until the stream ends. A nil return is a clean
+// end (EOF or shutdown); an error is a transport or protocol failure.
+func (s *Server) serve(decoder *json.Decoder) error {
+	for {
 		var message incomingMessage
-		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
-			return fmt.Errorf("build API: malformed request: %w", err)
+		if err := decoder.Decode(&message); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			var syntaxErr *json.SyntaxError
+			var typeErr *json.UnmarshalTypeError
+			if errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
+				return fmt.Errorf("build API: malformed request: %w", err)
+			}
+			return fmt.Errorf("build API: read request: %w", err)
 		}
 		if message.JSONRPC != "2.0" {
-			s.stopActiveBuild()
-			s.builds.Wait()
 			return errors.New(`build API: message jsonrpc must be "2.0"`)
 		}
 		if message.Method == "" {
 			if err := s.completeCallback(message); err != nil {
-				s.stopActiveBuild()
-				s.builds.Wait()
 				return err
 			}
 			continue
@@ -141,26 +156,17 @@ func (s *Server) Run(in io.Reader, out io.Writer) error {
 		case "build":
 			s.startBuild(id, message.Params)
 		case "shutdown":
-			s.stopActiveBuild()
+			s.stopActiveBuild(nil)
 			s.builds.Wait()
 			s.respond(response{ID: id, Result: struct{}{}})
-			return s.responseError()
+			return nil
 		default:
 			s.respondError(id, "METHOD_NOT_FOUND", fmt.Sprintf("unknown method %q", message.Method))
 		}
 		if err := s.responseError(); err != nil {
-			s.stopActiveBuild()
-			s.builds.Wait()
 			return err
 		}
 	}
-
-	s.stopActiveBuild()
-	s.builds.Wait()
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("build API: read request: %w", err)
-	}
-	return s.responseError()
 }
 
 // ResultFromCompile converts compiler-owned data to the stable protocol shape.
@@ -398,7 +404,7 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 		s.respondError(id, "BUILD_IN_PROGRESS", "the session already has an active build")
 		return
 	}
-	ctx, cancel := context.WithCancel(s.callbackBase)
+	ctx, cancel := context.WithCancelCause(s.callbackBase)
 	s.activeID = id
 	s.activeCancel = cancel
 	s.activeMu.Unlock()
@@ -414,9 +420,13 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 			s.activeCancel = nil
 		}
 		s.activeMu.Unlock()
-		cancel()
+		cancel(nil)
 
 		if errors.Is(err, context.Canceled) {
+			if cause := context.Cause(ctx); !errors.Is(cause, context.Canceled) {
+				s.respondError(id, "BUILD_FAILED", cause.Error())
+				return
+			}
 			s.respondError(id, "BUILD_CANCELLED", "the build was cancelled")
 			return
 		}
@@ -492,11 +502,11 @@ func (s *Server) removeCallback(id string) {
 	s.callbackMu.Unlock()
 }
 
-func (s *Server) stopActiveBuild() {
+func (s *Server) stopActiveBuild(cause error) {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
 	if s.activeCancel != nil {
-		s.activeCancel()
+		s.activeCancel(cause)
 	}
 }
 
