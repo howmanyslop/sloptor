@@ -90,7 +90,19 @@ local format_steps = new Mapping<String, Step> {
     }
   }
   ["gofmt"] = Builtins.go_fmt
-  ["biome"] = Builtins.biome
+  // The builtin execs an argv directly, and Windows direct exec finds only `.exe` files, never
+  // pnpm's `node_modules/.bin/biome.CMD` shim. A string command runs through the shell
+  // (cmd.exe on Windows), which resolves the shim, so `package.json` stays the one biome pin.
+  ["biome"] = (Builtins.biome) {
+    check = new CommandSpec {
+      command = "biome check --no-errors-on-unmatched {{ files }}"
+      effect = "write"
+    }
+    fix = new CommandSpec {
+      command = "biome check --write --no-errors-on-unmatched {{ files }}"
+      effect = "write"
+    }
+  }
   ["oxfmt"] = Builtins.oxfmt
   // `-i 4`: the repo's shell scripts are 4-space indented; shfmt's tab default would
   // rewrite every line of every script. scripts/release.sh is excluded outright — it is
