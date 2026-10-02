@@ -1,0 +1,26 @@
+{
+	"name": "@rotor-rbx/rotor-win32-arm64",
+	"version": "2.6.0",
+	"description": "Sloptor native executable for Windows arm64",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/howmanyslop/sloptor.git"
+	},
+	"files": [
+		"bin/"
+	],
+	"os": [
+		"win32"
+	],
+	"cpu": [
+		"arm64"
+	],
+	"exports": {
+		"./package.json": "./package.json"
+	},
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	}
+}

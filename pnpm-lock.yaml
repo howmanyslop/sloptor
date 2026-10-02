@@ -163,6 +163,25 @@ importers:
       zx:
         specifier: catalog:dev
         version: 8.8.5
+    optionalDependencies:
+      '@rotor-rbx/rotor-darwin-arm64':
+        specifier: 2.6.0
+        version: link:packages/rotor-darwin-arm64
+      '@rotor-rbx/rotor-darwin-x64':
+        specifier: 2.6.0
+        version: link:packages/rotor-darwin-x64
+      '@rotor-rbx/rotor-linux-arm64':
+        specifier: 2.6.0
+        version: link:packages/rotor-linux-arm64
+      '@rotor-rbx/rotor-linux-x64':
+        specifier: 2.6.0
+        version: link:packages/rotor-linux-x64
+      '@rotor-rbx/rotor-win32-arm64':
+        specifier: 2.6.0
+        version: link:packages/rotor-win32-arm64
+      '@rotor-rbx/rotor-win32-x64':
+        specifier: 2.6.0
+        version: link:packages/rotor-win32-x64
 
   .omp:
     dependencies:
@@ -176,6 +195,18 @@ importers:
       '@types/bun':
         specifier: catalog:types
         version: 1.3.14
+
+  packages/rotor-darwin-arm64: {}
+
+  packages/rotor-darwin-x64: {}
+
+  packages/rotor-linux-arm64: {}
+
+  packages/rotor-linux-x64: {}
+
+  packages/rotor-win32-arm64: {}
+
+  packages/rotor-win32-x64: {}
 
   scripts:
     devDependencies:

@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 
@@ -12,6 +13,14 @@ import (
 	"rotor/tsgo/vfs/cachedvfs"
 	"rotor/tsgo/vfs/osvfs"
 )
+
+func declarationSourceFileParseOptions(fileName string) ast.SourceFileParseOptions {
+	normalized := tspath.NormalizePath(filepath.ToSlash(fileName))
+	return ast.SourceFileParseOptions{
+		FileName: normalized,
+		Path:     tspath.ToPath(normalized, "", osvfs.FS().UseCaseSensitiveFileNames()),
+	}
+}
 
 // solutionCompileCache is drain-scoped: one per SolutionCoordinator.Drain.
 // It shares OS metadata (cachedvfs) and parsed .d.ts/.json SourceFiles across

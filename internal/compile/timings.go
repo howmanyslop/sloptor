@@ -112,6 +112,11 @@ type BuildTimingStages struct {
 }
 
 type BuildTimingCounts struct {
+	ScheduledProjects          int   `json:"scheduledProjects"`
+	SelectedProjects           int   `json:"selectedProjects"`
+	SatisfiedProjects          int   `json:"satisfiedProjects"`
+	TransformedProjects        int   `json:"transformedProjects"`
+	EmittedProjects            int   `json:"emittedProjects"`
 	TotalSources               int   `json:"totalSources"`
 	SelectedSources            int   `json:"selectedSources"`
 	EmittedEntries             int   `json:"emittedEntries"`
@@ -521,6 +526,18 @@ func (timings *BuildTimings) setEmittedEntries(entries int) {
 	timings.mu.Lock()
 	defer timings.mu.Unlock()
 	timings.Counts.EmittedEntries = entries
+	if entries > 0 {
+		timings.Counts.EmittedProjects = 1
+	}
+}
+
+func (timings *BuildTimings) markProjectTransformed() {
+	if timings == nil {
+		return
+	}
+	timings.mu.Lock()
+	defer timings.mu.Unlock()
+	timings.Counts.TransformedProjects = 1
 }
 
 func (timings *BuildTimings) finish() {
@@ -567,8 +584,13 @@ func (timings *BuildTimings) initProjects(projects []SolutionProject) {
 	defer timings.mu.Unlock()
 	timings.Projects = make([]ProjectBuildTimings, len(projects))
 	timings.projectIndex = make(map[string]int, len(projects))
+	timings.Counts.ScheduledProjects = len(projects)
+	timings.Counts.SelectedProjects = len(projects)
 	for index, project := range projects {
-		timings.Projects[index] = ProjectBuildTimings{ConfigPath: project.ConfigPath}
+		timings.Projects[index] = ProjectBuildTimings{
+			ConfigPath: project.ConfigPath,
+			Counts:     BuildTimingCounts{ScheduledProjects: 1, SelectedProjects: 1},
+		}
 		timings.projectIndex[project.ConfigPath] = index
 	}
 }
@@ -580,8 +602,35 @@ func (timings *BuildTimings) newProject(configPath string) *BuildTimings {
 	child := NewBuildTimings()
 	child.parent = timings
 	child.configPath = configPath
+	child.Counts.ScheduledProjects = 1
+	child.Counts.SelectedProjects = 1
 	child.ctx = pprof.WithLabels(context.Background(), pprof.Labels("project", configPath))
 	return child
+}
+
+func (timings *BuildTimings) applyProjectSelection(selected, satisfied map[string]struct{}) {
+	if timings == nil {
+		return
+	}
+	timings.mu.Lock()
+	defer timings.mu.Unlock()
+	timings.Counts.ScheduledProjects = len(selected)
+	timings.Counts.SelectedProjects = len(selected)
+	timings.Counts.SatisfiedProjects = len(satisfied)
+	for index := range timings.Projects {
+		project := &timings.Projects[index]
+		project.Counts.ScheduledProjects = 0
+		project.Counts.SelectedProjects = 0
+		project.Counts.SatisfiedProjects = 0
+		if _, ok := selected[project.ConfigPath]; ok {
+			project.Counts.ScheduledProjects = 1
+			project.Counts.SelectedProjects = 1
+		}
+		if _, ok := satisfied[project.ConfigPath]; ok {
+			project.Counts.SatisfiedProjects = 1
+			project.Status = string(SolutionProjectSatisfied)
+		}
+	}
 }
 
 func (timings *BuildTimings) setProjectStatus(configPath, status, blockedBy string) {
@@ -658,6 +707,8 @@ func (timings *BuildTimings) attachProject(snapshot ProjectBuildTimings, child *
 	timings.Counts.TotalSources += snapshot.Counts.TotalSources
 	timings.Counts.SelectedSources += snapshot.Counts.SelectedSources
 	timings.Counts.EmittedEntries += snapshot.Counts.EmittedEntries
+	timings.Counts.TransformedProjects += snapshot.Counts.TransformedProjects
+	timings.Counts.EmittedProjects += snapshot.Counts.EmittedProjects
 	timings.Counts.ScheduledSourceMapWrites += snapshot.Counts.ScheduledSourceMapWrites
 	timings.Counts.ScheduledDeclarationWrites += snapshot.Counts.ScheduledDeclarationWrites
 	timings.Counts.ActualWrites += snapshot.Counts.ActualWrites

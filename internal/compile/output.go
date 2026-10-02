@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"rotor/internal/assets"
@@ -28,11 +29,13 @@ const assetsLockfileName = assets.LockfileName
 
 // BuildResult is the disk-writing sibling of CompileProject's pure text map.
 // Outputs contains the compiled Luau sources keyed by project-relative output
-// path; EmittedFiles contains the compiled output paths actually written to
-// disk this pass (mirroring compileFiles.ts' emittedFiles and excluding copied
-// passthrough files).
+// path. OwnedOutputs contains every artifact currently owned by the project,
+// including declarations, source maps, and copied files. EmittedFiles contains
+// only compiled output paths written this pass (mirroring compileFiles.ts'
+// emittedFiles and excluding copied passthrough files).
 type BuildResult struct {
 	Outputs      map[string]string
+	OwnedOutputs []string
 	EmittedFiles []string
 	OutputDir    string
 
@@ -150,7 +153,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		// cannot affect declaration output and must not create a discarded overlay.
 		originalProgram := program
 		if projectUsesTransformerPlugins(program.CommandLine()) {
-			if sidecarDiags, err := validateTransformerSidecar(dir, program); err != nil {
+			if sidecarDiags, err := validateTransformerHost(opts.context(), transformerHostFromContext(opts.context()), dir, program); err != nil {
 				return nil, sidecarDiags, err
 			}
 		}
@@ -172,7 +175,11 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 		stopPersistence()
 		timings.setEmittedEntries(len(emitted))
-		return &BuildResult{Outputs: map[string]string{}, EmittedFiles: emitted}, nil, nil
+		return &BuildResult{
+			Outputs:      map[string]string{},
+			OwnedOutputs: collectOwnedOutputPaths(dir, currentManifest.Outputs),
+			EmittedFiles: emitted,
+		}, nil, nil
 	}
 
 	stopSelection := timings.startStage(incrementalSelectionStage)
@@ -238,7 +245,8 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	stopCleanup()
 
 	stopIncludeCopy := timings.startStage(includeCopyStage)
-	if err := maybeCopyInclude(dir, opts); err != nil {
+	includeOutputs, err := maybeCopyInclude(dir, opts)
+	if err != nil {
 		stopIncludeCopy()
 		return nil, nil, err
 	}
@@ -278,7 +286,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	// Held across the pipeline because declaration emit reads it: declarations
 	// describe the source the user wrote, not the source transformers produced.
 	originalProgram := program
-	pipeline, diags, err := runCompilePipeline(dir, program, selectedFiles, opts.Overlays, nativePipeline)
+	pipeline, diags, err := runCompilePipelineWithOptions(dir, program, selectedFiles, opts.Overlays, nativePipeline, opts)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -492,6 +500,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 
 	return &BuildResult{
 		Outputs:         outputs,
+		OwnedOutputs:    collectOwnedOutputPaths(dir, currentManifest.Outputs, copyFilesGate.OwnedOutputs, includeOutputs),
 		EmittedFiles:    emittedFiles,
 		OutputDir:       pathTranslator.OutDir,
 		UsesEnvMacro:    usesEnvMacro,
@@ -795,27 +804,57 @@ func rejectDuplicateOutputPaths(paths []string) error {
 	return nil
 }
 
-func maybeCopyInclude(dir string, opts ProjectOptions) error {
+func maybeCopyInclude(dir string, opts ProjectOptions) ([]string, error) {
 	if !opts.EmitIncludeFiles || opts.Type == "package" {
-		return nil
+		return nil, nil
 	}
 	_, isPackage, err := projectIsPackage(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if opts.Type == "" && isPackage {
-		return nil
+		return nil, nil
 	}
 
 	includePath, err := resolveIncludePath(dir, opts.IncludePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	var copyErr error
 	logservice.BenchmarkIfVerbose("copy include files", func() {
 		copyErr = includefiles.Copy(includePath)
 	})
-	return copyErr
+	if copyErr != nil {
+		return nil, copyErr
+	}
+	names := includefiles.Names()
+	outputs := make([]string, len(names))
+	for index, name := range names {
+		outputs[index] = filepath.Join(includePath, name)
+	}
+	return outputs, nil
+}
+
+func collectOwnedOutputPaths(projectDir string, manifestOutputs map[string]string, absoluteOutputs ...[]string) []string {
+	owned := make(map[string]struct{}, len(manifestOutputs))
+	for path := range manifestOutputs {
+		owned[filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))] = struct{}{}
+	}
+	for _, outputs := range absoluteOutputs {
+		for _, path := range outputs {
+			relative, err := filepath.Rel(filepath.FromSlash(projectDir), filepath.FromSlash(path))
+			if err != nil {
+				relative = filepath.FromSlash(path)
+			}
+			owned[filepath.ToSlash(relative)] = struct{}{}
+		}
+	}
+	result := make([]string, 0, len(owned))
+	for path := range owned {
+		result = append(result, path)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func cleanupOutputs(pathTranslator *rojo.PathTranslator, sourceMapsEnabled bool) {

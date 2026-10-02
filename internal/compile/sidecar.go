@@ -38,54 +38,16 @@ const defaultSidecarResponseTimeout = 10 * time.Minute
 
 const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 
-type sidecarRequest struct {
-	Protocol         int      `json:"protocol"`
-	Operation        string   `json:"operation"`
-	TsConfigPath     string   `json:"tsConfigPath"`
-	ProjectDir       string   `json:"projectDir"`
-	CompileFileNames []string `json:"compileFileNames"`
-	// RootFileNames narrows the worker's LanguageService root set. Empty means
-	// "every file the tsconfig names", which is what a full build wants. An
-	// incremental build that selected a handful of files pays for parsing and
-	// binding the whole project otherwise, and the worker's program is thrown
-	// away when the rotor process exits, so nothing amortizes it.
-	RootFileNames []string             `json:"rootFileNames,omitempty"`
-	ChangedFiles  []sidecarChangedFile `json:"changedFiles"`
-	Plugins       []json.RawMessage    `json:"plugins,omitempty"`
-}
-
-type sidecarChangedFile struct {
-	FileName string `json:"fileName"`
-	Text     string `json:"text"`
-}
-
-type sidecarResponse struct {
-	Diagnostics []sidecarDiagnostic     `json:"diagnostics"`
-	Transformed []sidecarOutputFile     `json:"transformed"`
-	Metrics     *sidecarResponseMetrics `json:"metrics,omitempty"`
-	// AfterDeclarationsTransformers is how many `afterDeclarations`
-	// transformers the worker built for this project, after flattening. Rotor
-	// emits declarations natively and never runs them, so a non-zero count is
-	// a warning (see warnUnsupportedAfterDeclarations).
-	AfterDeclarationsTransformers int `json:"afterDeclarationsTransformers"`
-}
-
-type sidecarResponseMetrics struct {
-	WallMs      int64                 `json:"wallMs"`
-	CPUUserUs   int64                 `json:"cpuUserUs"`
-	CPUSystemUs int64                 `json:"cpuSystemUs"`
-	NodeVersion string                `json:"nodeVersion"`
-	Plugins     []sidecarPluginMetric `json:"plugins,omitempty"`
-}
+type sidecarRequest = TransformerRequest
+type sidecarChangedFile = TransformerChangedFile
+type sidecarResponse = TransformerResponse
+type sidecarResponseMetrics = TransformerResponseMetrics
 
 // sidecarPluginMetric is one plugin's share of a round trip: the wall time the
 // worker spent inside that transformer's factory and node visits. The shares
 // do not add up to the round trip, which also carries the worker's own program
 // update, printing, and protocol encoding.
-type sidecarPluginMetric struct {
-	Transform string `json:"transform"`
-	Ms        int64  `json:"ms"`
-}
+type sidecarPluginMetric = TransformerPluginMetric
 
 type sidecarCallStats struct {
 	wait            time.Duration
@@ -105,20 +67,8 @@ type sidecarCallStats struct {
 	nodeVersion     string
 }
 
-type sidecarDiagnostic struct {
-	Category string `json:"category"`
-	Code     string `json:"code"`
-	File     string `json:"file"`
-	Start    int    `json:"start"`
-	Length   int    `json:"length"`
-	Message  string `json:"message"`
-}
-
-type sidecarOutputFile struct {
-	FileName string `json:"fileName"`
-	Text     string `json:"text"`
-	TraceMap string `json:"traceMap"`
-}
+type sidecarDiagnostic = TransformerDiagnostic
+type sidecarOutputFile = TransformerOutputFile
 
 type preparedTransformerProgram struct {
 	program                  *compiler.Program
@@ -154,6 +104,10 @@ func prepareProjectProgramForCompile(dir string, program *compiler.Program, sour
 }
 
 func prepareTransformerProgram(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
+	return prepareTransformerProgramWithHost(context.Background(), sidecarTransformerHost{}, dir, program, sourceFiles, overlays)
+}
+
+func prepareTransformerProgramWithHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string) (*preparedTransformerProgram, []string, error) {
 	flamework, diags, err := prepareFlameworkConfig(dir, program.CommandLine())
 	if err != nil {
 		return nil, diags, err
@@ -165,7 +119,7 @@ func prepareTransformerProgram(dir string, program *compiler.Program, sourceFile
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
-	transformed, diags, err := applyTransformerSidecar(dir, program, sourceFiles, overlays)
+	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, nil, nil)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -191,6 +145,10 @@ func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles 
 }
 
 func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
+	return applyTransformerSidecarWithPluginsAndHost(context.Background(), sidecarTransformerHost{}, dir, program, sourceFiles, overlays, plugins, state)
+}
+
+func applyTransformerSidecarWithPluginsAndHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
@@ -207,7 +165,10 @@ func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, s
 		warnUnsupportedAfterDeclarations(configPath, countConfiguredAfterDeclarations(configured))
 	}
 	sidecarRegion := trace.StartRegion(context.Background(), "transformer sidecar")
-	response, stats, err := runTransformerSidecar(dir, configPath, sourceFiles, projectSourceFiles(program), overlays, plugins, state)
+	response, stats, err := host.transform(ctx, transformerCall{
+		dir: dir, configPath: configPath, compileFiles: sourceFiles,
+		stampFiles: projectSourceFiles(program), overlays: overlays, plugins: plugins, state: state,
+	})
 	sidecarRegion.End()
 	if err != nil {
 		return nil, []string{err.Error()}, err
@@ -750,7 +711,20 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 }
 
 func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
+	return runTransformerSidecarWithContext(context.Background(), dir, configPath, compileFiles, stampFiles, overlays, plugins, state)
+}
+
+func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
+	call := transformerCall{
+		dir:          dir,
+		configPath:   configPath,
+		compileFiles: compileFiles,
+		stampFiles:   stampFiles,
+		overlays:     overlays,
+		plugins:      plugins,
+		state:        state,
+	}
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, stats, err
@@ -760,16 +734,8 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		return nil, stats, err
 	}
 
-	roundTripStage := sidecarRoundTripStage.traceName()
-	if logservice.Verbose {
-		if names := sidecarPluginNames(plugins, configPath); len(names) > 0 {
-			roundTripStage += " (" + strings.Join(names, ", ") + ")"
-		}
-	}
-
-	sidecarDirPath := canonicalSidecarPath(dir)
-	sidecarConfigPath := canonicalSidecarPath(configPath)
-	key := sidecarDirPath + "|" + sidecarConfigPath
+	roundTripStage := transformerRoundTripStageName(configPath, plugins)
+	sidecarDirPath, sidecarConfigPath, key := canonicalTransformerRequestPaths(dir, configPath)
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
@@ -800,35 +766,11 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			}
 		}
 
-		stampNames := make([]string, 0, len(stampFiles))
-		for _, sourceFile := range stampFiles {
-			stampNames = append(stampNames, sourceFile.FileName())
-		}
-		sidecarOverlays, overlayReads := mergeSidecarOverlays(compileFiles, overlays, state, true)
-		stats.reads += overlayReads
-		skipDiskScan := state != nil && state.diskScanned && len(session.stamps) > 0
-		changedFiles, ioStats, err := session.collectChangedFiles(stampNames, sidecarOverlays, skipDiskScan)
-		stats.stats += ioStats.stats
-		stats.reads += ioStats.reads
-		stats.changedFiles += ioStats.changedFiles
+		request, err := prepareTransformerRequest(call, session, sidecarDirPath, sidecarConfigPath, &stats)
 		if err != nil {
 			stats.prep += stopPrep()
 			return nil, stats, err
 		}
-
-		request := sidecarRequest{
-			Protocol:         1,
-			Operation:        "transform",
-			TsConfigPath:     filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:       filepath.FromSlash(sidecarDirPath),
-			CompileFileNames: make([]string, 0, len(compileFiles)),
-			ChangedFiles:     changedFiles,
-			Plugins:          plugins,
-		}
-		for _, sourceFile := range compileFiles {
-			request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
-		}
-		request.RootFileNames = narrowedSidecarRoots(compileFiles, stampFiles)
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
@@ -836,7 +778,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 		}
 		stats.requestBytes += int64(len(payload))
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 		stopRoundTrip := logStageNamed(configPath, roundTripStage)
 		line, err := session.writeAndRead(ctx, payload)
 		stats.roundTrip += stopRoundTrip()
@@ -863,13 +805,7 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 			return nil, stats, session.fail(err)
 		}
 		stats.decode += time.Since(decodeStarted)
-		if response.Metrics != nil {
-			stats.nodeWallMs = response.Metrics.WallMs
-			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
-			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
-			stats.nodeVersion = response.Metrics.NodeVersion
-			logPluginMetrics(configPath, response.Metrics.Plugins)
-		}
+		applyTransformerResponseMetrics(&stats, &response, configPath)
 		return &response, stats, nil
 	}
 }
@@ -880,12 +816,16 @@ func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*a
 // trip would only allocate a discarded overlay program and execute arbitrary
 // plugin code that cannot affect the declarations.
 func validateTransformerSidecar(dir string, program *compiler.Program) ([]string, error) {
+	return validateTransformerHost(context.Background(), sidecarTransformerHost{}, dir, program)
+}
+
+func validateTransformerHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program) ([]string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
 	}
 
-	response, _, err := runTransformerSidecarValidation(dir, configPath)
+	response, _, err := host.validate(ctx, dir, configPath)
 	if err != nil {
 		return []string{err.Error()}, err
 	}
@@ -909,6 +849,10 @@ func validateTransformerSidecar(dir string, program *compiler.Program) ([]string
 }
 
 func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
+	return runTransformerSidecarValidationWithContext(context.Background(), dir, configPath)
+}
+
+func runTransformerSidecarValidationWithContext(parent context.Context, dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
@@ -919,9 +863,7 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 		return nil, stats, err
 	}
 
-	sidecarDirPath := canonicalSidecarPath(dir)
-	sidecarConfigPath := canonicalSidecarPath(configPath)
-	key := sidecarDirPath + "|" + sidecarConfigPath
+	request, sidecarDirPath, _, key := prepareTransformerValidationRequest(dir, configPath)
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()
@@ -948,12 +890,6 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 			}
 		}
 
-		request := sidecarRequest{
-			Protocol:     1,
-			Operation:    "validate",
-			TsConfigPath: filepath.FromSlash(sidecarConfigPath),
-			ProjectDir:   filepath.FromSlash(sidecarDirPath),
-		}
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
 		if err != nil {
@@ -961,7 +897,7 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 		}
 		stats.requestBytes += int64(len(payload))
 
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(nonNilContext(parent), timeout)
 		stopRoundTrip := logStageNamed(configPath, sidecarRoundTripStage.traceName())
 		line, err := session.writeAndRead(ctx, payload)
 		stats.roundTrip += stopRoundTrip()
@@ -982,12 +918,7 @@ func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, 
 			return nil, stats, session.fail(err)
 		}
 		stats.decode += time.Since(decodeStarted)
-		if response.Metrics != nil {
-			stats.nodeWallMs = response.Metrics.WallMs
-			stats.nodeCPUUserUs = response.Metrics.CPUUserUs
-			stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
-			stats.nodeVersion = response.Metrics.NodeVersion
-		}
+		applyTransformerResponseMetrics(&stats, &response, configPath)
 		return &response, stats, nil
 	}
 }
@@ -1002,6 +933,16 @@ func canonicalSidecarPath(path string) string {
 		return filepath.ToSlash(resolved)
 	}
 	return filepath.ToSlash(cleaned)
+}
+
+func transformerRoundTripStageName(configPath string, plugins []json.RawMessage) string {
+	stage := sidecarRoundTripStage.traceName()
+	if logservice.Verbose {
+		if names := sidecarPluginNames(plugins, configPath); len(names) > 0 {
+			stage += " (" + strings.Join(names, ", ") + ")"
+		}
+	}
+	return stage
 }
 
 func logPluginMetrics(configPath string, plugins []sidecarPluginMetric) {

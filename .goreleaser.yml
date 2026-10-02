@@ -37,8 +37,8 @@ archives:
     files:
       - README.md
       - LICENSE
-  # Bare executables for the npm/bun installer (scripts/install.js downloads
-  # these directly; windows gets .exe appended automatically by GoReleaser).
+  # Bare executables are staged into exact-version npm platform packages by
+  # scripts/stage-npm-release.cjs; windows gets .exe appended automatically.
   - id: rotor-bin
     ids:
       - rotor
@@ -51,8 +51,8 @@ checksum:
 
 release:
   github:
-    owner: howmanysmall
-    name: rotor
+    owner: howmanyslop
+    name: sloptor
   prerelease: auto
 
 changelog:

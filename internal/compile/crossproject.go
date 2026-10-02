@@ -12,6 +12,8 @@ import (
 type solutionWriteMetadata struct {
 	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
+	restoredDeclarations map[string][]string
+	restoredMetadataErrs map[string]string
 }
 
 func populateCrossProjectMetadata(graph *SolutionGraph) (map[string]string, solutionWriteMetadata) {
@@ -19,11 +21,17 @@ func populateCrossProjectMetadata(graph *SolutionGraph) (map[string]string, solu
 	metadata := solutionWriteMetadata{
 		writeRoots:           make(map[string][]string, len(graph.Projects)),
 		waitOnlyDependencies: map[string][]string{},
+		restoredDeclarations: make(map[string][]string, len(graph.Projects)),
+		restoredMetadataErrs: make(map[string]string),
 	}
 	for _, project := range graph.Projects {
 		metadata.writeRoots[project.ConfigPath] = []string{}
-		_, program, _, err := newProjectProgram(filepath.Dir(project.ConfigPath), project.ConfigPath)
+		_, program, diagnostics, err := newProjectProgram(filepath.Dir(project.ConfigPath), project.ConfigPath)
 		if err != nil {
+			metadata.restoredMetadataErrs[project.ConfigPath] = err.Error()
+			if len(diagnostics) > 0 {
+				metadata.restoredMetadataErrs[project.ConfigPath] = strings.Join(diagnostics, "; ")
+			}
 			continue
 		}
 		rootDirs := projectRootDirs(program)
@@ -33,6 +41,14 @@ func populateCrossProjectMetadata(graph *SolutionGraph) (map[string]string, solu
 				metadata.writeRoots[project.ConfigPath],
 				pathTranslator.OutDir,
 			)
+			if program.Options().GetEmitDeclarations() {
+				for _, sourceFile := range projectSourceFiles(program) {
+					metadata.restoredDeclarations[project.ConfigPath] = append(
+						metadata.restoredDeclarations[project.ConfigPath],
+						pathTranslator.GetOutputDeclarationPath(sourceFile.FileName()),
+					)
+				}
+			}
 		}
 		if project.Options.EmitIncludeFiles {
 			if includePath, includeErr := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath); includeErr == nil {
@@ -49,7 +65,7 @@ func populateCrossProjectMetadata(graph *SolutionGraph) (map[string]string, solu
 			findAncestorDir(rootDirs),
 			filepath.FromSlash(program.Options().OutDir),
 			"",
-			program.Options().Declaration.IsTrue(),
+			program.Options().GetEmitDeclarations(),
 			!project.Options.LuaExtension,
 		)
 		for _, sourceFile := range program.SourceFiles() {
@@ -63,7 +79,7 @@ func populateCrossProjectMetadata(graph *SolutionGraph) (map[string]string, solu
 				continue
 			}
 			result[canonical] = importPath
-			if program.Options().Declaration.IsTrue() && !sourceFile.IsDeclarationFile {
+			if program.Options().GetEmitDeclarations() && !sourceFile.IsDeclarationFile {
 				declarationPath := translator.GetOutputDeclarationPath(fileName)
 				declarationCanonical := rojo.CanonicalFileName(declarationPath, osvfs.FS().UseCaseSensitiveFileNames())
 				if _, exists := result[declarationCanonical]; !exists {

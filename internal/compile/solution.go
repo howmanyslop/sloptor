@@ -3,7 +3,12 @@ package compile
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
+
+	"rotor/tsgo/vfs/osvfs"
 )
 
 type SolutionProject struct {
@@ -37,10 +42,52 @@ type SolutionProjectState struct {
 	forceFullBuild bool
 }
 
+type SolutionProjectStatus string
+
+const (
+	SolutionProjectSuccess   SolutionProjectStatus = "success"
+	SolutionProjectNoChange  SolutionProjectStatus = "no-change"
+	SolutionProjectSatisfied SolutionProjectStatus = "satisfied"
+	SolutionProjectBlocked   SolutionProjectStatus = "blocked"
+	SolutionProjectFailed    SolutionProjectStatus = "failed"
+)
+
+// SolutionProjectSelection is the external scheduler's ownership decision for
+// one drain. A nil selection keeps the legacy behavior of building the entire
+// discovered graph.
+type SolutionProjectSelection struct {
+	Selected  []string
+	Satisfied []string
+}
+
+// SolutionProjectResult owns the terminal outcome for one emitted config.
+// Diagnostics never flow into blocked dependants; blockers identify the
+// dependency outcomes that prevented work from running.
+type SolutionProjectResult struct {
+	ConfigPath  string
+	Status      SolutionProjectStatus
+	Blockers    []string
+	Diagnostics []DiagnosticInfo
+	Outputs     []string
+	OutputCount int
+	Timings     ProjectBuildTimings
+}
+
+// SolutionRoot supplies the effective entry options for one requested root.
+// Most callers should use NewSolutionCoordinatorForRoots with shared options;
+// API adapters use this form when each real root has its own rbxts options.
+type SolutionRoot struct {
+	ConfigPath string
+	Options    ProjectOptions
+}
+
 type SolutionCoordinator struct {
 	graph                *SolutionGraph
 	drainer              SolutionProjectDrainer
 	states               map[string]SolutionProjectState
+	projectPaths         map[string]string
+	coordinatorPaths     map[string]string
+	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
 	builders             int
 	timings              *BuildTimings
@@ -55,96 +102,196 @@ const (
 )
 
 func BuildSolutionGraph(tsConfigPath string, entry ProjectOptions) (*SolutionGraph, error) {
+	return BuildSolutionGraphForRoots([]string{tsConfigPath}, entry)
+}
+
+// BuildSolutionGraphForRoots discovers the dependency-first union of roots.
+// Each physical config has one canonical identity even when roots or
+// references reach it through lexical, symlink, or case aliases.
+func BuildSolutionGraphForRoots(tsConfigPaths []string, entry ProjectOptions) (*SolutionGraph, error) {
+	roots := make([]solutionGraphRoot, len(tsConfigPaths))
+	for index, configPath := range tsConfigPaths {
+		roots[index] = solutionGraphRoot{configPath: configPath, options: entry}
+	}
+	return buildSolutionGraphForRoots(roots)
+}
+
+type solutionGraphRoot struct {
+	configPath string
+	options    ProjectOptions
+}
+
+func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, error) {
+	if len(roots) == 0 {
+		return nil, errors.New("compile: solution requires at least one root")
+	}
+
 	projects := map[string]SolutionProject{}
 	configPathsByProject := map[string][]string{}
-	visits := map[string]solutionProjectVisit{}
-	stack := []string{}
+	rootByProject := map[string]string{}
+	order := []string{}
+	ordered := map[string]struct{}{}
 
-	// rootIsCoordinator is set by the root visit before any reference is
-	// visited: a coordinator root hands its entry type and Rojo config down.
-	rootIsCoordinator := false
-	var coordinatorRbxts *RbxtsOptions
-	var visit func(string) error
-	visit = func(configPath string) error {
-		configPath, err := filepath.Abs(configPath)
+	for _, root := range roots {
+		rootPath, _, err := canonicalSolutionConfigPath(root.configPath)
 		if err != nil {
-			return fmt.Errorf("compile: resolve project reference %q: %w", configPath, err)
+			return nil, fmt.Errorf("compile: resolve solution config %q: %w", root.configPath, err)
 		}
-		configPath = filepath.Clean(configPath)
-		switch visits[configPath] {
-		case solutionProjectVisiting:
-			return solutionCycleError(stack, configPath)
-		case solutionProjectVisited:
-			return nil
-		}
-
-		visits[configPath] = solutionProjectVisiting
-		stack = append(stack, configPath)
-		defer func() {
-			stack = stack[:len(stack)-1]
-		}()
-
-		references, coordinator, configPaths, err := readProjectReferencePaths(configPath)
+		_, rootIsCoordinator, _, err := readProjectReferencePaths(rootPath)
 		if err != nil {
-			return fmt.Errorf("compile: read project reference %q: %w", configPath, err)
+			return nil, fmt.Errorf("compile: read project reference %q: %w", rootPath, err)
 		}
-		options := entry
-		if len(stack) == 1 {
-			rootIsCoordinator = coordinator
-			if coordinator && entry.SolutionArgv != nil {
-				coordinatorRbxts, err = ReadRbxtsOptions(configPath)
+		var coordinatorRbxts *RbxtsOptions
+		if rootIsCoordinator && root.options.SolutionArgv != nil {
+			coordinatorRbxts, err = ReadRbxtsOptions(rootPath)
+			if err != nil {
+				return nil, fmt.Errorf("compile: read solution options %q: %w", rootPath, err)
+			}
+		}
+
+		visits := map[string]solutionProjectVisit{}
+		stack := []string{}
+		var visit func(string, bool) (string, error)
+		visit = func(candidate string, isRoot bool) (string, error) {
+			configPath, configKey, err := canonicalSolutionConfigPath(candidate)
+			if err != nil {
+				return "", fmt.Errorf("compile: resolve project reference %q: %w", candidate, err)
+			}
+			switch visits[configKey] {
+			case solutionProjectVisiting:
+				return "", solutionCycleError(stack, configPath)
+			case solutionProjectVisited:
+				return projects[configKey].ConfigPath, nil
+			}
+
+			visits[configKey] = solutionProjectVisiting
+			stack = append(stack, configPath)
+			defer func() { stack = stack[:len(stack)-1] }()
+
+			references, coordinator, configPaths, err := readProjectReferencePaths(configPath)
+			if err != nil {
+				return "", fmt.Errorf("compile: read project reference %q: %w", configPath, err)
+			}
+			options := root.options
+			if !isRoot {
+				// Derive from the root entry, not the referencing project: a
+				// project's salt must not depend on which intermediate reached it.
+				options, err = referencedProjectOptions(root.options, configPath, rootIsCoordinator, coordinatorRbxts)
 				if err != nil {
-					return fmt.Errorf("compile: read solution options %q: %w", configPath, err)
+					return "", fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
 				}
 			}
-		} else {
-			// Derive from the entry, not the referencing project: a project's
-			// options, and so its incremental salt, must not depend on which
-			// project referenced it, or it never matches its own direct build.
-			options, err = referencedProjectOptions(entry, configPath, rootIsCoordinator, coordinatorRbxts)
-			if err != nil {
-				return fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
+
+			if existing, ok := projects[configKey]; ok {
+				if !sameSolutionProjectOptions(existing.Options, options) {
+					return "", fmt.Errorf("compile: conflicting effective options for %s reached from %s and %s", existing.ConfigPath, rootByProject[configKey], rootPath)
+				}
+				configPath = existing.ConfigPath
+			} else {
+				projects[configKey] = SolutionProject{ConfigPath: configPath, Options: options, Coordinator: coordinator}
+				configPathsByProject[configKey] = configPaths
+				rootByProject[configKey] = rootPath
 			}
-		}
-		projects[configPath] = SolutionProject{
-			ConfigPath:  configPath,
-			References:  references,
-			Options:     options,
-			Coordinator: coordinator,
-		}
-		configPathsByProject[configPath] = configPaths
-		for _, reference := range references {
-			if err := visit(reference); err != nil {
-				return err
+
+			canonicalReferences := make([]string, 0, len(references))
+			for _, reference := range references {
+				canonicalReference, err := visit(reference, false)
+				if err != nil {
+					return "", err
+				}
+				canonicalReferences = append(canonicalReferences, canonicalReference)
 			}
+			project := projects[configKey]
+			project.References = canonicalReferences
+			projects[configKey] = project
+			visits[configKey] = solutionProjectVisited
+			if _, ok := ordered[configKey]; !ok {
+				ordered[configKey] = struct{}{}
+				order = append(order, configKey)
+			}
+			return project.ConfigPath, nil
 		}
-		visits[configPath] = solutionProjectVisited
-		return nil
+		if _, err := visit(rootPath, true); err != nil {
+			return nil, err
+		}
 	}
 
-	rootPath, err := filepath.Abs(tsConfigPath)
-	if err != nil {
-		return nil, fmt.Errorf("compile: resolve solution config %q: %w", tsConfigPath, err)
+	projectsByPath := make(map[string]SolutionProject, len(projects))
+	for _, project := range projects {
+		projectsByPath[project.ConfigPath] = project
 	}
-	if err := visit(rootPath); err != nil {
-		return nil, err
-	}
-
 	graph := &SolutionGraph{}
-	for _, configPath := range postOrderProjectPaths(rootPath, projects) {
-		project := projects[configPath]
+	for _, configKey := range order {
+		project := projects[configKey]
 		if project.Coordinator {
 			graph.coordinatorConfigChains = append(graph.coordinatorConfigChains, solutionConfigChain{
-				projectPath: configPath,
-				configPaths: configPathsByProject[configPath],
+				projectPath: project.ConfigPath,
+				configPaths: configPathsByProject[configKey],
 				references:  project.References,
 			})
 			continue
 		}
-		project.References = emittingProjectReferences(project.References, projects)
+		project.References = emittingProjectReferences(project.References, projectsByPath)
 		graph.Projects = append(graph.Projects, project)
 	}
 	return graph, nil
+}
+
+func canonicalSolutionConfigPath(path string) (string, string, error) {
+	absolute, err := filepath.Abs(filepath.FromSlash(path))
+	if err != nil {
+		return "", "", err
+	}
+	canonical := filepath.Clean(absolute)
+	identity := filepath.Clean(filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(canonical))))
+	if pathHasExplicitSymlink(canonical) {
+		canonical = identity
+	}
+	key := identity
+	if !osvfs.FS().UseCaseSensitiveFileNames() {
+		key = strings.ToLower(key)
+	}
+	return canonical, key, nil
+}
+
+func pathHasExplicitSymlink(path string) bool {
+	volume := filepath.VolumeName(path)
+	current := volume + string(filepath.Separator)
+	remainder := strings.TrimPrefix(path, current)
+	for _, part := range strings.Split(remainder, string(filepath.Separator)) {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sameSolutionProjectOptions(left, right ProjectOptions) bool {
+	left.Timings = nil
+	right.Timings = nil
+	left.Context = nil
+	right.Context = nil
+	left.TsConfigPath = ""
+	right.TsConfigPath = ""
+	left.SolutionArgv, right.SolutionArgv = nil, nil
+	left.rojoCache, right.rojoCache = nil, nil
+	left.crossProjectImportPathMap, right.crossProjectImportPathMap = nil, nil
+	left.pendingSolutionPersists, right.pendingSolutionPersists = nil, nil
+	left.pendingSolutionDependencyPersists, right.pendingSolutionDependencyPersists = nil, nil
+	left.compileCache, right.compileCache = nil, nil
+	left.solutionOverlays, right.solutionOverlays = nil, nil
+	left.census, right.census = nil, nil
+	left.deferRojoCachePersist, right.deferRojoCachePersist = false, false
+	left.forceFullBuild, right.forceFullBuild = false, false
+	return reflect.DeepEqual(left, right)
 }
 
 func emittingProjectReferences(references []string, projects map[string]SolutionProject) []string {
@@ -177,20 +324,44 @@ func emittingProjectReferences(references []string, projects map[string]Solution
 }
 
 func NewSolutionCoordinator(tsConfigPath string, entry ProjectOptions) (*SolutionCoordinator, error) {
-	graph, err := BuildSolutionGraph(tsConfigPath, entry)
+	return NewSolutionCoordinatorForRoots([]string{tsConfigPath}, entry)
+}
+
+func NewSolutionCoordinatorWithDrainer(tsConfigPath string, entry ProjectOptions, drainer SolutionProjectDrainer) (*SolutionCoordinator, error) {
+	return NewSolutionCoordinatorForRootsWithDrainer([]string{tsConfigPath}, entry, drainer)
+}
+
+func NewSolutionCoordinatorForRoots(tsConfigPaths []string, entry ProjectOptions) (*SolutionCoordinator, error) {
+	roots := make([]SolutionRoot, len(tsConfigPaths))
+	for index, configPath := range tsConfigPaths {
+		roots[index] = SolutionRoot{ConfigPath: configPath, Options: entry}
+	}
+	return NewSolutionCoordinatorForRootOptions(roots)
+}
+
+func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordinator, error) {
+	graphRoots := make([]solutionGraphRoot, len(roots))
+	for index, root := range roots {
+		graphRoots[index] = solutionGraphRoot{configPath: root.ConfigPath, options: root.Options}
+	}
+	graph, err := buildSolutionGraphForRoots(graphRoots)
 	if err != nil {
 		return nil, err
 	}
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
-	drainer := &solutionBuildDrainer{importPathMap: importPathMap}
-	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
+	drainer := &solutionBuildDrainer{
+		importPathMap:        importPathMap,
+		restoredDeclarations: metadata.restoredDeclarations,
+		restoredMetadataErrs: metadata.restoredMetadataErrs,
+	}
+	return newSolutionCoordinator(graph, drainer, metadata, solutionRootsBuilders(roots), solutionRootsTimings(roots))
 }
 
-func NewSolutionCoordinatorWithDrainer(tsConfigPath string, entry ProjectOptions, drainer SolutionProjectDrainer) (*SolutionCoordinator, error) {
+func NewSolutionCoordinatorForRootsWithDrainer(tsConfigPaths []string, entry ProjectOptions, drainer SolutionProjectDrainer) (*SolutionCoordinator, error) {
 	if drainer == nil {
 		return nil, errors.New("compile: solution project drainer is nil")
 	}
-	graph, err := BuildSolutionGraph(tsConfigPath, entry)
+	graph, err := BuildSolutionGraphForRoots(tsConfigPaths, entry)
 	if err != nil {
 		return nil, err
 	}
@@ -198,10 +369,30 @@ func NewSolutionCoordinatorWithDrainer(tsConfigPath string, entry ProjectOptions
 	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
+func solutionRootsBuilders(roots []SolutionRoot) int {
+	if len(roots) == 0 {
+		return effectiveSolutionBuilders(ProjectOptions{})
+	}
+	return effectiveSolutionBuilders(roots[0].Options)
+}
+
+func solutionRootsTimings(roots []SolutionRoot) *BuildTimings {
+	if len(roots) == 0 {
+		return nil
+	}
+	return roots[0].Options.Timings
+}
+
 func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer, metadata solutionWriteMetadata, builders int, timings *BuildTimings) (*SolutionCoordinator, error) {
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
+	projectPaths := make(map[string]string, len(graph.Projects))
 	for _, project := range graph.Projects {
 		states[project.ConfigPath] = SolutionProjectState{Project: project}
+		_, key, err := canonicalSolutionConfigPath(project.ConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		projectPaths[key] = project.ConfigPath
 	}
 	if timings != nil {
 		timings.initProjects(graph.Projects)
@@ -211,6 +402,9 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		graph:                graph,
 		drainer:              drainer,
 		states:               states,
+		projectPaths:         projectPaths,
+		coordinatorPaths:     solutionCoordinatorPaths(graph),
+		writeRoots:           metadata.writeRoots,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
 		builders:             builders,
 		timings:              timings,
@@ -232,11 +426,15 @@ func entryCheckers(graph *SolutionGraph) *int {
 }
 
 func (c *SolutionCoordinator) ProjectState(tsConfigPath string) (SolutionProjectState, bool) {
-	configPath, err := filepath.Abs(tsConfigPath)
+	_, key, err := canonicalSolutionConfigPath(tsConfigPath)
 	if err != nil {
 		return SolutionProjectState{}, false
 	}
-	state, ok := c.states[filepath.Clean(configPath)]
+	configPath, ok := c.projectPaths[key]
+	if !ok {
+		return SolutionProjectState{}, false
+	}
+	state, ok := c.states[configPath]
 	return state, ok
 }
 
@@ -264,11 +462,13 @@ func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
 		queue = append(queue, configPath)
 	}
 	for _, path := range paths {
-		absolute, err := filepath.Abs(path)
+		configPath, key, err := canonicalSolutionConfigPath(path)
 		if err != nil {
 			continue
 		}
-		configPath := filepath.Clean(absolute)
+		if projectPath, ok := c.projectPaths[key]; ok {
+			configPath = projectPath
+		}
 		if _, ok := c.states[configPath]; ok {
 			addDirect(configPath)
 			continue
@@ -329,20 +529,45 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 		return err
 	}
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
+	projectPaths := make(map[string]string, len(graph.Projects))
 	for _, project := range graph.Projects {
-		state := c.states[project.ConfigPath]
+		_, key, err := canonicalSolutionConfigPath(project.ConfigPath)
+		if err != nil {
+			return err
+		}
+		previousPath := c.projectPaths[key]
+		state := c.states[previousPath]
 		state.Project = project
 		states[project.ConfigPath] = state
+		projectPaths[key] = project.ConfigPath
 	}
 	c.graph = graph
 	c.states = states
+	c.projectPaths = projectPaths
+	c.coordinatorPaths = solutionCoordinatorPaths(graph)
 	importPathMap, metadata := populateCrossProjectMetadata(graph)
+	c.writeRoots = metadata.writeRoots
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {
-		c.drainer = &solutionBuildDrainer{importPathMap: importPathMap}
+		c.drainer = &solutionBuildDrainer{
+			importPathMap:        importPathMap,
+			restoredDeclarations: metadata.restoredDeclarations,
+			restoredMetadataErrs: metadata.restoredMetadataErrs,
+		}
 	}
 	return nil
+}
+
+func solutionCoordinatorPaths(graph *SolutionGraph) map[string]string {
+	paths := make(map[string]string, len(graph.coordinatorConfigChains))
+	for _, chain := range graph.coordinatorConfigChains {
+		_, key, err := canonicalSolutionConfigPath(chain.projectPath)
+		if err == nil {
+			paths[key] = chain.projectPath
+		}
+	}
+	return paths
 }
 
 func postOrderProjectPaths(rootPath string, projects map[string]SolutionProject) []string {

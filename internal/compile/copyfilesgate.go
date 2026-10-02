@@ -224,6 +224,7 @@ type copyFilesGateInputs struct {
 type copyFilesGateOutputs struct {
 	SkipCleanup   bool
 	SkipCopyFiles bool
+	OwnedOutputs  []string
 	Persist       func() error
 }
 
@@ -309,6 +310,7 @@ func loadCopyFilesGatePreBuild(inputs copyFilesGateInputs) copyFilesGateOutputs 
 		return copyFilesGateOutputs{
 			SkipCleanup:   true,
 			SkipCopyFiles: true,
+			OwnedOutputs:  copyFilesDestinations(cached.Files),
 		}
 	}
 	current := buildCopyFilesManifest(CopyFilesManifestInputs{
@@ -331,7 +333,7 @@ func loadCopyFilesGatePreBuild(inputs copyFilesGateInputs) copyFilesGateOutputs 
 		return writeCopyFilesManifest(cachePath, current)
 	}
 	if cached == nil {
-		return copyFilesGateOutputs{Persist: persist}
+		return copyFilesGateOutputs{OwnedOutputs: copyFilesDestinations(current.Files), Persist: persist}
 	}
 	dirsMatch := copyFilesDirsEqual(current.Dirs, cached.Dirs)
 	filesMatch := copyFilesFilesEqual(current.Files, cached.Files)
@@ -339,8 +341,17 @@ func loadCopyFilesGatePreBuild(inputs copyFilesGateInputs) copyFilesGateOutputs 
 	return copyFilesGateOutputs{
 		SkipCleanup:   dirsMatch && filesMatch && destsValid && len(inputs.Snapshot.ChangedFilePaths) == 0,
 		SkipCopyFiles: filesMatch && destsValid,
+		OwnedOutputs:  copyFilesDestinations(current.Files),
 		Persist:       persist,
 	}
+}
+
+func copyFilesDestinations(files []CopyFilesFileEntry) []string {
+	outputs := make([]string, len(files))
+	for index, file := range files {
+		outputs[index] = file.Dest
+	}
+	return outputs
 }
 
 // copyFilesChangedSnapshot mirrors the fork's snapshotBuildState: it reports

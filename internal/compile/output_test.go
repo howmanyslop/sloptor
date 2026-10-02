@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,45 @@ func TestBuildProjectOutputPipeline(t *testing.T) {
 	}
 	if len(result.EmittedFiles) != 1 || filepath.Base(result.EmittedFiles[0]) != "main.luau" {
 		t.Fatalf("EmittedFiles = %v, want only compiled main.luau", result.EmittedFiles)
+	}
+}
+
+func TestBuildProjectReportsCompleteOwnedOutputsAcrossNoChangeBuilds(t *testing.T) {
+	dir := writeProject(t, "@scope/owned-outputs-fixture", "")
+	tsconfigPath := filepath.Join(dir, "tsconfig.json")
+	tsconfigBytes, err := os.ReadFile(tsconfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tsconfig := strings.Replace(
+		string(tsconfigBytes),
+		`"outDir": "out"`,
+		`"outDir": "out", "declaration": true, "declarationMap": true, "incremental": true, "sourceMap": true, "tsBuildInfoFile": "out/cache.tsbuildinfo"`,
+		1,
+	)
+	if err := os.WriteFile(tsconfigPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "data.json"), []byte("{\"ok\":true}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"out/data.json",
+		"out/globals.d.ts",
+		"out/main.d.ts",
+		"out/main.d.ts.map",
+		"out/main.luau",
+		"out/main.luau.map",
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
+		if err != nil {
+			t.Fatalf("build %d: %v (diags: %v)", attempt, err, diags)
+		}
+		if !reflect.DeepEqual(result.OwnedOutputs, want) {
+			t.Fatalf("build %d OwnedOutputs = %v, want %v", attempt, result.OwnedOutputs, want)
+		}
 	}
 }
 

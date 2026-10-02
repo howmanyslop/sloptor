@@ -145,7 +145,7 @@ rotor = { github = "uproot/rotor", version = "2.0.0" }
 
 ### Install via npm / bun
 
-For rbxts projects that already live in the JS ecosystem, install [`@rotor-rbx/rotor`](https://www.npmjs.com/package/@rotor-rbx/rotor) as a dev dependency — a postinstall step downloads the prebuilt binary for your platform:
+For rbxts projects that already live in the JS ecosystem, install [`@rotor-rbx/rotor`](https://www.npmjs.com/package/@rotor-rbx/rotor) as a dev dependency. Its exact-version optional dependency supplies the native executable for macOS, Linux, or Windows on x64 and ARM64; installation and first use do not download from a release URL:
 
 ```sh
 bun add -d @rotor-rbx/rotor
@@ -154,9 +154,16 @@ pnpm add -D @rotor-rbx/rotor
 yarn add -D @rotor-rbx/rotor
 ```
 
-Installing straight from GitHub works too: `bun add -d github:uproot/rotor` (npm/pnpm/yarn equivalents likewise).
+The package also exports the asynchronous JavaScript client:
 
-> **bun note:** bun skips postinstall scripts by default. Either add `"trustedDependencies": ["@rotor-rbx/rotor"]` to your project's `package.json` (then `bun install`), or do nothing — the `rotor` shim downloads the binary on first run. pnpm similarly asks you to approve build scripts (`pnpm approve-builds`), with the same first-run fallback.
+```ts
+import { createBuildSession } from "@rotor-rbx/rotor";
+
+await using session = createBuildSession();
+const result = await session.build({ project: "." });
+```
+
+**Transition from the download-based package:** remove any `trustedDependencies` entry or pnpm build-script approval that was only present for Rotor, then reinstall normally. Optional dependencies must remain enabled. A lockfile or install created with `--no-optional` can produce an actionable missing-package error; reinstall without that flag, or explicitly install the error's `@rotor-rbx/rotor-<platform>-<architecture>` package at exactly the same version as `@rotor-rbx/rotor`. The compatibility `@rotor-rbx/rotor/scripts/install.js` subpath still resolves the installed binary, but no longer performs a network download.
 
 Or build from source (Go 1.25+):
 
