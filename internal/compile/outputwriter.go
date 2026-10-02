@@ -67,7 +67,9 @@ func newOutputWriterWithOperations(operations outputWriterOperations, caseSensit
 	}
 }
 
-func (writer *outputWriter) write(path string, text string, writeOnlyChanged bool) (bool, error) {
+// write skips the write when path already holds text, so unchanged outputs keep
+// their mtimes for downstream caches.
+func (writer *outputWriter) write(path string, text string) (bool, error) {
 	contents := []byte(text)
 	sum := sha256.Sum256(contents)
 	hash := hex.EncodeToString(sum[:])
@@ -82,19 +84,9 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 			return false, nil
 		}
 	}
-	if writeOnlyChanged {
-		var existing []byte
-		var err error
-		if writer.root != nil {
-			root, name := writer.rootForKey(key)
-			existing, err = root.ReadFile(name)
-		} else {
-			existing, err = writer.operations.readFile(path)
-		}
-		if err == nil && bytes.Equal(existing, contents) {
-			writer.recordHash(key, hash)
-			return false, nil
-		}
+	if writer.sameContents(key, path, contents) {
+		writer.recordHash(key, hash)
+		return false, nil
 	}
 	var err error
 	if writer.root != nil {
@@ -108,6 +100,31 @@ func (writer *outputWriter) write(path string, text string, writeOnlyChanged boo
 	}
 	writer.recordHash(key, hash)
 	return true, nil
+}
+
+func (writer *outputWriter) sameContents(key, path string, contents []byte) bool {
+	var info fs.FileInfo
+	var existing []byte
+	var err error
+	if writer.root != nil {
+		root, name := writer.rootForKey(key)
+		info, err = root.Lstat(name)
+		if err != nil || !sameSize(info, contents) {
+			return false
+		}
+		existing, err = root.ReadFile(name)
+	} else {
+		info, err = writer.operations.lstat(path)
+		if err != nil || !sameSize(info, contents) {
+			return false
+		}
+		existing, err = writer.operations.readFile(path)
+	}
+	return err == nil && bytes.Equal(existing, contents)
+}
+
+func sameSize(info fs.FileInfo, contents []byte) bool {
+	return info.Mode().IsRegular() && info.Size() == int64(len(contents))
 }
 
 func (writer *outputWriter) lstat(path string) (fs.FileInfo, error) {

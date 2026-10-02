@@ -69,7 +69,7 @@ func PersistArtifacts(projectRoot string, artifacts []Artifact) error {
 	}
 	defer func() { _ = root.Close() }()
 	transaction := &artifactTransaction{root: root}
-	staged, err := stageArtifacts(transaction, artifacts)
+	staged, err := stageArtifacts(transaction, changedArtifacts(root, artifacts))
 	if err != nil {
 		return err
 	}
@@ -110,6 +110,32 @@ func stageArtifacts(transaction *artifactTransaction, artifacts []Artifact) ([]s
 		staged = append(staged, entry)
 	}
 	return staged, nil
+}
+
+// changedArtifacts drops writes whose destination already holds the same bytes,
+// so unchanged artifacts keep their mtimes.
+func changedArtifacts(root *os.Root, artifacts []Artifact) []Artifact {
+	changed := make([]Artifact, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		if artifact.Data != nil && artifactHolds(root, artifact) {
+			continue
+		}
+		changed = append(changed, artifact)
+	}
+	return changed
+}
+
+func artifactHolds(root *os.Root, artifact Artifact) bool {
+	path, err := localArtifactPath(artifact.Path)
+	if err != nil {
+		return false
+	}
+	info, err := root.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(artifact.Data)) {
+		return false
+	}
+	existing, err := root.ReadFile(path)
+	return err == nil && bytes.Equal(existing, artifact.Data)
 }
 
 func localArtifactPath(path string) (string, error) {

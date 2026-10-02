@@ -47,7 +47,7 @@ func TestOutputHashMatchUsesValidatedContents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wrote, err := writer.write(path, string(contents), true)
+	wrote, err := writer.write(path, string(contents))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestOutputHashMismatchDoesNotSkipWrite(t *testing.T) {
 	t.Cleanup(func() { _ = writer.close() })
 
 	// When: the compiler writes the manifest's expected content.
-	wrote, err := writer.write(path, string(want), false)
+	wrote, err := writer.write(path, string(want))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestOutputWriterRejectsFinalSymlinkEscape(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = writer.close() })
-	if _, err := writer.write(outputPath, "replacement", false); err == nil {
+	if _, err := writer.write(outputPath, "replacement"); err == nil {
 		t.Fatal("write accepted a final symlink outside the project")
 	}
 	contents, err := os.ReadFile(outsidePath)
@@ -197,6 +197,9 @@ func TestOutputDirectoryCreatedOnce(t *testing.T) {
 		readFile: func(string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		},
+		lstat: func(string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		},
 		mkdirAll: func(string, fs.FileMode) error {
 			mkdirCalls.Add(1)
 			return nil
@@ -212,7 +215,7 @@ func TestOutputDirectoryCreatedOnce(t *testing.T) {
 	for index := range jobs {
 		path := filepath.Join("out", "shared", fmt.Sprintf("%d.luau", index))
 		jobs[index] = func() error {
-			wrote, err := writer.write(path, "output", true)
+			wrote, err := writer.write(path, "output")
 			if err != nil {
 				return err
 			}
@@ -248,6 +251,9 @@ func TestOutputDirectoryUnchangedDoesNotCreate(t *testing.T) {
 		readFile: func(string) ([]byte, error) {
 			return []byte("unchanged"), nil
 		},
+		lstat: func(string) (fs.FileInfo, error) {
+			return regularFileInfo{size: int64(len("unchanged"))}, nil
+		},
 		mkdirAll: func(string, fs.FileMode) error {
 			mkdirCalls.Add(1)
 			return nil
@@ -259,7 +265,7 @@ func TestOutputDirectoryUnchangedDoesNotCreate(t *testing.T) {
 	}, true)
 
 	path := filepath.Join("out", "missing", "main.luau")
-	wrote, err := writer.write(path, "unchanged", true)
+	wrote, err := writer.write(path, "unchanged")
 	if err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -280,6 +286,9 @@ func TestOutputDirectoryFailureMemoized(t *testing.T) {
 	var writeCalls atomic.Int32
 	writer := newOutputWriterWithOperations(outputWriterOperations{
 		readFile: func(string) ([]byte, error) {
+			return nil, os.ErrNotExist
+		},
+		lstat: func(string) (fs.FileInfo, error) {
 			return nil, os.ErrNotExist
 		},
 		mkdirAll: func(string, fs.FileMode) error {
@@ -319,6 +328,9 @@ func TestOutputDirectoryCaseCanonicalized(t *testing.T) {
 		readFile: func(string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		},
+		lstat: func(string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		},
 		mkdirAll: func(string, fs.FileMode) error {
 			mkdirCalls.Add(1)
 			return nil
@@ -335,7 +347,7 @@ func TestOutputDirectoryCaseCanonicalized(t *testing.T) {
 		if err := writer.prepare([]string{path}); err != nil {
 			t.Fatal(err)
 		}
-		wrote, err := writer.write(path, "output", true)
+		wrote, err := writer.write(path, "output")
 		if err != nil {
 			t.Fatalf("write %q: %v", path, err)
 		}
@@ -449,6 +461,9 @@ func TestBatchPrepareFailurePreventsWrites(t *testing.T) {
 		readFile: func(string) ([]byte, error) {
 			return nil, os.ErrNotExist
 		},
+		lstat: func(string) (fs.FileInfo, error) {
+			return nil, os.ErrNotExist
+		},
 		mkdirAll: func(path string, _ fs.FileMode) error {
 			if filepath.Base(path) == "failed" {
 				return failure
@@ -473,3 +488,12 @@ func TestBatchPrepareFailurePreventsWrites(t *testing.T) {
 		t.Fatalf("writes after prepare failure = %d, want 0", got)
 	}
 }
+
+type regularFileInfo struct {
+	fs.FileInfo
+	size int64
+}
+
+func (info regularFileInfo) Mode() fs.FileMode { return 0o644 }
+
+func (info regularFileInfo) Size() int64 { return info.size }
