@@ -9,3 +9,6 @@ onces = "onces"
 pn = "pn"
 unparseable = "unparseable"
 writables = "writables"
+
+[default.extend-identifiers]
+iz = "iz"
