@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -566,28 +567,42 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 	rewriter := newDeclarationPathRewriter(program)
 	perFile := make([][]declarationEmitFile, len(files))
 	perFileDiagnostics := make([][]DiagnosticInfo, len(files))
-	jobs := make([]func() error, len(files))
-	for index, sourceFile := range files {
-		jobs[index] = func() error {
-			var pending []declarationEmitFile
-			result := program.Emit(ctx, compiler.EmitOptions{
-				TargetSourceFile: sourceFile,
-				EmitOnly:         compiler.EmitOnlyDts,
-				WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
-					pending = append(pending, declarationEmitFile{FileName: fileName, Text: text, Data: data})
-					return nil
-				},
-			})
-			if result != nil && len(result.Diagnostics) > 0 {
-				perFileDiagnostics[index] = tsDiagnosticInfos(result.Diagnostics, nil)
+	emitFile := func(index int, sourceFile *ast.SourceFile) {
+		var pending []declarationEmitFile
+		result := program.Emit(ctx, compiler.EmitOptions{
+			TargetSourceFile: sourceFile,
+			EmitOnly:         compiler.EmitOnlyDts,
+			WriteFile: func(fileName string, text string, data *compiler.WriteFileData) error {
+				pending = append(pending, declarationEmitFile{FileName: fileName, Text: text, Data: data})
 				return nil
+			},
+		})
+		if result != nil && len(result.Diagnostics) > 0 {
+			perFileDiagnostics[index] = tsDiagnosticInfos(result.Diagnostics, nil)
+			return
+		}
+		rewriteDeclarationEmit(rewriter, sourceFile, pending)
+		perFile[index] = pending
+	}
+	// Checker state left by one file's emit (e.g. the cached `?: undefined`
+	// widening property) shapes the next file's text, so each checker emits
+	// its files serially, in program order.
+	order := declarationEmitOrder(program, files)
+	ordered := make([]*ast.SourceFile, len(order))
+	for i, index := range order {
+		ordered[i] = files[index]
+	}
+	groups := groupSourceFilesByChecker(ctx, program, ordered)
+	jobs := make([]func() error, len(groups))
+	for groupIndex, group := range groups {
+		jobs[groupIndex] = func() error {
+			for i, sourceFile := range group.files {
+				emitFile(order[group.indices[i]], sourceFile)
 			}
-			rewriteDeclarationEmit(rewriter, sourceFile, pending)
-			perFile[index] = pending
 			return nil
 		}
 	}
-	if err := parallelize(writeWorkers(), jobs); err != nil {
+	if err := parallelize(len(groups), jobs); err != nil {
 		return nil, err
 	}
 	var diagnostics []DiagnosticInfo
@@ -602,6 +617,23 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 		emitted = append(emitted, files...)
 	}
 	return emitted, nil
+}
+
+// declarationEmitOrder returns the indices of files sorted by their position
+// in the program.
+func declarationEmitOrder(program *compiler.Program, files []*ast.SourceFile) []int {
+	position := make(map[*ast.SourceFile]int, len(program.SourceFiles()))
+	for index, sourceFile := range program.SourceFiles() {
+		position[sourceFile] = index
+	}
+	order := make([]int, len(files))
+	for index := range order {
+		order[index] = index
+	}
+	slices.SortStableFunc(order, func(a, b int) int {
+		return position[files[a]] - position[files[b]]
+	})
+	return order
 }
 
 // rewriteDeclarationEmit applies rotor's post-emit rewrites to one source

@@ -3,6 +3,7 @@ package compile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -251,5 +252,59 @@ func TestEmitDeclarationOnlyRejectsMissingPluginExport(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(diags, "\n"), "factory not a function") {
 		t.Fatalf("diagnostics do not explain the missing factory export: %v", diags)
+	}
+}
+
+// A checker caches the `?: undefined` property that object literal widening
+// adds by name, so the first file widened on a checker fixes where that
+// property sorts in every later file. Declaration text must not depend on the
+// order or schedule in which files reach their checker.
+func TestEmitDeclarationTextsIgnoresFileOrder(t *testing.T) {
+	t.Setenv("ROTOR_WRITE_WORKERS", "1")
+	dir := writeProject(t, "@scope/declaration-order", "")
+	configPath := filepath.Join(dir, "tsconfig.json")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config = []byte(strings.Replace(string(config), `"outDir": "out"`, `"outDir": "out", "declaration": true, "checkers": 1`, 1))
+	if err := os.WriteFile(configPath, config, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sources := map[string]string{
+		"a.ts": "export const a = [{ x: 1 }, { y: 1, z: 1 }];\n",
+		"b.ts": "export const b = [{ z: 1, y: 1 }, { w: 1 }];\n",
+	}
+	for name, source := range sources {
+		if err := os.WriteFile(filepath.Join(dir, "src", name), []byte(source), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	emitB := func(reverse bool) string {
+		t.Helper()
+		_, program, diags, err := newProjectProgram(dir, "")
+		if err != nil {
+			t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+		}
+		files := declarationEmitSourceFiles(program, nil)
+		if reverse {
+			slices.Reverse(files)
+		}
+		emitted, err := emitDeclarationTexts(program, files)
+		if err != nil {
+			t.Fatalf("emitDeclarationTexts: %v", err)
+		}
+		for _, file := range emitted {
+			if strings.HasSuffix(file.FileName, "b.d.ts") {
+				return file.Text
+			}
+		}
+		t.Fatal("b.d.ts not emitted")
+		return ""
+	}
+
+	if forward, reversed := emitB(false), emitB(true); forward != reversed {
+		t.Fatalf("b.d.ts depends on emit order:\nforward:\n%s\nreversed:\n%s", forward, reversed)
 	}
 }
