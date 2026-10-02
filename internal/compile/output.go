@@ -1,7 +1,6 @@
 package compile
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +11,7 @@ import (
 	"strings"
 
 	"rotor/internal/assets"
+	"rotor/internal/fsutil"
 	"rotor/internal/includefiles"
 	"rotor/internal/logservice"
 	"rotor/internal/luau/cst"
@@ -253,7 +253,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	stopIncludeCopy()
 	stopNonCompiledCopy := timings.startStage(nonCompiledCopyStage)
 	if !copyFilesGate.SkipCopyFiles {
-		if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program), opts.WriteOnlyChanged); err != nil {
+		if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program)); err != nil {
 			stopNonCompiledCopy()
 			return nil, nil, err
 		}
@@ -382,13 +382,13 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			if err := assertLocalOutputPath(relOut); err != nil {
 				return err
 			}
-			w, err := writer.write(absOut, outputs[relOut], opts.WriteOnlyChanged)
+			w, err := writer.write(absOut, outputs[relOut])
 			wrote[i] = w
 			timings.recordOutputWrite(absOut, w)
 			if err != nil || !hasSourceMap {
 				return err
 			}
-			mapWrote, err := writer.write(absOut+".map", sourceMap, opts.WriteOnlyChanged)
+			mapWrote, err := writer.write(absOut+".map", sourceMap)
 			timings.recordOutputWrite(absOut+".map", mapWrote)
 			return err
 		}
@@ -710,7 +710,7 @@ func writeDeclarationFiles(emitted []declarationEmitFile, writeOnlyChanged bool,
 	for index, file := range emitted {
 		jobs[index] = func() error {
 			var err error
-			wrote[index], err = writer.write(paths[index], file.Text, writeOnlyChanged)
+			wrote[index], err = writer.write(paths[index], file.Text)
 			timings.recordOutputWrite(paths[index], wrote[index])
 			if !wrote[index] && file.Data != nil {
 				file.Data.SkippedDtsWrite = true
@@ -927,20 +927,20 @@ func isOutputFileOrphanedWithSourceMaps(pathTranslator *rojo.PathTranslator, out
 	return true
 }
 
-func copyNonCompiledFiles(pathTranslator *rojo.PathTranslator, rootDirs []string, writeOnlyChanged bool) error {
+func copyNonCompiledFiles(pathTranslator *rojo.PathTranslator, rootDirs []string) error {
 	for _, rootDir := range rootDirs {
 		rootDir = filepath.FromSlash(rootDir)
 		if _, err := os.Stat(rootDir); err != nil {
 			continue
 		}
-		if err := copyItem(pathTranslator, rootDir, writeOnlyChanged); err != nil {
+		if err := copyItem(pathTranslator, rootDir); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyChanged bool) error {
+func copyItem(pathTranslator *rojo.PathTranslator, itemPath string) error {
 	info, err := os.Stat(itemPath)
 	if err != nil {
 		return err
@@ -959,7 +959,7 @@ func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyCha
 				if filepath.Clean(childPath) == filepath.Clean(pathTranslator.OutDir) {
 					continue
 				}
-				if err := copyItem(pathTranslator, childPath, writeOnlyChanged); err != nil {
+				if err := copyItem(pathTranslator, childPath); err != nil {
 					return err
 				}
 			}
@@ -974,7 +974,7 @@ func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyCha
 			return err
 		}
 		for _, entry := range entries {
-			if err := copyItem(pathTranslator, filepath.Join(itemPath, entry.Name()), writeOnlyChanged); err != nil {
+			if err := copyItem(pathTranslator, filepath.Join(itemPath, entry.Name())); err != nil {
 				return err
 			}
 		}
@@ -990,18 +990,6 @@ func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyCha
 	}
 
 	dest := pathTranslator.GetOutputPath(itemPath)
-	if writeOnlyChanged {
-		if existing, err := os.ReadFile(dest); err == nil {
-			incoming, err := os.ReadFile(itemPath)
-			if err != nil {
-				return err
-			}
-			if bytes.Equal(existing, incoming) {
-				return nil
-			}
-		}
-	}
-
 	data, err := os.ReadFile(itemPath)
 	if err != nil {
 		return err
@@ -1009,7 +997,8 @@ func copyItem(pathTranslator *rojo.PathTranslator, itemPath string, writeOnlyCha
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(dest, data, 0o644)
+	_, err = fsutil.WriteFileIfChanged(dest, data, 0o644)
+	return err
 }
 
 func pathContains(parent, child string) bool {

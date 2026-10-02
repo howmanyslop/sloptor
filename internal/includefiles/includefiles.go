@@ -14,6 +14,7 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
+	"rotor/internal/fsutil"
 	"sort"
 )
 
@@ -60,7 +61,7 @@ func Copy(includePath string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(filepath.Join(includePath, name), data, 0o644); err != nil {
+		if _, err := fsutil.WriteFileIfChanged(filepath.Join(includePath, name), data, 0o644); err != nil {
 			return err
 		}
 	}

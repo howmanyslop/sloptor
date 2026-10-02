@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"rotor/internal/fsutil"
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
@@ -167,6 +168,9 @@ func writeCopyFilesManifest(path string, manifest CopyFilesManifest) error {
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		return fmt.Errorf("marshal copy-files manifest: %w", err)
+	}
+	if fsutil.SameContents(path, data) {
+		return nil
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

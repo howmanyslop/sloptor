@@ -111,7 +111,7 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 			tryRemoveOutput(translator, translator.GetOutputPath(path), program.Options().SourceMap.IsTrue())
 			continue
 		}
-		if err := copyItem(translator, path, state.Project.Options.WriteOnlyChanged); err != nil {
+		if err := copyItem(translator, path); err != nil {
 			return err
 		}
 	}

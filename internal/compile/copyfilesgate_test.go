@@ -155,7 +155,7 @@ func TestCopyOutputRecursionGuard(t *testing.T) {
 	writeCopyFilesTestFile(t, filepath.Join(rootDir, "node_modules", "pkg", "ignored.luau"), "ignored")
 	translator := rojo.NewPathTranslator(rootDir, outDir, "", false, true)
 
-	if err := copyNonCompiledFiles(translator, []string{rootDir}, false); err != nil {
+	if err := copyNonCompiledFiles(translator, []string{rootDir}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "asset.luau")); err != nil {
