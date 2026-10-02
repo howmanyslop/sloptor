@@ -36,6 +36,7 @@ usage = '''
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
 '''
+shell = "sh -o errexit -c"
 run = '''
 set -euo pipefail
 
@@ -80,6 +81,7 @@ usage = '''
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
 '''
+shell = "sh -o errexit -c"
 run = '''
 set -euo pipefail
 
@@ -124,6 +126,7 @@ usage = """
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
 """
+shell = "sh -o errexit -c"
 run = '''
 set -euo pipefail
 
@@ -191,6 +194,7 @@ usage = """
 arg "<project-dir>" help="External project directory"
 arg "<tsconfig-path>" help="Path to tsconfig relative to the project directory"
 """
+shell = "sh -o errexit -c"
 run = '''
 set -euo pipefail
 
@@ -251,6 +255,7 @@ arg <message> {
     help "Git commit message"
 }
 """
+shell = "sh -o errexit -c"
 run = """
 git commit --signoff --message "${usage_message?}" --no-verify
 """
@@ -266,6 +271,7 @@ arg <message> {
     help "Git commit message"
 }
 """
+shell = "sh -o errexit -c"
 run = """
 git commit --signoff --message "${usage_message?}"
 """

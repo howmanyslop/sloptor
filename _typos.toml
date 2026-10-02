@@ -1,3 +1,30 @@
+# Mirrors the global `exclude` list in hk.pkl, so a bare `typos` run matches the hook.
+[files]
+extend-exclude = [
+  "node_modules",
+  "dist",
+  "bin",
+  "tsgo",
+  "reference",
+  "include",
+  "**/testdata/**",
+  "media",
+  "profiles",
+  "**/*.prof",
+  "**/*-lock.json",
+  "**/*-lock.yaml",
+  "mise.lock",
+  "roblox-ts.zip",
+  "turbo-slop",
+  ".omo",
+  ".serena",
+  ".claude",
+  ".agents/skills",
+  "rotor.schema.json",
+  "rbxts-tsconfig.schema.json",
+  "oxlint.config.ts",
+]
+
 [default.extend-words]
 ba = "ba"
 childs = "childs"
@@ -9,3 +36,6 @@ onces = "onces"
 pn = "pn"
 unparseable = "unparseable"
 writables = "writables"
+
+[default.extend-identifiers]
+iz = "iz"

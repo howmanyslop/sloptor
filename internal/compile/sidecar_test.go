@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // repoSidecarDir returns tools/sidecar in this repo checkout. Synthetic
@@ -561,4 +563,55 @@ func envValue(env []string, name string) string {
 		}
 	}
 	return ""
+}
+
+func TestSidecarStderrTailCapsLongLinesAndKeepsDraining(t *testing.T) {
+	// Given: a worker that writes 4 MiB of stderr with no newline, then
+	// ends that line and writes another.
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close() })
+	tail := newSidecarStderrTail(reader)
+	long := strings.Repeat("x", 4*1024*1024)
+
+	// When: the output is written. A pipe write blocks until it is read,
+	// as a real worker blocks once the OS pipe buffer fills.
+	written := make(chan error, 1)
+	go func() {
+		if _, err := io.WriteString(writer, long); err != nil {
+			written <- err
+			return
+		}
+		_, err := io.WriteString(writer, "\nafter\n")
+		written <- err
+	}()
+
+	// Then: the reader drains everything, stores the long line cut to the
+	// cap with a marker, and still records the next line.
+	select {
+	case err := <-written:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("stderr reader stopped draining a long line")
+	}
+	want := []string{strings.Repeat("x", sidecarStderrLineLimit) + sidecarStderrTruncated, "after"}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		tail.mu.Lock()
+		got := append([]string(nil), tail.tail...)
+		pending := len(tail.pending)
+		tail.mu.Unlock()
+		if len(got) == len(want) && got[0] == want[0] && got[1] == want[1] && pending == len(want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			lengths := make([]int, len(got))
+			for i, line := range got {
+				lengths[i] = len(line)
+			}
+			t.Fatalf("stored line lengths = %v, want %d and %d", lengths, len(want[0]), len(want[1]))
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
