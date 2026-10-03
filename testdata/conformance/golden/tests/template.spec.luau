@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 return function()
 	it("should understand string templates", function()
 		local value = "hello"

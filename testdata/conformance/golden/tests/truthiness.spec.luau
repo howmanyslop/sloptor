@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 return function()
 	it("should support JS truthiness", function()
 		local function isTruthy(x)

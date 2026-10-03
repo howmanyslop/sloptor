@@ -20,7 +20,7 @@ import (
 const serverTestTimeout = 5 * time.Second
 
 func TestServerRoutesTransformerCallbacks(t *testing.T) {
-	server := NewServer("2.7.0", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.1", func(ctx context.Context, request BuildRequest) (BuildResult, error) {
 		callback := compile.TransformerCallbackFromContext(ctx)
 		if callback == nil {
 			t.Fatal("build context has no transformer callback")
@@ -62,7 +62,7 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	callbackStarted := make(chan struct{})
 	buildReturned := make(chan error, 1)
-	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.1", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		close(callbackStarted)
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate", ProjectDir: "fixture", TsConfigPath: "fixture/tsconfig.json"})
 		buildReturned <- err
@@ -73,7 +73,7 @@ func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- server.Run(inputReader, &output) }()
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1"}})
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
 	<-callbackStarted
 	_ = inputWriter.Close()
@@ -99,7 +99,7 @@ func TestServerRejectsInvalidJSONRPCRequests(t *testing.T) {
 		"wrong":   `{"jsonrpc":"1.0","id":1,"method":"initialize","params":{}}` + "\n",
 	} {
 		t.Run(name, func(t *testing.T) {
-			server := NewServer("2.7.0", func(context.Context, BuildRequest) (BuildResult, error) {
+			server := NewServer("2.7.1", func(context.Context, BuildRequest) (BuildResult, error) {
 				t.Fatal("build must not run")
 				return BuildResult{}, nil
 			})
@@ -112,7 +112,7 @@ func TestServerRejectsInvalidJSONRPCRequests(t *testing.T) {
 }
 
 func TestServerRejectsInvalidJSONRPCCallbackResponses(t *testing.T) {
-	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.1", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "validate"})
 		return BuildResult{}, err
 	})
@@ -128,7 +128,7 @@ func TestServerRejectsInvalidJSONRPCCallbackResponses(t *testing.T) {
 func TestServerDecodesCallbackResponsesLargerThan16MiB(t *testing.T) {
 	// Given: a transformer callback whose response is larger than 16 MiB.
 	transformed := strings.Repeat("x", 17*1024*1024)
-	server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+	server := NewServer("2.7.1", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 		response, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "transform"})
 		if err != nil {
 			return BuildResult{}, err
@@ -172,7 +172,7 @@ func TestServerTransportFailureNamesCauseInBuildResponse(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			// Given: a build waiting on a transformer callback.
 			callbackErr := make(chan error, 1)
-			server := NewServer("2.7.0", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+			server := NewServer("2.7.1", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
 				_, err := compile.TransformerCallbackFromContext(ctx)(ctx, compile.TransformerRequest{Protocol: 1, Operation: "transform"})
 				callbackErr <- err
 				return BuildResult{}, err
@@ -223,7 +223,7 @@ func startCallbackSession(t *testing.T, server *Server) callbackSession {
 	})
 
 	output := bufio.NewReader(outputReader)
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.0"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1"}})
 	readJSONLine(t, output)
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
 	callback := readJSONLine(t, output)

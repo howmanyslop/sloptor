@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 local TS = _G[script]
 local function restSet(s)
 	local _value = next(s)

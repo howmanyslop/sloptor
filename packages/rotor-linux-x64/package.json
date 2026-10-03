@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor-linux-x64",
-	"version": "2.7.0",
+	"version": "2.7.1",
 	"description": "Sloptor native executable for Linux x64",
 	"license": "MIT",
 	"repository": {

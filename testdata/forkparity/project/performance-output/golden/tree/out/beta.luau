@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 local beta = {
 	label = "beta",
 	weight = 2,

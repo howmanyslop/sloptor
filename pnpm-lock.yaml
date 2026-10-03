@@ -165,22 +165,22 @@ importers:
         version: 8.8.5
     optionalDependencies:
       '@rotor-rbx/rotor-darwin-arm64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-darwin-arm64
       '@rotor-rbx/rotor-darwin-x64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-darwin-x64
       '@rotor-rbx/rotor-linux-arm64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-linux-arm64
       '@rotor-rbx/rotor-linux-x64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-linux-x64
       '@rotor-rbx/rotor-win32-arm64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-win32-arm64
       '@rotor-rbx/rotor-win32-x64':
-        specifier: 2.7.0
+        specifier: 2.7.1
         version: link:packages/rotor-win32-x64
 
   .omp:

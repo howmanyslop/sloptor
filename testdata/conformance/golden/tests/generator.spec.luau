@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 local TS = require(script.Parent.Parent.include.RuntimeLib)
 return function()
 	it("should support generator function declarations", function()

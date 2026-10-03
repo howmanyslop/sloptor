@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.0
+-- Compiled with sloptor v2.7.1
 return function()
 	describe("should work for objects", function()
 		it("should delete from the object with property acccess", function()
