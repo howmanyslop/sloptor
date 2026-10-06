@@ -1126,6 +1126,12 @@ func sidecarEnv(projectDir, sidecarDir string) []string {
 	}
 
 	env := os.Environ()
+	for i, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && strings.EqualFold(name, "NODE_OPTIONS") {
+			env[i] = name + "=" + sidecarNodeOptions(value)
+		}
+	}
 	if len(filtered) == 0 {
 		return env
 	}
@@ -1141,6 +1147,70 @@ func sidecarEnv(projectDir, sidecarDir string) []string {
 		}
 	}
 	return append(env, "NODE_PATH="+nodePathValue)
+}
+
+// The extracted worker lives outside the project's package map. Node ignores
+// require.resolve's paths option under a map, which breaks both TypeScript and
+// plugin resolution, including the worker's own TypeScript fallback. Remove
+// only that option from the child environment, retaining other Node settings.
+func sidecarNodeOptions(options string) string {
+	var kept []string
+	removed, skipValue := false, false
+	for index := 0; index < len(options); {
+		if options[index] == ' ' {
+			index++
+			continue
+		}
+		start := index
+		var value strings.Builder
+		quoted := false
+		for index < len(options) {
+			char := options[index]
+			if char == ' ' && !quoted {
+				break
+			}
+			index++
+			switch {
+			case char == '\\' && quoted:
+				if index == len(options) {
+					return options // Let Node report the invalid escape.
+				}
+				value.WriteByte(options[index])
+				index++
+			case char == '"':
+				quoted = !quoted
+			default:
+				value.WriteByte(char)
+			}
+		}
+		if quoted {
+			return options // Let Node report the unterminated string.
+		}
+		if skipValue {
+			// Node ignores empty quoted arguments. A following option or no
+			// value at all is malformed; preserve it for Node's own error.
+			if value.Len() == 0 {
+				continue
+			}
+			if strings.HasPrefix(value.String(), "-") {
+				return options
+			}
+			skipValue = false
+			continue
+		}
+		// Node accepts underscores in option names as aliases for hyphens.
+		name, _, hasValue := strings.Cut(value.String(), "=")
+		if strings.ReplaceAll(name, "_", "-") == "--experimental-package-map" {
+			removed = true
+			skipValue = !hasValue
+			continue
+		}
+		kept = append(kept, options[start:index])
+	}
+	if !removed || skipValue {
+		return options
+	}
+	return strings.Join(kept, " ")
 }
 
 func newProjectProgramWithOverlay(projectDir, tsConfigPath string, overlays map[string]string, checkers *int, singleThreaded *bool) (*compiler.Program, []string, error) {

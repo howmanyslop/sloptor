@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const readline = require("node:readline");
+const { version: packageVersion } = require("../../package.json");
 
 const mode = process.argv[2];
 const marker = process.argv[3];
@@ -60,7 +61,7 @@ lines.on("line", (line) => {
 				id: request.id,
 				result: {
 					protocolVersion: 1,
-					serverVersion: mode === "version-mismatch" ? "0.0.0" : "2.7.0",
+					serverVersion: mode === "version-mismatch" ? "0.0.0" : packageVersion,
 					capabilities: ["build", "project-selection", "shutdown", "terminal-cancel", "transformer-callback"],
 				},
 			})}\n`,

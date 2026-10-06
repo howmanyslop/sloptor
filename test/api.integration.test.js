@@ -8,6 +8,7 @@ const path = require("node:path");
 const test = require("node:test");
 
 const { createBuildSession } = require("..");
+const { version: packageVersion } = require("../package.json");
 
 const repoRoot = path.resolve(__dirname, "..");
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-api-test-"));
@@ -498,7 +499,7 @@ test("an installed package resolves its native executable without an override", 
 	const extension = process.platform === "win32" ? ".exe" : "";
 	fs.writeFileSync(
 		path.join(platformPackage, "package.json"),
-		`${JSON.stringify({ name: `@rotor-rbx/${packageName}`, version: "2.7.0" }, null, 2)}\n`,
+		`${JSON.stringify({ name: `@rotor-rbx/${packageName}`, version: packageVersion }, null, 2)}\n`,
 	);
 	const installedExecutable = path.join(platformPackage, "bin", `sloptor${extension}`);
 	fs.copyFileSync(executable, installedExecutable);
