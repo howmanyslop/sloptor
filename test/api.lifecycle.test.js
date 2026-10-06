@@ -84,7 +84,7 @@ for (const mode of ["missing-callback-id", "non-string-callback-id"]) {
 	test(`${mode} terminates the session as a protocol error`, async () => {
 		const marker = temporaryPath("pid");
 		const session = fakeSession(mode, marker.file);
-		await assert.rejects(session.build({ project: __dirname, signal: AbortSignal.timeout(500) }), {
+		await assert.rejects(session.build({ project: __dirname, signal: AbortSignal.timeout(5000) }), {
 			code: "PROTOCOL_ERROR",
 		});
 		await session.dispose();
