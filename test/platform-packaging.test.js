@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { version: packageVersion } = require("../package.json");
 
 const repoRoot = path.resolve(__dirname, "..");
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-platform-package-"));
@@ -28,7 +29,7 @@ function stageMain(name) {
 	return root;
 }
 
-function stagePlatform(root, version = "2.7.0", withBinary = true) {
+function stagePlatform(root, version = packageVersion, withBinary = true) {
 	const packageRoot = path.join(root, "node_modules", ...platformPackageName.split("/"));
 	fs.mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
 	fs.writeFileSync(
@@ -67,7 +68,7 @@ test("the API rejects a platform package at a different version", async () => {
 	const session = require(root).createBuildSession();
 	await assert.rejects(session.build({ project: root }), (error) => {
 		assert.equal(error.code, "VERSION_MISMATCH");
-		assert.match(error.message, /requires .*@2\.7\.0, but found .*@2\.5\.0/);
+		assert.ok(error.message.includes(`@${packageVersion}, but found ${platformPackageName}@2.5.0`), error.message);
 		return true;
 	});
 	await session.dispose();

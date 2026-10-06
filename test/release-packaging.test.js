@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { version: packageVersion } = require("../package.json");
 
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -39,7 +40,7 @@ function npmCommand(arguments_, options) {
 test("release validation accepts the checked-in package set", () => {
 	const result = validate();
 	assert.equal(result.status, 0, result.stderr);
-	assert.match(result.stdout, /validated @rotor-rbx\/rotor@2\.7\.0 with 6 platform packages/);
+	assert.ok(result.stdout.includes(`validated @rotor-rbx/rotor@${packageVersion} with 6 platform packages`), result.stdout);
 });
 
 test("release validation rejects platform-package version drift", () => {
@@ -69,7 +70,7 @@ test("release validation rejects client/server protocol drift and a mismatched t
 		fs.copyFileSync(path.join(repoRoot, "api.js"), apiPath);
 		result = validate(root, "--tag", "v2.5.0");
 		assert.notEqual(result.status, 0);
-		assert.match(result.stderr, /tag v2\.5\.0 does not match release version v2\.7\.0/);
+		assert.ok(result.stderr.includes(`tag v2.5.0 does not match release version v${packageVersion}`), result.stderr);
 	} finally {
 		fs.rmSync(root, { force: true, recursive: true });
 	}
@@ -83,7 +84,7 @@ test("release staging produces the main package and all six executable packages"
 	const { PLATFORM_TARGETS } = require(path.join(repoRoot, "platform.js"));
 	for (const target of Object.values(PLATFORM_TARGETS)) {
 		const extension = target.goos === "windows" ? ".exe" : "";
-		const executable = path.join(dist, `sloptor-v2.7.0-${target.goos}-${target.goarch}-bin${extension}`);
+		const executable = path.join(dist, `sloptor-v${packageVersion}-${target.goos}-${target.goarch}-bin${extension}`);
 		if (target.packageName === `@rotor-rbx/rotor-${process.platform}-${process.arch}`) {
 			fs.copyFileSync(process.execPath, executable);
 		} else {
@@ -98,7 +99,7 @@ test("release staging produces the main package and all six executable packages"
 		);
 		assert.equal(result.status, 0, result.stderr);
 		const release = JSON.parse(fs.readFileSync(path.join(output, "npm-release.json"), "utf8"));
-		assert.equal(release.version, "2.7.0");
+		assert.equal(release.version, packageVersion);
 		assert.equal(release.packages.length, 7);
 		assert.deepEqual(
 			release.packages.map((entry) => entry.name).sort(),

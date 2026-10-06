@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor",
-	"version": "2.7.1",
+	"version": "2.7.2",
 	"description": "All-in-one Roblox toolchain with a typed JavaScript client and native roblox-ts compiler.",
 	"keywords": [
 		"bundler",
@@ -88,12 +88,12 @@
 		"zx": "catalog:dev"
 	},
 	"optionalDependencies": {
-		"@rotor-rbx/rotor-darwin-arm64": "2.7.1",
-		"@rotor-rbx/rotor-darwin-x64": "2.7.1",
-		"@rotor-rbx/rotor-linux-arm64": "2.7.1",
-		"@rotor-rbx/rotor-linux-x64": "2.7.1",
-		"@rotor-rbx/rotor-win32-arm64": "2.7.1",
-		"@rotor-rbx/rotor-win32-x64": "2.7.1"
+		"@rotor-rbx/rotor-darwin-arm64": "2.7.2",
+		"@rotor-rbx/rotor-darwin-x64": "2.7.2",
+		"@rotor-rbx/rotor-linux-arm64": "2.7.2",
+		"@rotor-rbx/rotor-linux-x64": "2.7.2",
+		"@rotor-rbx/rotor-win32-arm64": "2.7.2",
+		"@rotor-rbx/rotor-win32-x64": "2.7.2"
 	},
 	"engines": {
 		"node": ">=18"

@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor-darwin-x64",
-	"version": "2.7.1",
+	"version": "2.7.2",
 	"description": "Sloptor native executable for macOS x64",
 	"license": "MIT",
 	"repository": {
