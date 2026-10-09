@@ -42,7 +42,7 @@ rotor's version is defined in code: [`internal/version/version.go`](internal/ver
 
 Pass a version or release type to skip the prompt (`pnpm release patch`, `pnpm release 2.8.0`), or use `--no-push` to keep everything local. `pnpm release --help` lists every flag.
 
-The tag triggers the `release` GitHub Actions workflow, which verifies the tag, Go version, client protocol, main package, and all platform manifests before publishing. It cross-builds all six executables, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. The six executable packages publish first; the main package publishes last as the installability commit point, after which the verified GitHub Release is published.
+The tag triggers the `release` GitHub Actions workflow, which verifies the tag, Go version, client protocol, main package, and all platform manifests before publishing. It cross-builds all six executables, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. It then publishes the archives and checksums as a GitHub Release; nothing is published to npm.
 
 ## Project docs
 
