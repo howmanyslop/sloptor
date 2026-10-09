@@ -128,6 +128,7 @@ catalogs:
     "@oh-my-pi/pi-coding-agent": 17.3.2
     "@typescript/native-preview": 7.0.0-dev.20260707.2
     "arktype": 2.2.3
+    "bumpp": 12.3.0
     "picocolors": 1.1.1
     "pncat": 0.13.0
     "skills": 1.5.21
