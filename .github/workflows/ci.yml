@@ -117,9 +117,16 @@ jobs:
   # stacked three suites on 4 vCPUs and flamework (a mostly sequential suite)
   # starved until it timed out. flamework needs its own machine more than it
   # needs the cores; the other families overlap within a lane.
-  windows-flamework:
+  # flamework is the CI floor: a mostly sequential suite of npm installs and
+  # pinned-CLI builds. It is sharded across three runners by test name, sized
+  # from the per-test durations the -v logs record. Every test lands in
+  # exactly one lane by construction: the first two lanes claim explicit name
+  # prefixes and the base lane skips exactly those prefixes. New tests default
+  # into the base lane; move a name into a -run filter only with a measured
+  # duration, and keep the -skip pattern in sync with the -run filters.
+  windows-flamework-differential:
     runs-on: windows-2025
-    timeout-minutes: 25
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -136,9 +143,45 @@ jobs:
 
       - name: Test
         shell: bash
-        # -v logs per-test durations; flamework is the CI floor and future
-        # lane shards are balanced off these lines.
-        run: go test -count=1 -v -timeout=20m ./internal/flamework
+        run: go test -count=1 -v -timeout=15m -run '^TestTask7Differential' ./internal/flamework
+
+  windows-flamework-pinned:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: go test -count=1 -v -timeout=15m -run '^TestTask7Diagnostic006|^TestTask7DiagnosticsTransform' ./internal/flamework
+
+  windows-flamework:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: go test -count=1 -v -timeout=15m -skip '^(TestTask7Differential|TestTask7Diagnostic006|TestTask7DiagnosticsTransform)' ./internal/flamework
 
   windows-conformance:
     runs-on: windows-2025
