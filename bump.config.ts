@@ -21,6 +21,13 @@ async function getUnpushedTagsAsync(): Promise<ReadonlyArray<string>> {
 	return unpushedTags;
 }
 
+// bumpp skips its own clean-tree check when `all` is set, then commits with
+// `git add --all`. Check here so the release commit holds only the bump.
+const { stdout: dirtyFiles } = await exec("git", ["status", "--porcelain"], { throwOnError: true });
+if (dirtyFiles.trim().length > 0) {
+	throw new Error(`git working tree is not clean; commit or stash first:\n${dirtyFiles}`);
+}
+
 // bumpp reads the current version from package.json; refuse to start if
 // version.go, the platform packages, or the protocol versions have drifted.
 await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
@@ -37,8 +44,8 @@ if (strayTags.length > 0) {
 }
 
 const configuration = defineConfig({
-	// Safe because `noGitCheck: false` requires a clean tree: everything dirty
-	// at commit time came from this bump.
+	// Safe because the clean-tree check above runs first: everything dirty at
+	// commit time came from this bump.
 	all: true,
 	commit: "chore(release): prepare v%s",
 	// bumpp only rewrites `version` in package.json and does a plain string
