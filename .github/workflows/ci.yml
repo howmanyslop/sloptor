@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
@@ -62,10 +62,7 @@ jobs:
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
 
   windows:
-    # Blacksmith Windows runner (Server 2025, GitHub image base) — GitHub's
-    # windows-2022 hosted runners queue for minutes; Blacksmith provisions
-    # on demand. Fall back to windows-2025 if the label is unavailable.
-    runs-on: blacksmith-8vcpu-windows-2025
+    runs-on: windows-2025
     timeout-minutes: 45
 
     steps:
@@ -118,7 +115,7 @@ jobs:
           if-no-files-found: ignore
 
   race:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -136,7 +133,7 @@ jobs:
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
 
   vuln:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository
