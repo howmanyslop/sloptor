@@ -13,5 +13,5 @@
 		"types": ["bun", "node"]
 	},
 	"extends": "./tsconfig.base.json",
-	"include": ["api.d.ts", "scripts/**/*.ts"]
+	"include": ["api.d.ts", "bump.config.ts", "scripts/**/*.ts"]
 }

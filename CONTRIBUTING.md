@@ -37,15 +37,12 @@ Existing goldens must stay byte-unchanged when regenerating — `git diff testda
 
 rotor's version is defined in code: [`internal/version/version.go`](internal/version/version.go). Maintainer flow:
 
-1. Run `scripts/release.sh` or `scripts/release.fish` to bump the `Version` constant, main package, exact optional dependencies, and all six platform manifests in lockstep, then commit.
-2. Tag and push — the tag must match the constant:
+1. From a clean working tree, run `pnpm release` ([bumpp](https://github.com/antfu-collective/bumpp), configured in [`bump.config.ts`](bump.config.ts)). It lists the commits since the last tag and prompts for the next version.
+2. bumpp bumps the `Version` constant, main package, exact optional dependencies, all six platform manifests, and the emitted header comments in lockstep. It then commits, creates the `vX.Y.Z` tag, and pushes both.
 
-```powershell
-git tag v1.4.0
-git push origin v1.4.0
-```
+Pass a version or release type to skip the prompt (`pnpm release patch`, `pnpm release 2.8.0`), or use `--no-push` to keep everything local. `pnpm release --help` lists every flag.
 
-The tag triggers the `release` GitHub Actions workflow, which verifies the tag, Go version, client protocol, main package, and all platform manifests before publishing. It cross-builds all six executables, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. The six executable packages publish first; the main package publishes last as the installability commit point, after which the verified GitHub Release is published.
+The tag triggers the `release` GitHub Actions workflow, which verifies the tag, Go version, client protocol, main package, and all platform manifests before publishing. It cross-builds all six executables, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. It then publishes the archives and checksums as a GitHub Release; nothing is published to npm.
 
 ## Project docs
 
