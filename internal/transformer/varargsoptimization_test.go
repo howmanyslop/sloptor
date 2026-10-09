@@ -131,6 +131,17 @@ func TestVarArgsOptimizationAnalysis(t *testing.T) {
 			isOptimizable: false,
 		},
 		{
+			name:          "unsafe shorthand property",
+			source:        "function foo(...args: any[]) { return { args }; }",
+			isOptimizable: false,
+		},
+		{
+			name:            "unsafe shorthand property after a size call",
+			source:          "function foo(...args: any[]) { args.size(); return { args }; }",
+			sizeAccessCount: 1,
+			isOptimizable:   false,
+		},
+		{
 			name:          "unsafe property access",
 			source:        "function foo(...args: any[]) { return args.map; }",
 			isOptimizable: false,

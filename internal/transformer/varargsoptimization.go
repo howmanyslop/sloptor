@@ -57,21 +57,15 @@ func analyzeVarArgsOptimization(s *State, param *ast.Node, funcNode *ast.Node) *
 		return data
 	}
 
-	paramSymbol := s.Checker.GetSymbolAtLocation(parameter.Name())
-	if paramSymbol == nil {
+	if s.Checker.GetSymbolAtLocation(parameter.Name()) == nil {
 		return data
 	}
 
+	// ForEachSymbolReference also matches shorthand properties (`{ args }`),
+	// which resolve to the property symbol; missing them would drop the
+	// `local args = { ... }` capture while the reference still emits `args`.
 	data.IsOptimizable = true
-	var visit func(*ast.Node) bool
-	visit = func(node *ast.Node) bool {
-		if !data.IsOptimizable {
-			return true
-		}
-		if !ast.IsIdentifier(node) || node == parameter.Name() || s.Checker.GetSymbolAtLocation(node) != paramSymbol {
-			return node.ForEachChild(visit)
-		}
-
+	ForEachSymbolReference(s.Checker, parameter.Name(), body, func(node *ast.Node) bool {
 		reference := SkipUpwards(node)
 		parent := reference.Parent
 		if parent == nil || isVarArgsReferenceInsideNestedFunction(reference, funcNode) || isVarArgsReferenceInsideTry(reference, funcNode) {
@@ -125,9 +119,7 @@ func analyzeVarArgsOptimization(s *State, param *ast.Node, funcNode *ast.Node) *
 
 		data.IsOptimizable = false
 		return true
-	}
-
-	visit(body)
+	})
 	return data
 }
 
