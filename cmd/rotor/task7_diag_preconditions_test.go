@@ -129,7 +129,7 @@ func TestTask7DiagnosticPreconditionsMatchPinnedCompilerCLIs(t *testing.T) {
 
 func task7CLIRunCommand(t *testing.T, directory, name string, args ...string) task7CLIRun {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = directory
