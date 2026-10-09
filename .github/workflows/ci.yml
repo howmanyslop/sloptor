@@ -136,7 +136,9 @@ jobs:
 
       - name: Test
         shell: bash
-        run: go test -count=1 -timeout=20m ./internal/flamework
+        # -v logs per-test durations; flamework is the CI floor and future
+        # lane shards are balanced off these lines.
+        run: go test -count=1 -v -timeout=20m ./internal/flamework
 
   windows-conformance:
     runs-on: windows-2025

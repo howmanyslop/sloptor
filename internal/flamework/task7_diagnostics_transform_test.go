@@ -45,7 +45,7 @@ func TestTask7DiagnosticsTransform_matchesPinnedUpstreamOrderedTuples(t *testing
 	fixtures := filepath.Join("testdata", "task7-diagnostics-transform")
 	install := t.TempDir()
 	copyTask7Tree(t, base, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	if version := runTask7Command(t, install, 10*time.Second, "node", "-e", `process.stdout.write(require("rbxts-transformer-flamework/package.json").version)`); version != FlameworkVersion {
 		t.Fatalf("upstream version = %q, want %q", version, FlameworkVersion)
 	}
