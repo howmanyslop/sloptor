@@ -177,65 +177,6 @@ url = "https://github.com/jdx/communique/releases/download/v1.3.3/communique-x86
 url_api = "https://api.github.com/repos/jdx/communique/releases/assets/531231389"
 provenance = "github-attestations"
 
-[[tools.communique]]
-version = "1.2.3"
-backend = "github:jdx/communique"
-
-[tools.communique."platforms.linux-arm64"]
-checksum = "sha256:083e1dd1a0c3894118af9b80d9feea11ed7470f7161964719d8073905fc9e4aa"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186422"
-provenance = "github-attestations"
-
-[tools.communique."platforms.linux-arm64-musl"]
-checksum = "sha256:bab19453334ca0df1de46e7b33dda2f26abc7bae132aaf5d2ba629462c9c468f"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186389"
-provenance = "github-attestations"
-
-[tools.communique."platforms.linux-x64"]
-checksum = "sha256:180f970282986f27f7fa9ee216e4971e8dec3624869d4222f22f3e2535fccc58"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186105"
-provenance = "github-attestations"
-
-[tools.communique."platforms.linux-x64-baseline"]
-checksum = "sha256:180f970282986f27f7fa9ee216e4971e8dec3624869d4222f22f3e2535fccc58"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186105"
-provenance = "github-attestations"
-
-[tools.communique."platforms.linux-x64-musl"]
-checksum = "sha256:23010d19c9dc0bb09fefc43916b03b7b16f0d07761980bb54166170ce85d9112"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186277"
-provenance = "github-attestations"
-
-[tools.communique."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:23010d19c9dc0bb09fefc43916b03b7b16f0d07761980bb54166170ce85d9112"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186277"
-provenance = "github-attestations"
-
-[tools.communique."platforms.macos-arm64"]
-checksum = "sha256:668683480d8b8d62de9616c3a2258f802daf6ce3440d2fa6cf1f7d72eecade89"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186196"
-provenance = "github-attestations"
-provenance_verified = true
-
-[tools.communique."platforms.windows-x64"]
-checksum = "sha256:63f2370f9c6ff97b31f9be266d8860dd65dce0aafb269c492de7cdbb9d29d782"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186666"
-provenance = "github-attestations"
-
-[tools.communique."platforms.windows-x64-baseline"]
-checksum = "sha256:63f2370f9c6ff97b31f9be266d8860dd65dce0aafb269c492de7cdbb9d29d782"
-url = "https://github.com/jdx/communique/releases/download/v1.2.3/communique-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/jdx/communique/releases/assets/477186666"
-provenance = "github-attestations"
-
 [[tools."github:lune-org/lune"]]
 version = "0.10.1"
 backend = "github:lune-org/lune"
@@ -426,52 +367,52 @@ url = "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8
 url_api = "https://api.github.com/repos/gitleaks/gitleaks/releases/assets/378333178"
 
 [[tools.go]]
-version = "1.26.6"
+version = "1.26.9"
 backend = "core:go"
 
 [tools.go."platforms.linux-arm64"]
-checksum = "sha256:d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e"
-url = "https://dl.google.com/go/go1.26.6.linux-arm64.tar.gz"
+checksum = "sha256:4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052"
+url = "https://dl.google.com/go/go1.26.9.linux-arm64.tar.gz"
 
 [tools.go."platforms.linux-arm64-musl"]
-checksum = "sha256:d0507e9e9d7fe012aae570108cbd76c15de879e17130ab8cb90d4d7445cb1f2e"
-url = "https://dl.google.com/go/go1.26.6.linux-arm64.tar.gz"
+checksum = "sha256:4a97373d49fcacdcf3694fea368a500b00ee3e963974f3e7514132717632f052"
+url = "https://dl.google.com/go/go1.26.9.linux-arm64.tar.gz"
 
 [tools.go."platforms.linux-x64"]
-checksum = "sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89"
-url = "https://dl.google.com/go/go1.26.6.linux-amd64.tar.gz"
+checksum = "sha256:42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+url = "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz"
 
 [tools.go."platforms.linux-x64-baseline"]
-checksum = "sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89"
-url = "https://dl.google.com/go/go1.26.6.linux-amd64.tar.gz"
+checksum = "sha256:42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+url = "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz"
 
 [tools.go."platforms.linux-x64-musl"]
-checksum = "sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89"
-url = "https://dl.google.com/go/go1.26.6.linux-amd64.tar.gz"
+checksum = "sha256:42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+url = "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz"
 
 [tools.go."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:708effb774be8237570d0add163225abbdfaf4fca28b2611df167beba4feef89"
-url = "https://dl.google.com/go/go1.26.6.linux-amd64.tar.gz"
+checksum = "sha256:42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d"
+url = "https://dl.google.com/go/go1.26.9.linux-amd64.tar.gz"
 
 [tools.go."platforms.macos-arm64"]
-checksum = "sha256:2dc95ce4675829f2df0e86b28bcef3283635902062a5f0580ca659bf570f3204"
-url = "https://dl.google.com/go/go1.26.6.darwin-arm64.tar.gz"
+checksum = "sha256:f9bb7c0a02506c5d9bf0d1eb1f7ee6c7684f844ae49558308a0427b830e022cc"
+url = "https://dl.google.com/go/go1.26.9.darwin-arm64.tar.gz"
 
 [tools.go."platforms.macos-x64"]
-checksum = "sha256:08b65a63f244115121ced6c3b55ad38d801a7442acad5c949a17aad84ae6d684"
-url = "https://dl.google.com/go/go1.26.6.darwin-amd64.tar.gz"
+checksum = "sha256:00c29e3d4c8562f547410daa18d2959b641bd691ab00c4a525ea817a0253d4bd"
+url = "https://dl.google.com/go/go1.26.9.darwin-amd64.tar.gz"
 
 [tools.go."platforms.macos-x64-baseline"]
-checksum = "sha256:08b65a63f244115121ced6c3b55ad38d801a7442acad5c949a17aad84ae6d684"
-url = "https://dl.google.com/go/go1.26.6.darwin-amd64.tar.gz"
+checksum = "sha256:00c29e3d4c8562f547410daa18d2959b641bd691ab00c4a525ea817a0253d4bd"
+url = "https://dl.google.com/go/go1.26.9.darwin-amd64.tar.gz"
 
 [tools.go."platforms.windows-x64"]
-checksum = "sha256:5b6c5b556525810463b5c897b50dc7a82d6a3dc0bfaf55d990a7e9f31d6b2318"
-url = "https://dl.google.com/go/go1.26.6.windows-amd64.zip"
+checksum = "sha256:d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59"
+url = "https://dl.google.com/go/go1.26.9.windows-amd64.zip"
 
 [tools.go."platforms.windows-x64-baseline"]
-checksum = "sha256:5b6c5b556525810463b5c897b50dc7a82d6a3dc0bfaf55d990a7e9f31d6b2318"
-url = "https://dl.google.com/go/go1.26.6.windows-amd64.zip"
+checksum = "sha256:d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59"
+url = "https://dl.google.com/go/go1.26.9.windows-amd64.zip"
 
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
 version = "1.3.0"
