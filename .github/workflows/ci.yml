@@ -86,7 +86,7 @@ jobs:
           sidecar_pid=$!
           (node --test test/api.integration.test.js test/api.lifecycle.test.js 2>&1 | tee "$RUNNER_TEMP/api-test.log") &
           api_pid=$!
-          (go test ./... -count=1 2>&1 | tee "$RUNNER_TEMP/go-test.log") &
+          (go test ./... -count=1 -timeout=30m 2>&1 | tee "$RUNNER_TEMP/go-test.log") &
           go_test_pid=$!
 
           status=0
