@@ -85,6 +85,7 @@
 		"picocolors": "catalog:dev",
 		"pncat": "catalog:dev",
 		"skills": "catalog:dev",
+		"tinyexec": "catalog:dev",
 		"type-fest": "catalog:dev",
 		"typescript": "catalog:dev",
 		"zx": "catalog:dev"
