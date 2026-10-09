@@ -37,3 +37,4 @@ internal/compile/testdata/**/include/
 .agents/skills/golang-testing/
 /rotor
 bin/
+.agents/skills/go-best-practices/

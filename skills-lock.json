@@ -7,6 +7,12 @@
       "skillPath": "skills/agent-ci/SKILL.md",
       "computedHash": "472295cdb37aa85cb006fd0dbccec1bffd783d312ccfa7b753904935f5994f42"
     },
+    "go-best-practices": {
+      "source": "poteto/noodle",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/go-best-practices/SKILL.md",
+      "computedHash": "094ce9a94e3bdca9dd5d30786d141bc73ae382b695e470655d3b2aacd3c810af"
+    },
     "golang-code-style": {
       "source": "samber/cc-skills-golang",
       "sourceType": "github",
