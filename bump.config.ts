@@ -16,7 +16,7 @@ function changedFiles(): ReadonlyArray<string> {
 // version.go, the platform packages, or the protocol versions have drifted.
 run("node", "scripts/validate-release.cjs");
 
-export default defineConfig({
+const configuration = defineConfig({
 	commit: "chore(release): prepare v%s",
 	// bumpp only rewrites `version` in package.json and does a plain string
 	// replace in version.go; `execute` handles the rest of the lockstep set.
@@ -42,3 +42,5 @@ export default defineConfig({
 	push: true,
 	tag: "v%s",
 });
+
+export default configuration;
