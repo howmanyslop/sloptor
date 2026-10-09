@@ -13,8 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Linux lanes. Everything except the four heaviest packages (flamework,
+  # conformance, forkparity, compile) runs here alongside gofmt and vet; the
+  # heavy four get their own runner in test-heavy. New packages land here by
+  # default; move one to test-heavy only if it belongs with the big ones.
   test:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -38,35 +43,90 @@ jobs:
       - name: Test
         run: |
           set -euo pipefail
-          (cd tools/sidecar && node --test test/*.test.js) &
-          sidecar_pid=$!
-          node --test test/api.integration.test.js test/api.lifecycle.test.js &
-          api_pid=$!
-          go test ./... -count=1 &
-          go_test_pid=$!
+          # -p above GOMAXPROCS overlaps I/O waits across the many small
+          # packages; the heavy four excluded here run in test-heavy.
+          # shellcheck disable=SC2046 # word splitting is the point
+          go test -count=1 -p 8 \
+            $(go list ./... | grep -vE '/internal/(flamework|conformance|forkparity|compile)$')
 
-          status=0
-          if ! wait "$sidecar_pid"; then
-            status=1
-          fi
-          if ! wait "$api_pid"; then
-            status=1
-          fi
-          if ! wait "$go_test_pid"; then
-            status=1
-          fi
-          exit "$status"
+  # The four heavy packages on a dedicated runner; they overlap through the
+  # default -p (one lane each on 4 vCPUs) instead of queueing behind vet.
+  test-heavy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Test
+        run: go test -count=1 ./internal/flamework ./internal/conformance ./internal/forkparity ./internal/compile
         env:
-          # The setup action installs testdata/transformers/project, so the
-          # real-package transformer test must run here, never skip.
+          # The setup action installs testdata/transformers/project, so
+          # internal/compile's real-package transformer test must run here,
+          # never skip.
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
 
-  windows:
-    # Blacksmith Windows runner (Server 2025, GitHub image base) — GitHub's
-    # windows-2022 hosted runners queue for minutes; Blacksmith provisions
-    # on demand. Fall back to windows-2025 if the label is unavailable.
-    runs-on: blacksmith-8vcpu-windows-2025
-    timeout-minutes: 45
+  # Node suites on their own runner. The API integration suite builds the
+  # rotor binary itself (go build in test.before), so it needs the toolchain
+  # and module cache too.
+  test-node:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: API integration tests
+        run: node --test test/api.integration.test.js test/api.lifecycle.test.js
+
+      - name: Sidecar tests
+        working-directory: tools/sidecar
+        run: node --test test/*.test.js
+
+  race:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+        with:
+          # -race builds are distinct cache entries. With the shared key this
+          # job restored non-race builds and never saved its own ("cache hit,
+          # not saving"): a cold -race rebuild on every run. Its own key pays
+          # once, then restores.
+          go-cache-suffix: -race
+
+      - name: Race detector
+        run: go test -race -shuffle=on -count=1 ./internal/logservice ./internal/compile ./cmd/rotor
+        env:
+          ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
+
+  # Windows lanes: one suite family per runner. The old single windows job
+  # stacked three suites on 4 vCPUs and flamework (a mostly sequential suite)
+  # starved until it timed out. flamework needs its own machine more than it
+  # needs the cores; the other families overlap within a lane.
+  # flamework is the CI floor: a mostly sequential suite of npm installs and
+  # pinned-CLI builds. It is sharded across three runners by test name, sized
+  # from the per-test durations the -v logs record. Every test lands in
+  # exactly one lane by construction: the first two lanes claim explicit name
+  # prefixes and the base lane skips exactly those prefixes. New tests default
+  # into the base lane; move a name into a -run filter only with a measured
+  # duration, and keep the -skip pattern in sync with the -run filters.
+  windows-flamework-differential:
+    runs-on: windows-2025
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -83,43 +143,11 @@ jobs:
 
       - name: Test
         shell: bash
-        run: |
-          set -euo pipefail
-          ( (cd tools/sidecar && node --test test/*.test.js) 2>&1 | tee "$RUNNER_TEMP/sidecar-test.log" ) &
-          sidecar_pid=$!
-          (node --test test/api.integration.test.js test/api.lifecycle.test.js 2>&1 | tee "$RUNNER_TEMP/api-test.log") &
-          api_pid=$!
-          (go test ./... -count=1 2>&1 | tee "$RUNNER_TEMP/go-test.log") &
-          go_test_pid=$!
+        run: go test -count=1 -v -timeout=15m -run '^TestTask7Differential' ./internal/flamework
 
-          status=0
-          if ! wait "$sidecar_pid"; then
-            status=1
-          fi
-          if ! wait "$api_pid"; then
-            status=1
-          fi
-          if ! wait "$go_test_pid"; then
-            status=1
-          fi
-          exit "$status"
-        env:
-          ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
-
-      - name: Upload test logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-test-logs
-          path: |
-            ${{ runner.temp }}/sidecar-test.log
-            ${{ runner.temp }}/api-test.log
-            ${{ runner.temp }}/go-test.log
-          if-no-files-found: ignore
-
-  race:
-    runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+  windows-flamework-pinned:
+    runs-on: windows-2025
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
@@ -128,15 +156,110 @@ jobs:
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
 
-      - name: Race detector
-        run: go test -race -shuffle=on -count=1 ./internal/logservice ./internal/compile ./cmd/rotor
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: go test -count=1 -v -timeout=15m -run '^TestTask7Diagnostic006|^TestTask7DiagnosticsTransform' ./internal/flamework
+
+  windows-flamework:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: go test -count=1 -v -timeout=15m -skip '^(TestTask7Differential|TestTask7Diagnostic006|TestTask7DiagnosticsTransform)' ./internal/flamework
+
+  windows-conformance:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: go test -count=1 -p 2 ./internal/conformance ./internal/forkparity
+
+  windows-compile:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: Test
+        shell: bash
+        run: |
+          set -euo pipefail
+          # flamework, conformance, and forkparity run in their own lanes;
+          # compile and everything else run here. -p above GOMAXPROCS
+          # overlaps I/O waits across the smaller packages.
+          # shellcheck disable=SC2046 # word splitting is the point
+          go test -count=1 -p 8 \
+            $(go list ./... | grep -vE '/internal/(flamework|conformance|forkparity)$')
         env:
-          # The setup action installs testdata/transformers/project, so the
-          # real-package transformer test must run here, never skip.
+          # The setup action installs testdata/transformers/project, so
+          # internal/compile's real-package transformer test must run here,
+          # never skip.
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
 
+  windows-node:
+    runs-on: windows-2025
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      # The API integration suite builds the rotor binary in test.before.
+      - name: Cache go modules
+        shell: bash
+        run: go mod download
+
+      - name: API integration tests
+        shell: bash
+        run: node --test test/api.integration.test.js test/api.lifecycle.test.js
+
+      - name: Sidecar tests
+        shell: bash
+        working-directory: tools/sidecar
+        run: node --test test/*.test.js
+
   vuln:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository

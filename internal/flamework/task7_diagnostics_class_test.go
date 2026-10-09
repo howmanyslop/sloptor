@@ -104,7 +104,7 @@ func TestTask7DiagnosticsClass_sameCompilerFiveFamilyTreeMatchesOracle(t *testin
 	fixture := filepath.Join("testdata", "task7-differential", "project")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	version := runTask7Command(t, install, 10*time.Second, "node", "-e", `process.stdout.write(require("rbxts-transformer-flamework/package.json").version)`)
 	if version != FlameworkVersion {
 		t.Fatalf("oracle transformer version = %q, want %q", version, FlameworkVersion)

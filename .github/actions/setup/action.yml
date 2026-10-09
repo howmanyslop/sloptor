@@ -7,9 +7,31 @@ description: >-
   fork-parity rows are verified by the pinned compatibility runtime suite,
   which fails closed without them.
 
+inputs:
+  go-cache-suffix:
+    description: >-
+      Appended verbatim to the Go cache key (include any separator, for
+      example "-race"). actions/cache never overwrites an existing key, so a
+      job whose build products differ from the default ones (race
+      instrumentation does) needs a distinct suffix or it restores the wrong
+      builds and never saves its own.
+    default: ""
+    required: false
+
 runs:
   using: composite
   steps:
+    - name: Disable Windows Defender real-time scanning
+      # Hosted Windows runners real-time-scan every file the toolchain
+      # installs and the build-heavy suites touch, which is a large share of
+      # Windows wall time. Runners are throwaway admin VMs, so switching it
+      # off costs nothing.
+      if: runner.os == 'Windows'
+      shell: pwsh
+      # Pure optimization: never fail a job over it.
+      continue-on-error: true
+      run: Set-MpPreference -DisableRealtimeMonitoring $true
+
     - name: Set up Mise toolchain
       uses: jdx/mise-action@v2
       with:
@@ -23,7 +45,11 @@ runs:
           ~/go/pkg/mod
           ~/.cache/go-build
           ~/AppData/Local/go-build
-        key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
+        key: ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
+        # When the key inputs bump, restore the most recent prior cache
+        # instead of rebuilding from nothing.
+        restore-keys: |
+          ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-
 
     - name: Restore fixture dependencies
       uses: actions/cache@v4
@@ -35,6 +61,8 @@ runs:
           testdata/conformance/project/node_modules
           testdata/transformers/project/node_modules
         key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('mise.toml', 'mise.lock', 'tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
+        restore-keys: |
+          ${{ runner.os }}-bun-fixtures-
 
     - name: Install fixture dependencies (bun)
       shell: bash

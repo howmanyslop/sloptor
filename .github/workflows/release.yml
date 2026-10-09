@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
 
@@ -51,8 +51,8 @@ jobs:
 
   build:
     needs: validate
-    runs-on: blacksmith-32vcpu-ubuntu-2404
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -374,7 +374,7 @@ jobs:
     needs: [validate, publish]
     permissions:
       contents: write
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Check out repository

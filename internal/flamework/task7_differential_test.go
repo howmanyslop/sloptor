@@ -51,7 +51,7 @@ func TestTask7Differential_matchesRealUpstreamFinalLuauDiagnosticsAndArtifacts(t
 	fixture := filepath.Join("testdata", "task7-differential", "project")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	version := runTask7Command(t, install, 10*time.Second, "node", "-e", `process.stdout.write(require("rbxts-transformer-flamework/package.json").version)`)
 	if version != FlameworkVersion {
 		t.Fatalf("oracle transformer version = %q, want %q", version, FlameworkVersion)
@@ -126,9 +126,9 @@ func TestTask7Diagnostic006_publicCompilerPreconditionsAreExecutable(t *testing.
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	writeTransformFixture(t, install, "tsconfig.json", task7TSConfig("default", "src"))
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	transformerRoot := filepath.Join(install, "node_modules", "rbxts-transformer-flamework")
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--prefix", transformerRoot, "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline", "typescript@5.4.5")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--prefix", transformerRoot, "--no-save", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline", "typescript@5.4.5")
 	versions := runTask7Command(t, install, 10*time.Second, "node", "-e", `process.stdout.write(require("./node_modules/rbxts-transformer-flamework/node_modules/typescript").version + "|" + require(require.resolve("typescript", { paths: [require.resolve("roblox-ts")] })).version)`)
 	if versions != "5.4.5|5.5.3" {
 		t.Fatalf("mismatched TypeScript fixture versions = %q, want 5.4.5|5.5.3", versions)
@@ -205,7 +205,7 @@ func TestTask7Differential_matchesRealUpstreamOrderedDiagnostics(t *testing.T) {
 	// Given: each malformed upstream branch in a fresh deterministic compilation.
 	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	plugin := `"salt":"task7-controlled-salt","hashPrefix":"task7","idGenerationMode":"full"`
 	for _, source := range []string{
 		"invalid/non-constant-path.ts",
@@ -259,7 +259,7 @@ func TestTask7Differential_noSemanticDiagnosticsControlsTheSemanticGate(t *testi
 	// Given: a macro-bearing source with one stable TypeScript semantic error.
 	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	source := "invalid/semantic-error.ts"
 
 	// When: the default false branch validates semantics in both compiler implementations.
@@ -309,7 +309,7 @@ func TestTask7Differential_scopedPackageDefaultsHashPrefixToPackageName(t *testi
 	// Given: the representative corpus published as a scoped package with hashPrefix omitted.
 	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
-	runTask7Command(t, install, 90*time.Second, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
+	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	oracleRoot, nativeRoot := t.TempDir(), t.TempDir()
 	for _, root := range []string{oracleRoot, nativeRoot} {
 		copyTask7Tree(t, fixture, root)
