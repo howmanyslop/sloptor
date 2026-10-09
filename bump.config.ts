@@ -1,40 +1,61 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { defineConfig } from "bumpp";
+import { exec } from "tinyexec";
 
 const VERSION_GO = "internal/version/version.go";
 
-function run(command: string, ...arguments_: ReadonlyArray<string>): void {
-	execFileSync(command, arguments_, { stdio: "inherit" });
-}
+async function getUnpushedTagsAsync(): Promise<ReadonlyArray<string>> {
+	const { stdout } = await exec("git", ["push", "--tags", "--dry-run", "--porcelain"], {
+		throwOnError: true,
+	});
 
-function changedFiles(): ReadonlyArray<string> {
-	return execFileSync("git", ["diff", "--name-only"], { encoding: "utf8" }).split("\n").filter(Boolean);
+	const unpushedTags = new Array<string>();
+	let size = 0;
+
+	for (const line of stdout.split("\n")) {
+		if (!line.startsWith("*\trefs/tags/")) continue;
+		unpushedTags[size++] = line.split("\t")[1]?.split(":")[0]?.slice("refs/tags/".length) ?? line;
+	}
+
+	// Same push target as bumpp's `git push --tags`. Porcelain marks refs the
+	// remote doesn't have yet with a leading `*`.
+	return unpushedTags;
 }
 
 // bumpp reads the current version from package.json; refuse to start if
 // version.go, the platform packages, or the protocol versions have drifted.
-run("node", "scripts/validate-release.cjs");
+await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
+
+// bumpp pushes with `git push --tags`, and any pushed `v*` tag starts
+// release.yml. Refuse to start unless the new tag is the only one that will go
+// out.
+const strayTags = await getUnpushedTagsAsync();
+if (strayTags.length > 0) {
+	throw new Error(
+		`local tags missing from the remote would be pushed with the release: ${strayTags.join(", ")}\n` +
+			"push or delete them first (git tag -d <tag>)",
+	);
+}
 
 const configuration = defineConfig({
+	// Safe because `noGitCheck: false` requires a clean tree: everything dirty
+	// at commit time came from this bump.
+	all: true,
 	commit: "chore(release): prepare v%s",
 	// bumpp only rewrites `version` in package.json and does a plain string
 	// replace in version.go; `execute` handles the rest of the lockstep set.
-	execute(operation) {
-		const { newVersion } = operation.state;
+	async execute({ state }): Promise<void> {
+		const { readFile } = await import("node:fs/promises");
+		const { newVersion } = state;
 
-		if (!readFileSync(VERSION_GO, "utf8").includes(`const Version = "${newVersion}"`)) {
+		const versionGoText = await readFile(VERSION_GO, "utf8");
+
+		if (!versionGoText.includes(`const Version = "${newVersion}"`)) {
 			throw new Error(`${VERSION_GO} was not bumped to ${newVersion}`);
 		}
 
-		run("node", "scripts/sync-package-versions.cjs", newVersion);
-		run("bash", "scripts/bump-header.sh");
-		run("node", "scripts/validate-release.cjs");
-
-		// bumpp commits only `updatedFiles`, so register everything the scripts
-		// touched (platform manifests, lockfile, golden headers). The git check
-		// guarantees the tree was clean beforehand.
-		operation.update({ updatedFiles: [...new Set([...operation.state.updatedFiles, ...changedFiles()])] });
+		await exec("node", ["scripts/sync-package-versions.cjs", newVersion], { throwOnError: true });
+		await exec("bash", ["scripts/bump-header.sh"], { throwOnError: true });
+		await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
 	},
 	files: ["package.json", VERSION_GO],
 	noGitCheck: false,
