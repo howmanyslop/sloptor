@@ -246,7 +246,6 @@ func TestNarrowSelectionStandsDownWhenTheSelectionEmitFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
 	}
-	pathTranslator := createPathTranslator(program, true)
 	sourceFiles := projectSourceFiles(program)
 	manifest := &incrementalManifest{Version: 2, Salt: "salt", Files: map[string]incrementalFileState{}, Outputs: map[string]string{"out/util.d.ts": "recorded"}}
 	previous := &incrementalManifest{Version: 2, Salt: "salt", Files: map[string]incrementalFileState{}, Outputs: map[string]string{}}
@@ -264,7 +263,7 @@ func TestNarrowSelectionStandsDownWhenTheSelectionEmitFails(t *testing.T) {
 	t.Cleanup(func() { declarationTextsForSelection = restore })
 
 	selected, declarations, ok, err := narrowSelectionByDeclarationSignature(
-		dir, program, pathTranslator, sourceFiles, nil, manifest, previous, manifest.Outputs, nil,
+		dir, program, sourceFiles, nil, manifest, previous, manifest.Outputs, nil,
 	)
 	if err != nil {
 		t.Fatalf("a failed selection emit became a build error: %v", err)

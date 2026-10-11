@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"runtime/trace"
@@ -9,7 +10,8 @@ import (
 )
 
 type solutionBuildDrainer struct {
-	importPathMap        map[string]string
+	graph                *SolutionGraph
+	referenceOutputs     map[string][]string
 	restoredDeclarations map[string][]string
 	restoredMetadataErrs map[string]string
 	persists             []func() error
@@ -33,6 +35,31 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 		defer c.timings.finish()
 	}
 	result := &BuildResult{Outputs: map[string]string{}}
+	if drainer, ok := c.drainer.(*solutionBuildDrainer); ok {
+		if c.referencePathsDirty {
+			metadata := populateCrossProjectMetadata(c.graph)
+			if err := metadata.validationErr; err != nil {
+				result.Diagnostics = stringDiagnostics([]string{err.Error()})
+				return result, nil, []string{err.Error()}, err
+			}
+			c.referenceOutputs = metadata.referenceOutputs
+			c.writeRoots = metadata.writeRoots
+			c.waitOnlyDependencies = metadata.waitOnlyDependencies
+			drainer.restoredDeclarations = metadata.restoredDeclarations
+			drainer.restoredMetadataErrs = metadata.restoredMetadataErrs
+			drainer.referenceOutputs = metadata.referenceOutputs
+			for _, project := range c.graph.Projects {
+				state := c.states[project.ConfigPath]
+				state.Project = project
+				c.states[project.ConfigPath] = state
+			}
+			// The refresh above already checked the Rojo mounts.
+			c.referencePathsDirty = false
+		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs); err != nil {
+			result.Diagnostics = stringDiagnostics([]string{err.Error()})
+			return result, nil, []string{err.Error()}, err
+		}
+	}
 	cache := newSolutionCompileCache()
 	if c.timings != nil {
 		defer func() {
@@ -539,6 +566,10 @@ func effectiveSolutionBuilders(entry ProjectOptions) int {
 func BuildSolutionWithOptions(tsConfigPath string, entry ProjectOptions) (*BuildResult, []string, error) {
 	coordinator, err := NewSolutionCoordinator(tsConfigPath, entry)
 	if err != nil {
+		var diagnosticErr *referenceDiagnosticError
+		if errors.As(err, &diagnosticErr) {
+			return &BuildResult{Diagnostics: []DiagnosticInfo{diagnosticErr.diagnostic}}, []string{err.Error()}, err
+		}
 		return nil, nil, err
 	}
 	return coordinator.Drain()
@@ -555,9 +586,13 @@ func mergeSolutionBuildResult(result *BuildResult, project SolutionProject, buil
 }
 
 func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
+	// Dependencies can copy nested Rojo projects into their outputs. Refresh
+	// the consistency check before compiling a consumer against those mounts.
+	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs); err != nil {
+		return &BuildResult{Diagnostics: stringDiagnostics([]string{err.Error()})}, []string{err.Error()}, err
+	}
 	options := project.Options
 	options.TsConfigPath = project.ConfigPath
-	options.crossProjectImportPathMap = d.importPathMap
 	options.deferRojoCachePersist = true
 	return BuildProjectWithOptions(filepath.Dir(project.ConfigPath), options)
 }

@@ -282,6 +282,179 @@ test("one request builds a canonical union with project-owned results and CLI by
 	assert.deepEqual(outputArtifacts(apiRoot), outputArtifacts(cliRoot));
 });
 
+test("package roots can also be referenced without inheriting another root's context", async () => {
+	const root = createRootOverlapFixture("package-root-overlap");
+	const configs = ["shared", "consumer", "independent"].map((name) => path.join(root, name, "tsconfig.json"));
+	const session = createBuildSession({ executable });
+	try {
+		for (const roots of [configs, [...configs].reverse()]) {
+			const result = await session.build({ roots, selected: configs, satisfied: [] });
+			assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+			assert.deepEqual(result.diagnostics, []);
+			assert.equal(result.projects.length, 3);
+			assert.deepEqual(
+				new Set(result.projects.map((project) => project.config)),
+				new Set(configs.map((config) => config.split(path.sep).join("/"))),
+			);
+			assert.ok(result.projects.every((project) => ["success", "no-change"].includes(project.status)));
+		}
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("package roots import a referenced package through getModule", async () => {
+	const root = path.join(temporaryRoot, "package-reference-import");
+	const fixture = path.join(__dirname, "fixtures", "single-project");
+	for (const [project, config, manifest] of [
+		["lib", { include: ["src/**/*.d.ts"] }, { types: "src/index.d.ts", main: "out/init.luau" }],
+		["pkg", { references: [{ path: "../lib" }] }, {}],
+	]) {
+		const dir = path.join(root, project);
+		fs.cpSync(fixture, dir, { recursive: true });
+		const configPath = path.join(dir, "tsconfig.json");
+		const base = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		Object.assign(base.compilerOptions, { composite: true, tsBuildInfoFile: "cache/build.tsbuildinfo" });
+		fs.writeFileSync(configPath, JSON.stringify({ ...base, ...config }));
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: `@rbxts/${project}`, ...manifest }));
+	}
+	fs.rmSync(path.join(root, "lib", "src", "main.ts"));
+	fs.writeFileSync(path.join(root, "lib", "src", "index.d.ts"), "export declare const value: number;\n");
+	fs.writeFileSync(path.join(root, "lib", "src", "init.luau"), "return { value = 7 }\n");
+	fs.writeFileSync(path.join(root, "pkg", "src", "main.ts"), 'import { value } from "@rbxts/lib";\nexport const answer = value;\n');
+	fs.mkdirSync(path.join(root, "pkg", "node_modules", "@rbxts"), { recursive: true });
+	fs.symlinkSync(path.join(root, "lib"), path.join(root, "pkg", "node_modules", "@rbxts", "lib"), "junction");
+
+	const configs = ["lib", "pkg"].map((name) => path.join(root, name, "tsconfig.json"));
+	const session = createBuildSession({ executable });
+	try {
+		for (const roots of [configs, [...configs].reverse()]) {
+			const result = await session.build({ roots, selected: configs, satisfied: [] });
+			assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+			assert.deepEqual(result.diagnostics, []);
+			assert.match(
+				fs.readFileSync(path.join(root, "pkg", "out", "main.luau"), "utf8"),
+				/TS\.getModule\(script, "@rbxts", "lib"\)\.out/,
+			);
+		}
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("inferred model roots retain their local context when also referenced", async () => {
+	const root = createRootOverlapFixture("model-root-overlap");
+	const configs = ["shared", "consumer"].map((name) => path.join(root, name, "tsconfig.json"));
+	for (const configPath of configs) {
+		const dir = path.dirname(configPath);
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "model-root-overlap" }));
+		const rojoPath = path.join(dir, "default.project.json");
+		const rojo = JSON.parse(fs.readFileSync(rojoPath, "utf8"));
+		rojo.tree.$className = "Folder";
+		fs.writeFileSync(rojoPath, JSON.stringify(rojo));
+	}
+	const session = createBuildSession({ executable });
+	try {
+		for (const roots of [configs, [...configs].reverse()]) {
+			const result = await session.build({ roots, selected: configs, satisfied: [] });
+			assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+			assert.equal(result.projects.length, 2);
+			assert.deepEqual(result.diagnostics, []);
+		}
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("game roots retain their own Rojo and runtime context when also referenced", async () => {
+	const root = createRootOverlapFixture("game-root-overlap");
+	const configs = ["shared", "consumer"].map((name) => path.join(root, name, "tsconfig.json"));
+	for (const configPath of configs) {
+		const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		config.include = ["src"];
+		config.rbxts = { type: "game", rojo: "default.project.json" };
+		fs.writeFileSync(configPath, JSON.stringify(config));
+	}
+	const session = createBuildSession({ executable });
+	try {
+		for (const roots of [configs, [...configs].reverse()]) {
+			const result = await session.build({ roots, selected: configs, satisfied: [] });
+			assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+			assert.equal(result.projects.length, 2);
+			assert.deepEqual(result.diagnostics, []);
+		}
+		const rojoPath = path.join(root, "consumer", "default.project.json");
+		const rojo = JSON.parse(fs.readFileSync(rojoPath, "utf8"));
+		rojo.tree.ReplicatedStorage.changed = rojo.tree.ReplicatedStorage.shared;
+		delete rojo.tree.ReplicatedStorage.shared;
+		fs.writeFileSync(rojoPath, JSON.stringify(rojo));
+		const inconsistent = await session.build({ roots: configs, selected: configs, satisfied: [] });
+		assert.equal(inconsistent.ok, false);
+		assert.match(inconsistent.diagnostics[0].message, /must mount .* at the same Roblox path/);
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("package cache state is stable when only the root reaching it changes", async () => {
+	const root = createRootOverlapFixture("package-root-cache");
+	const shared = path.join(root, "shared", "tsconfig.json");
+	const consumer = path.join(root, "consumer", "tsconfig.json");
+	const session = createBuildSession({ executable });
+	try {
+		assert.equal((await session.build({ roots: [shared], selected: [shared], satisfied: [] })).ok, true);
+		const manifestPath = path.join(root, "shared", "cache", "build.rbxtsc.tsbuildinfo");
+		const before = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+		const declarations = projectArtifacts(root, "shared");
+		const result = await session.build({ roots: [consumer], selected: [shared, consumer], satisfied: [] });
+		assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+		assert.equal(JSON.parse(fs.readFileSync(manifestPath, "utf8")).salt, before.salt);
+		assert.deepEqual(projectArtifacts(root, "shared"), declarations);
+	} finally {
+		await session.dispose();
+	}
+});
+
+test("conflicting root contexts return a failure for every selected config", async () => {
+	const root = createRootOverlapFixture("conflicting-root-contexts");
+	const configs = ["shared", "consumer", "independent"].map((name) => path.join(root, name, "tsconfig.json"));
+	for (const configPath of configs.slice(0, 2)) {
+		const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		config.rbxts = { type: "game" };
+		fs.writeFileSync(configPath, JSON.stringify(config));
+	}
+	const session = createBuildSession({ executable });
+	try {
+		const result = await session.build({ roots: configs, selected: configs, satisfied: [] });
+		assert.equal(result.ok, false);
+		assert.equal(result.projects.length, 3, JSON.stringify(result));
+		assert.deepEqual(
+			new Set(result.projects.map((project) => project.config)),
+			new Set(configs.map((config) => config.split(path.sep).join("/"))),
+		);
+		assert.equal(result.diagnostics.length, 1);
+		for (const project of result.projects) {
+			assert.equal(project.status, "failed");
+			assert.equal(project.diagnostics.length, 1);
+			assert.match(project.diagnostics[0].message, /conflicting effective options/);
+		}
+		const message = result.diagnostics[0].message;
+		for (const configPath of configs.slice(0, 2)) {
+			assert.ok(message.includes(configPath), message);
+			assert.ok(message.includes(path.join(path.dirname(configPath), "default.project.json")), message);
+		}
+		assert.deepEqual(result.telemetry, {
+			selectedProjects: 3,
+			satisfiedProjects: 0,
+			scheduledProjects: 0,
+			transformedProjects: 0,
+			emittedProjects: 0,
+		});
+	} finally {
+		await session.dispose();
+	}
+});
+
 test("a union failure owns one diagnostic and explicitly blocks every dependent", async () => {
 	const root = path.join(temporaryRoot, "multi-root-failure");
 	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
@@ -517,6 +690,36 @@ test("an installed package resolves its native executable without an override", 
 		await session.dispose();
 	}
 });
+
+function createRootOverlapFixture(name) {
+	const root = path.join(temporaryRoot, name);
+	const fixture = path.join(__dirname, "fixtures", "single-project");
+	for (const project of ["shared", "consumer", "independent"]) {
+		const dir = path.join(root, project);
+		fs.cpSync(fixture, dir, { recursive: true });
+		const configPath = path.join(dir, "tsconfig.json");
+		const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		Object.assign(config.compilerOptions, {
+			composite: true,
+			declaration: true,
+			incremental: true,
+			tsBuildInfoFile: "cache/build.tsbuildinfo",
+		});
+		if (project === "shared") config.include = ["src/**/*.d.ts"];
+		if (project === "consumer") config.references = [{ path: "../shared" }];
+		fs.writeFileSync(configPath, JSON.stringify(config));
+		const mounts = { $className: "ReplicatedStorage" };
+		for (const mounted of ["shared", "consumer", "independent"]) {
+			mounts[mounted] = { $path: `../${mounted}/out` };
+			mounts[`${mounted}Include`] = { $path: `../${mounted}/include` };
+		}
+		fs.writeFileSync(path.join(dir, "default.project.json"), JSON.stringify({
+			name: "root-overlap",
+			tree: { $className: "DataModel", ReplicatedStorage: mounts },
+		}));
+	}
+	return root;
+}
 
 function outputArtifacts(root, projects = ["shared", "production", "tests"]) {
 	const artifacts = {};

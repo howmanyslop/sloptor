@@ -69,6 +69,9 @@ type RojoContext struct {
 	// (createNodeModulesPathMapping.ts). Look up via Lookup with
 	// UseCaseSensitiveFileNames.
 	NodeModulesPathMapping NodeModulesPathMapping
+	// ProjectReferencePaths maps referenced sources and emitted declarations to
+	// their Luau import paths, keyed by rojo.CanonicalFileName.
+	ProjectReferencePaths map[string]string
 	// NodeModulesPath is upstream data.nodeModulesPath:
 	// <package.json dir>/node_modules (createProjectData.ts:31).
 	NodeModulesPath string
@@ -78,7 +81,6 @@ type RojoContext struct {
 	// UseCaseSensitiveFileNames feeds the canonical-file-name lookups
 	// (Shared/util/getCanonicalFileName.ts).
 	UseCaseSensitiveFileNames bool
-	ImportPathMap             map[string]string
 }
 
 // NewMultiState returns an empty compilation-step cache container.
