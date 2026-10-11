@@ -395,13 +395,12 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 		realKey := rojo.CanonicalFileName(realPath, s.Rojo.UseCaseSensitiveFileNames)
 		referencePath, hasReferencePath = s.Rojo.ProjectReferencePaths[realKey]
 	}
-	if mapped, ok := s.Rojo.NodeModulesPathMapping[key]; ok {
+	if mapped, ok := s.Rojo.NodeModulesPathMapping.Lookup(virtualPath, s.Rojo.UseCaseSensitiveFileNames); ok {
 		mappedPath = mapped
 		hasMappedPath = true
 	}
 	if !hasMappedPath {
-		realKey := rojo.CanonicalFileName(moduleFile.FileName(), s.Rojo.UseCaseSensitiveFileNames)
-		if mapped, ok := s.Rojo.NodeModulesPathMapping[realKey]; ok {
+		if mapped, ok := s.Rojo.NodeModulesPathMapping.Lookup(moduleFile.FileName(), s.Rojo.UseCaseSensitiveFileNames); ok {
 			mappedPath = mapped
 			hasMappedPath = true
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"rotor/internal/rojo"
+	"rotor/internal/transformer"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -99,8 +100,8 @@ func legacyPackagePaths(pkgDir string, pkg packageManifest) (typesPath, runtimeP
 	return resolveAgainst(pkgDir, typesPath), resolveAgainst(pkgDir, pkg.Main)
 }
 
-func createNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames bool, customConditions []string) map[string]string {
-	mapping := make(map[string]string)
+func createNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames bool, customConditions []string) transformer.NodeModulesPathMapping {
+	mapping := transformer.NodeModulesPathMapping{Exact: make(map[string]string)}
 	for _, typeRoot := range typeRoots {
 		scopePath := filepath.FromSlash(typeRoot)
 		entries, err := os.ReadDir(scopePath)
@@ -114,41 +115,67 @@ func createNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames 
 				continue
 			}
 			virtualMappings := packageMappings(pkgDir, pkg, customConditions)
-			addPackageMappings(mapping, pkgDir, virtualMappings, useCaseSensitiveFileNames)
+			addPackageMappings(&mapping, pkgDir, virtualMappings, useCaseSensitiveFileNames)
 
 			realPkgDir := packageRealPath(pkgDir)
 			if rojo.CanonicalFileName(realPkgDir, useCaseSensitiveFileNames) == rojo.CanonicalFileName(pkgDir, useCaseSensitiveFileNames) {
 				continue
 			}
 			realMappings := packageMappings(realPkgDir, pkg, customConditions)
-			addRealPathAliases(mapping, pkgDir, realMappings, virtualMappings, useCaseSensitiveFileNames)
+			addRealPathAliases(&mapping, pkgDir, realMappings, virtualMappings, useCaseSensitiveFileNames)
 		}
 	}
 	return mapping
 }
 
-func addPackageMappings(mapping map[string]string, pkgDir string, mappings []packageExportMapping, useCaseSensitiveFileNames bool) {
+func addPackageMappings(mapping *transformer.NodeModulesPathMapping, pkgDir string, mappings []packageExportMapping, useCaseSensitiveFileNames bool) {
 	for _, entry := range mappings {
+		if strings.Contains(entry.typesPath, "*") {
+			addPackagePattern(mapping, pkgDir, entry.typesPath, entry.runtimePath, useCaseSensitiveFileNames)
+			continue
+		}
 		key := rojo.CanonicalFileName(entry.typesPath, useCaseSensitiveFileNames)
 		if entry.custom {
-			if _, exists := mapping[key]; exists {
+			if _, exists := mapping.Exact[key]; exists {
 				continue
 			}
 		}
-		mapping[key] = remapToRojoTree(pkgDir, entry.runtimePath)
+		mapping.Exact[key] = remapToRojoTree(pkgDir, entry.runtimePath)
 	}
 }
 
-func addRealPathAliases(mapping map[string]string, virtualPkgDir string, realMappings, virtualMappings []packageExportMapping, useCaseSensitiveFileNames bool) {
+func addRealPathAliases(mapping *transformer.NodeModulesPathMapping, virtualPkgDir string, realMappings, virtualMappings []packageExportMapping, useCaseSensitiveFileNames bool) {
 	for index, realMapping := range realMappings {
 		if index >= len(virtualMappings) {
 			return
 		}
+		if strings.Contains(realMapping.typesPath, "*") {
+			addPackagePattern(mapping, virtualPkgDir, realMapping.typesPath, virtualMappings[index].runtimePath, useCaseSensitiveFileNames)
+			continue
+		}
 		key := rojo.CanonicalFileName(realMapping.typesPath, useCaseSensitiveFileNames)
-		if _, exists := mapping[key]; !exists {
-			mapping[key] = remapToRojoTree(virtualPkgDir, virtualMappings[index].runtimePath)
+		if _, exists := mapping.Exact[key]; !exists {
+			mapping.Exact[key] = remapToRojoTree(virtualPkgDir, virtualMappings[index].runtimePath)
 		}
 	}
+}
+
+// addPackagePattern records a wildcard export subpath. The types target must
+// hold exactly one `*` so a resolved file maps back to one star text; the
+// Rojo tree remap is skipped when the `*` sits in the first runtime segment.
+func addPackagePattern(mapping *transformer.NodeModulesPathMapping, pkgDir, typesPath, runtimePath string, useCaseSensitiveFileNames bool) {
+	if strings.Count(typesPath, "*") != 1 {
+		return
+	}
+	prefix, suffix, _ := strings.Cut(rojo.CanonicalFileName(typesPath, useCaseSensitiveFileNames), "*")
+	if rel, err := filepath.Rel(pkgDir, runtimePath); err == nil && !strings.Contains(strings.Split(rel, string(filepath.Separator))[0], "*") {
+		runtimePath = remapToRojoTree(pkgDir, runtimePath)
+	}
+	mapping.Patterns = append(mapping.Patterns, transformer.NodeModulesPathPattern{
+		TypesPrefix: prefix,
+		TypesSuffix: suffix,
+		Runtime:     runtimePath,
+	})
 }
 
 func remapToRojoTree(pkgDir, runtimePath string) string {

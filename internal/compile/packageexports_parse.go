@@ -36,6 +36,10 @@ type resolvedExportTargets struct {
 	runtime       string
 	hasRuntime    bool
 	customTargets []string
+	// runtimeDecided is set once a custom condition branch matched: TS stops
+	// at that branch, so runtime conditions after it must not fill a missing
+	// runtime target.
+	runtimeDecided bool
 }
 
 func hasPackageExports(raw json.RawMessage) bool {
@@ -71,9 +75,7 @@ func exportMappings(pkgDir string, pkg packageManifest, customConditions []strin
 		}
 		mappings := []packageExportMapping{}
 		for _, entry := range exports.object {
-			if !strings.Contains(entry.key, "*") {
-				mappings = append(mappings, resolveExportSubpath(pkgDir, pkg, entry.key, entry.value, customs)...)
-			}
+			mappings = append(mappings, resolveExportSubpath(pkgDir, pkg, entry.key, entry.value, customs)...)
 		}
 		return mappings
 	default:
@@ -159,7 +161,20 @@ func resolveExportConditionObject(entries []packageExportEntry, customs map[stri
 			result.types, result.hasTypes = entry.value.string, true
 		case isCustomCondition(entry.key, customs) && entry.value.kind == packageExportString:
 			result.customTargets = append(result.customTargets, entry.value.string)
-		case isRuntimeCondition(entry.key):
+		case isCustomCondition(entry.key, customs) && entry.value.kind == packageExportObject:
+			inner := resolveExportConditionObject(entry.value.object, customs)
+			if !inner.hasTypes && !inner.hasRuntime && len(inner.customTargets) == 0 {
+				continue
+			}
+			if !result.hasTypes && inner.hasTypes {
+				result.types, result.hasTypes = inner.types, true
+			}
+			if !result.hasRuntime && !result.runtimeDecided && inner.hasRuntime {
+				result.runtime, result.hasRuntime = inner.runtime, true
+			}
+			result.customTargets = append(result.customTargets, inner.customTargets...)
+			result.runtimeDecided = true
+		case isRuntimeCondition(entry.key) && !result.runtimeDecided:
 			if entry.value.kind == packageExportString && !result.hasRuntime {
 				result.runtime, result.hasRuntime = entry.value.string, true
 			} else if entry.value.kind == packageExportObject {
@@ -174,9 +189,10 @@ func mergeExportTargets(result *resolvedExportTargets, inner resolvedExportTarge
 	if !result.hasTypes && inner.hasTypes {
 		result.types, result.hasTypes = inner.types, true
 	}
-	if !result.hasRuntime && inner.hasRuntime {
+	if !result.hasRuntime && !result.runtimeDecided && inner.hasRuntime {
 		result.runtime, result.hasRuntime = inner.runtime, true
 	}
+	result.runtimeDecided = result.runtimeDecided || inner.runtimeDecided
 	result.customTargets = append(result.customTargets, inner.customTargets...)
 }
 

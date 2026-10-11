@@ -64,13 +64,13 @@ type RojoContext struct {
 	// (compileFiles.ts:77) — Package projects resolve node_modules imports
 	// through these instead of the project resolver.
 	PkgRojoResolvers []*rojo.RojoResolver
-	// NodeModulesPathMapping maps the canonical types-entry path (.d.ts) of
-	// each typeRoot package to its shipped main (.lua) path
-	// (createNodeModulesPathMapping.ts). Keys are canonicalized via
-	// rojo.CanonicalFileName with UseCaseSensitiveFileNames.
-	NodeModulesPathMapping map[string]string
+	// NodeModulesPathMapping maps the types-entry path (.d.ts) of each
+	// typeRoot package to its shipped main (.lua) path
+	// (createNodeModulesPathMapping.ts). Look up via Lookup with
+	// UseCaseSensitiveFileNames.
+	NodeModulesPathMapping NodeModulesPathMapping
 	// ProjectReferencePaths maps referenced sources and emitted declarations to
-	// their Luau import paths, using the same canonical keys as package mappings.
+	// their Luau import paths, keyed by rojo.CanonicalFileName.
 	ProjectReferencePaths map[string]string
 	// NodeModulesPath is upstream data.nodeModulesPath:
 	// <package.json dir>/node_modules (createProjectData.ts:31).
