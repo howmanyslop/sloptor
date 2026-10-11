@@ -2,6 +2,7 @@ package compile
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -26,25 +27,52 @@ func newManyReferenceFixture(tb testing.TB, count int) *referenceFixture {
 	return f
 }
 
-// BenchmarkSolutionWatchEditCycle measures one watch cycle after a text edit
-// in a leaf package: Invalidate, Drain, and WatchSets.
+// BenchmarkSolutionWatchEditCycle measures one watch cycle: Invalidate,
+// Drain, and WatchSets. leaf edits text in one package, core edits text in
+// the project every package references, and file adds or removes a source
+// file in one package, which changes its file set.
 func BenchmarkSolutionWatchEditCycle(b *testing.B) {
-	f := newManyReferenceFixture(b, 40)
-	coordinator, err := NewSolutionCoordinator(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
-	if err != nil {
-		b.Fatal(err)
+	cases := []struct {
+		name    string
+		project string
+		edit    func(f *referenceFixture, index int)
+	}{
+		{"leaf", "pkg39", func(f *referenceFixture, index int) {
+			f.write("pkg39/src/file0.ts", fmt.Sprintf("export const value0 = %d;\n", index+10))
+		}},
+		{"core", "core", func(f *referenceFixture, index int) {
+			f.write("core/src/index.ts", fmt.Sprintf("export const value = %d;\n", index+10))
+		}},
+		{"file", "pkg39", func(f *referenceFixture, index int) {
+			if index%2 == 0 {
+				f.write("pkg39/src/added.ts", "export const added = 1;\n")
+				return
+			}
+			if err := os.Remove(filepath.Join(f.dir, "pkg39/src/added.ts")); err != nil {
+				b.Fatal(err)
+			}
+		}},
 	}
-	if _, messages, err := coordinator.Drain(); err != nil {
-		b.Fatalf("first build: %v (%v)", err, messages)
-	}
-	leaf := filepath.Join(f.dir, "pkg39/tsconfig.json")
-	b.ResetTimer()
-	for index := range b.N {
-		f.write("pkg39/src/file0.ts", fmt.Sprintf("export const value0 = %d;\n", index+10))
-		coordinator.Invalidate(leaf)
-		if _, messages, err := coordinator.Drain(); err != nil {
-			b.Fatalf("edit build: %v (%v)", err, messages)
-		}
-		coordinator.WatchSets()
+	for _, test := range cases {
+		b.Run(test.name, func(b *testing.B) {
+			f := newManyReferenceFixture(b, 40)
+			coordinator, err := NewSolutionCoordinator(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, messages, err := coordinator.Drain(); err != nil {
+				b.Fatalf("first build: %v (%v)", err, messages)
+			}
+			project := filepath.Join(f.dir, test.project, "tsconfig.json")
+			b.ResetTimer()
+			for index := range b.N {
+				test.edit(f, index)
+				coordinator.Invalidate(project)
+				if _, messages, err := coordinator.Drain(); err != nil {
+					b.Fatalf("edit build: %v (%v)", err, messages)
+				}
+				coordinator.WatchSets()
+			}
+		})
 	}
 }
