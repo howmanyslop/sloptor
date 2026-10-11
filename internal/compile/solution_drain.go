@@ -14,6 +14,7 @@ type solutionBuildDrainer struct {
 	referenceOutputs     map[string][]string
 	restoredDeclarations map[string][]string
 	restoredMetadataErrs map[string]string
+	references           *referenceRojoCache
 	persists             []func() error
 }
 
@@ -36,26 +37,12 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 	}
 	result := &BuildResult{Outputs: map[string]string{}}
 	if drainer, ok := c.drainer.(*solutionBuildDrainer); ok {
-		if c.referencePathsDirty {
-			metadata := populateCrossProjectMetadata(c.graph)
-			if err := metadata.validationErr; err != nil {
+		if len(c.pendingProjects) > 0 || c.metadataStale {
+			if err := c.refreshPendingMetadata(drainer); err != nil {
 				result.Diagnostics = stringDiagnostics([]string{err.Error()})
 				return result, nil, []string{err.Error()}, err
 			}
-			c.referenceOutputs = metadata.referenceOutputs
-			c.writeRoots = metadata.writeRoots
-			c.waitOnlyDependencies = metadata.waitOnlyDependencies
-			drainer.restoredDeclarations = metadata.restoredDeclarations
-			drainer.restoredMetadataErrs = metadata.restoredMetadataErrs
-			drainer.referenceOutputs = metadata.referenceOutputs
-			for _, project := range c.graph.Projects {
-				state := c.states[project.ConfigPath]
-				state.Project = project
-				c.states[project.ConfigPath] = state
-			}
-			// The refresh above already checked the Rojo mounts.
-			c.referencePathsDirty = false
-		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs); err != nil {
+		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs, c.metadata.references); err != nil {
 			result.Diagnostics = stringDiagnostics([]string{err.Error()})
 			return result, nil, []string{err.Error()}, err
 		}
@@ -502,6 +489,53 @@ func (c *SolutionCoordinator) resolveProjectSelection(selection *SolutionProject
 	}
 }
 
+// refreshPendingMetadata re-parses the configs of the invalidated projects
+// only. A text edit leaves every config unchanged, so the solution metadata
+// is derived again only when a config or root file set changed. In both cases
+// it checks the Rojo mounts of the invalidated projects' direct references.
+func (c *SolutionCoordinator) refreshPendingMetadata(drainer *solutionBuildDrainer) error {
+	pending := make([]SolutionProject, 0, len(c.pendingProjects))
+	for _, project := range c.graph.Projects {
+		if _, ok := c.pendingProjects[project.ConfigPath]; ok {
+			pending = append(pending, project)
+		}
+	}
+	if c.metadata.parse(pending) {
+		c.metadataStale = true
+	}
+	// Imports can change a project's emitted set without changing its
+	// config, so its satisfied declarations are listed again.
+	for _, project := range pending {
+		delete(drainer.restoredDeclarations, project.ConfigPath)
+	}
+	c.metadata.references.forget(pending)
+	if !c.metadataStale {
+		if err := validateProjectsReferenceRojoPaths(c.graph, pending, c.referenceOutputs, c.metadata.references); err != nil {
+			return err
+		}
+		c.pendingProjects = map[string]struct{}{}
+		return nil
+	}
+	metadata := c.metadata.derive(c.graph, pending)
+	if err := metadata.validationErr; err != nil {
+		return err
+	}
+	c.referenceOutputs = metadata.referenceOutputs
+	c.writeRoots = metadata.writeRoots
+	c.waitOnlyDependencies = metadata.waitOnlyDependencies
+	drainer.restoredDeclarations = map[string][]string{}
+	drainer.restoredMetadataErrs = metadata.restoredMetadataErrs
+	drainer.referenceOutputs = metadata.referenceOutputs
+	for _, project := range c.graph.Projects {
+		state := c.states[project.ConfigPath]
+		state.Project = project
+		c.states[project.ConfigPath] = state
+	}
+	c.pendingProjects = map[string]struct{}{}
+	c.metadataStale = false
+	return nil
+}
+
 func (c *SolutionCoordinator) validateSatisfiedOutputs(satisfied map[string]struct{}, cache *solutionCompileCache) map[string][]*solutionSelectionError {
 	validator, ok := c.drainer.(interface {
 		validateSatisfiedProject(SolutionProject, *solutionCompileCache) *solutionSelectionError
@@ -588,7 +622,7 @@ func mergeSolutionBuildResult(result *BuildResult, project SolutionProject, buil
 func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
 	// Dependencies can copy nested Rojo projects into their outputs. Refresh
 	// the consistency check before compiling a consumer against those mounts.
-	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs); err != nil {
+	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs, d.references); err != nil {
 		return &BuildResult{Diagnostics: stringDiagnostics([]string{err.Error()})}, []string{err.Error()}, err
 	}
 	options := project.Options

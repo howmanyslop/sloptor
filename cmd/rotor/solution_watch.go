@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -69,42 +70,86 @@ type solutionWatchEvents struct {
 	configs  map[string]struct{}
 	assets   map[string]map[string]bool
 	paths    map[string]struct{}
+	// dead holds the watches that stopped delivering events: their watched
+	// path was deleted or the watch terminated.
+	dead map[solutionWatchKey]struct{}
 }
 
-func (s *solutionWatchEvents) add(project string, events []fswatch.Event, watchErr error) {
-	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
-		return
+type solutionWatchKind uint8
+
+const (
+	solutionWatchRoot solutionWatchKind = iota
+	solutionWatchRojo
+	solutionWatchConfig
+)
+
+// solutionWatchKey names one watch: a project's root or Rojo directory, or
+// one of its config files.
+type solutionWatchKey struct {
+	kind    solutionWatchKind
+	project string
+	path    string
+}
+
+// directory is the directory fswatch watches for key. Watches of one
+// directory share one OS watch, so they die together.
+func (key solutionWatchKey) directory() (string, bool) {
+	if key.kind == solutionWatchConfig {
+		return filepath.Dir(filepath.Clean(key.path)), false
 	}
+	return filepath.Clean(key.path), true
+}
+
+// addWatchError records the paths of events and a watch error, and reports
+// whether events were missed. An overflow leaves the watch running; any
+// other error, or a delete of the watched path, ends it.
+func (s *solutionWatchEvents) addWatchError(key solutionWatchKey, events []fswatch.Event, watchErr error) bool {
 	for _, event := range events {
 		s.paths[event.Path] = struct{}{}
+		if event.Kind == fswatch.EventDelete && filepath.Clean(event.Path) == filepath.Clean(key.path) {
+			s.dead[key] = struct{}{}
+		}
+	}
+	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
+		s.dead[key] = struct{}{}
+	}
+	return watchErr != nil
+}
+
+func (s *solutionWatchEvents) add(key solutionWatchKey, events []fswatch.Event, watchErr error) {
+	if s.addWatchError(key, events, watchErr) {
+		s.projects[key.project] = struct{}{}
+	}
+	for _, event := range events {
 		if watchCompilable(event.Path) {
-			s.projects[project] = struct{}{}
+			s.projects[key.project] = struct{}{}
 			continue
 		}
-		s.addAsset(project, event)
-	}
-	if watchErr != nil {
-		s.projects[project] = struct{}{}
+		if watchProjectInput(event) {
+			s.projects[key.project] = struct{}{}
+		}
+		s.addAsset(key.project, event)
 	}
 }
 
-func (s *solutionWatchEvents) addRojo(project string, events []fswatch.Event, watchErr error) {
-	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
-		return
+func (s *solutionWatchEvents) addRojo(key solutionWatchKey, events []fswatch.Event, watchErr error) {
+	if s.addWatchError(key, events, watchErr) {
+		s.configs[key.project] = struct{}{}
 	}
 	for _, event := range events {
-		s.paths[event.Path] = struct{}{}
 		if strings.HasSuffix(filepath.Base(event.Path), ".project.json") {
 			s.configs[event.Path] = struct{}{}
 			continue
 		}
 		if !watchCompilable(event.Path) {
-			s.addAsset(project, event)
+			s.addAsset(key.project, event)
 		}
 	}
-	if watchErr != nil {
-		s.configs[project] = struct{}{}
-	}
+}
+
+func (s *solutionWatchEvents) addConfig(key solutionWatchKey, events []fswatch.Event, watchErr error) {
+	s.addWatchError(key, events, watchErr)
+	s.configs[key.path] = struct{}{}
 }
 
 func (s *solutionWatchEvents) addAsset(project string, event fswatch.Event) {
@@ -155,7 +200,97 @@ func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func
 }
 
 func newSolutionWatchEvents() *solutionWatchEvents {
-	return &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}}
+	return &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}, dead: map[solutionWatchKey]struct{}{}}
+}
+
+// newSolutionWatcher is the file watcher; tests replace it.
+var newSolutionWatcher = fswatch.Default
+
+// solutionWatches keeps one watch per key of the solution's watch sets.
+type solutionWatches struct {
+	watcher fswatch.Watcher
+	// callback returns the event handler of key.
+	callback func(key solutionWatchKey) fswatch.WatchCallback
+	watches  map[solutionWatchKey]fswatch.Watch
+	sets     []compile.SolutionWatchSet
+	// armed is false while a wanted watch failed to open.
+	armed bool
+}
+
+// refresh re-arms the watches. It keeps them when the watch sets are
+// unchanged, every watch is open, and no watch died. Otherwise it closes the
+// watches that are no longer wanted or share a directory with a dead watch,
+// and opens the missing ones; the others stay open.
+func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solutionWatchKey]struct{}) {
+	if len(dead) == 0 && w.armed && reflect.DeepEqual(sets, w.sets) {
+		return
+	}
+	keys := solutionWatchKeys(sets)
+	wanted := make(map[solutionWatchKey]struct{}, len(keys))
+	for _, key := range keys {
+		wanted[key] = struct{}{}
+	}
+	type directory struct {
+		path      string
+		recursive bool
+	}
+	deadDirectories := map[directory]struct{}{}
+	for key := range dead {
+		path, recursive := key.directory()
+		deadDirectories[directory{path, recursive}] = struct{}{}
+	}
+	for key, watch := range w.watches {
+		path, recursive := key.directory()
+		_, isWanted := wanted[key]
+		if _, isDead := deadDirectories[directory{path, recursive}]; isWanted && !isDead {
+			continue
+		}
+		_ = watch.Close()
+		delete(w.watches, key)
+	}
+	w.sets = sets
+	w.armed = true
+	for _, key := range keys {
+		if _, ok := w.watches[key]; ok {
+			continue
+		}
+		var watch fswatch.Watch
+		var err error
+		if key.kind == solutionWatchConfig {
+			watch, err = w.watcher.WatchFile(key.path, w.callback(key))
+		} else {
+			watch, err = w.watcher.WatchDirectory(key.path, w.callback(key), fswatch.WithRecursive())
+		}
+		if err != nil {
+			w.armed = false
+			continue
+		}
+		w.watches[key] = watch
+	}
+}
+
+func (w *solutionWatches) close() {
+	for key, watch := range w.watches {
+		_ = watch.Close()
+		delete(w.watches, key)
+	}
+}
+
+func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
+	keys := []solutionWatchKey{}
+	for _, set := range sets {
+		for index, directory := range solutionWatchDirectories(set) {
+			kind := solutionWatchRoot
+			if index >= len(set.RootDirs) {
+				kind = solutionWatchRojo
+			}
+			keys = append(keys, solutionWatchKey{kind: kind, project: set.ProjectPath, path: directory})
+		}
+		for _, config := range append(slices.Clone(set.TsConfigPaths), set.RojoConfigs...) {
+			keys = append(keys, solutionWatchKey{kind: solutionWatchConfig, project: set.ProjectPath, path: config})
+		}
+	}
+	return keys
 }
 
 // runBuildSolutionWatchLoop builds the solution once, then rebuilds the
@@ -171,12 +306,13 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 	}
 	var mu sync.Mutex
 	stopped := false // guarded by mu; set once ctx is done
-	var watches []fswatch.Watch
-	watcher := fswatch.Default()
-	refresh := func() {}
+	watches := &solutionWatches{watcher: newSolutionWatcher(), watches: map[solutionWatchKey]fswatch.Watch{}}
+	refresh := func(dead map[solutionWatchKey]struct{}) {
+		watches.refresh(coordinator.WatchSets(), dead)
+	}
 	// rebuild invalidates and drains the changed projects, first reloading
 	// options and the graph when a config changed. reloaded is false when
-	// that reload failed.
+	// that reload failed; the dead watches are reopened even then.
 	rebuild := func(events solutionWatchEvents) (*compile.BuildResult, []compile.DiagnosticInfo, bool, error) {
 		var cleanStaleOutputs func() error
 		if len(events.configs) > 0 {
@@ -189,14 +325,15 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			}
 			next, err := reload()
 			if err != nil {
+				refresh(events.dead)
 				return nil, nil, false, err
 			}
 			opts = next
 			cleanStaleOutputs, err = coordinator.ReloadForWatch(tsConfigPath, projectCompileOptions(tsConfigPath, opts))
 			if err != nil {
+				refresh(events.dead)
 				return nil, nil, false, err
 			}
-			refresh()
 			if len(events.projects) == 0 {
 				for _, set := range coordinator.WatchSets() {
 					events.projects[set.ProjectPath] = struct{}{}
@@ -210,7 +347,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		if err == nil && cleanStaleOutputs != nil {
 			err = cleanStaleOutputs()
 		}
-		refresh()
+		refresh(events.dead)
 		return result, buildDiagnostics(result, messages), true, err
 	}
 	initial := true
@@ -248,59 +385,25 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		}
 	}
 	gate := newCompileGate(cycle)
-	refresh = func() {
-		for _, watch := range watches {
-			_ = watch.Close()
-		}
-		watches = nil
-		for _, set := range coordinator.WatchSets() {
-			project := set.ProjectPath
-			rootCallback := func(events []fswatch.Event, watchErr error) {
-				mu.Lock()
-				defer mu.Unlock()
-				if stopped {
-					return
-				}
-				s.add(project, events, watchErr)
-				gate.Trigger()
+	watches.callback = func(key solutionWatchKey) fswatch.WatchCallback {
+		return func(events []fswatch.Event, watchErr error) {
+			mu.Lock()
+			defer mu.Unlock()
+			if stopped {
+				return
 			}
-			rojoCallback := func(events []fswatch.Event, watchErr error) {
-				mu.Lock()
-				defer mu.Unlock()
-				if stopped {
-					return
-				}
-				s.addRojo(project, events, watchErr)
-				gate.Trigger()
+			switch key.kind {
+			case solutionWatchRoot:
+				s.add(key, events, watchErr)
+			case solutionWatchRojo:
+				s.addRojo(key, events, watchErr)
+			default:
+				s.addConfig(key, events, watchErr)
 			}
-			for index, directory := range solutionWatchDirectories(set) {
-				callback := rootCallback
-				if index >= len(set.RootDirs) {
-					callback = rojoCallback
-				}
-				if watch, watchErr := watcher.WatchDirectory(directory, callback, fswatch.WithRecursive()); watchErr == nil {
-					watches = append(watches, watch)
-				}
-			}
-			for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
-				if watch, watchErr := watcher.WatchFile(config, func(events []fswatch.Event, watchErr error) {
-					mu.Lock()
-					defer mu.Unlock()
-					if stopped {
-						return
-					}
-					s.configs[config] = struct{}{}
-					for _, event := range events {
-						s.paths[event.Path] = struct{}{}
-					}
-					gate.Trigger()
-				}); watchErr == nil {
-					watches = append(watches, watch)
-				}
-			}
+			gate.Trigger()
 		}
 	}
-	refresh()
+	refresh(nil)
 	for _, set := range coordinator.WatchSets() {
 		s.projects[set.ProjectPath] = struct{}{}
 	}
@@ -312,9 +415,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 	stopped = true
 	mu.Unlock()
 	gate.Drain()
-	for _, watch := range watches {
-		_ = watch.Close()
-	}
+	watches.close()
 	return 0
 }
 
@@ -337,6 +438,24 @@ func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 
 func watchCompilable(path string) bool {
 	return filepath.Ext(path) == ".ts" || filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".d.ts"
+}
+
+// watchProjectInput reports whether a non-source event under a project root
+// can change the project's file set: a JSON file (a source with
+// resolveJsonModule) or a directory (a folder rename or move reports only
+// the folder). A path with no extension counts as a directory, since a
+// removed one cannot be checked; another path is checked only while it
+// exists.
+func watchProjectInput(event fswatch.Event) bool {
+	switch filepath.Ext(event.Path) {
+	case ".json", "":
+		return true
+	}
+	if event.Kind == fswatch.EventDelete {
+		return false
+	}
+	info, err := os.Stat(event.Path)
+	return err == nil && info.IsDir()
 }
 
 type fmtWriter struct{}

@@ -14,17 +14,17 @@ import (
 // Mirrors upstream tests/compiler/referenceFixture.ts: sibling projects share
 // a base config, output mounts, and the root runtime library.
 type referenceFixture struct {
-	t        *testing.T
+	t        testing.TB
 	dir      string
 	projects []string
 }
 
-func newReferenceFixture(t *testing.T) *referenceFixture {
+func newReferenceFixture(t testing.TB) *referenceFixture {
 	t.Helper()
 	return newReferenceFixtureAt(t, t.TempDir())
 }
 
-func newReferenceFixtureAt(t *testing.T, dir string) *referenceFixture {
+func newReferenceFixtureAt(t testing.TB, dir string) *referenceFixture {
 	t.Helper()
 	f := &referenceFixture{t: t, dir: dir}
 	f.json("package.json", map[string]any{"name": "reference-fixture"})

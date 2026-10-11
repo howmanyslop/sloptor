@@ -1239,7 +1239,10 @@ func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Progr
 	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil, nil, nil)
 }
 
-func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string) (*compiler.Program, []string, error) {
+// parseProjectCommandLine parses the sanitized config into the compiler
+// options and root file names a program is built from, including the
+// synthetic declarations. It builds no program.
+func parseProjectCommandLine(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string) (compiler.CompilerHost, *tsoptions.ParsedCommandLine, []string, error) {
 	// rotor extension: serve the synthetic $env ambient declaration from an
 	// in-memory file next to the tsconfig (see envdecl.go for the parity
 	// rationale) ...
@@ -1265,7 +1268,7 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 	}
 	parsed, configDiags := tsoptions.GetParsedCommandLineOfConfigFile(configPath, nil, nil, host, nil)
 	if len(configDiags) > 0 {
-		return nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
+		return nil, nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
 	}
 	ApplyAutomaticTypes(parsed.CompilerOptions())
 	ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
@@ -1273,7 +1276,7 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 
 	raw := readRawEnforcedOptions(filepath.FromSlash(configPath))
 	if msg := validateCompilerOptions(parsed.CompilerOptions(), dir, raw); msg != "" {
-		return nil, []string{msg}, errors.New("compile: invalid tsconfig.json configuration")
+		return nil, nil, []string{msg}, errors.New("compile: invalid tsconfig.json configuration")
 	}
 
 	// ... and append it to the program's root files AFTER config parse so
@@ -1296,6 +1299,14 @@ func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, check
 		parsed.ParsedConfig.FileNames = append(parsed.ParsedConfig.FileNames, macroDecl)
 	}
 
+	return host, parsed, nil, nil
+}
+
+func newProjectProgramFromFSWithOptions(dir, configPath string, fs vfs.FS, checkers *int, singleThreaded *bool, cache *solutionCompileCache, overlays map[string]string) (*compiler.Program, []string, error) {
+	host, parsed, diagnostics, err := parseProjectCommandLine(dir, configPath, fs, checkers, singleThreaded, cache, overlays)
+	if err != nil {
+		return nil, diagnostics, err
+	}
 	return compiler.NewProgram(compiler.ProgramOptions{
 		Host:   host,
 		Config: parsed,

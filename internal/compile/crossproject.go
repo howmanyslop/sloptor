@@ -1,12 +1,14 @@
 package compile
 
 import (
+	"errors"
 	"maps"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 
 	"rotor/internal/rojo"
-	"rotor/tsgo/compiler"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
 	"rotor/tsgo/vfs/osvfs"
@@ -15,83 +17,150 @@ import (
 type solutionWriteMetadata struct {
 	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
-	restoredDeclarations map[string][]string
 	restoredMetadataErrs map[string]string
 	validationErr        error
 	referenceOutputs     map[string][]string
 }
 
+// projectReferenceInfo is one project's share of the solution metadata. It
+// depends only on the parsed config (options and root file names), never on
+// file contents, so a text edit leaves it unchanged.
+type projectReferenceInfo struct {
+	config     *projectConfig
+	err        string
+	writeRoots []string
+	// paths maps each source and declaration file to its Luau import path;
+	// emits reports whether the project has any.
+	paths   map[string]string
+	outputs []string
+	emits   bool
+}
+
+// crossProjectMetadata caches projectReferenceInfo per project, so a watch
+// cycle re-parses only the invalidated projects' configs.
+type crossProjectMetadata struct {
+	infos map[string]*projectReferenceInfo
+	// references caches the inputs of the Rojo mount checks.
+	references *referenceRojoCache
+	// configParses and refreshes count work for tests: configs parsed and
+	// solution metadata derivations.
+	configParses int
+	refreshes    int
+}
+
 func populateCrossProjectMetadata(graph *SolutionGraph) solutionWriteMetadata {
-	pathsByProject := make(map[string]map[string]string, len(graph.Projects))
-	outputsByProject := make(map[string][]string, len(graph.Projects))
-	programs := make(map[string]*compiler.Program, len(graph.Projects))
+	metadata, _ := newCrossProjectMetadata(graph)
+	return metadata
+}
+
+func newCrossProjectMetadata(graph *SolutionGraph) (solutionWriteMetadata, *crossProjectMetadata) {
+	cache := &crossProjectMetadata{references: newReferenceRojoCache(nil)}
+	return cache.rebuild(graph), cache
+}
+
+// rebuild drops every cached project info and derives the metadata of graph
+// from fresh config parses.
+func (m *crossProjectMetadata) rebuild(graph *SolutionGraph) solutionWriteMetadata {
+	m.infos = make(map[string]*projectReferenceInfo, len(graph.Projects))
+	m.parse(graph.Projects)
+	return m.derive(graph, graph.Projects)
+}
+
+// parse re-reads the configs of projects and reports whether the metadata of
+// any of them changed.
+func (m *crossProjectMetadata) parse(projects []SolutionProject) bool {
+	changed := false
+	for _, project := range projects {
+		info := newProjectReferenceInfo(project)
+		m.configParses++
+		if !info.equal(m.infos[project.ConfigPath]) {
+			changed = true
+		}
+		m.infos[project.ConfigPath] = info
+	}
+	return changed
+}
+
+func newProjectReferenceInfo(project SolutionProject) *projectReferenceInfo {
+	info := &projectReferenceInfo{writeRoots: []string{}}
+	config, diagnostics, err := parseProjectConfig(project.ConfigPath)
+	if err != nil {
+		info.err = err.Error()
+		if len(diagnostics) > 0 {
+			info.err = strings.Join(diagnostics, "; ")
+		}
+		return info
+	}
+	info.config = config
+	options := config.Options()
+	if options.OutDir != "" {
+		pathTranslator := createPathTranslator(config, !project.Options.LuaExtension)
+		info.writeRoots = appendCanonicalWriteRoot(info.writeRoots, pathTranslator.OutDir)
+		if options.GetEmitDeclarations() && options.DeclarationDir != "" {
+			info.writeRoots = appendCanonicalWriteRoot(info.writeRoots, filepath.FromSlash(options.DeclarationDir))
+		}
+	}
+	if project.Options.EmitIncludeFiles {
+		if includePath, includeErr := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath); includeErr == nil {
+			info.writeRoots = appendCanonicalWriteRoot(info.writeRoots, includePath)
+		}
+	}
+	if len(projectRootDirs(config)) == 0 || options.OutDir == "" {
+		return info
+	}
+	translator := createPathTranslator(config, !project.Options.LuaExtension)
+	info.paths = map[string]string{}
+	info.outputs = []string{}
+	info.emits = true
+	for _, fileName := range config.FileNames() {
+		if tspath.IsDeclarationFileName(fileName) && !isPathDescendantOf(filepath.FromSlash(fileName), translator.RootDir) {
+			continue
+		}
+		importPath := translator.GetImportPath(fileName, false)
+		info.outputs = append(info.outputs, importPath)
+		canonical := rojo.CanonicalFileName(fileName, osvfs.FS().UseCaseSensitiveFileNames())
+		info.paths[canonical] = importPath
+		if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
+			declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, options, config)
+			declarationCanonical := rojo.CanonicalFileName(declarationPath, osvfs.FS().UseCaseSensitiveFileNames())
+			info.paths[declarationCanonical] = importPath
+		}
+	}
+	addProjectRealPathAliases(info.paths, filepath.Dir(project.ConfigPath), osvfs.FS().UseCaseSensitiveFileNames())
+	return info
+}
+
+// equal compares all that the solution metadata reads: the derived paths,
+// outputs, and write roots, and the options the validations check.
+func (info *projectReferenceInfo) equal(other *projectReferenceInfo) bool {
+	if other == nil || info.err != other.err || info.emits != other.emits ||
+		!slices.Equal(info.writeRoots, other.writeRoots) || !slices.Equal(info.outputs, other.outputs) ||
+		!maps.Equal(info.paths, other.paths) || (info.config == nil) != (other.config == nil) {
+		return false
+	}
+	return info.config == nil || reflect.DeepEqual(info.config.Options(), other.config.Options())
+}
+
+// derive builds the solution metadata from the cached project infos and
+// stores each project's reference paths in graph. The Rojo mount check covers
+// the direct references of consumers only.
+func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []SolutionProject) solutionWriteMetadata {
+	m.refreshes++
+	configs := make(map[string]projectOutputHost, len(graph.Projects))
 	metadata := solutionWriteMetadata{
 		writeRoots:           make(map[string][]string, len(graph.Projects)),
 		waitOnlyDependencies: map[string][]string{},
-		restoredDeclarations: make(map[string][]string, len(graph.Projects)),
 		restoredMetadataErrs: make(map[string]string),
 		referenceOutputs:     make(map[string][]string),
 	}
 	for _, project := range graph.Projects {
-		metadata.writeRoots[project.ConfigPath] = []string{}
-		_, program, diagnostics, err := newProjectProgram(filepath.Dir(project.ConfigPath), project.ConfigPath)
-		if err != nil {
-			metadata.restoredMetadataErrs[project.ConfigPath] = err.Error()
-			if len(diagnostics) > 0 {
-				metadata.restoredMetadataErrs[project.ConfigPath] = strings.Join(diagnostics, "; ")
-			}
+		info := m.infos[project.ConfigPath]
+		metadata.writeRoots[project.ConfigPath] = info.writeRoots
+		if info.err != "" {
+			metadata.restoredMetadataErrs[project.ConfigPath] = info.err
 			continue
 		}
-		rootDirs := projectRootDirs(program)
-		programs[project.ConfigPath] = program
-		if program.Options().OutDir != "" {
-			pathTranslator := createPathTranslator(program, !project.Options.LuaExtension)
-			metadata.writeRoots[project.ConfigPath] = appendCanonicalWriteRoot(
-				metadata.writeRoots[project.ConfigPath],
-				pathTranslator.OutDir,
-			)
-			if program.Options().GetEmitDeclarations() {
-				if declarationDir := program.Options().DeclarationDir; declarationDir != "" {
-					metadata.writeRoots[project.ConfigPath] = appendCanonicalWriteRoot(metadata.writeRoots[project.ConfigPath], filepath.FromSlash(declarationDir))
-				}
-				for _, sourceFile := range projectSourceFiles(program) {
-					metadata.restoredDeclarations[project.ConfigPath] = append(
-						metadata.restoredDeclarations[project.ConfigPath],
-						filepath.FromSlash(outputpaths.GetOutputDeclarationFileNameWorker(sourceFile.FileName(), program.Options(), program)),
-					)
-				}
-			}
-		}
-		if project.Options.EmitIncludeFiles {
-			if includePath, includeErr := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath); includeErr == nil {
-				metadata.writeRoots[project.ConfigPath] = appendCanonicalWriteRoot(
-					metadata.writeRoots[project.ConfigPath],
-					includePath,
-				)
-			}
-		}
-		if len(rootDirs) == 0 || program.Options().OutDir == "" {
-			continue
-		}
-		translator := createPathTranslator(program, !project.Options.LuaExtension)
-		paths := map[string]string{}
-		pathsByProject[project.ConfigPath] = paths
-		outputsByProject[project.ConfigPath] = []string{}
-		for _, fileName := range program.CommandLine().FileNames() {
-			if tspath.IsDeclarationFileName(fileName) && !isPathDescendantOf(filepath.FromSlash(fileName), translator.RootDir) {
-				continue
-			}
-			importPath := translator.GetImportPath(fileName, false)
-			outputsByProject[project.ConfigPath] = append(outputsByProject[project.ConfigPath], importPath)
-			canonical := rojo.CanonicalFileName(fileName, osvfs.FS().UseCaseSensitiveFileNames())
-			paths[canonical] = importPath
-			if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
-				declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, program.Options(), program)
-				declarationCanonical := rojo.CanonicalFileName(declarationPath, osvfs.FS().UseCaseSensitiveFileNames())
-				paths[declarationCanonical] = importPath
-			}
-		}
-		addProjectRealPathAliases(paths, filepath.Dir(project.ConfigPath), osvfs.FS().UseCaseSensitiveFileNames())
+		configs[project.ConfigPath] = info.config
 	}
 	projects := make(map[string]SolutionProject, len(graph.Projects))
 	for _, project := range graph.Projects {
@@ -111,17 +180,17 @@ func populateCrossProjectMetadata(graph *SolutionGraph) solutionWriteMetadata {
 			for _, reference := range projects[configPath].References {
 				visit(reference)
 			}
-			for key, output := range pathsByProject[configPath] {
-				paths[key] = output
+			if info := m.infos[configPath]; info != nil {
+				maps.Copy(paths, info.paths)
+				outputs = append(outputs, info.outputs...)
 			}
-			outputs = append(outputs, outputsByProject[configPath]...)
 		}
 		for _, reference := range project.References {
 			visit(reference)
 		}
 		project.Options.projectReferencePaths = paths
-		if ownOutputs, emits := outputsByProject[project.ConfigPath]; emits {
-			outputs = append(outputs, ownOutputs...)
+		if own := m.infos[project.ConfigPath]; own.emits {
+			outputs = append(outputs, own.outputs...)
 			includePath, err := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath)
 			if err != nil {
 				metadata.validationErr = err
@@ -132,14 +201,36 @@ func populateCrossProjectMetadata(graph *SolutionGraph) solutionWriteMetadata {
 		}
 	}
 	metadata.waitOnlyDependencies = deriveWaitOnlyDependencies(graph.Projects, metadata.writeRoots)
-	metadata.validationErr = validateSolutionReferences(graph, programs)
+	metadata.validationErr = validateSolutionReferences(graph, configs)
 	if metadata.validationErr == nil {
-		metadata.validationErr = validateReferenceRojoPaths(graph, metadata.referenceOutputs)
+		metadata.validationErr = validateProjectsReferenceRojoPaths(graph, consumers, metadata.referenceOutputs, m.references)
 	}
 	if metadata.validationErr == nil {
-		metadata.validationErr = validateProjectOutputs(graph, programs)
+		metadata.validationErr = validateProjectOutputs(graph, configs)
 	}
 	return metadata
+}
+
+// projectRestoredDeclarations lists the declaration outputs a satisfied
+// project must have restored. It builds the program, because the emitted set
+// includes sources that only imports reach.
+func projectRestoredDeclarations(project SolutionProject) ([]string, error) {
+	_, program, diagnostics, err := newProjectProgram(filepath.Dir(project.ConfigPath), project.ConfigPath)
+	if err != nil {
+		if len(diagnostics) > 0 {
+			return nil, errors.New(strings.Join(diagnostics, "; "))
+		}
+		return nil, err
+	}
+	options := program.Options()
+	if options.OutDir == "" || !options.GetEmitDeclarations() {
+		return nil, nil
+	}
+	declarations := []string{}
+	for _, sourceFile := range projectSourceFiles(program) {
+		declarations = append(declarations, filepath.FromSlash(outputpaths.GetOutputDeclarationFileNameWorker(sourceFile.FileName(), options, program)))
+	}
+	return declarations, nil
 }
 
 func appendCanonicalWriteRoot(roots []string, path string) []string {
@@ -227,7 +318,7 @@ func writeRootContains(root, path string) bool {
 	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func projectRootDirs(program *compiler.Program) []string {
+func projectRootDirs(program projectOutputHost) []string {
 	options := program.Options()
 	if options.RootDir != "" {
 		return []string{options.RootDir}

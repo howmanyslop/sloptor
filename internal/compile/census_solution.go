@@ -157,14 +157,14 @@ func CompileSolutionDiagnostics(tsConfigPath string, entry ProjectOptions) (*Sol
 	// a project boundary transform differently than they would in a real build
 	// — a census whose verdicts do not match what `rotor build --build` would
 	// say is worth less than no census.
-	metadata := populateCrossProjectMetadata(graph)
+	metadata, cache := newCrossProjectMetadata(graph)
 	drainer := &solutionCensusDrainer{
 		overlays:       entry.Overlays,
 		overlayMatches: newSolutionOverlayMatches(),
 		censuses:       map[string]*ProjectDiagnostics{},
 		errs:           map[string]error{},
 	}
-	coordinator, err := newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
+	coordinator, err := newSolutionCoordinator(graph, drainer, metadata, cache, effectiveSolutionBuilders(entry), entry.Timings)
 	if err != nil {
 		return solution, err
 	}

@@ -198,7 +198,7 @@ func crossProjectCompilerOptions(declaration bool) string {
 	return `{"compilerOptions":{"allowSyntheticDefaultImports":true,"composite":true,"declaration":` + strconv.FormatBool(declaration) + `,"module":"CommonJS","moduleResolution":"Node","noLib":true,"moduleDetection":"force","strict":true,"target":"ESNext","types":[],"typeRoots":["node_modules/@rbxts"],"rootDir":"src","outDir":"out"}`
 }
 
-func writeSolutionFile(t *testing.T, dir, path, text string) {
+func writeSolutionFile(t testing.TB, dir, path, text string) {
 	t.Helper()
 	fullPath := filepath.Join(dir, filepath.FromSlash(path))
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -209,7 +209,7 @@ func writeSolutionFile(t *testing.T, dir, path, text string) {
 	}
 }
 
-func mustReadFile(t *testing.T, path string) []byte {
+func mustReadFile(t testing.TB, path string) []byte {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {

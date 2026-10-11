@@ -239,8 +239,17 @@ func TestSolutionCoordinatorRejectsOverlappingOutputDirectoriesWithoutMutation(t
 	if err != nil {
 		t.Fatalf("BuildSolutionGraph: %v", err)
 	}
-	metadata := populateCrossProjectMetadata(graph)
-	protected := append([]string(nil), metadata.restoredDeclarations[sharedConfig]...)
+	var protected []string
+	for _, project := range graph.Projects {
+		if project.ConfigPath == sharedConfig {
+			if protected, err = projectRestoredDeclarations(project); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if len(protected) == 0 {
+		t.Fatal("shared project has no restored declarations")
+	}
 	protected = append(protected, filepath.Join(satisfiedOut, "nested", "orphan.luau"))
 	for index, path := range protected {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
