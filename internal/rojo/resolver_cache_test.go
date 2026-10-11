@@ -273,3 +273,25 @@ func TestRojoCache_rebuildsWhenMissingPartitionAppears(t *testing.T) {
 		t.Errorf("rebuilt path = %v, want [outer inner item]", after)
 	}
 }
+
+func TestRojoCache_keepsResolverWhenDirectoryGainsPlainFile(t *testing.T) {
+	dir := writeProject(t, map[string]string{
+		"default.project.json": `{"name":"p","tree":{"outer":{"$path":"out"}}}`,
+		"out/":                 "",
+	})
+	configPath := filepath.Join(dir, "default.project.json")
+	cache := NewMemoryRojoResolverCache()
+	before := cache.Load(configPath)
+
+	if err := os.WriteFile(filepath.Join(dir, "out", "init.luau"), []byte("return nil\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	changedAt := time.Unix(1_700_000_000, 0)
+	if err := os.Chtimes(filepath.Join(dir, "out"), changedAt, changedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	if after := cache.Load(configPath); after != before {
+		t.Error("a build output file reparsed the Rojo tree")
+	}
+}
