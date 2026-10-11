@@ -206,7 +206,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		} else {
 			recovered := recoveredInputPaths(dir, pathTranslator, previousOutputs, previousPresence)
 			narrowed, declarations, ok, err := narrowSelectionByDeclarationSignature(
-				dir, program, pathTranslator, sourceFiles, recovered,
+				dir, program, sourceFiles, recovered,
 				currentManifest, previousManifest, previousOutputs, timings,
 			)
 			if err != nil {

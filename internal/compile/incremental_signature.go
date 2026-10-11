@@ -200,7 +200,6 @@ func changedSourcePaths(current, previous *incrementalManifest) map[string]struc
 func narrowSelectionByDeclarationSignature(
 	dir string,
 	program *compiler.Program,
-	pathTranslator *rojo.PathTranslator,
 	sourceFiles []*ast.SourceFile,
 	extraSeeds map[string]struct{},
 	current, previous *incrementalManifest,
