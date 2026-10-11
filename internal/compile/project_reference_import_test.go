@@ -571,3 +571,17 @@ func TestProjectImportSourceOutsideRootDirCensus(t *testing.T) {
 		}
 	}
 }
+
+// A file named "..x" sits inside rootDir, so its import uses the outDir
+// path. Rojo itself treats such a name as outside its mount.
+func TestProjectImportDotDotNameInsideRootDir(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("game", nil, nil)
+	f.write("game/src/..types.d.ts", "export declare const value: number;\n")
+	f.write("game/src/index.ts", `import { value } from "./..types"; export const result = value;`)
+	_, messages, _ := BuildSolutionWithOptions(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+	want := filepath.Join("out", "..types.luau")
+	if !strings.Contains(strings.Join(messages, "\n"), want) {
+		t.Fatalf("messages = %v, want path %s", messages, want)
+	}
+}

@@ -392,7 +392,7 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 	if !hasReferencePath {
 		moduleOutPath = s.Rojo.PathTranslator.GetImportPath(virtualPath, false)
 		relative, err := filepath.Rel(s.Rojo.PathTranslator.RootDir, filepath.FromSlash(virtualPath))
-		if err != nil || strings.HasPrefix(relative, "..") {
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			if tspath.IsDeclarationFileName(virtualPath) {
 				// Keep the path in place (no outDir rebase), but map index to init.
 				moduleOutPath = s.Rojo.PathTranslator.GetImportPath(virtualPath, true /* isNodeModule */)
