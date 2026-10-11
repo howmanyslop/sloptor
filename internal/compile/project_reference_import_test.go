@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,7 +21,12 @@ type referenceFixture struct {
 
 func newReferenceFixture(t *testing.T) *referenceFixture {
 	t.Helper()
-	f := &referenceFixture{t: t, dir: t.TempDir()}
+	return newReferenceFixtureAt(t, t.TempDir())
+}
+
+func newReferenceFixtureAt(t *testing.T, dir string) *referenceFixture {
+	t.Helper()
+	f := &referenceFixture{t: t, dir: dir}
 	f.json("package.json", map[string]any{"name": "reference-fixture"})
 	f.json("base.json", map[string]any{"compilerOptions": map[string]any{
 		"allowSyntheticDefaultImports": true, "module": "commonjs",
@@ -122,13 +129,34 @@ func TestProjectReferenceNodeModulesSymlink(t *testing.T) {
 	}{
 		{"resolved symlink", false}, {"preserved symlink", true},
 	} {
-		t.Run(test.name, func(t *testing.T) { testProjectReferenceNodeModulesSymlink(t, test.preserve) })
+		t.Run(test.name, func(t *testing.T) {
+			testProjectReferenceNodeModulesSymlink(t, newReferenceFixture(t), test.preserve)
+		})
 	}
 }
 
-func testProjectReferenceNodeModulesSymlink(t *testing.T, preserveSymlinks bool) {
+// An aliased fixture directory (like an 8.3 short temp path) spells project
+// paths differently from their real paths.
+func TestProjectReferenceAliasedDirectory(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "real")
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if runtime.GOOS == "windows" {
+		err = exec.Command("cmd", "/c", "mklink", "/J", alias, real).Run()
+	} else {
+		err = os.Symlink(real, alias)
+	}
+	if err != nil {
+		t.Skipf("directory links unavailable: %v", err)
+	}
+	testProjectReferenceNodeModulesSymlink(t, newReferenceFixtureAt(t, alias), false)
+}
+
+func testProjectReferenceNodeModulesSymlink(t *testing.T, f *referenceFixture, preserveSymlinks bool) {
 	t.Helper()
-	f := newReferenceFixture(t)
 	f.project("shared", nil, map[string]any{"declarationDir": "types"})
 	f.project("game", []string{"shared"}, map[string]any{"preserveSymlinks": preserveSymlinks})
 	f.json("shared/package.json", map[string]string{"name": "@rbxts/shared", "types": "types/index.d.ts"})

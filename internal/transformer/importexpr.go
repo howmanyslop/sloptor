@@ -189,11 +189,44 @@ func referencePackagePath(s *State, nodeModulePath, referencePath string) (strin
 	if !ok {
 		return "", false
 	}
-	inner, err := filepath.Rel(realPackagePath, filepath.FromSlash(referencePath))
-	if err != nil || inner == ".." || strings.HasPrefix(inner, ".."+string(filepath.Separator)) {
+	inner, ok := relativeInside(realPackagePath, filepath.FromSlash(referencePath))
+	if !ok {
+		// The reference path may be spelled through an alias of the real
+		// package directory (a junction or 8.3 short path).
+		inner, ok = relativeInside(realPackagePath, realPathOfAncestor(filepath.FromSlash(referencePath)))
+	}
+	if !ok {
 		return "", false
 	}
 	return filepath.Join(packagePath, inner), true
+}
+
+func relativeInside(base, target string) (string, bool) {
+	inner, err := filepath.Rel(base, target)
+	if err != nil || inner == ".." || strings.HasPrefix(inner, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return inner, true
+}
+
+// realPathOfAncestor resolves the nearest existing ancestor of path and
+// rejoins the missing tail, since output files may not exist yet.
+func realPathOfAncestor(path string) string {
+	fs := osvfs.FS()
+	missing := []string{}
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if fs.DirectoryExists(filepath.ToSlash(dir)) || fs.FileExists(filepath.ToSlash(dir)) {
+			resolved := filepath.FromSlash(fs.Realpath(filepath.ToSlash(dir)))
+			for index := len(missing) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, missing[index])
+			}
+			return resolved
+		}
+		if filepath.Dir(dir) == dir {
+			return path
+		}
+		missing = append(missing, filepath.Base(dir))
+	}
 }
 
 // getNodeModulesImportParts ports createImportExpression.ts

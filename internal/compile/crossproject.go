@@ -1,6 +1,7 @@
 package compile
 
 import (
+	"maps"
 	"path/filepath"
 	"strings"
 
@@ -90,6 +91,7 @@ func populateCrossProjectMetadata(graph *SolutionGraph) solutionWriteMetadata {
 				paths[declarationCanonical] = importPath
 			}
 		}
+		addProjectRealPathAliases(paths, filepath.Dir(project.ConfigPath), osvfs.FS().UseCaseSensitiveFileNames())
 	}
 	projects := make(map[string]SolutionProject, len(graph.Projects))
 	for _, project := range graph.Projects {
@@ -148,6 +150,25 @@ func appendCanonicalWriteRoot(roots []string, path string) []string {
 		}
 	}
 	return append(roots, canonical)
+}
+
+// addProjectRealPathAliases also keys paths under dir by dir's real path, since
+// import lookups may see a file through its resolved path (for example an
+// 8.3 short temp path or a junction). One Realpath per project, not per file.
+func addProjectRealPathAliases(paths map[string]string, dir string, useCaseSensitiveFileNames bool) {
+	spelled := rojo.CanonicalFileName(dir, useCaseSensitiveFileNames)
+	real := rojo.CanonicalFileName(osvfs.FS().Realpath(filepath.ToSlash(dir)), useCaseSensitiveFileNames)
+	if real == spelled {
+		return
+	}
+	prefix := spelled + string(filepath.Separator)
+	aliases := map[string]string{}
+	for key, value := range paths {
+		if rest, ok := strings.CutPrefix(key, prefix); ok {
+			aliases[filepath.Join(real, rest)] = value
+		}
+	}
+	maps.Copy(paths, aliases)
 }
 
 func canonicalWriteRoot(path string) string {

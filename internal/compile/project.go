@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -400,19 +401,22 @@ func createCrossProjectImportPathMap(program *compiler.Program, opts ProjectOpti
 			useLuauExtension = !referenced.LuaExtension
 		}
 		translator := rojo.NewPathTranslator(findAncestorDir(rootDirs), filepath.FromSlash(options.OutDir), "", options.GetEmitDeclarations(), useLuauExtension)
+		paths := map[string]string{}
 		for _, fileName := range reference.FileNames() {
 			if tspath.IsDeclarationFileName(fileName) && !isPathDescendantOf(filepath.FromSlash(fileName), translator.RootDir) {
 				continue
 			}
 			importPath := translator.GetImportPath(fileName, false)
 			canonical := rojo.CanonicalFileName(fileName, useCaseSensitiveFileNames)
-			result[canonical] = importPath
+			paths[canonical] = importPath
 			if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
 				declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, options, reference)
 				declarationCanonical := rojo.CanonicalFileName(declarationPath, useCaseSensitiveFileNames)
-				result[declarationCanonical] = importPath
+				paths[declarationCanonical] = importPath
 			}
 		}
+		addProjectRealPathAliases(paths, filepath.Dir(reference.ConfigName()), useCaseSensitiveFileNames)
+		maps.Copy(result, paths)
 	}
 	for _, reference := range program.GetResolvedProjectReferences() {
 		visit(reference)
