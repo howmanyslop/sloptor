@@ -394,11 +394,8 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 		relative, err := filepath.Rel(s.Rojo.PathTranslator.RootDir, filepath.FromSlash(virtualPath))
 		if err != nil || strings.HasPrefix(relative, "..") {
 			if tspath.IsDeclarationFileName(virtualPath) {
-				extension := ".lua"
-				if s.Rojo.PathTranslator.UseLuauExtension {
-					extension = ".luau"
-				}
-				moduleOutPath = strings.TrimSuffix(virtualPath, ".d.ts") + extension
+				// Keep the path in place (no outDir rebase), but map index to init.
+				moduleOutPath = s.Rojo.PathTranslator.GetImportPath(virtualPath, true /* isNodeModule */)
 			} else {
 				if !ast.IsJsonSourceFile(moduleFile) {
 					panic("transformer: project import outside rootDir must be JSON or a declaration")

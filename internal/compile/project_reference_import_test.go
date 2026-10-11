@@ -520,3 +520,34 @@ func TestProjectReferenceDirectSpecRojoMounts(t *testing.T) {
 		t.Fatalf("error = %v, want %s", err, want)
 	}
 }
+
+// Hand-written declarations and JSON outside rootDir describe files mapped
+// directly by Rojo; index declarations reach the init module beside them.
+func TestProjectImportOutsideRootDir(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("game", nil, map[string]any{"resolveJsonModule": true})
+	f.write("lib/index.d.ts", "export declare const value: number;\n")
+	f.write("lib/init.luau", "return { value = 1 }\n")
+	f.write("lib/pure.d.ts", "export declare const pure: number;\n")
+	f.write("lib/pure.luau", "return { pure = 2 }\n")
+	f.json("lib/data.json", map[string]int{"count": 3})
+	f.rojo("default.project.json", "", map[string]any{"lib": map[string]string{"$path": "lib"}})
+	f.write("game/src/index.ts", `import { value } from "../../lib";
+import { pure } from "../../lib/pure";
+import data from "../../lib/data.json";
+export const result = value + pure + data.count;`)
+	result := f.build()
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", result.Diagnostics)
+	}
+	output := string(mustReadFile(t, filepath.Join(f.dir, "game/out/init.luau")))
+	for _, want := range []string{
+		`TS.import(script, game:GetService("ReplicatedStorage"), "lib")`,
+		`TS.import(script, game:GetService("ReplicatedStorage"), "lib", "pure")`,
+		`TS.import(script, game:GetService("ReplicatedStorage"), "lib", "data")`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing %s:\n%s", want, output)
+		}
+	}
+}
