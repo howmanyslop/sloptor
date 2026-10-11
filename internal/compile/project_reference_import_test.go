@@ -24,7 +24,7 @@ func newReferenceFixture(t testing.TB) *referenceFixture {
 	return newReferenceFixtureAt(t, t.TempDir())
 }
 
-func newReferenceFixtureAt(t *testing.T, dir string) *referenceFixture {
+func newReferenceFixtureAt(t testing.TB, dir string) *referenceFixture {
 	t.Helper()
 	f := &referenceFixture{t: t, dir: dir}
 	f.json("package.json", map[string]any{"name": "reference-fixture"})

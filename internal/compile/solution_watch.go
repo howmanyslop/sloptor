@@ -14,7 +14,6 @@ import (
 type SolutionWatchSet struct {
 	ProjectPath         string
 	TsConfigPaths       []string
-	SourceFiles         []string
 	RootDirs            []string
 	RojoConfigs         []string
 	RojoDirectories     []string
@@ -26,35 +25,17 @@ type WatchAssetEvent struct {
 	Deleted bool
 }
 
+// WatchSets lists the paths to watch per project. Each project's set is
+// cached until the project is invalidated or the solution reloads, and is
+// derived from the parsed config, so no program is built.
 func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
 	sets := make([]SolutionWatchSet, 0, len(c.graph.Projects)+len(c.graph.coordinatorConfigChains))
+	rojoStates := map[string]rojoWatchState{}
 	for _, project := range c.graph.Projects {
-		set := SolutionWatchSet{ProjectPath: project.ConfigPath}
-		_, set.TsConfigPaths, _ = ReadRbxtsOptionsWithChain(project.ConfigPath)
-		if len(set.TsConfigPaths) == 0 {
-			set.TsConfigPaths = []string{project.ConfigPath}
-		}
-		set.TsConfigPaths = canonicalWatchPaths(set.TsConfigPaths)
-		dir, program, _, err := newProjectProgram(filepath.Dir(project.ConfigPath), project.ConfigPath)
-		if err == nil {
-			set.RootDirs = getRootDirs(program)
-			pathTranslator := createPathTranslator(program, !project.Options.LuaExtension)
-			set.ArtifactDirectories = solutionWatchArtifactDirectories(
-				dir,
-				pathTranslator.OutDir,
-				project.Options.IncludePath,
-			)
-			for _, file := range program.SourceFiles() {
-				if pathWithinAnyRoot(file.FileName(), set.RootDirs) {
-					set.SourceFiles = append(set.SourceFiles, filepath.FromSlash(file.FileName()))
-				}
-			}
-			rojoPath, _, rojoErr := resolveRojoConfigPath(dir, project.Options.RojoConfigPath)
-			if rojoErr == nil && rojoPath != "" {
-				state := rojo.FromPath(rojoPath).GetState()
-				set.RojoConfigs = canonicalWatchPaths(state.WalkedConfigs)
-				set.RojoDirectories = filterRojoWatchDirectories(dir, state.WalkedDirectories, set.ArtifactDirectories)
-			}
+		set, ok := c.watchSets[project.ConfigPath]
+		if !ok {
+			set = c.projectWatchSet(project, rojoStates)
+			c.watchSets[project.ConfigPath] = set
 		}
 		sets = append(sets, set)
 	}
@@ -67,17 +48,58 @@ func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
 	return sets
 }
 
+// projectWatchSet reads the cached config unless the project is invalidated
+// and not yet refreshed. rojoStates shares Rojo parses between projects.
+func (c *SolutionCoordinator) projectWatchSet(project SolutionProject, rojoStates map[string]rojoWatchState) SolutionWatchSet {
+	set := SolutionWatchSet{ProjectPath: project.ConfigPath}
+	_, set.TsConfigPaths, _ = ReadRbxtsOptionsWithChain(project.ConfigPath)
+	if len(set.TsConfigPaths) == 0 {
+		set.TsConfigPaths = []string{project.ConfigPath}
+	}
+	set.TsConfigPaths = canonicalWatchPaths(set.TsConfigPaths)
+	var config *projectConfig
+	_, pending := c.pendingProjects[project.ConfigPath]
+	if info := c.metadata.infos[project.ConfigPath]; info != nil && !pending {
+		config = info.config
+	} else {
+		config, _, _ = parseProjectConfig(project.ConfigPath)
+		c.metadata.configParses++
+	}
+	if config == nil {
+		return set
+	}
+	dir := config.GetCurrentDirectory()
+	set.RootDirs = getRootDirs(config)
+	pathTranslator := createPathTranslator(config, !project.Options.LuaExtension)
+	set.ArtifactDirectories = solutionWatchArtifactDirectories(
+		dir,
+		pathTranslator.OutDir,
+		project.Options.IncludePath,
+	)
+	rojoPath, _, rojoErr := resolveRojoConfigPath(dir, project.Options.RojoConfigPath)
+	if rojoErr == nil && rojoPath != "" {
+		state, ok := rojoStates[rojoPath]
+		if !ok {
+			state = newRojoWatchState(rojoPath)
+			rojoStates[rojoPath] = state
+		}
+		set.RojoConfigs = state.configs
+		set.RojoDirectories = filterRojoWatchDirectories(dir, state, set.ArtifactDirectories)
+	}
+	return set
+}
+
 func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAssetEvent) error {
 	state, ok := c.ProjectState(tsConfigPath)
 	if !ok {
 		return nil
 	}
-	_, program, _, err := newProjectProgram(filepath.Dir(state.Project.ConfigPath), state.Project.ConfigPath)
+	config, _, err := parseProjectConfig(state.Project.ConfigPath)
 	if err != nil {
 		return err
 	}
-	translator := createPathTranslator(program, !state.Project.Options.LuaExtension)
-	assetDirectories := append([]string{}, getRootDirs(program)...)
+	translator := createPathTranslator(config, !state.Project.Options.LuaExtension)
+	assetDirectories := append([]string{}, getRootDirs(config)...)
 	dir := filepath.Dir(state.Project.ConfigPath)
 	if rojoPath, _, rojoErr := resolveRojoConfigPath(dir, state.Project.Options.RojoConfigPath); rojoErr == nil && rojoPath != "" {
 		artifactDirectories := solutionWatchArtifactDirectories(
@@ -85,8 +107,7 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 			translator.OutDir,
 			state.Project.Options.IncludePath,
 		)
-		rojoDirectories := rojo.FromPath(rojoPath).GetState().WalkedDirectories
-		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, rojoDirectories, artifactDirectories)...)
+		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, newRojoWatchState(rojoPath), artifactDirectories)...)
 	}
 	changes := map[string]bool{}
 	for _, event := range events {
@@ -108,7 +129,7 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 			}
 		}
 		if deleted {
-			tryRemoveOutput(translator, translator.GetOutputPath(path), program.Options().SourceMap.IsTrue())
+			tryRemoveOutput(translator, translator.GetOutputPath(path), config.Options().SourceMap.IsTrue())
 			continue
 		}
 		if err := copyItem(translator, path); err != nil {
@@ -174,10 +195,28 @@ func rebaseWatchAssetPath(path string, assetDirectories []string) string {
 	return path
 }
 
-func filterRojoWatchDirectories(projectDir string, directories, artifactDirectories []string) []string {
-	filtered := make([]string, 0, len(directories))
-	for _, directory := range directories {
-		directory = rebaseRojoWatchDirectory(directory, projectDir)
+// rojoWatchState is a Rojo config's walked paths, canonicalized once and
+// shared by every project that uses the config.
+type rojoWatchState struct {
+	configs              []string
+	directories          []string
+	canonicalDirectories []string
+}
+
+func newRojoWatchState(rojoPath string) rojoWatchState {
+	state := rojo.FromPath(rojoPath).GetState()
+	return rojoWatchState{
+		configs:              canonicalWatchPaths(state.WalkedConfigs),
+		directories:          state.WalkedDirectories,
+		canonicalDirectories: canonicalWatchPaths(state.WalkedDirectories),
+	}
+}
+
+func filterRojoWatchDirectories(projectDir string, state rojoWatchState, artifactDirectories []string) []string {
+	canonicalProjectDir := canonicalWatchDirectory(projectDir)
+	filtered := make([]string, 0, len(state.directories))
+	for index, directory := range state.directories {
+		directory = rebaseRojoWatchDirectory(directory, state.canonicalDirectories[index], projectDir, canonicalProjectDir)
 		if pathWithinAnyRoot(directory, artifactDirectories) {
 			continue
 		}
@@ -186,9 +225,8 @@ func filterRojoWatchDirectories(projectDir string, directories, artifactDirector
 	return filtered
 }
 
-func rebaseRojoWatchDirectory(directory, projectDir string) string {
-	canonicalProjectDir := canonicalWatchDirectory(projectDir)
-	relative, err := filepath.Rel(canonicalProjectDir, canonicalWatchDirectory(directory))
+func rebaseRojoWatchDirectory(directory, canonicalDirectory, projectDir, canonicalProjectDir string) string {
+	relative, err := filepath.Rel(canonicalProjectDir, canonicalDirectory)
 	if err != nil {
 		return filepath.Clean(filepath.FromSlash(directory))
 	}
@@ -196,8 +234,25 @@ func rebaseRojoWatchDirectory(directory, projectDir string) string {
 }
 
 func (c *SolutionCoordinator) ReloadForWatch(tsConfigPath string, entry ProjectOptions) (func() error, error) {
+	graph, err := BuildSolutionGraph(tsConfigPath, entry)
+	if err != nil {
+		return nil, err
+	}
+	luaExtensions := make(map[string]bool, len(graph.Projects))
+	for _, project := range graph.Projects {
+		luaExtensions[project.ConfigPath] = project.Options.LuaExtension
+	}
+	// Only a changed Lua extension leaves stale outputs, so only those
+	// projects need the program that lists their emitted sources.
 	previous := make(map[string]solutionWatchProjectOutputs, len(c.graph.Projects))
 	for _, project := range c.graph.Projects {
+		luaExtension, ok := luaExtensions[project.ConfigPath]
+		if !ok || luaExtension == project.Options.LuaExtension {
+			if _, _, err := parseProjectConfig(project.ConfigPath); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		outputs, err := solutionWatchOutputPaths(project)
 		if err != nil {
 			return nil, err
@@ -207,7 +262,7 @@ func (c *SolutionCoordinator) ReloadForWatch(tsConfigPath string, entry ProjectO
 			paths:        outputs,
 		}
 	}
-	if err := c.Reload(tsConfigPath, entry); err != nil {
+	if err := c.reload(graph, entry); err != nil {
 		return nil, err
 	}
 

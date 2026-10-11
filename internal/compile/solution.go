@@ -94,9 +94,16 @@ type SolutionCoordinator struct {
 	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
 	referenceOutputs     map[string][]string
-	referencePathsDirty  bool
-	builders             int
-	timings              *BuildTimings
+	metadata             *crossProjectMetadata
+	// pendingProjects were invalidated since the last metadata refresh.
+	// metadataStale means the cached project infos changed but the solution
+	// metadata was not derived from them yet.
+	pendingProjects map[string]struct{}
+	metadataStale   bool
+	// watchSets caches each project's watch set until it is invalidated.
+	watchSets map[string]SolutionWatchSet
+	builders  int
+	timings   *BuildTimings
 }
 
 type solutionProjectVisit uint8
@@ -403,17 +410,17 @@ func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordi
 	if err != nil {
 		return nil, err
 	}
-	metadata := populateCrossProjectMetadata(graph)
+	metadata, cache := newCrossProjectMetadata(graph)
 	if metadata.validationErr != nil {
 		return nil, metadata.validationErr
 	}
 	drainer := &solutionBuildDrainer{
 		graph:                graph,
 		referenceOutputs:     metadata.referenceOutputs,
-		restoredDeclarations: metadata.restoredDeclarations,
+		restoredDeclarations: map[string][]string{},
 		restoredMetadataErrs: metadata.restoredMetadataErrs,
 	}
-	return newSolutionCoordinator(graph, drainer, metadata, solutionRootsBuilders(roots), solutionRootsTimings(roots))
+	return newSolutionCoordinator(graph, drainer, metadata, cache, solutionRootsBuilders(roots), solutionRootsTimings(roots))
 }
 
 func NewSolutionCoordinatorForRootsWithDrainer(tsConfigPaths []string, entry ProjectOptions, drainer SolutionProjectDrainer) (*SolutionCoordinator, error) {
@@ -424,8 +431,8 @@ func NewSolutionCoordinatorForRootsWithDrainer(tsConfigPaths []string, entry Pro
 	if err != nil {
 		return nil, err
 	}
-	metadata := populateCrossProjectMetadata(graph)
-	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
+	metadata, cache := newCrossProjectMetadata(graph)
+	return newSolutionCoordinator(graph, drainer, metadata, cache, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
 func solutionRootsBuilders(roots []SolutionRoot) int {
@@ -442,7 +449,7 @@ func solutionRootsTimings(roots []SolutionRoot) *BuildTimings {
 	return roots[0].Options.Timings
 }
 
-func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer, metadata solutionWriteMetadata, builders int, timings *BuildTimings) (*SolutionCoordinator, error) {
+func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer, metadata solutionWriteMetadata, cache *crossProjectMetadata, builders int, timings *BuildTimings) (*SolutionCoordinator, error) {
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
 	projectPaths := make(map[string]string, len(graph.Projects))
 	for _, project := range graph.Projects {
@@ -466,6 +473,9 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		writeRoots:           metadata.writeRoots,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
 		referenceOutputs:     metadata.referenceOutputs,
+		metadata:             cache,
+		pendingProjects:      map[string]struct{}{},
+		watchSets:            map[string]SolutionWatchSet{},
 		builders:             builders,
 		timings:              timings,
 	}, nil
@@ -577,11 +587,10 @@ func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
 				state.forceFullBuild = true
 			}
 			c.states[project.ConfigPath] = state
+			c.pendingProjects[project.ConfigPath] = struct{}{}
+			delete(c.watchSets, project.ConfigPath)
 			result = append(result, project.ConfigPath)
 		}
-	}
-	if len(result) > 0 {
-		c.referencePathsDirty = true
 	}
 	return result
 }
@@ -591,7 +600,13 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	if err != nil {
 		return err
 	}
-	metadata := populateCrossProjectMetadata(graph)
+	return c.reload(graph, entry)
+}
+
+func (c *SolutionCoordinator) reload(graph *SolutionGraph, entry ProjectOptions) error {
+	// Derive into a copy so a failed reload keeps the current metadata.
+	cache := &crossProjectMetadata{configParses: c.metadata.configParses, refreshes: c.metadata.refreshes}
+	metadata := cache.rebuild(graph)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok && metadata.validationErr != nil {
 		return metadata.validationErr
 	}
@@ -615,13 +630,16 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	c.writeRoots = metadata.writeRoots
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
 	c.referenceOutputs = metadata.referenceOutputs
-	c.referencePathsDirty = false
+	c.metadata = cache
+	c.pendingProjects = map[string]struct{}{}
+	c.metadataStale = false
+	c.watchSets = map[string]SolutionWatchSet{}
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {
 		c.drainer = &solutionBuildDrainer{
 			graph:                graph,
 			referenceOutputs:     metadata.referenceOutputs,
-			restoredDeclarations: metadata.restoredDeclarations,
+			restoredDeclarations: map[string][]string{},
 			restoredMetadataErrs: metadata.restoredMetadataErrs,
 		}
 	}

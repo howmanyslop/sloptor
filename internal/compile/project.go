@@ -1083,7 +1083,7 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 // (the translator stores but never consults it). useLuauExtension is
 // upstream's `data.projectOptions.luau` (createPathTranslator.ts L17,
 // DEFAULT_PROJECT_OPTIONS.luau = true → .luau; --luau=false → .lua).
-func createPathTranslator(program *compiler.Program, useLuauExtension bool) *rojo.PathTranslator {
+func createPathTranslator(program projectOutputHost, useLuauExtension bool) *rojo.PathTranslator {
 	options := program.Options()
 	dirs := append([]string{program.CommonSourceDirectory()}, getRootDirs(program)...)
 	rootDir := findAncestorDir(dirs)
@@ -1355,7 +1355,7 @@ func pathExists(path string) bool {
 // getRootDirs ports Shared/util/getRootDirs.ts: rootDir if set, else rootDirs
 // (the assert is upstream's; validateCompilerOptions has already rejected
 // configs with neither, so the panic is an unreachable internal invariant).
-func getRootDirs(program *compiler.Program) []string {
+func getRootDirs(program projectOutputHost) []string {
 	options := program.Options()
 	if options.RootDir != "" {
 		return []string{options.RootDir}

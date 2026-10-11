@@ -8,7 +8,6 @@ import (
 
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
-	"rotor/tsgo/compiler"
 	"rotor/tsgo/diagnostics"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
@@ -21,7 +20,7 @@ type referenceDiagnosticError struct {
 
 func (e *referenceDiagnosticError) Error() string { return e.diagnostic.Message }
 
-func validateSolutionReferences(graph *SolutionGraph, programs map[string]*compiler.Program) error {
+func validateSolutionReferences(graph *SolutionGraph, programs map[string]projectOutputHost) error {
 	references := [][]string{}
 	for _, project := range graph.Projects {
 		references = append(references, project.References)
@@ -50,7 +49,7 @@ func validateSolutionReferences(graph *SolutionGraph, programs map[string]*compi
 	return nil
 }
 
-func validateProjectOutputs(graph *SolutionGraph, programs map[string]*compiler.Program) error {
+func validateProjectOutputs(graph *SolutionGraph, programs map[string]projectOutputHost) error {
 	type outputOwner struct{ path, configPath string }
 	owners := []outputOwner{}
 	buildInfoOwners := map[string]string{}

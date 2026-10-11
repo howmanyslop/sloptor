@@ -14,7 +14,16 @@ func (d *solutionBuildDrainer) validateSatisfiedProject(project SolutionProject,
 		message := fmt.Sprintf("satisfied project %s has invalid restored metadata: %s", project.ConfigPath, detail)
 		return &solutionSelectionError{configPath: project.ConfigPath, code: "SOLUTION_SATISFIED_OUTPUT_INVALID", message: message}
 	}
-	for _, declarationPath := range d.restoredDeclarations[project.ConfigPath] {
+	declarations, ok := d.restoredDeclarations[project.ConfigPath]
+	if !ok {
+		var err error
+		if declarations, err = projectRestoredDeclarations(project); err != nil {
+			message := fmt.Sprintf("satisfied project %s has invalid restored metadata: %s", project.ConfigPath, err)
+			return &solutionSelectionError{configPath: project.ConfigPath, code: "SOLUTION_SATISFIED_OUTPUT_INVALID", message: message}
+		}
+		d.restoredDeclarations[project.ConfigPath] = declarations
+	}
+	for _, declarationPath := range declarations {
 		declarationText, ok := cache.fs.ReadFile(declarationPath)
 		if !ok {
 			message := fmt.Sprintf("satisfied project %s is missing restored declaration output %s; restore the output or select the project for work", project.ConfigPath, filepath.Clean(filepath.FromSlash(declarationPath)))
