@@ -135,21 +135,52 @@ func TestProjectReferenceNodeModulesSymlink(t *testing.T) {
 	}
 }
 
-// A junction fixture directory (like an 8.3 short temp path) spells project
-// paths differently from their real paths.
+// An aliased fixture directory (a junction like an 8.3 short temp path, or a
+// symlink) spells project paths differently from their real paths.
 func TestProjectReferenceAliasedDirectory(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("directory junctions are Windows-only")
+	for _, kind := range []string{"junction", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			testProjectReferenceNodeModulesSymlink(t, newAliasedReferenceFixture(t, kind), false)
+		})
 	}
+}
+
+func TestProjectReferenceAliasedDirectoryRojoMounts(t *testing.T) {
+	for _, kind := range []string{"junction", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newAliasedReferenceFixture(t, kind)
+			f.project("shared", nil, nil)
+			f.project("game", []string{"shared"}, nil)
+			f.write("game/src/index.ts", `import { value } from "../../shared/src"; export const result = value;`)
+			f.json("shared/tsconfig.json", map[string]any{
+				"extends": "../base.json", "compilerOptions": map[string]any{
+					"rootDir": "src", "outDir": "out", "composite": true, "tsBuildInfoFile": "cache/shared.tsbuildinfo",
+				}, "include": []string{"src"}, "rbxts": map[string]string{"type": "game", "rojo": "owner.project.json"},
+			})
+			f.rojo("shared/owner.project.json", "../", nil)
+			f.build()
+		})
+	}
+}
+
+func newAliasedReferenceFixture(t *testing.T, kind string) *referenceFixture {
+	t.Helper()
 	real := filepath.Join(t.TempDir(), "real")
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Mkdir(real, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := exec.Command("cmd", "/c", "mklink", "/J", alias, real).Run(); err != nil {
-		t.Skipf("directory junctions unavailable: %v", err)
+	if kind == "junction" {
+		if runtime.GOOS != "windows" {
+			t.Skip("directory junctions are Windows-only")
+		}
+		if err := exec.Command("cmd", "/c", "mklink", "/J", alias, real).Run(); err != nil {
+			t.Skipf("directory junctions unavailable: %v", err)
+		}
+	} else if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
 	}
-	testProjectReferenceNodeModulesSymlink(t, newReferenceFixtureAt(t, alias), false)
+	return newReferenceFixtureAt(t, alias)
 }
 
 func testProjectReferenceNodeModulesSymlink(t *testing.T, f *referenceFixture, preserveSymlinks bool) {
