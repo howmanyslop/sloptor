@@ -203,7 +203,11 @@ func resolveIncludePath(dir, includePath string) (string, error) {
 	if includePath == "" {
 		return filepath.Join(filepath.FromSlash(dir), "include"), nil
 	}
-	return filepath.Abs(filepath.FromSlash(includePath))
+	abs, err := filepath.Abs(filepath.FromSlash(includePath))
+	if err != nil {
+		return "", err
+	}
+	return canonicalExplicitPath(abs), nil
 }
 
 // newProjectContext ports the project-level setup of compileFiles.ts L56-100
@@ -365,7 +369,7 @@ func resolveRojoConfigPath(dir, configuredPath string) (string, []string, error)
 	if err != nil {
 		return "", nil, err
 	}
-	return abs, nil, nil
+	return canonicalExplicitPath(abs), nil, nil
 }
 
 func createCrossProjectImportPathMap(program *compiler.Program, opts ProjectOptions) map[string]string {

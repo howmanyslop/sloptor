@@ -291,6 +291,15 @@ func canonicalSolutionConfigPath(path string) (string, string, error) {
 	return canonical, key, nil
 }
 
+// canonicalExplicitPath spells a user-given path like solution config paths,
+// so it compares equal to paths derived from them.
+func canonicalExplicitPath(path string) string {
+	if !pathHasExplicitSymlink(path) {
+		return path
+	}
+	return filepath.Clean(filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(path))))
+}
+
 func pathHasExplicitSymlink(path string) bool {
 	volume := filepath.VolumeName(path)
 	current := volume + string(filepath.Separator)
