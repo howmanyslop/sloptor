@@ -243,11 +243,15 @@ func (c *SolutionCoordinator) ReloadForWatch(tsConfigPath string, entry ProjectO
 		luaExtensions[project.ConfigPath] = project.Options.LuaExtension
 	}
 	// Only a changed Lua extension leaves stale outputs, so only those
-	// projects need the program that lists their emitted sources.
+	// projects need the program that lists their emitted sources. A project
+	// gone from the new graph may have no config left, so it is skipped.
 	previous := make(map[string]solutionWatchProjectOutputs, len(c.graph.Projects))
 	for _, project := range c.graph.Projects {
 		luaExtension, ok := luaExtensions[project.ConfigPath]
-		if !ok || luaExtension == project.Options.LuaExtension {
+		if !ok {
+			continue
+		}
+		if luaExtension == project.Options.LuaExtension {
 			if _, _, err := parseProjectConfig(project.ConfigPath); err != nil {
 				return nil, err
 			}

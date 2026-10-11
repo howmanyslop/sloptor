@@ -181,6 +181,15 @@ func TestWatchMetadataMatchesFreshDerivation(t *testing.T) {
 			includeStep("right fixed", "right", "src"),
 			writeStep("right edit", "right/src/index.ts", "export const value = 4;\n", "right"),
 		},
+		"project removed": {
+			{name: "drop right", change: func(f *referenceFixture) {
+				f.project("game", []string{"mid"}, nil)
+				if err := os.Remove(filepath.Join(f.dir, "right/tsconfig.json")); err != nil {
+					f.t.Fatal(err)
+				}
+			}, invalidate: []string{"game"}, reload: true},
+			writeStep("game edit", "game/src/index.ts", "export const value = 6;\n", "game"),
+		},
 		"validation error recovers": {
 			failingStep(optionStep("left not composite", "left", "composite", false, false, "left")),
 			failingStep(writeStep("game edit while invalid", "game/src/index.ts", "export const value = 5;\n", "game")),
