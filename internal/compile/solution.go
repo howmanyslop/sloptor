@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"rotor/internal/rojo"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -194,17 +195,29 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 				if err != nil {
 					return "", err
 				}
-				if declared == nil || declared.Rojo == nil {
+				_, isPackage, _ := projectIsPackage(filepath.Dir(configPath))
+				// Non-game projects and projects declaring their own Rojo retain
+				// the same context whether reached as a root or a reference.
+				usesOwnContext := declared != nil && declared.Rojo != nil ||
+					options.Type == "package" || options.Type == "model" || options.Type == "" && isPackage
+				if !usesOwnContext && options.Type == "" {
+					ownRojoPath, _, err := resolveRojoConfigPath(filepath.Dir(configPath), options.RojoConfigPath)
+					if err != nil {
+						return "", err
+					}
+					usesOwnContext = ownRojoPath != "" && !rojo.FromPath(ownRojoPath).IsGame
+				}
+				if !usesOwnContext {
 					options.RojoConfigPath = rootRojoPath
 				}
-				if rootRojoPath != "" {
+				if !usesOwnContext && rootRojoPath != "" {
 					options.IncludePath = rootIncludePath
 				}
 			}
 
 			if existing, ok := projects[configKey]; ok {
 				if !sameSolutionProjectOptions(existing.Options, options) {
-					return "", fmt.Errorf("compile: conflicting effective options for %s reached from %s and %s", existing.ConfigPath, rootByProject[configKey], rootPath)
+					return "", solutionOptionsConflict(existing.ConfigPath, rootByProject[configKey], rootPath, existing.Options, options)
 				}
 				configPath = existing.ConfigPath
 			} else {
@@ -312,6 +325,15 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	left.deferRojoCachePersist, right.deferRojoCachePersist = false, false
 	left.forceFullBuild, right.forceFullBuild = false, false
 	return reflect.DeepEqual(left, right)
+}
+
+func solutionOptionsConflict(configPath, firstRoot, secondRoot string, first, second ProjectOptions) error {
+	dir := filepath.Dir(configPath)
+	firstRojo, _, _ := resolveRojoConfigPath(dir, first.RojoConfigPath)
+	secondRojo, _, _ := resolveRojoConfigPath(dir, second.RojoConfigPath)
+	firstInclude, _ := resolveIncludePath(dir, first.IncludePath)
+	secondInclude, _ := resolveIncludePath(dir, second.IncludePath)
+	return fmt.Errorf(`compile: conflicting effective options for %s reached from %s (Rojo "%s", include "%s") and %s (Rojo "%s", include "%s")`, configPath, firstRoot, firstRojo, firstInclude, secondRoot, secondRojo, secondInclude)
 }
 
 func emittingProjectReferences(references []string, projects map[string]SolutionProject) []string {
