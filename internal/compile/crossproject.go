@@ -214,10 +214,6 @@ func projectRootDirs(program *compiler.Program) []string {
 	return options.RootDirs
 }
 
-func isProjectTypeScriptFile(fileName string) bool {
-	return strings.HasSuffix(fileName, ".ts") || strings.HasSuffix(fileName, ".tsx")
-}
-
 func pathWithinAnyRoot(fileName string, rootDirs []string) bool {
 	for _, rootDir := range rootDirs {
 		rel, err := filepath.Rel(filepath.FromSlash(rootDir), filepath.FromSlash(fileName))
