@@ -396,12 +396,12 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 			if tspath.IsDeclarationFileName(virtualPath) {
 				// Keep the path in place (no outDir rebase), but map index to init.
 				moduleOutPath = s.Rojo.PathTranslator.GetImportPath(virtualPath, true /* isNodeModule */)
-			} else {
-				if !ast.IsJsonSourceFile(moduleFile) {
-					panic("transformer: project import outside rootDir must be JSON or a declaration")
-				}
+			} else if ast.IsJsonSourceFile(moduleFile) {
 				moduleOutPath = virtualPath
 			}
+			// Other sources outside rootDir already carry a TypeScript error
+			// (upstream asserts); a census still transforms them, so keep the
+			// translated path.
 		}
 	}
 	moduleRbxPath, ok := s.Rojo.Resolver.GetRbxPathFromFilePath(moduleOutPath)

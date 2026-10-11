@@ -551,3 +551,23 @@ export const result = value + pure + data.count;`)
 		}
 	}
 }
+
+// TypeScript reports a source file outside rootDir, but a census still
+// transforms the importer; the import must not fail the transform.
+func TestProjectImportSourceOutsideRootDirCensus(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("game", nil, nil)
+	f.write("lib/helper.ts", "export const value = 1;\n")
+	f.write("game/src/index.ts", `import { value } from "../../lib/helper"; export const result = value;`)
+	solution, err := CompileSolutionDiagnostics(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, project := range solution.Projects {
+		for _, file := range project.Files {
+			if file.InternalError != nil {
+				t.Fatalf("%s: %v", file.FileName, file.InternalError)
+			}
+		}
+	}
+}
