@@ -334,6 +334,14 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 	mappedPath := virtualPath
 	hasMappedPath := false
 	key := rojo.CanonicalFileName(virtualPath, s.Rojo.UseCaseSensitiveFileNames)
+	referencePath, hasReferencePath := s.Rojo.ProjectReferencePaths[key]
+	if !hasReferencePath && len(s.Rojo.ProjectReferencePaths) > 0 && s.Program != nil {
+		// Project references use real config paths, while package resolution may
+		// expose a node_modules symlink (including with preserveSymlinks).
+		realPath := s.Program.Host().FS().Realpath(moduleFile.FileName())
+		realKey := rojo.CanonicalFileName(realPath, s.Rojo.UseCaseSensitiveFileNames)
+		referencePath, hasReferencePath = s.Rojo.ProjectReferencePaths[realKey]
+	}
 	if mapped, ok := s.Rojo.NodeModulesPathMapping[key]; ok {
 		mappedPath = mapped
 		hasMappedPath = true
@@ -346,14 +354,29 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 		}
 	}
 
-	if isInsideNodeModules(virtualPath) || hasMappedPath {
+	if !hasReferencePath && (isInsideNodeModules(virtualPath) || hasMappedPath) {
 		moduleOutPath := s.Rojo.PathTranslator.GetImportPath(mappedPath, true /* isNodeModule */)
 		return getNodeModulesImportParts(s, sourceFile, moduleSpecifier, moduleOutPath)
 	}
 
-	moduleOutPath, ok := s.Rojo.ImportPathMap[rojo.CanonicalFileName(virtualPath, s.Rojo.UseCaseSensitiveFileNames)]
-	if !ok {
+	moduleOutPath := referencePath
+	if !hasReferencePath {
 		moduleOutPath = s.Rojo.PathTranslator.GetImportPath(virtualPath, false)
+		relative, err := filepath.Rel(s.Rojo.PathTranslator.RootDir, filepath.FromSlash(virtualPath))
+		if err != nil || strings.HasPrefix(relative, "..") {
+			if tspath.IsDeclarationFileName(virtualPath) {
+				extension := ".lua"
+				if s.Rojo.PathTranslator.UseLuauExtension {
+					extension = ".luau"
+				}
+				moduleOutPath = strings.TrimSuffix(virtualPath, ".d.ts") + extension
+			} else {
+				if !ast.IsJsonSourceFile(moduleFile) {
+					panic("transformer: project import outside rootDir must be JSON or a declaration")
+				}
+				moduleOutPath = virtualPath
+			}
+		}
 	}
 	moduleRbxPath, ok := s.Rojo.Resolver.GetRbxPathFromFilePath(moduleOutPath)
 	if !ok {

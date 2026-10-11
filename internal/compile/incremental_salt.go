@@ -21,6 +21,18 @@ func outputManifestPath(projectDir, configPath string) string {
 
 func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts ProjectOptions, pathTranslatorBuildInfoPath string, flameworkInputs *FlameworkIncrementalInputs) (string, error) {
 	options := program.Options()
+	projectReferencePaths := opts.projectReferencePaths
+	if projectReferencePaths == nil {
+		projectReferencePaths = createCrossProjectImportPathMap(program, !opts.LuaExtension)
+	}
+	rojoConfigPath, _, err := resolveRojoConfigPath(dir, opts.RojoConfigPath)
+	if err != nil {
+		return "", err
+	}
+	includePath, err := resolveIncludePath(dir, opts.IncludePath)
+	if err != nil {
+		return "", err
+	}
 	flameworkSalt, err := flameworkIncrementalSalt(flameworkInputs)
 	if err != nil {
 		return "", err
@@ -52,6 +64,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		MinifyOutput          bool                           `json:"minifyOutput"`
 		FlameworkSalt         string                         `json:"flameworkSalt,omitempty"`
 		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
+		ProjectReferencePaths map[string]string              `json:"projectReferencePaths,omitempty"`
 	}{
 		Version:               "rotor-incremental-v2",
 		CompilerOptions:       options,
@@ -60,8 +73,8 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		TsBuildInfoFile:       options.TsBuildInfoFile,
 		PathTranslatorTarget:  pathTranslatorBuildInfoPath,
 		Type:                  string(opts.Type),
-		RojoConfigPath:        opts.RojoConfigPath,
-		IncludePath:           opts.IncludePath,
+		RojoConfigPath:        rojoConfigPath,
+		IncludePath:           includePath,
 		LuaExtension:          !opts.LuaExtension,
 		Declaration:           options.Declaration.IsTrue(),
 		EmitDeclarationOnly:   opts.EmitDeclarationOnly,
@@ -70,7 +83,8 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		MinifyOutput:          opts.MinifyOutput,
 		FlameworkSalt:         flameworkSalt,
 		TransformerPlugins:    plugins,
-	})
+		ProjectReferencePaths: projectReferencePaths,
+	}, tsjson.Deterministic(true))
 	if err != nil {
 		return "", err
 	}

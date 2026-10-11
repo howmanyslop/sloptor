@@ -89,6 +89,8 @@ type SolutionCoordinator struct {
 	coordinatorPaths     map[string]string
 	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
+	referenceOutputs     map[string][]string
+	referencePathsDirty  bool
 	builders             int
 	timings              *BuildTimings
 }
@@ -141,6 +143,14 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 		if err != nil {
 			return nil, fmt.Errorf("compile: read project reference %q: %w", rootPath, err)
 		}
+		rootRojoPath, _, err := resolveRojoConfigPath(filepath.Dir(rootPath), root.options.RojoConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		rootIncludePath, err := resolveIncludePath(filepath.Dir(rootPath), root.options.IncludePath)
+		if err != nil {
+			return nil, err
+		}
 		var coordinatorRbxts *RbxtsOptions
 		if rootIsCoordinator && root.options.SolutionArgv != nil {
 			coordinatorRbxts, err = ReadRbxtsOptions(rootPath)
@@ -179,6 +189,16 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 				options, err = referencedProjectOptions(root.options, configPath, rootIsCoordinator, coordinatorRbxts)
 				if err != nil {
 					return "", fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
+				}
+				declared, err := ReadRbxtsOptions(configPath)
+				if err != nil {
+					return "", err
+				}
+				if declared == nil || declared.Rojo == nil {
+					options.RojoConfigPath = rootRojoPath
+				}
+				if rootRojoPath != "" {
+					options.IncludePath = rootIncludePath
 				}
 			}
 
@@ -283,7 +303,7 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	right.TsConfigPath = ""
 	left.SolutionArgv, right.SolutionArgv = nil, nil
 	left.rojoCache, right.rojoCache = nil, nil
-	left.crossProjectImportPathMap, right.crossProjectImportPathMap = nil, nil
+	left.projectReferencePaths, right.projectReferencePaths = nil, nil
 	left.pendingSolutionPersists, right.pendingSolutionPersists = nil, nil
 	left.pendingSolutionDependencyPersists, right.pendingSolutionDependencyPersists = nil, nil
 	left.compileCache, right.compileCache = nil, nil
@@ -348,9 +368,13 @@ func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordi
 	if err != nil {
 		return nil, err
 	}
-	importPathMap, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
+	if metadata.validationErr != nil {
+		return nil, metadata.validationErr
+	}
 	drainer := &solutionBuildDrainer{
-		importPathMap:        importPathMap,
+		graph:                graph,
+		referenceOutputs:     metadata.referenceOutputs,
 		restoredDeclarations: metadata.restoredDeclarations,
 		restoredMetadataErrs: metadata.restoredMetadataErrs,
 	}
@@ -365,7 +389,7 @@ func NewSolutionCoordinatorForRootsWithDrainer(tsConfigPaths []string, entry Pro
 	if err != nil {
 		return nil, err
 	}
-	_, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
 	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
@@ -406,6 +430,7 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		coordinatorPaths:     solutionCoordinatorPaths(graph),
 		writeRoots:           metadata.writeRoots,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
+		referenceOutputs:     metadata.referenceOutputs,
 		builders:             builders,
 		timings:              timings,
 	}, nil
@@ -520,6 +545,9 @@ func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
 			result = append(result, project.ConfigPath)
 		}
 	}
+	if len(result) > 0 {
+		c.referencePathsDirty = true
+	}
 	return result
 }
 
@@ -527,6 +555,10 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	graph, err := BuildSolutionGraph(tsConfigPath, entry)
 	if err != nil {
 		return err
+	}
+	metadata := populateCrossProjectMetadata(graph)
+	if _, ok := c.drainer.(*solutionBuildDrainer); ok && metadata.validationErr != nil {
+		return metadata.validationErr
 	}
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
 	projectPaths := make(map[string]string, len(graph.Projects))
@@ -545,13 +577,15 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	c.states = states
 	c.projectPaths = projectPaths
 	c.coordinatorPaths = solutionCoordinatorPaths(graph)
-	importPathMap, metadata := populateCrossProjectMetadata(graph)
 	c.writeRoots = metadata.writeRoots
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
+	c.referenceOutputs = metadata.referenceOutputs
+	c.referencePathsDirty = false
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {
 		c.drainer = &solutionBuildDrainer{
-			importPathMap:        importPathMap,
+			graph:                graph,
+			referenceOutputs:     metadata.referenceOutputs,
 			restoredDeclarations: metadata.restoredDeclarations,
 			restoredMetadataErrs: metadata.restoredMetadataErrs,
 		}

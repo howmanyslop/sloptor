@@ -76,7 +76,6 @@ func (m *solutionOverlayMatches) unmatched(overlays map[string]string) []string 
 // failures are folded into that project's diagnostics and re-raised by
 // CompileSolutionDiagnostics after every project has had its turn.
 type solutionCensusDrainer struct {
-	importPathMap  map[string]string
 	overlays       map[string]string
 	overlayMatches *solutionOverlayMatches
 
@@ -88,7 +87,6 @@ type solutionCensusDrainer struct {
 func (d *solutionCensusDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
 	options := project.Options
 	options.TsConfigPath = project.ConfigPath
-	options.crossProjectImportPathMap = d.importPathMap
 	options.Overlays = d.overlays
 	options.solutionOverlays = d.overlayMatches
 	// The same census policy `rotor diagnostics` applies to a single project,
@@ -159,9 +157,11 @@ func CompileSolutionDiagnostics(tsConfigPath string, entry ProjectOptions) (*Sol
 	// a project boundary transform differently than they would in a real build
 	// — a census whose verdicts do not match what `rotor build --build` would
 	// say is worth less than no census.
-	importPathMap, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
+	if metadata.validationErr != nil {
+		return solution, metadata.validationErr
+	}
 	drainer := &solutionCensusDrainer{
-		importPathMap:  importPathMap,
 		overlays:       entry.Overlays,
 		overlayMatches: newSolutionOverlayMatches(),
 		censuses:       map[string]*ProjectDiagnostics{},

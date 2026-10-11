@@ -263,7 +263,7 @@ func TestPerProjectRbxtsOptions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(childDir, "base.json"), []byte(baseConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	childConfig := `{"extends":"./base.json","include":["src"],"rbxts":{"type":"package","luau":false}}`
+	childConfig := `{"extends":"./base.json","compilerOptions":{"composite":true},"include":["src"],"rbxts":{"type":"package","luau":false}}`
 	if err := os.WriteFile(filepath.Join(childDir, "tsconfig.json"), []byte(childConfig), 0o644); err != nil {
 		t.Fatal(err)
 	}

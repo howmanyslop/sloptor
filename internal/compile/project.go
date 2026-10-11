@@ -24,6 +24,7 @@ import (
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
 	"rotor/tsgo/outputpaths"
+	"rotor/tsgo/tsoptions"
 	"rotor/tsgo/tspath"
 	"rotor/tsgo/vfs/osvfs"
 )
@@ -258,7 +259,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	}
 
 	pathTranslator := createPathTranslator(program, !opts.LuaExtension)
-	importPathMap := opts.crossProjectImportPathMap
+	importPathMap := opts.projectReferencePaths
 	if importPathMap == nil {
 		importPathMap = createCrossProjectImportPathMap(program, !opts.LuaExtension)
 	}
@@ -349,7 +350,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 			NodeModulesPath:           nodeModulesPath,
 			TypeRoots:                 typeRoots,
 			UseCaseSensitiveFileNames: useCaseSensitiveFileNames,
-			ImportPathMap:             importPathMap,
+			ProjectReferencePaths:     importPathMap,
 		},
 	}, nil, nil
 }
@@ -369,39 +370,47 @@ func resolveRojoConfigPath(dir, configuredPath string) (string, []string, error)
 func createCrossProjectImportPathMap(program *compiler.Program, useLuauExtension bool) map[string]string {
 	useCaseSensitiveFileNames := osvfs.FS().UseCaseSensitiveFileNames()
 	result := make(map[string]string)
-	for _, reference := range program.GetResolvedProjectReferences() {
-		if reference == nil {
-			continue
+	visited := map[*tsoptions.ParsedCommandLine]bool{}
+	var visit func(*tsoptions.ParsedCommandLine)
+	visit = func(reference *tsoptions.ParsedCommandLine) {
+		if reference == nil || visited[reference] {
+			return
+		}
+		visited[reference] = true
+		for _, configPath := range reference.ResolvedProjectReferencePaths() {
+			key := tspath.ToPath(configPath, program.GetCurrentDirectory(), useCaseSensitiveFileNames)
+			child, _ := program.GetResolvedProjectReferenceFor(key)
+			visit(child)
 		}
 		options := reference.CompilerOptions()
 		if options == nil || options.OutDir == "" {
-			continue
+			return
 		}
 		rootDirs := options.RootDirs
 		if options.RootDir != "" {
 			rootDirs = []string{options.RootDir}
 		}
 		if len(rootDirs) == 0 {
-			continue
+			return
 		}
-		translator := rojo.NewPathTranslator(findAncestorDir(rootDirs), filepath.FromSlash(options.OutDir), "", options.Declaration.IsTrue(), useLuauExtension)
+		rootDirs = append([]string{reference.CommonSourceDirectory()}, rootDirs...)
+		translator := rojo.NewPathTranslator(findAncestorDir(rootDirs), filepath.FromSlash(options.OutDir), "", options.GetEmitDeclarations(), useLuauExtension)
 		for _, fileName := range reference.FileNames() {
-			if !strings.HasSuffix(fileName, ".ts") && !strings.HasSuffix(fileName, ".tsx") {
+			if tspath.IsDeclarationFileName(fileName) && !isPathDescendantOf(filepath.FromSlash(fileName), translator.RootDir) {
 				continue
 			}
 			importPath := translator.GetImportPath(fileName, false)
 			canonical := rojo.CanonicalFileName(fileName, useCaseSensitiveFileNames)
-			if _, exists := result[canonical]; !exists {
-				result[canonical] = importPath
-			}
-			if options.Declaration.IsTrue() && !strings.HasSuffix(fileName, ".d.ts") {
-				declarationPath := translator.GetOutputDeclarationPath(fileName)
+			result[canonical] = importPath
+			if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
+				declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, options, reference)
 				declarationCanonical := rojo.CanonicalFileName(declarationPath, useCaseSensitiveFileNames)
-				if _, exists := result[declarationCanonical]; !exists {
-					result[declarationCanonical] = importPath
-				}
+				result[declarationCanonical] = importPath
 			}
 		}
+	}
+	for _, reference := range program.GetResolvedProjectReferences() {
+		visit(reference)
 	}
 	return result
 }
@@ -482,10 +491,10 @@ type ProjectOptions struct {
 	// callback. Nil preserves the CLI's process-owned lifecycle.
 	Context context.Context
 
-	crossProjectImportPathMap map[string]string
-	pendingSolutionPersists   *[]func() error
-	deferRojoCachePersist     bool
-	compileCache              *solutionCompileCache
+	projectReferencePaths   map[string]string
+	pendingSolutionPersists *[]func() error
+	deferRojoCachePersist   bool
+	compileCache            *solutionCompileCache
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds
