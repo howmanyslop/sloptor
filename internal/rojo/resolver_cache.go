@@ -10,11 +10,15 @@ import (
 	"sync"
 )
 
-const resolverCacheFormatVersion = 2
+const resolverCacheFormatVersion = 3
 
+// resolverCacheManifestEntry is one path the resolver read. Missing marks a
+// partition path that did not exist; creating it changes the resolver (a new
+// directory is walked), so the entry stays valid only while it is absent.
 type resolverCacheManifestEntry struct {
 	Path          string `json:"path"`
 	MtimeUnixNano int64  `json:"mtimeUnixNano"`
+	Missing       bool   `json:"missing,omitempty"`
 }
 
 type resolverCacheFile struct {
@@ -44,6 +48,11 @@ type RojoResolverCache struct {
 // NewRojoResolverCache creates a cache whose disk entries are stored in cacheDir.
 func NewRojoResolverCache(cacheDir, compilerVersion string) *RojoResolverCache {
 	return NewRojoResolverCacheWithDeferredPersist(cacheDir, compilerVersion, false)
+}
+
+// NewMemoryRojoResolverCache creates a cache that never reads or writes disk.
+func NewMemoryRojoResolverCache() *RojoResolverCache {
+	return NewRojoResolverCacheWithDeferredPersist("", "", false)
 }
 
 func NewRojoResolverCacheWithDeferredPersist(cacheDir, compilerVersion string, deferPersist bool) *RojoResolverCache {
@@ -97,6 +106,9 @@ func (c *RojoResolverCache) Persist() {
 }
 
 func (c *RojoResolverCache) loadDisk(key string) (*RojoResolver, []resolverCacheManifestEntry, bool) {
+	if c.cacheDir == "" {
+		return nil, nil, false
+	}
 	path := c.cachePath(key)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -131,6 +143,9 @@ func (c *RojoResolverCache) loadDisk(key string) (*RojoResolver, []resolverCache
 }
 
 func (c *RojoResolverCache) writeDisk(key string, state ResolverState, manifest []resolverCacheManifestEntry) {
+	if c.cacheDir == "" {
+		return
+	}
 	data, err := json.MarshalIndent(resolverCacheFile{
 		Version:         resolverCacheFormatVersion,
 		CompilerVersion: c.compilerVersion,
@@ -175,6 +190,11 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 			MtimeUnixNano: info.ModTime().UnixNano(),
 		})
 	}
+	for _, partition := range state.Partitions {
+		if _, err := os.Stat(partition.FsPath); os.IsNotExist(err) {
+			manifest = append(manifest, resolverCacheManifestEntry{Path: partition.FsPath, Missing: true})
+		}
+	}
 	return manifest, true
 }
 
@@ -184,6 +204,12 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 	}
 	for _, entry := range manifest {
 		info, err := os.Stat(entry.Path)
+		if entry.Missing {
+			if !os.IsNotExist(err) {
+				return false
+			}
+			continue
+		}
 		if err != nil || info.ModTime().UnixNano() != entry.MtimeUnixNano {
 			return false
 		}

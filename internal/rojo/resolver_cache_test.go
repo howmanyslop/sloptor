@@ -246,3 +246,30 @@ func TestRojoCache_rebuildsWhenCompilerVersionOrDiskDataChanges(t *testing.T) {
 		t.Errorf("compiler version = %q, want compiler-v2", file.CompilerVersion)
 	}
 }
+
+func TestRojoCache_rebuildsWhenMissingPartitionAppears(t *testing.T) {
+	dir := writeProject(t, map[string]string{
+		"default.project.json": `{"name":"p","tree":{"outer":{"$path":"out"},"other":{"$path":"present"}}}`,
+		"present/":             "",
+	})
+	configPath := filepath.Join(dir, "default.project.json")
+	item := filepath.Join(dir, "out", "lib", "code", "item.luau")
+	cache := NewMemoryRojoResolverCache()
+	before := mustRbxPath(t, cache.Load(configPath), item)
+
+	// A build creates the output with a nested project, which renames lib.
+	if err := os.MkdirAll(filepath.Join(dir, "out", "lib", "code"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "out", "lib", "default.project.json"), []byte(`{"name":"inner","tree":{"$path":"code"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	after := mustRbxPath(t, cache.Load(configPath), item)
+	if !reflect.DeepEqual(before, RbxPath{"outer", "lib", "code", "item"}) {
+		t.Fatalf("initial path = %v, want [outer lib code item]", before)
+	}
+	if !reflect.DeepEqual(after, RbxPath{"outer", "inner", "item"}) {
+		t.Errorf("rebuilt path = %v, want [outer inner item]", after)
+	}
+}
