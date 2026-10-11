@@ -450,3 +450,73 @@ func TestProjectReferenceGamePackageNameImport(t *testing.T) {
 		t.Fatalf("game import did not use the referenced project's mount:\n%s", output)
 	}
 }
+
+// solutionLibFixture builds a lib whose tsconfig.json is a solution config over
+// a package lib and a game spec with its own rbxts.rojo.
+func solutionLibFixture(t *testing.T, pluginReference string) *referenceFixture {
+	t.Helper()
+	f := newReferenceFixture(t)
+	f.json("lib/tsconfig.json", map[string]any{
+		"compilerOptions": map[string]any{"composite": true}, "files": []string{}, "include": []string{},
+		"references": []map[string]string{{"path": "./tsconfig.lib.json"}, {"path": "./tsconfig.spec.json"}},
+	})
+	f.json("lib/tsconfig.lib.json", map[string]any{
+		"extends": "../base.json", "compilerOptions": map[string]any{
+			"rootDir": "src", "outDir": "out", "declarationDir": "types", "composite": true,
+			"tsBuildInfoFile": "cache/lib.tsbuildinfo",
+		}, "include": []string{"src"}, "rbxts": map[string]string{"type": "package"},
+	})
+	f.json("lib/tsconfig.spec.json", map[string]any{
+		"extends": "../base.json", "compilerOptions": map[string]any{
+			"rootDir": "spec", "outDir": "out-test", "composite": true,
+			"tsBuildInfoFile": "cache/spec.tsbuildinfo",
+		}, "include": []string{"spec"}, "rbxts": map[string]string{"type": "game", "rojo": "./test.project.json"},
+	})
+	f.json("lib/package.json", map[string]string{"name": "@rbxts/lib", "types": "types/helper.d.ts"})
+	f.write("lib/src/helper.ts", "export const value = 7;\n")
+	f.write("lib/spec/helper.test.ts", "export const checked = true;\n")
+	f.json("lib/test.project.json", map[string]any{"name": "lib-tests", "tree": map[string]any{
+		"$className": "DataModel", "ReplicatedStorage": map[string]any{
+			"$className": "ReplicatedStorage", "include": map[string]string{"$path": "../include"},
+			"lib-tests": map[string]string{"$path": "out-test"},
+		},
+	}})
+	f.json("plugin/tsconfig.json", map[string]any{
+		"extends": "../base.json", "compilerOptions": map[string]any{
+			"rootDir": "src", "outDir": "out", "composite": true, "tsBuildInfoFile": "cache/plugin.tsbuildinfo",
+		}, "include": []string{"src"}, "references": []map[string]string{{"path": pluginReference}},
+		"rbxts": map[string]string{"type": "package"},
+	})
+	f.write("plugin/src/index.ts", `import { value } from "@rbxts/lib"; export const result = value;`)
+	f.symlinkPackage("lib")
+	return f
+}
+
+// Upstream gives a solution config no path translator and checks Rojo mounts
+// only for direct references, so a game spec reached through a solution
+// reference is not checked.
+func TestProjectReferenceSolutionRojoMounts(t *testing.T) {
+	f := solutionLibFixture(t, "../lib")
+	result, messages, err := BuildSolutionWithOptions(filepath.Join(f.dir, "plugin/tsconfig.json"), ProjectOptions{IncludePath: filepath.Join(f.dir, "include"), Type: "package"})
+	if err != nil {
+		t.Fatalf("build: %v (%v)", err, messages)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", result.Diagnostics)
+	}
+	output := string(mustReadFile(t, filepath.Join(f.dir, "plugin/out/init.luau")))
+	if !strings.Contains(output, `TS.getModule(script, "@rbxts", "lib").out.helper`) {
+		t.Fatalf("import through the solution reference did not resolve:\n%s", output)
+	}
+}
+
+func TestProjectReferenceDirectSpecRojoMounts(t *testing.T) {
+	f := solutionLibFixture(t, "../lib/tsconfig.spec.json")
+	_, err := NewSolutionCoordinator(filepath.Join(f.dir, "plugin/tsconfig.json"), ProjectOptions{IncludePath: filepath.Join(f.dir, "include"), Type: "package"})
+	want := `Project "` + filepath.Join(f.dir, "plugin/tsconfig.json") + `" must mount "` + filepath.Join(f.dir, "lib/out-test/helper.test.luau") +
+		`" at the same Roblox path as "` + filepath.Join(f.dir, "lib/test.project.json") +
+		`" (ReplicatedStorage.lib-tests.helper.test). Referenced projects with their own rbxts.rojo require consistent module and runtime mounts.`
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %v, want %s", err, want)
+	}
+}

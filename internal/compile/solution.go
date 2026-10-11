@@ -17,6 +17,9 @@ type SolutionProject struct {
 	References  []string
 	Options     ProjectOptions
 	Coordinator bool
+	// directReferences are the references as written, before solution
+	// configs are replaced by their emitting references.
+	directReferences []string
 }
 
 type SolutionGraph struct {
@@ -264,6 +267,7 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 			})
 			continue
 		}
+		project.directReferences = project.References
 		project.References = emittingProjectReferences(project.References, projectsByPath)
 		graph.Projects = append(graph.Projects, project)
 	}

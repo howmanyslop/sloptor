@@ -128,8 +128,10 @@ func validateReferenceRojoPaths(graph *SolutionGraph, outputs map[string][]strin
 		}
 		resolvers[project.ConfigPath] = resolver
 	}
+	// Upstream checks only direct references; a solution config has no path
+	// translator, so projects reached through one are skipped.
 	for _, project := range graph.Projects {
-		for _, configPath := range project.References {
+		for _, configPath := range project.directReferences {
 			paths, emits := outputs[configPath]
 			owner, consumer := resolvers[configPath], resolvers[project.ConfigPath]
 			declared, err := ReadRbxtsOptions(configPath)
