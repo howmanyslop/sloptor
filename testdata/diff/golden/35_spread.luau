@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.7.2
+-- Compiled with sloptor v2.8.0
 -- object spread
 local base = {
 	x = 1,
