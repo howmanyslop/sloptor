@@ -158,9 +158,6 @@ func CompileSolutionDiagnostics(tsConfigPath string, entry ProjectOptions) (*Sol
 	// — a census whose verdicts do not match what `rotor build --build` would
 	// say is worth less than no census.
 	metadata := populateCrossProjectMetadata(graph)
-	if metadata.validationErr != nil {
-		return solution, metadata.validationErr
-	}
 	drainer := &solutionCensusDrainer{
 		overlays:       entry.Overlays,
 		overlayMatches: newSolutionOverlayMatches(),
@@ -187,6 +184,11 @@ func CompileSolutionDiagnostics(tsConfigPath string, entry ProjectOptions) (*Sol
 		if projectErr := drainer.errs[project.ConfigPath]; projectErr != nil && firstErr == nil {
 			firstErr = projectErr
 		}
+	}
+	if firstErr == nil {
+		// Solution validation fails a build, not a census: report it after
+		// every project has had its turn.
+		firstErr = metadata.validationErr
 	}
 	if firstErr != nil {
 		// Deliberately ahead of the overlay check: a project that never built a

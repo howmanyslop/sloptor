@@ -620,3 +620,17 @@ func TestProjectReferencePathsUseReferenceLuau(t *testing.T) {
 		t.Fatalf("direct = %v, solution = %v", direct, solution)
 	}
 }
+
+// A census reports every project even when solution validation fails.
+func TestProjectReferenceValidationCensus(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, map[string]any{"composite": false})
+	f.project("game", []string{"shared"}, nil)
+	solution, err := CompileSolutionDiagnostics(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+	if err == nil || !strings.Contains(err.Error(), `must have setting "composite": true`) {
+		t.Fatalf("error = %v", err)
+	}
+	if len(solution.Projects) != 2 {
+		t.Fatalf("projects = %d, want 2", len(solution.Projects))
+	}
+}
