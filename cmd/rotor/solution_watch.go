@@ -125,6 +125,9 @@ func (s *solutionWatchEvents) add(key solutionWatchKey, events []fswatch.Event, 
 			s.projects[key.project] = struct{}{}
 			continue
 		}
+		if watchProjectInput(event) {
+			s.projects[key.project] = struct{}{}
+		}
 		s.addAsset(key.project, event)
 	}
 }
@@ -435,6 +438,24 @@ func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 
 func watchCompilable(path string) bool {
 	return filepath.Ext(path) == ".ts" || filepath.Ext(path) == ".tsx" || filepath.Ext(path) == ".d.ts"
+}
+
+// watchProjectInput reports whether a non-source event under a project root
+// can change the project's file set: a JSON file (a source with
+// resolveJsonModule) or a directory (a folder rename or move reports only
+// the folder). A path with no extension counts as a directory, since a
+// removed one cannot be checked; another path is checked only while it
+// exists.
+func watchProjectInput(event fswatch.Event) bool {
+	switch filepath.Ext(event.Path) {
+	case ".json", "":
+		return true
+	}
+	if event.Kind == fswatch.EventDelete {
+		return false
+	}
+	info, err := os.Stat(event.Path)
+	return err == nil && info.IsDir()
 }
 
 type fmtWriter struct{}

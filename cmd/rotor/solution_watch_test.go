@@ -230,6 +230,35 @@ func TestSolutionWatchTerminatedRootIsReopened(t *testing.T) {
 	}
 }
 
+func TestSolutionWatchDirectoryAndJSONEventsInvalidate(t *testing.T) {
+	root := t.TempDir()
+	moved := filepath.Join(root, "src", "new.name")
+	if err := os.MkdirAll(moved, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	key := solutionWatchKey{kind: solutionWatchRoot, project: filepath.Join(root, "tsconfig.json"), path: filepath.Join(root, "src")}
+	for _, test := range []struct {
+		name  string
+		event fswatch.Event
+		want  bool
+	}{
+		{"folder renamed from", fswatch.Event{Kind: fswatch.EventDelete, Path: filepath.Join(root, "src", "old")}, true},
+		{"dotted folder renamed to", fswatch.Event{Kind: fswatch.EventUpdate, Path: moved}, true},
+		{"json source", fswatch.Event{Kind: fswatch.EventUpdate, Path: filepath.Join(root, "src", "data.json")}, true},
+		{"asset", fswatch.Event{Kind: fswatch.EventUpdate, Path: filepath.Join(root, "src", "icon.png")}, false},
+		{"deleted asset", fswatch.Event{Kind: fswatch.EventDelete, Path: filepath.Join(root, "src", "icon.png")}, false},
+	} {
+		events := newSolutionWatchEvents()
+		events.add(key, []fswatch.Event{test.event}, nil)
+		if _, got := events.projects[key.project]; got != test.want {
+			t.Errorf("%s: invalidated = %v, want %v", test.name, got, test.want)
+		}
+		if _, ok := events.assets[key.project][test.event.Path]; !ok {
+			t.Errorf("%s: assets = %v, want the path copied", test.name, events.assets)
+		}
+	}
+}
+
 func TestSolutionWatchesReopenOnlyFailedOrDead(t *testing.T) {
 	watcher := newFakeSolutionWatcher()
 	watches := &solutionWatches{
