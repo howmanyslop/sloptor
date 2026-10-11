@@ -135,22 +135,19 @@ func TestProjectReferenceNodeModulesSymlink(t *testing.T) {
 	}
 }
 
-// An aliased fixture directory (like an 8.3 short temp path) spells project
+// A junction fixture directory (like an 8.3 short temp path) spells project
 // paths differently from their real paths.
 func TestProjectReferenceAliasedDirectory(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("directory junctions are Windows-only")
+	}
 	real := filepath.Join(t.TempDir(), "real")
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Mkdir(real, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	var err error
-	if runtime.GOOS == "windows" {
-		err = exec.Command("cmd", "/c", "mklink", "/J", alias, real).Run()
-	} else {
-		err = os.Symlink(real, alias)
-	}
-	if err != nil {
-		t.Skipf("directory links unavailable: %v", err)
+	if err := exec.Command("cmd", "/c", "mklink", "/J", alias, real).Run(); err != nil {
+		t.Skipf("directory junctions unavailable: %v", err)
 	}
 	testProjectReferenceNodeModulesSymlink(t, newReferenceFixtureAt(t, alias), false)
 }
