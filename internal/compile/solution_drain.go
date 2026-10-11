@@ -588,7 +588,7 @@ func mergeSolutionBuildResult(result *BuildResult, project SolutionProject, buil
 func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
 	// Dependencies can copy nested Rojo projects into their outputs. Refresh
 	// the consistency check before compiling a consumer against those mounts.
-	if err := validateReferenceRojoPaths(d.graph, d.referenceOutputs); err != nil {
+	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs); err != nil {
 		return &BuildResult{Diagnostics: stringDiagnostics([]string{err.Error()})}, []string{err.Error()}, err
 	}
 	options := project.Options

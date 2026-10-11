@@ -634,3 +634,35 @@ func TestProjectReferenceValidationCensus(t *testing.T) {
 		t.Fatalf("projects = %d, want 2", len(solution.Projects))
 	}
 }
+
+// A project builds when only an unrelated project's reference mounts break.
+func TestProjectReferenceRojoMountsUnrelatedProject(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, nil)
+	f.project("other", nil, nil)
+	f.write("game/src/index.ts", `import { value } from "../../shared/src"; export const result = value;`)
+	var config map[string]any
+	if err := json.Unmarshal(mustReadFile(t, filepath.Join(f.dir, "shared/tsconfig.json")), &config); err != nil {
+		t.Fatal(err)
+	}
+	config["rbxts"] = map[string]string{"rojo": "owner.project.json", "type": "game"}
+	f.json("shared/tsconfig.json", config)
+	f.rojo("shared/owner.project.json", "../", nil)
+	f.json("shared/src/default.project.json", map[string]any{"name": "nested", "tree": map[string]any{"current": map[string]string{"$path": "init.luau"}}})
+	f.rojo("default.project.json", "", map[string]any{"shared": map[string]string{"$path": "shared/out/init.luau"}})
+	options := f.options()
+	singleThreaded := true
+	options.SingleThreaded = &singleThreaded
+	coordinator, err := NewSolutionCoordinatorForRoots([]string{filepath.Join(f.dir, "game/tsconfig.json"), filepath.Join(f.dir, "other/tsconfig.json")}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator.Drain()
+	if _, err := os.Stat(filepath.Join(f.dir, "other/out/init.luau")); err != nil {
+		t.Fatalf("unrelated project did not build: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, "game/out/init.luau")); !os.IsNotExist(err) {
+		t.Fatalf("consumer emitted with inconsistent mounts: %v", err)
+	}
+}

@@ -108,10 +108,26 @@ func validateProjectOutputs(graph *SolutionGraph, programs map[string]*compiler.
 }
 
 func validateReferenceRojoPaths(graph *SolutionGraph, outputs map[string][]string) error {
+	return validateProjectsReferenceRojoPaths(graph, graph.Projects, outputs)
+}
+
+// validateProjectsReferenceRojoPaths checks the direct references of consumers
+// only, so one project's mounts never fail an unrelated project.
+func validateProjectsReferenceRojoPaths(graph *SolutionGraph, consumers []SolutionProject, outputs map[string][]string) error {
+	needed := map[string]bool{}
+	for _, project := range consumers {
+		needed[project.ConfigPath] = true
+		for _, configPath := range project.directReferences {
+			needed[configPath] = true
+		}
+	}
 	resolvers := map[string]*rojo.RojoResolver{}
 	resolverPaths := map[string]string{}
 	byRojoPath := map[string]*rojo.RojoResolver{}
 	for _, project := range graph.Projects {
+		if !needed[project.ConfigPath] {
+			continue
+		}
 		path, _, err := resolveRojoConfigPath(filepath.Dir(project.ConfigPath), project.Options.RojoConfigPath)
 		if err != nil {
 			return err
@@ -130,7 +146,7 @@ func validateReferenceRojoPaths(graph *SolutionGraph, outputs map[string][]strin
 	}
 	// Upstream checks only direct references; a solution config has no path
 	// translator, so projects reached through one are skipped.
-	for _, project := range graph.Projects {
+	for _, project := range consumers {
 		for _, configPath := range project.directReferences {
 			paths, emits := outputs[configPath]
 			owner, consumer := resolvers[configPath], resolvers[project.ConfigPath]
