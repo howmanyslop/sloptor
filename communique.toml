@@ -192,7 +192,7 @@ Repository layout worth reading when researching a change:
 - `tsgo/` is a generated mirror of typescript-go — never edit by hand.
 - `reference/` holds vendored roblox-ts and luau-ast source for porting reference.
 - `testdata/diff/` and `testdata/conformance/` hold the differential and conformance suites.
-- `scripts/release.fish` is the interactive release helper.
+- `bump.config.ts` configures `pnpm release` (bumpp), the interactive release helper.
 
 Readers consume these notes on the GitHub releases page while deciding whether to upgrade a
 pinned version. They care most about: new commands and flags they can use, build or watch
