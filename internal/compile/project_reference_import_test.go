@@ -2,6 +2,7 @@ package compile
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -583,5 +584,39 @@ func TestProjectImportDotDotNameInsideRootDir(t *testing.T) {
 	want := filepath.Join("out", "..types.luau")
 	if !strings.Contains(strings.Join(messages, "\n"), want) {
 		t.Fatalf("messages = %v, want path %s", messages, want)
+	}
+}
+
+// A direct build maps a reference with its own luau option, like a solution
+// build, so both agree on the incremental salt.
+func TestProjectReferencePathsUseReferenceLuau(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, map[string]any{"declarationDir": "types"})
+	f.project("game", []string{"shared"}, nil)
+	var config map[string]any
+	if err := json.Unmarshal(mustReadFile(t, filepath.Join(f.dir, "shared/tsconfig.json")), &config); err != nil {
+		t.Fatal(err)
+	}
+	config["rbxts"] = map[string]any{"luau": false}
+	f.json("shared/tsconfig.json", config)
+	configPath := filepath.Join(f.dir, "game/tsconfig.json")
+	graph, err := BuildSolutionGraph(configPath, f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateCrossProjectMetadata(graph)
+	var solution map[string]string
+	for _, project := range graph.Projects {
+		if project.ConfigPath == configPath {
+			solution = project.Options.projectReferencePaths
+		}
+	}
+	_, program, _, err := newProjectProgram(filepath.Dir(configPath), configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct := createCrossProjectImportPathMap(program, f.options())
+	if len(solution) == 0 || !maps.Equal(direct, solution) {
+		t.Fatalf("direct = %v, solution = %v", direct, solution)
 	}
 }

@@ -23,7 +23,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	options := program.Options()
 	projectReferencePaths := opts.projectReferencePaths
 	if projectReferencePaths == nil {
-		projectReferencePaths = createCrossProjectImportPathMap(program, !opts.LuaExtension)
+		projectReferencePaths = createCrossProjectImportPathMap(program, opts)
 	}
 	rojoConfigPath, _, err := resolveRojoConfigPath(dir, opts.RojoConfigPath)
 	if err != nil {

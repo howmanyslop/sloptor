@@ -261,7 +261,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	pathTranslator := createPathTranslator(program, !opts.LuaExtension)
 	importPathMap := opts.projectReferencePaths
 	if importPathMap == nil {
-		importPathMap = createCrossProjectImportPathMap(program, !opts.LuaExtension)
+		importPathMap = createCrossProjectImportPathMap(program, opts)
 	}
 
 	// checkRojoConfig + checkFileName queue project-level diagnostics
@@ -367,7 +367,7 @@ func resolveRojoConfigPath(dir, configuredPath string) (string, []string, error)
 	return abs, nil, nil
 }
 
-func createCrossProjectImportPathMap(program *compiler.Program, useLuauExtension bool) map[string]string {
+func createCrossProjectImportPathMap(program *compiler.Program, opts ProjectOptions) map[string]string {
 	useCaseSensitiveFileNames := osvfs.FS().UseCaseSensitiveFileNames()
 	result := make(map[string]string)
 	visited := map[*tsoptions.ParsedCommandLine]bool{}
@@ -394,6 +394,11 @@ func createCrossProjectImportPathMap(program *compiler.Program, useLuauExtension
 			return
 		}
 		rootDirs = append([]string{reference.CommonSourceDirectory()}, rootDirs...)
+		// The reference emits with its own luau option, as in a solution build.
+		useLuauExtension := !opts.LuaExtension
+		if referenced, err := referencedProjectOptions(opts, reference.ConfigName(), false, nil); err == nil {
+			useLuauExtension = !referenced.LuaExtension
+		}
 		translator := rojo.NewPathTranslator(findAncestorDir(rootDirs), filepath.FromSlash(options.OutDir), "", options.GetEmitDeclarations(), useLuauExtension)
 		for _, fileName := range reference.FileNames() {
 			if tspath.IsDeclarationFileName(fileName) && !isPathDescendantOf(filepath.FromSlash(fileName), translator.RootDir) {
