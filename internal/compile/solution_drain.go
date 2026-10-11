@@ -53,9 +53,9 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 				state.Project = project
 				c.states[project.ConfigPath] = state
 			}
+			// The refresh above already checked the Rojo mounts.
 			c.referencePathsDirty = false
-		}
-		if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs); err != nil {
+		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs); err != nil {
 			result.Diagnostics = stringDiagnostics([]string{err.Error()})
 			return result, nil, []string{err.Error()}, err
 		}
