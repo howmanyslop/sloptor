@@ -303,6 +303,45 @@ test("package roots can also be referenced without inheriting another root's con
 	}
 });
 
+test("package roots import a referenced package through getModule", async () => {
+	const root = path.join(temporaryRoot, "package-reference-import");
+	const fixture = path.join(__dirname, "fixtures", "single-project");
+	for (const [project, config, manifest] of [
+		["lib", { include: ["src/**/*.d.ts"] }, { types: "src/index.d.ts", main: "out/init.luau" }],
+		["pkg", { references: [{ path: "../lib" }] }, {}],
+	]) {
+		const dir = path.join(root, project);
+		fs.cpSync(fixture, dir, { recursive: true });
+		const configPath = path.join(dir, "tsconfig.json");
+		const base = JSON.parse(fs.readFileSync(configPath, "utf8"));
+		Object.assign(base.compilerOptions, { composite: true, tsBuildInfoFile: "cache/build.tsbuildinfo" });
+		fs.writeFileSync(configPath, JSON.stringify({ ...base, ...config }));
+		fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: `@rbxts/${project}`, ...manifest }));
+	}
+	fs.rmSync(path.join(root, "lib", "src", "main.ts"));
+	fs.writeFileSync(path.join(root, "lib", "src", "index.d.ts"), "export declare const value: number;\n");
+	fs.writeFileSync(path.join(root, "lib", "src", "init.luau"), "return { value = 7 }\n");
+	fs.writeFileSync(path.join(root, "pkg", "src", "main.ts"), 'import { value } from "@rbxts/lib";\nexport const answer = value;\n');
+	fs.mkdirSync(path.join(root, "pkg", "node_modules", "@rbxts"), { recursive: true });
+	fs.symlinkSync(path.join(root, "lib"), path.join(root, "pkg", "node_modules", "@rbxts", "lib"), "junction");
+
+	const configs = ["lib", "pkg"].map((name) => path.join(root, name, "tsconfig.json"));
+	const session = createBuildSession({ executable });
+	try {
+		for (const roots of [configs, [...configs].reverse()]) {
+			const result = await session.build({ roots, selected: configs, satisfied: [] });
+			assert.equal(result.ok, true, JSON.stringify(result.diagnostics));
+			assert.deepEqual(result.diagnostics, []);
+			assert.match(
+				fs.readFileSync(path.join(root, "pkg", "out", "main.luau"), "utf8"),
+				/TS\.getModule\(script, "@rbxts", "lib"\)\.out/,
+			);
+		}
+	} finally {
+		await session.dispose();
+	}
+});
+
 test("inferred model roots retain their local context when also referenced", async () => {
 	const root = createRootOverlapFixture("model-root-overlap");
 	const configs = ["shared", "consumer"].map((name) => path.join(root, name, "tsconfig.json"));

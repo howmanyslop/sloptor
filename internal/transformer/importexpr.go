@@ -152,28 +152,48 @@ func getPathsWithScope(resolver *rojo.RojoResolver, moduleScope string) []string
 	return paths
 }
 
-func resolveSymlinkedModulePath(nodeModulesPath, moduleOutPath string, useCaseSensitiveFileNames bool) (string, bool) {
-	rel, err := filepath.Rel(nodeModulesPath, moduleOutPath)
+// nodeModulesPackage splits a path under nodeModulesPath into its package
+// directory (node_modules/<name> or node_modules/@scope/<name>), the
+// package's real directory, and the path inside the package.
+func nodeModulesPackage(nodeModulesPath, filePath string) (packagePath, realPackagePath string, inner []string, ok bool) {
+	rel, err := filepath.Rel(nodeModulesPath, filePath)
 	if err != nil {
-		return "", false
+		return "", "", nil, false
 	}
 	segments := strings.Split(rel, string(filepath.Separator))
-	if len(segments) == 0 {
-		return "", false
-	}
 	packageSegments := 1
 	if strings.HasPrefix(segments[0], "@") {
 		packageSegments = 2
 	}
-	if len(segments) < packageSegments {
+	if segments[0] == ".." || len(segments) < packageSegments {
+		return "", "", nil, false
+	}
+	packagePath = filepath.Join(nodeModulesPath, filepath.Join(segments[:packageSegments]...))
+	realPackagePath = filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(packagePath)))
+	return packagePath, realPackagePath, segments[packageSegments:], true
+}
+
+func resolveSymlinkedModulePath(nodeModulesPath, moduleOutPath string, useCaseSensitiveFileNames bool) (string, bool) {
+	packagePath, realPackagePath, inner, ok := nodeModulesPackage(nodeModulesPath, moduleOutPath)
+	if !ok || rojo.CanonicalFileName(realPackagePath, useCaseSensitiveFileNames) == rojo.CanonicalFileName(packagePath, useCaseSensitiveFileNames) {
 		return "", false
 	}
-	packagePath := filepath.Join(nodeModulesPath, filepath.Join(segments[:packageSegments]...))
-	realPackagePath := filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(packagePath)))
-	if rojo.CanonicalFileName(realPackagePath, useCaseSensitiveFileNames) == rojo.CanonicalFileName(packagePath, useCaseSensitiveFileNames) {
+	return filepath.Join(realPackagePath, filepath.Join(inner...)), true
+}
+
+// referencePackagePath rebases a referenced project's Luau path onto the
+// node_modules package directory that nodeModulePath sits in, so package
+// resolvers can map it.
+func referencePackagePath(s *State, nodeModulePath, referencePath string) (string, bool) {
+	packagePath, realPackagePath, _, ok := nodeModulesPackage(s.Rojo.NodeModulesPath, filepath.FromSlash(nodeModulePath))
+	if !ok {
 		return "", false
 	}
-	return filepath.Join(realPackagePath, filepath.Join(segments[packageSegments:]...)), true
+	inner, err := filepath.Rel(realPackagePath, filepath.FromSlash(referencePath))
+	if err != nil || inner == ".." || strings.HasPrefix(inner, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return filepath.Join(packagePath, inner), true
 }
 
 // getNodeModulesImportParts ports createImportExpression.ts
@@ -354,8 +374,17 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 		}
 	}
 
-	if !hasReferencePath && (isInsideNodeModules(virtualPath) || hasMappedPath) {
+	isNodeModule := isInsideNodeModules(virtualPath) || hasMappedPath
+	// A package reaches a referenced package through getModule, never through a
+	// Rojo path, so its output stays relocatable. The reference map only
+	// supplies the Luau path inside the package.
+	if isNodeModule && (!hasReferencePath || s.ProjectType == ProjectTypePackage) {
 		moduleOutPath := s.Rojo.PathTranslator.GetImportPath(mappedPath, true /* isNodeModule */)
+		if hasReferencePath {
+			if packagePath, ok := referencePackagePath(s, mappedPath, referencePath); ok {
+				moduleOutPath = packagePath
+			}
+		}
 		return getNodeModulesImportParts(s, sourceFile, moduleSpecifier, moduleOutPath)
 	}
 

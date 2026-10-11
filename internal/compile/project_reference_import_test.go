@@ -352,3 +352,101 @@ func TestProjectReferenceRojoMountsAfterDependencyCopy(t *testing.T) {
 		t.Fatalf("consumer emitted with inconsistent mounts: %v", err)
 	}
 }
+
+func (f *referenceFixture) symlinkPackage(name string) {
+	f.t.Helper()
+	if err := os.Symlink(filepath.Join(f.dir, name), filepath.Join(f.dir, "node_modules/@rbxts", name)); err != nil {
+		f.t.Skipf("symlinks unavailable: %v", err)
+	}
+}
+
+// Package output stays relocatable: a package reaches a referenced package
+// through getModule, and the reference map only supplies the Luau path.
+func TestProjectReferencePackageImport(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		options  map[string]any
+		include  string
+		manifest map[string]string
+		files    map[string]string
+	}{
+		{
+			name:     "luau next to declarations",
+			include:  "src/**/*.d.ts",
+			manifest: map[string]string{"types": "src/helper.d.ts", "main": "out/helper.luau"},
+			files: map[string]string{
+				"lib/src/helper.d.ts": "export declare const value: number;\n",
+				"lib/src/helper.luau": "return { value = 7 }\n",
+			},
+		},
+		{
+			name:     "declaration directory",
+			options:  map[string]any{"declarationDir": "types"},
+			include:  "src",
+			manifest: map[string]string{"types": "types/helper.d.ts"},
+			files:    map[string]string{"lib/src/helper.ts": "export const value = 7;\n"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newReferenceFixture(t)
+			options := map[string]any{"rootDir": "src", "outDir": "out", "composite": true, "tsBuildInfoFile": "cache/lib.tsbuildinfo"}
+			for key, value := range test.options {
+				options[key] = value
+			}
+			f.json("lib/tsconfig.json", map[string]any{
+				"extends": "../base.json", "compilerOptions": options, "include": []string{test.include},
+				"rbxts": map[string]string{"type": "package"},
+			})
+			test.manifest["name"] = "@rbxts/lib"
+			f.json("lib/package.json", test.manifest)
+			for path, text := range test.files {
+				f.write(path, text)
+			}
+			f.json("pkg/tsconfig.json", map[string]any{
+				"extends": "../base.json", "compilerOptions": map[string]any{
+					"rootDir": "src", "outDir": "out", "composite": true, "tsBuildInfoFile": "cache/pkg.tsbuildinfo",
+				}, "include": []string{"src"}, "references": []map[string]string{{"path": "../lib"}},
+				"rbxts": map[string]string{"type": "package"},
+			})
+			f.write("pkg/src/index.ts", `import { value } from "@rbxts/lib"; export const result = value;`)
+			f.symlinkPackage("lib")
+			result, messages, err := BuildSolutionWithOptions(filepath.Join(f.dir, "pkg/tsconfig.json"), ProjectOptions{IncludePath: filepath.Join(f.dir, "include"), Type: "package"})
+			if err != nil {
+				t.Fatalf("build: %v (%v)", err, messages)
+			}
+			if len(result.Diagnostics) != 0 {
+				t.Fatalf("diagnostics: %+v", result.Diagnostics)
+			}
+			output := string(mustReadFile(t, filepath.Join(f.dir, "pkg/out/init.luau")))
+			if !strings.Contains(output, `TS.getModule(script, "@rbxts", "lib").out.helper`) {
+				t.Fatalf("package import did not use getModule with the referenced Luau path:\n%s", output)
+			}
+		})
+	}
+}
+
+// A game reaches a referenced game project imported by package name through
+// the project's Rojo mount, even when that mount is outside node_modules.
+func TestProjectReferenceGamePackageNameImport(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, nil)
+	f.json("shared/package.json", map[string]string{"name": "@rbxts/shared"})
+	f.write("shared/src/test/helpers.ts", "export const value = 7;\n")
+	f.write("game/src/index.ts", `import { value } from "@rbxts/shared/src/test/helpers"; export const result = value;`)
+	f.json("default.project.json", map[string]any{"name": "references", "tree": map[string]any{
+		"$className": "DataModel", "ReplicatedStorage": map[string]any{
+			"$className": "ReplicatedStorage", "include": map[string]string{"$path": "include"},
+			"game": map[string]string{"$path": "game/out"}, "shared-tests": map[string]string{"$path": "shared/out"},
+		},
+	}})
+	f.symlinkPackage("shared")
+	result := f.build()
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics: %+v", result.Diagnostics)
+	}
+	output := string(mustReadFile(t, filepath.Join(f.dir, "game/out/init.luau")))
+	if !strings.Contains(output, `TS.import(script, game:GetService("ReplicatedStorage"), "shared-tests", "test", "helpers")`) {
+		t.Fatalf("game import did not use the referenced project's mount:\n%s", output)
+	}
+}
