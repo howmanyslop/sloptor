@@ -502,6 +502,11 @@ func (c *SolutionCoordinator) refreshPendingMetadata(drainer *solutionBuildDrain
 	if c.metadata.parse(pending) {
 		c.metadataStale = true
 	}
+	// Imports can change a project's emitted set without changing its
+	// config, so its satisfied declarations are listed again.
+	for _, project := range pending {
+		delete(drainer.restoredDeclarations, project.ConfigPath)
+	}
 	if !c.metadataStale {
 		if err := validateProjectsReferenceRojoPaths(c.graph, pending, c.referenceOutputs); err != nil {
 			return err

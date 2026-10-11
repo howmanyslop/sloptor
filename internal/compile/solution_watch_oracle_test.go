@@ -201,3 +201,32 @@ func TestWatchMetadataMatchesFreshDerivation(t *testing.T) {
 		t.Run(name, func(t *testing.T) { runOracleSteps(t, steps) })
 	}
 }
+
+func TestWatchImportOnlySourceRefreshesSatisfiedDeclarations(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, map[string]any{"declaration": true})
+	// game is not composite, so a file only its imports reach is legal.
+	includeStep("", "game", "src/index.ts").change(f)
+	coordinator := f.coordinator("game")
+	selection := &SolutionProjectSelection{
+		Selected:  []string{filepath.Join(f.dir, "shared/tsconfig.json")},
+		Satisfied: []string{filepath.Join(f.dir, "game/tsconfig.json")},
+	}
+	if _, _, messages, err := coordinator.DrainWithProjectResultsForSelection(selection); err != nil {
+		t.Fatalf("selection drain: %v (%v)", err, messages)
+	}
+	// The import adds a declaration output but leaves the config's file
+	// names, so the metadata stays current.
+	f.write("game/src/extra.ts", "export const extra = 1;\n")
+	f.write("game/src/index.ts", `export { extra } from "./extra"; export const value = 1;`)
+	f.invalidateAndDrain(coordinator, "game")
+	if _, _, messages, err := coordinator.DrainWithProjectResultsForSelection(selection); err != nil {
+		t.Fatalf("selection drain: %v (%v)", err, messages)
+	}
+	assertMetadataMatchesFresh(t, f, coordinator, "import-only source", nil)
+	drainer := coordinator.drainer.(*solutionBuildDrainer)
+	if len(drainer.restoredDeclarations[filepath.Join(f.dir, "game/tsconfig.json")]) != 2 {
+		t.Fatalf("restored declarations = %v, want index and extra", drainer.restoredDeclarations)
+	}
+}
