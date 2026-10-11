@@ -315,3 +315,28 @@ func readOutput(t *testing.T, dir, name string) string {
 	}
 	return string(contents)
 }
+
+// With declarationDir the rule compares the declarations where they were
+// written, so a comment-only edit still skips the importers.
+func TestDeclarationSignatureSelectionUsesDeclarationDir(t *testing.T) {
+	dir := writeProject(t, "@scope/signature-declaration-dir", "")
+	enableDeclarationIncrementalBuilds(t, dir)
+	tsconfigPath := filepath.Join(dir, "tsconfig.json")
+	tsconfig := strings.Replace(string(mustReadFile(t, tsconfigPath)), `"declaration": true,`, `"declaration": true,
+		"declarationDir": "types",`, 1)
+	if err := os.WriteFile(tsconfigPath, []byte(tsconfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSignatureFixture(t, dir)
+	buildForSignatureTest(t, dir)
+	if _, err := os.Stat(filepath.Join(dir, "types", "util.d.ts")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "src", "util.ts"), []byte("export const VALUE = 1;\n// comment\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	timings, _ := buildForSignatureTest(t, dir)
+	if timings.Counts.SelectedSources != 1 {
+		t.Fatalf("selected %d files, want only the edited one", timings.Counts.SelectedSources)
+	}
+}

@@ -466,7 +466,7 @@ func lowerTask7Files(t *testing.T, root string, project *Project) {
 			projectType = transformer.ProjectTypePackage
 		}
 		if rbx, ok := project.RojoResolver().GetRbxPathFromFilePath(filepath.Join(project.IncludeDirectory(), "RuntimeLib.lua")); ok {
-			state.SetRojoContext(&transformer.RojoContext{Resolver: project.RojoResolver(), PathTranslator: project.PathTranslator(), RuntimeLibRbxPath: rbx, ProjectPath: root, NodeModulesPath: filepath.Join(root, "node_modules"), TypeRoots: []string{filepath.Join(root, "node_modules", "@rbxts"), filepath.Join(root, "node_modules", "@flamework")}, UseCaseSensitiveFileNames: osvfs.FS().UseCaseSensitiveFileNames(), ImportPathMap: map[string]string{}}, projectType)
+			state.SetRojoContext(&transformer.RojoContext{Resolver: project.RojoResolver(), PathTranslator: project.PathTranslator(), RuntimeLibRbxPath: rbx, ProjectPath: root, NodeModulesPath: filepath.Join(root, "node_modules"), TypeRoots: []string{filepath.Join(root, "node_modules", "@rbxts"), filepath.Join(root, "node_modules", "@flamework")}, UseCaseSensitiveFileNames: osvfs.FS().UseCaseSensitiveFileNames(), ProjectReferencePaths: map[string]string{}}, projectType)
 		}
 		luau := render.RenderAST(transformer.TransformSourceFile(state))
 		release()

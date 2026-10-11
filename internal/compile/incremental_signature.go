@@ -11,6 +11,7 @@ import (
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
+	"rotor/tsgo/outputpaths"
 )
 
 // declarationSignatureSelection is the state one selection pass needs.
@@ -199,7 +200,6 @@ func changedSourcePaths(current, previous *incrementalManifest) map[string]struc
 func narrowSelectionByDeclarationSignature(
 	dir string,
 	program *compiler.Program,
-	pathTranslator *rojo.PathTranslator,
 	sourceFiles []*ast.SourceFile,
 	extraSeeds map[string]struct{},
 	current, previous *incrementalManifest,
@@ -222,8 +222,11 @@ func narrowSelectionByDeclarationSignature(
 	}
 
 	selection := declarationSignatureSelection{
-		projectDir:      filepath.Clean(filepath.FromSlash(dir)),
-		declarationPath: pathTranslator.GetOutputDeclarationPath,
+		projectDir: filepath.Clean(filepath.FromSlash(dir)),
+		// Where tsgo writes the declaration, honoring declarationDir.
+		declarationPath: func(fileName string) string {
+			return filepath.FromSlash(outputpaths.GetOutputDeclarationFileNameWorker(fileName, program.Options(), program))
+		},
 		previousOutputs: previousOutputs,
 		emit: func(files []*ast.SourceFile) ([]declarationEmitFile, error) {
 			// A wave's emit is a real tsgo declaration emit, so it is charged

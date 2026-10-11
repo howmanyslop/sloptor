@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	"rotor/internal/rojo"
 	"rotor/tsgo/vfs/osvfs"
 )
 
@@ -16,6 +17,9 @@ type SolutionProject struct {
 	References  []string
 	Options     ProjectOptions
 	Coordinator bool
+	// directReferences are the references as written, before solution
+	// configs are replaced by their emitting references.
+	directReferences []string
 }
 
 type SolutionGraph struct {
@@ -89,6 +93,8 @@ type SolutionCoordinator struct {
 	coordinatorPaths     map[string]string
 	writeRoots           map[string][]string
 	waitOnlyDependencies map[string][]string
+	referenceOutputs     map[string][]string
+	referencePathsDirty  bool
 	builders             int
 	timings              *BuildTimings
 }
@@ -141,6 +147,14 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 		if err != nil {
 			return nil, fmt.Errorf("compile: read project reference %q: %w", rootPath, err)
 		}
+		rootRojoPath, _, err := resolveRojoConfigPath(filepath.Dir(rootPath), root.options.RojoConfigPath)
+		if err != nil {
+			return nil, err
+		}
+		rootIncludePath, err := resolveIncludePath(filepath.Dir(rootPath), root.options.IncludePath)
+		if err != nil {
+			return nil, err
+		}
 		var coordinatorRbxts *RbxtsOptions
 		if rootIsCoordinator && root.options.SolutionArgv != nil {
 			coordinatorRbxts, err = ReadRbxtsOptions(rootPath)
@@ -180,11 +194,33 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 				if err != nil {
 					return "", fmt.Errorf("compile: read referenced project options %q: %w", configPath, err)
 				}
+				declared, err := ReadRbxtsOptions(configPath)
+				if err != nil {
+					return "", err
+				}
+				_, isPackage, _ := projectIsPackage(filepath.Dir(configPath))
+				// Non-game projects and projects declaring their own Rojo retain
+				// the same context whether reached as a root or a reference.
+				usesOwnContext := declared != nil && declared.Rojo != nil ||
+					options.Type == "package" || options.Type == "model" || options.Type == "" && isPackage
+				if !usesOwnContext && options.Type == "" {
+					ownRojoPath, _, err := resolveRojoConfigPath(filepath.Dir(configPath), options.RojoConfigPath)
+					if err != nil {
+						return "", err
+					}
+					usesOwnContext = ownRojoPath != "" && !rojo.FromPath(ownRojoPath).IsGame
+				}
+				if !usesOwnContext {
+					options.RojoConfigPath = rootRojoPath
+				}
+				if !usesOwnContext && rootRojoPath != "" {
+					options.IncludePath = rootIncludePath
+				}
 			}
 
 			if existing, ok := projects[configKey]; ok {
 				if !sameSolutionProjectOptions(existing.Options, options) {
-					return "", fmt.Errorf("compile: conflicting effective options for %s reached from %s and %s", existing.ConfigPath, rootByProject[configKey], rootPath)
+					return "", solutionOptionsConflict(existing.ConfigPath, rootByProject[configKey], rootPath, existing.Options, options)
 				}
 				configPath = existing.ConfigPath
 			} else {
@@ -231,6 +267,7 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 			})
 			continue
 		}
+		project.directReferences = project.References
 		project.References = emittingProjectReferences(project.References, projectsByPath)
 		graph.Projects = append(graph.Projects, project)
 	}
@@ -283,7 +320,7 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	right.TsConfigPath = ""
 	left.SolutionArgv, right.SolutionArgv = nil, nil
 	left.rojoCache, right.rojoCache = nil, nil
-	left.crossProjectImportPathMap, right.crossProjectImportPathMap = nil, nil
+	left.projectReferencePaths, right.projectReferencePaths = nil, nil
 	left.pendingSolutionPersists, right.pendingSolutionPersists = nil, nil
 	left.pendingSolutionDependencyPersists, right.pendingSolutionDependencyPersists = nil, nil
 	left.compileCache, right.compileCache = nil, nil
@@ -292,6 +329,15 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	left.deferRojoCachePersist, right.deferRojoCachePersist = false, false
 	left.forceFullBuild, right.forceFullBuild = false, false
 	return reflect.DeepEqual(left, right)
+}
+
+func solutionOptionsConflict(configPath, firstRoot, secondRoot string, first, second ProjectOptions) error {
+	dir := filepath.Dir(configPath)
+	firstRojo, _, _ := resolveRojoConfigPath(dir, first.RojoConfigPath)
+	secondRojo, _, _ := resolveRojoConfigPath(dir, second.RojoConfigPath)
+	firstInclude, _ := resolveIncludePath(dir, first.IncludePath)
+	secondInclude, _ := resolveIncludePath(dir, second.IncludePath)
+	return fmt.Errorf(`compile: conflicting effective options for %s reached from %s (Rojo "%s", include "%s") and %s (Rojo "%s", include "%s")`, configPath, firstRoot, firstRojo, firstInclude, secondRoot, secondRojo, secondInclude)
 }
 
 func emittingProjectReferences(references []string, projects map[string]SolutionProject) []string {
@@ -348,9 +394,13 @@ func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordi
 	if err != nil {
 		return nil, err
 	}
-	importPathMap, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
+	if metadata.validationErr != nil {
+		return nil, metadata.validationErr
+	}
 	drainer := &solutionBuildDrainer{
-		importPathMap:        importPathMap,
+		graph:                graph,
+		referenceOutputs:     metadata.referenceOutputs,
 		restoredDeclarations: metadata.restoredDeclarations,
 		restoredMetadataErrs: metadata.restoredMetadataErrs,
 	}
@@ -365,7 +415,7 @@ func NewSolutionCoordinatorForRootsWithDrainer(tsConfigPaths []string, entry Pro
 	if err != nil {
 		return nil, err
 	}
-	_, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
 	return newSolutionCoordinator(graph, drainer, metadata, effectiveSolutionBuilders(entry), entry.Timings)
 }
 
@@ -406,6 +456,7 @@ func newSolutionCoordinator(graph *SolutionGraph, drainer SolutionProjectDrainer
 		coordinatorPaths:     solutionCoordinatorPaths(graph),
 		writeRoots:           metadata.writeRoots,
 		waitOnlyDependencies: metadata.waitOnlyDependencies,
+		referenceOutputs:     metadata.referenceOutputs,
 		builders:             builders,
 		timings:              timings,
 	}, nil
@@ -520,6 +571,9 @@ func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
 			result = append(result, project.ConfigPath)
 		}
 	}
+	if len(result) > 0 {
+		c.referencePathsDirty = true
+	}
 	return result
 }
 
@@ -527,6 +581,10 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	graph, err := BuildSolutionGraph(tsConfigPath, entry)
 	if err != nil {
 		return err
+	}
+	metadata := populateCrossProjectMetadata(graph)
+	if _, ok := c.drainer.(*solutionBuildDrainer); ok && metadata.validationErr != nil {
+		return metadata.validationErr
 	}
 	states := make(map[string]SolutionProjectState, len(graph.Projects))
 	projectPaths := make(map[string]string, len(graph.Projects))
@@ -545,13 +603,15 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 	c.states = states
 	c.projectPaths = projectPaths
 	c.coordinatorPaths = solutionCoordinatorPaths(graph)
-	importPathMap, metadata := populateCrossProjectMetadata(graph)
 	c.writeRoots = metadata.writeRoots
 	c.waitOnlyDependencies = metadata.waitOnlyDependencies
+	c.referenceOutputs = metadata.referenceOutputs
+	c.referencePathsDirty = false
 	c.builders = effectiveSolutionBuilders(entry)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok {
 		c.drainer = &solutionBuildDrainer{
-			importPathMap:        importPathMap,
+			graph:                graph,
+			referenceOutputs:     metadata.referenceOutputs,
 			restoredDeclarations: metadata.restoredDeclarations,
 			restoredMetadataErrs: metadata.restoredMetadataErrs,
 		}

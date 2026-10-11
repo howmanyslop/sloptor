@@ -233,7 +233,7 @@ func solutionWriteMetadataForTest(t *testing.T, configPath string, entry Project
 	if err != nil {
 		t.Fatalf("BuildSolutionGraph: %v", err)
 	}
-	_, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
 	return metadata
 }
 

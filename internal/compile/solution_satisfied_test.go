@@ -212,7 +212,7 @@ func TestSatisfiedValidationFailureBlocksOnlyTransitiveDependants(t *testing.T) 
 	}
 }
 
-func TestSolutionCoordinatorRejectsSelectedWriteRootContainingSatisfiedOutputsWithoutMutation(t *testing.T) {
+func TestSolutionCoordinatorRejectsOverlappingOutputDirectoriesWithoutMutation(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "app")
 	sharedDir := filepath.Join(root, "shared")
@@ -234,13 +234,12 @@ func TestSolutionCoordinatorRejectsSelectedWriteRootContainingSatisfiedOutputsWi
 	}
 
 	rootConfig := filepath.Join(root, "tsconfig.json")
-	appConfig := filepath.Join(appDir, "tsconfig.json")
 	sharedConfig := filepath.Join(sharedDir, "tsconfig.json")
 	graph, err := BuildSolutionGraph(rootConfig, ProjectOptions{})
 	if err != nil {
 		t.Fatalf("BuildSolutionGraph: %v", err)
 	}
-	_, metadata := populateCrossProjectMetadata(graph)
+	metadata := populateCrossProjectMetadata(graph)
 	protected := append([]string(nil), metadata.restoredDeclarations[sharedConfig]...)
 	protected = append(protected, filepath.Join(satisfiedOut, "nested", "orphan.luau"))
 	for index, path := range protected {
@@ -275,31 +274,9 @@ func TestSolutionCoordinatorRejectsSelectedWriteRootContainingSatisfiedOutputsWi
 		before[path] = fileState{content: content, modTime: info.ModTime()}
 	}
 
-	coordinator, err := NewSolutionCoordinator(rootConfig, ProjectOptions{})
-	if err != nil {
-		t.Fatalf("NewSolutionCoordinator: %v", err)
-	}
-	_, projects, _, err := coordinator.DrainWithProjectResultsForSelection(&SolutionProjectSelection{
-		Selected:  []string{appConfig},
-		Satisfied: []string{sharedConfig},
-	})
-	if err == nil || !strings.Contains(err.Error(), "overlapping write roots") {
-		t.Errorf("selection error = %v, want overlapping write roots", err)
-	}
-
-	results := solutionProjectResultsByConfig(projects)
-	if got := results[sharedConfig].Status; got != SolutionProjectSatisfied {
-		t.Fatalf("satisfied project status = %q, want %q", got, SolutionProjectSatisfied)
-	}
-	selected := results[appConfig]
-	if selected.Status != SolutionProjectFailed {
-		t.Errorf("selected project status = %q, want %q", selected.Status, SolutionProjectFailed)
-	}
-	if len(selected.Diagnostics) != 1 || selected.Diagnostics[0].Code != "SOLUTION_SELECTION_WRITE_ROOT_OVERLAP" {
-		t.Errorf("selected diagnostics = %+v, want write-root ownership diagnostic", selected.Diagnostics)
-	}
-	if selected.Timings.Counts.TransformedProjects != 0 || selected.Timings.Counts.EmittedProjects != 0 {
-		t.Errorf("selected project performed work: %+v", selected.Timings.Counts)
+	_, err = NewSolutionCoordinator(rootConfig, ProjectOptions{})
+	if err == nil || !strings.Contains(err.Error(), "overlapping output directories") {
+		t.Errorf("configuration error = %v, want overlapping output directories", err)
 	}
 	for _, path := range protected {
 		content, readErr := os.ReadFile(path)
