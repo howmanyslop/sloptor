@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -69,14 +70,19 @@ type solutionWatchEvents struct {
 	configs  map[string]struct{}
 	assets   map[string]map[string]bool
 	paths    map[string]struct{}
+	// rewatch is set by events that can leave a watch dead: a deleted path
+	// (possibly a watched root) or a dropped event queue.
+	rewatch bool
 }
 
 func (s *solutionWatchEvents) add(project string, events []fswatch.Event, watchErr error) {
 	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
 		return
 	}
+	s.rewatch = s.rewatch || watchErr != nil
 	for _, event := range events {
 		s.paths[event.Path] = struct{}{}
+		s.rewatch = s.rewatch || event.Kind == fswatch.EventDelete
 		if watchCompilable(event.Path) {
 			s.projects[project] = struct{}{}
 			continue
@@ -92,8 +98,10 @@ func (s *solutionWatchEvents) addRojo(project string, events []fswatch.Event, wa
 	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
 		return
 	}
+	s.rewatch = s.rewatch || watchErr != nil
 	for _, event := range events {
 		s.paths[event.Path] = struct{}{}
+		s.rewatch = s.rewatch || event.Kind == fswatch.EventDelete
 		if strings.HasSuffix(filepath.Base(event.Path), ".project.json") {
 			s.configs[event.Path] = struct{}{}
 			continue
@@ -173,7 +181,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 	stopped := false // guarded by mu; set once ctx is done
 	var watches []fswatch.Watch
 	watcher := fswatch.Default()
-	refresh := func() {}
+	refresh := func(bool) {}
 	// rebuild invalidates and drains the changed projects, first reloading
 	// options and the graph when a config changed. reloaded is false when
 	// that reload failed.
@@ -196,7 +204,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			if err != nil {
 				return nil, nil, false, err
 			}
-			refresh()
+			refresh(true)
 			if len(events.projects) == 0 {
 				for _, set := range coordinator.WatchSets() {
 					events.projects[set.ProjectPath] = struct{}{}
@@ -210,7 +218,7 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		if err == nil && cleanStaleOutputs != nil {
 			err = cleanStaleOutputs()
 		}
-		refresh()
+		refresh(events.rewatch)
 		return result, buildDiagnostics(result, messages), true, err
 	}
 	initial := true
@@ -248,12 +256,22 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		}
 	}
 	gate := newCompileGate(cycle)
-	refresh = func() {
+	// refresh re-arms the watches. It keeps them when the watch sets are
+	// unchanged, every watch was armed, and force is false.
+	var watchedSets []compile.SolutionWatchSet
+	armed := false
+	refresh = func(force bool) {
+		sets := coordinator.WatchSets()
+		if !force && armed && reflect.DeepEqual(sets, watchedSets) {
+			return
+		}
 		for _, watch := range watches {
 			_ = watch.Close()
 		}
 		watches = nil
-		for _, set := range coordinator.WatchSets() {
+		watchedSets = sets
+		armed = true
+		for _, set := range sets {
 			project := set.ProjectPath
 			rootCallback := func(events []fswatch.Event, watchErr error) {
 				mu.Lock()
@@ -280,6 +298,8 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 				}
 				if watch, watchErr := watcher.WatchDirectory(directory, callback, fswatch.WithRecursive()); watchErr == nil {
 					watches = append(watches, watch)
+				} else {
+					armed = false
 				}
 			}
 			for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
@@ -296,11 +316,13 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 					gate.Trigger()
 				}); watchErr == nil {
 					watches = append(watches, watch)
+				} else {
+					armed = false
 				}
 			}
 		}
 	}
-	refresh()
+	refresh(true)
 	for _, set := range coordinator.WatchSets() {
 		s.projects[set.ProjectPath] = struct{}{}
 	}
