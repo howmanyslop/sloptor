@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+
+	"rotor/internal/rojo"
 )
 
 type metadataWork struct{ parses, refreshes int }
@@ -214,12 +217,55 @@ func TestWatchSetsMatchProgramWatchSets(t *testing.T) {
 	f.project("plain", nil, map[string]any{"rootDir": nil, "rootDirs": []string{"src", "extra"}})
 	f.write("plain/extra/more.ts", "export const more = 1;\n")
 	f.project("game", []string{"shared", "plain"}, nil)
+	f.write("shared/assets/icon.txt", "icon\n")
+	f.rojo("default.project.json", "", map[string]any{"assets": map[string]string{"$path": "shared/assets"}})
 	coordinator := f.coordinator("game")
 	sets := coordinator.WatchSets()
+	if !slices.Contains(sets[0].RojoDirectories, filepath.Join(f.dir, "shared", "assets")) {
+		t.Fatalf("Rojo directories = %v, want the assets directory", sets[0].RojoDirectories)
+	}
 	for index, project := range coordinator.graph.Projects {
 		rootDirs, artifactDirectories := programWatchSet(t, project)
 		if !reflect.DeepEqual(sets[index].RootDirs, rootDirs) || !reflect.DeepEqual(sets[index].ArtifactDirectories, artifactDirectories) {
 			t.Fatalf("%s: watch set roots %v artifacts %v, program roots %v artifacts %v", project.ConfigPath, sets[index].RootDirs, sets[index].ArtifactDirectories, rootDirs, artifactDirectories)
 		}
+		dir := filepath.Dir(project.ConfigPath)
+		rojoPath, _, err := resolveRojoConfigPath(dir, project.Options.RojoConfigPath)
+		if err != nil || rojoPath == "" {
+			t.Fatalf("%s: Rojo config %q: %v", project.ConfigPath, rojoPath, err)
+		}
+		state := newRojoWatchState(rojo.FromPath(rojoPath))
+		rojoDirectories := filterRojoWatchDirectories(dir, state, artifactDirectories)
+		if !reflect.DeepEqual(sets[index].RojoConfigs, state.configs) || !reflect.DeepEqual(sets[index].RojoDirectories, rojoDirectories) {
+			t.Fatalf("%s: watch set Rojo configs %v directories %v, fresh %v %v", project.ConfigPath, sets[index].RojoConfigs, sets[index].RojoDirectories, state.configs, rojoDirectories)
+		}
+	}
+}
+
+// The Rojo mount check caches each reference's rbxts options; a config
+// reload must read them again.
+func TestWatchReferenceRbxtsRojoEdit(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, nil)
+	f.write("game/src/index.ts", `import { value } from "../../shared/src"; export const result = value;`)
+	f.rojo("shared/owner.project.json", "../", nil)
+	f.json("shared/src/default.project.json", map[string]any{"name": "nested", "tree": map[string]any{"current": map[string]string{"$path": "init.luau"}}})
+	f.rojo("default.project.json", "", map[string]any{"shared": map[string]string{"$path": "shared/out/init.luau"}})
+	coordinator := f.coordinator("game")
+	var config map[string]any
+	if err := json.Unmarshal(mustReadFile(t, filepath.Join(f.dir, "shared/tsconfig.json")), &config); err != nil {
+		t.Fatal(err)
+	}
+	config["rbxts"] = map[string]string{"rojo": "owner.project.json", "type": "game"}
+	f.json("shared/tsconfig.json", config)
+	_, err := coordinator.ReloadForWatch(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+	var messages []string
+	if err == nil {
+		coordinator.Invalidate(filepath.Join(f.dir, "shared/tsconfig.json"))
+		_, messages, err = coordinator.Drain()
+	}
+	if err == nil || !strings.Contains(err.Error()+strings.Join(messages, "\n"), "must mount") {
+		t.Fatalf("inconsistent mount after rbxts edit: %v (%v)", err, messages)
 	}
 }

@@ -40,6 +40,8 @@ type projectReferenceInfo struct {
 // cycle re-parses only the invalidated projects' configs.
 type crossProjectMetadata struct {
 	infos map[string]*projectReferenceInfo
+	// references caches the inputs of the Rojo mount checks.
+	references *referenceRojoCache
 	// configParses and refreshes count work for tests: configs parsed and
 	// solution metadata derivations.
 	configParses int
@@ -52,7 +54,7 @@ func populateCrossProjectMetadata(graph *SolutionGraph) solutionWriteMetadata {
 }
 
 func newCrossProjectMetadata(graph *SolutionGraph) (solutionWriteMetadata, *crossProjectMetadata) {
-	cache := &crossProjectMetadata{}
+	cache := &crossProjectMetadata{references: newReferenceRojoCache(nil)}
 	return cache.rebuild(graph), cache
 }
 
@@ -201,7 +203,7 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 	metadata.waitOnlyDependencies = deriveWaitOnlyDependencies(graph.Projects, metadata.writeRoots)
 	metadata.validationErr = validateSolutionReferences(graph, configs)
 	if metadata.validationErr == nil {
-		metadata.validationErr = validateProjectsReferenceRojoPaths(graph, consumers, metadata.referenceOutputs)
+		metadata.validationErr = validateProjectsReferenceRojoPaths(graph, consumers, metadata.referenceOutputs, m.references)
 	}
 	if metadata.validationErr == nil {
 		metadata.validationErr = validateProjectOutputs(graph, configs)

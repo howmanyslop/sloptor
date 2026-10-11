@@ -80,7 +80,7 @@ func (c *SolutionCoordinator) projectWatchSet(project SolutionProject, rojoState
 	if rojoErr == nil && rojoPath != "" {
 		state, ok := rojoStates[rojoPath]
 		if !ok {
-			state = newRojoWatchState(rojoPath)
+			state = newRojoWatchState(c.metadata.references.resolver(rojoPath))
 			rojoStates[rojoPath] = state
 		}
 		set.RojoConfigs = state.configs
@@ -107,7 +107,7 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 			translator.OutDir,
 			state.Project.Options.IncludePath,
 		)
-		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, newRojoWatchState(rojoPath), artifactDirectories)...)
+		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, newRojoWatchState(c.metadata.references.resolver(rojoPath)), artifactDirectories)...)
 	}
 	changes := map[string]bool{}
 	for _, event := range events {
@@ -203,8 +203,8 @@ type rojoWatchState struct {
 	canonicalDirectories []string
 }
 
-func newRojoWatchState(rojoPath string) rojoWatchState {
-	state := rojo.FromPath(rojoPath).GetState()
+func newRojoWatchState(resolver *rojo.RojoResolver) rojoWatchState {
+	state := resolver.GetState()
 	return rojoWatchState{
 		configs:              canonicalWatchPaths(state.WalkedConfigs),
 		directories:          state.WalkedDirectories,

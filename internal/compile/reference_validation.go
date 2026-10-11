@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
@@ -106,13 +107,65 @@ func validateProjectOutputs(graph *SolutionGraph, programs map[string]projectOut
 	return nil
 }
 
-func validateReferenceRojoPaths(graph *SolutionGraph, outputs map[string][]string) error {
-	return validateProjectsReferenceRojoPaths(graph, graph.Projects, outputs)
+func validateReferenceRojoPaths(graph *SolutionGraph, outputs map[string][]string, cache *referenceRojoCache) error {
+	return validateProjectsReferenceRojoPaths(graph, graph.Projects, outputs, cache)
+}
+
+// referenceRojoCache shares Rojo resolvers and rbxts options between the
+// Rojo mount checks of a solution, so a watch cycle does not walk the Rojo
+// tree or read every reference's config again. Resolvers revalidate against
+// the mtimes of the Rojo configs and directories they walked; options are
+// dropped per project when it is invalidated. A nil cache reads from disk.
+type referenceRojoCache struct {
+	resolvers *rojo.RojoResolverCache
+	mu        sync.Mutex
+	options   map[string]referenceRbxtsOptions
+}
+
+type referenceRbxtsOptions struct {
+	options *RbxtsOptions
+	err     error
+}
+
+func newReferenceRojoCache(resolvers *rojo.RojoResolverCache) *referenceRojoCache {
+	if resolvers == nil {
+		resolvers = rojo.NewMemoryRojoResolverCache()
+	}
+	return &referenceRojoCache{resolvers: resolvers, options: map[string]referenceRbxtsOptions{}}
+}
+
+func (c *referenceRojoCache) resolver(path string) *rojo.RojoResolver {
+	if c == nil {
+		return rojo.FromPath(path)
+	}
+	return c.resolvers.Load(path)
+}
+
+func (c *referenceRojoCache) rbxtsOptions(configPath string) (*RbxtsOptions, error) {
+	if c == nil {
+		return ReadRbxtsOptions(configPath)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cached, ok := c.options[configPath]
+	if !ok {
+		cached.options, cached.err = ReadRbxtsOptions(configPath)
+		c.options[configPath] = cached
+	}
+	return cached.options, cached.err
+}
+
+func (c *referenceRojoCache) forget(projects []SolutionProject) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, project := range projects {
+		delete(c.options, project.ConfigPath)
+	}
 }
 
 // validateProjectsReferenceRojoPaths checks the direct references of consumers
 // only, so one project's mounts never fail an unrelated project.
-func validateProjectsReferenceRojoPaths(graph *SolutionGraph, consumers []SolutionProject, outputs map[string][]string) error {
+func validateProjectsReferenceRojoPaths(graph *SolutionGraph, consumers []SolutionProject, outputs map[string][]string, cache *referenceRojoCache) error {
 	needed := map[string]bool{}
 	for _, project := range consumers {
 		needed[project.ConfigPath] = true
@@ -138,7 +191,7 @@ func validateProjectsReferenceRojoPaths(graph *SolutionGraph, consumers []Soluti
 		key := rojo.CanonicalFileName(path, osvfs.FS().UseCaseSensitiveFileNames())
 		resolver := byRojoPath[key]
 		if resolver == nil {
-			resolver = rojo.FromPath(path)
+			resolver = cache.resolver(path)
 			byRojoPath[key] = resolver
 		}
 		resolvers[project.ConfigPath] = resolver
@@ -149,7 +202,7 @@ func validateProjectsReferenceRojoPaths(graph *SolutionGraph, consumers []Soluti
 		for _, configPath := range project.directReferences {
 			paths, emits := outputs[configPath]
 			owner, consumer := resolvers[configPath], resolvers[project.ConfigPath]
-			declared, err := ReadRbxtsOptions(configPath)
+			declared, err := cache.rbxtsOptions(configPath)
 			if err != nil {
 				return err
 			}

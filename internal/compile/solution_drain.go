@@ -14,6 +14,7 @@ type solutionBuildDrainer struct {
 	referenceOutputs     map[string][]string
 	restoredDeclarations map[string][]string
 	restoredMetadataErrs map[string]string
+	references           *referenceRojoCache
 	persists             []func() error
 }
 
@@ -41,7 +42,7 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 				result.Diagnostics = stringDiagnostics([]string{err.Error()})
 				return result, nil, []string{err.Error()}, err
 			}
-		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs); err != nil {
+		} else if err := validateReferenceRojoPaths(c.graph, c.referenceOutputs, c.metadata.references); err != nil {
 			result.Diagnostics = stringDiagnostics([]string{err.Error()})
 			return result, nil, []string{err.Error()}, err
 		}
@@ -507,8 +508,9 @@ func (c *SolutionCoordinator) refreshPendingMetadata(drainer *solutionBuildDrain
 	for _, project := range pending {
 		delete(drainer.restoredDeclarations, project.ConfigPath)
 	}
+	c.metadata.references.forget(pending)
 	if !c.metadataStale {
-		if err := validateProjectsReferenceRojoPaths(c.graph, pending, c.referenceOutputs); err != nil {
+		if err := validateProjectsReferenceRojoPaths(c.graph, pending, c.referenceOutputs, c.metadata.references); err != nil {
 			return err
 		}
 		c.pendingProjects = map[string]struct{}{}
@@ -620,7 +622,7 @@ func mergeSolutionBuildResult(result *BuildResult, project SolutionProject, buil
 func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {
 	// Dependencies can copy nested Rojo projects into their outputs. Refresh
 	// the consistency check before compiling a consumer against those mounts.
-	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs); err != nil {
+	if err := validateProjectsReferenceRojoPaths(d.graph, []SolutionProject{project}, d.referenceOutputs, d.references); err != nil {
 		return &BuildResult{Diagnostics: stringDiagnostics([]string{err.Error()})}, []string{err.Error()}, err
 	}
 	options := project.Options

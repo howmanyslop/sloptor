@@ -419,6 +419,7 @@ func NewSolutionCoordinatorForRootOptions(roots []SolutionRoot) (*SolutionCoordi
 		referenceOutputs:     metadata.referenceOutputs,
 		restoredDeclarations: map[string][]string{},
 		restoredMetadataErrs: metadata.restoredMetadataErrs,
+		references:           cache.references,
 	}
 	return newSolutionCoordinator(graph, drainer, metadata, cache, solutionRootsBuilders(roots), solutionRootsTimings(roots))
 }
@@ -605,7 +606,11 @@ func (c *SolutionCoordinator) Reload(tsConfigPath string, entry ProjectOptions) 
 
 func (c *SolutionCoordinator) reload(graph *SolutionGraph, entry ProjectOptions) error {
 	// Derive into a copy so a failed reload keeps the current metadata.
-	cache := &crossProjectMetadata{configParses: c.metadata.configParses, refreshes: c.metadata.refreshes}
+	cache := &crossProjectMetadata{
+		configParses: c.metadata.configParses,
+		refreshes:    c.metadata.refreshes,
+		references:   newReferenceRojoCache(c.metadata.references.resolvers),
+	}
 	metadata := cache.rebuild(graph)
 	if _, ok := c.drainer.(*solutionBuildDrainer); ok && metadata.validationErr != nil {
 		return metadata.validationErr
@@ -641,6 +646,7 @@ func (c *SolutionCoordinator) reload(graph *SolutionGraph, entry ProjectOptions)
 			referenceOutputs:     metadata.referenceOutputs,
 			restoredDeclarations: map[string][]string{},
 			restoredMetadataErrs: metadata.restoredMetadataErrs,
+			references:           cache.references,
 		}
 	}
 	return nil
