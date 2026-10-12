@@ -81,6 +81,51 @@ func TestSolutionCoordinatorBuildsSelectedProjectFromSatisfiedDependency(t *test
 	}
 }
 
+func TestSolutionCoordinatorRebuildsForChangedSatisfiedDeclaration(t *testing.T) {
+	fixture := func(declaration string) *referenceFixture {
+		projectFixture := newReferenceFixture(t)
+		auditDir := buildAuditProject(t)
+		copyDir(t, filepath.Join(auditDir, "node_modules"), filepath.Join(projectFixture.dir, "node_modules"))
+		projectFixture.write("node_modules/@rbxts/globals/index.d.ts", "/// <reference types=\"compiler-types\" />\n/// <reference types=\"types\" />\n")
+		projectFixture.project("shared", nil, nil)
+		projectFixture.project("game", []string{"shared"}, map[string]any{"declaration": true})
+		projectFixture.write("shared/src/tuple/index.d.ts", declaration)
+		projectFixture.write("shared/src/tuple/init.luau", "return {}\n")
+		projectFixture.write("game/src/index.ts", "import { values } from \"../../shared/src/tuple\";\nconst [count, text] = values();\nprint(count, text);\n")
+		return projectFixture
+	}
+	const finalDeclaration = "export declare function values(): LuaTuple<[number, string]>;\n"
+	projectFixture := fixture("export declare function values(): [number, string];\n")
+	projectFixture.build()
+	projectFixture.write("shared/src/tuple/index.d.ts", finalDeclaration)
+	sharedConfig := filepath.Join(projectFixture.dir, "shared", "tsconfig.json")
+	gameConfig := filepath.Join(projectFixture.dir, "game", "tsconfig.json")
+	if _, messages, err := BuildSolutionWithOptions(sharedConfig, projectFixture.options()); err != nil {
+		t.Fatalf("dependency build: %v (%v)", err, messages)
+	}
+	coordinator, err := NewSolutionCoordinator(gameConfig, projectFixture.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, projects, messages, err := coordinator.DrainWithProjectResultsForSelection(&SolutionProjectSelection{
+		Selected: []string{gameConfig}, Satisfied: []string{sharedConfig},
+	})
+	if err != nil {
+		t.Fatalf("selected build: %v (%v)", err, messages)
+	}
+	results := solutionProjectResultsByConfig(projects)
+	if shared := results[sharedConfig]; shared.Status != SolutionProjectSatisfied || shared.Timings.Counts.TransformedProjects != 0 {
+		t.Fatalf("dependency result = %+v, want satisfied without transformations", shared)
+	}
+	oracle := fixture(finalDeclaration)
+	oracle.build()
+	got := string(mustReadFile(t, filepath.Join(projectFixture.dir, "game", "out", "init.luau")))
+	want := string(mustReadFile(t, filepath.Join(oracle.dir, "game", "out", "init.luau")))
+	if got != want || !strings.Contains(want, "local count, text = values()") {
+		t.Fatalf("satisfied dependency build differs from cold build:\nwarm:\n%s\ncold:\n%s", got, want)
+	}
+}
+
 func TestSolutionCoordinatorTelemetrySeparatesSelectedAndSatisfiedProjects(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, "app")
