@@ -12,6 +12,7 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/outputpaths"
+	"rotor/tsgo/tspath"
 )
 
 // declarationSignatureSelection is the state one selection pass needs.
@@ -77,36 +78,28 @@ func selectByDeclarationSignature(
 	selected := make(map[string]struct{}, len(seeds))
 	pending := make([]string, 0, len(seeds))
 	for path := range seeds {
-		if _, ok := byPath[path]; !ok {
-			// A deleted file emits nothing to compare, so its importers are
-			// the seeds instead.
-			for _, importer := range reverse[path] {
-				if _, ok := byPath[importer]; ok {
-					pending = append(pending, importer)
-				}
-			}
-			continue
-		}
 		pending = append(pending, path)
 	}
 
 	var declarations []declarationEmitFile
 	for len(pending) > 0 {
 		wave := make([]*ast.SourceFile, 0, len(pending))
-		for _, path := range pending {
+		paths := pending
+		pending = nil
+		for _, path := range paths {
 			if _, ok := selected[path]; ok {
 				continue
 			}
+			selected[path] = struct{}{}
 			sourceFile, ok := byPath[path]
 			if !ok {
+				pending = append(pending, reverse[path]...)
 				continue
 			}
-			selected[path] = struct{}{}
 			wave = append(wave, sourceFile)
 		}
-		pending = pending[:0]
 		if len(wave) == 0 {
-			break
+			continue
 		}
 
 		emitted, err := selection.emit(wave)
@@ -214,6 +207,9 @@ func narrowSelectionByDeclarationSignature(
 	}
 
 	seeds := changedSourcePaths(current, previous)
+	for path := range declarationImporters(seeds, current, previous) {
+		seeds[path] = struct{}{}
+	}
 	for path := range extraSeeds {
 		seeds[path] = struct{}{}
 	}
@@ -251,6 +247,37 @@ func narrowSelectionByDeclarationSignature(
 		return nil, nil, false, nil
 	}
 	return selected, declarations, true, nil
+}
+
+// Re-exported declaration text can stay identical while a referenced type
+// changes downstream lowering, so declaration edits rebuild their full closure.
+func declarationImporters(changed map[string]struct{}, current, previous *incrementalManifest) map[string]struct{} {
+	affected := make(map[string]struct{})
+	var pending []string
+	for path := range changed {
+		if tspath.IsDeclarationFileName(path) {
+			affected[path] = struct{}{}
+			pending = append(pending, path)
+		}
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	reverse := make(map[string][]string)
+	accumulateReverseDeps(reverse, current)
+	accumulateReverseDeps(reverse, previous)
+	for len(pending) > 0 {
+		path := pending[0]
+		pending = pending[1:]
+		for _, importer := range reverse[path] {
+			if _, seen := affected[importer]; seen {
+				continue
+			}
+			affected[importer] = struct{}{}
+			pending = append(pending, importer)
+		}
+	}
+	return affected
 }
 
 // declarationTextsForSelection is the selection pass's half of the declaration

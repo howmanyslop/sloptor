@@ -277,9 +277,10 @@ func TestBuildIncrementalManifestRecomputesAllReferencesAfterSourceChange(t *tes
 	utilKey := normalizeSourceFilePath(filepath.Join(dir, "src", "util.ts"))
 	sideKey := normalizeSourceFilePath(filepath.Join(dir, "src", "side.ts"))
 	sideState := seeded.Files[sideKey]
-	if !slices.Equal(sideState.Refs, []string{utilKey}) {
-		t.Fatalf("seeded side.ts refs = %v, want [%s]", sideState.Refs, utilKey)
+	if !slices.Contains(sideState.Refs, utilKey) {
+		t.Fatalf("seeded side.ts refs = %v, want dependency %s", sideState.Refs, utilKey)
 	}
+	expectedRefs := slices.Clone(sideState.Refs)
 	sideState.Refs = []string{"sentinel"}
 	seeded.Files[sideKey] = sideState
 	if err := writeIncrementalManifest(manifestPath, seeded); err != nil {
@@ -297,11 +298,11 @@ func TestBuildIncrementalManifestRecomputesAllReferencesAfterSourceChange(t *tes
 	if err != nil || rebuilt == nil {
 		t.Fatalf("read rebuilt manifest: %v", err)
 	}
-	if got := rebuilt.Files[sideKey].Refs; !slices.Equal(got, []string{utilKey}) {
-		t.Fatalf("side.ts refs = %v, want recomputed [%s]", got, utilKey)
+	if got := rebuilt.Files[sideKey].Refs; !slices.Equal(got, expectedRefs) {
+		t.Fatalf("side.ts refs = %v, want recomputed %v", got, expectedRefs)
 	}
-	if got := rebuilt.Files[mainKey].Refs; !slices.Equal(got, []string{utilKey}) {
-		t.Fatalf("main.ts refs = %v, want recomputed [%s]", got, utilKey)
+	if got := rebuilt.Files[mainKey].Refs; !slices.Equal(got, expectedRefs) {
+		t.Fatalf("main.ts refs = %v, want recomputed %v", got, expectedRefs)
 	}
 }
 

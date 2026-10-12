@@ -233,6 +233,123 @@ func TestDeclarationSignatureSelectionIsANoOpWithoutChanges(t *testing.T) {
 	}
 }
 
+func TestDeclarationSignatureSelectionRebuildsImportersOfChangedDeclaration(t *testing.T) {
+	const caller = "import { values } from \"./tuple\";\nconst [count, text] = values();\nprint(count, text);\n"
+	const declaration = "export declare function values(): LuaTuple<[number, string]>;\n"
+	dir := buildAuditProject(t)
+	enableDeclarationIncrementalBuilds(t, dir)
+	writeFiles(t, dir, map[string]string{
+		"src/tuple.d.ts":   "export declare function values(): [number, string];\n",
+		"src/tuple.luau":   "return { values = function() return 1, \"text\" end }\n",
+		"src/main.ts":      caller,
+		"src/unrelated.ts": "export const unrelated = 1;\n",
+	})
+	buildForSignatureTest(t, dir)
+	before := readOutput(t, dir, "main.luau")
+	writeFiles(t, dir, map[string]string{"src/tuple.d.ts": declaration})
+	timings, _ := buildForSignatureTest(t, dir)
+	if timings.Counts.SelectedSources != 1 {
+		t.Fatalf("selected %d sources, want only the declaration importer", timings.Counts.SelectedSources)
+	}
+
+	oracleDir := buildAuditProject(t)
+	enableDeclarationIncrementalBuilds(t, oracleDir)
+	writeFiles(t, oracleDir, map[string]string{
+		"src/tuple.d.ts":   declaration,
+		"src/tuple.luau":   "return { values = function() return 1, \"text\" end }\n",
+		"src/main.ts":      caller,
+		"src/unrelated.ts": "export const unrelated = 1;\n",
+	})
+	buildForSignatureTest(t, oracleDir)
+	want := readOutput(t, oracleDir, "main.luau")
+	if before == want || !strings.Contains(want, "local count, text = values()") {
+		t.Fatalf("fixture does not distinguish tuple lowering:\ninitial:\n%s\ncold:\n%s", before, want)
+	}
+	if got := readOutput(t, dir, "main.luau"); got != want {
+		t.Fatalf("declaration-only warm build differs from cold build:\nwarm:\n%s\ncold:\n%s", got, want)
+	}
+	timings, wrote := buildForSignatureTest(t, dir)
+	if timings.Counts.SelectedSources != 0 || len(wrote) != 0 {
+		t.Fatalf("unchanged declaration build selected %d sources and wrote %v", timings.Counts.SelectedSources, wrote)
+	}
+}
+
+func TestDeclarationSignatureSelectionRebuildsThroughDeclarationReexports(t *testing.T) {
+	dir := buildAuditProject(t)
+	enableDeclarationIncrementalBuilds(t, dir)
+	writeFiles(t, dir, map[string]string{
+		"src/tuple.d.ts":  "export declare function values(): [number, string];\n",
+		"src/bridge.d.ts": "export { values } from \"./tuple\";\n",
+		"src/bridge.luau": "return {}\n",
+		"src/main.ts":     "import { values } from \"./bridge\";\nconst [count, text] = values();\nprint(count, text);\n",
+	})
+	buildForSignatureTest(t, dir)
+	writeFiles(t, dir, map[string]string{"src/tuple.d.ts": "export declare function values(): LuaTuple<[number, string]>;\n"})
+	buildForSignatureTest(t, dir)
+	if got := readOutput(t, dir, "main.luau"); !strings.Contains(got, "local count, text = values()") {
+		t.Fatalf("declaration re-export left the caller's tuple lowering stale:\n%s", got)
+	}
+}
+
+func TestDeclarationSignatureSelectionRebuildsThroughSourceReexports(t *testing.T) {
+	dir := buildAuditProject(t)
+	enableDeclarationIncrementalBuilds(t, dir)
+	writeFiles(t, dir, map[string]string{
+		"src/tuple.d.ts": "export declare function values(): [number, string];\n",
+		"src/tuple.luau": "return {}\n",
+		"src/bridge.ts":  "export { values } from \"./tuple\";\n",
+		"src/main.ts":    "import { values } from \"./bridge\";\nconst [count, text] = values();\nprint(count, text);\n",
+	})
+	buildForSignatureTest(t, dir)
+	writeFiles(t, dir, map[string]string{"src/tuple.d.ts": "export declare function values(): LuaTuple<[number, string]>;\n"})
+	buildForSignatureTest(t, dir)
+	if got := readOutput(t, dir, "main.luau"); !strings.Contains(got, "local count, text = values()") {
+		t.Fatalf("source re-export left the caller's tuple lowering stale:\n%s", got)
+	}
+}
+
+func TestDeclarationSignatureSelectionRebuildsForChangedGlobalDeclaration(t *testing.T) {
+	for name, declaration := range map[string]string{
+		"script":       "declare function values(): RETURN_TYPE;\n",
+		"augmentation": "export {}; declare global { function values(): RETURN_TYPE; }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := buildAuditProject(t)
+			enableDeclarationIncrementalBuilds(t, dir)
+			writeFiles(t, dir, map[string]string{
+				"src/values.d.ts": strings.ReplaceAll(declaration, "RETURN_TYPE", "[number, string]"),
+				"src/main.ts":     "const [count, text] = values();\nprint(count, text);\n",
+			})
+			buildForSignatureTest(t, dir)
+			writeFiles(t, dir, map[string]string{"src/values.d.ts": strings.ReplaceAll(declaration, "RETURN_TYPE", "LuaTuple<[number, string]>")})
+			buildForSignatureTest(t, dir)
+			if got := readOutput(t, dir, "main.luau"); !strings.Contains(got, "local count, text = values()") {
+				t.Fatalf("global declaration left the caller's tuple lowering stale:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestDeclarationSignatureSelectionRebuildsForChangedExternalDeclaration(t *testing.T) {
+	dir := buildAuditProject(t)
+	enableDeclarationIncrementalBuilds(t, dir)
+	declarationPath := "node_modules/@rbxts/tuple/index.d.ts"
+	writeSolutionFile(t, dir, declarationPath, "export declare function values(): [number, string];\n")
+	writeFiles(t, dir, map[string]string{
+		"src/main.ts":      "import { values } from \"@rbxts/tuple\";\nconst [count, text] = values();\nprint(count, text);\n",
+		"src/unrelated.ts": "export const unrelated = 1;\n",
+	})
+	buildForSignatureTest(t, dir)
+	writeSolutionFile(t, dir, declarationPath, "export declare function values(): LuaTuple<[number, string]>;\n")
+	timings, _ := buildForSignatureTest(t, dir)
+	if got := readOutput(t, dir, "main.luau"); !strings.Contains(got, "local count, text = values()") {
+		t.Fatalf("external declaration left the caller's tuple lowering stale:\n%s", got)
+	}
+	if timings.Counts.SelectedSources != 1 {
+		t.Fatalf("selected %d sources, want only the external declaration importer", timings.Counts.SelectedSources)
+	}
+}
+
 func addPathAliases(t *testing.T, dir string) {
 	t.Helper()
 	path := filepath.Join(dir, "tsconfig.json")
