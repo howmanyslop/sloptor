@@ -45,7 +45,7 @@ func TestCompileFileElidesUnreferencedFunctionAfterReturn(test *testing.T) {
 	if compileError != nil || len(diagnostics) != 0 {
 		test.Fatalf("CompileFile: %v (diagnostics: %v)", compileError, diagnostics)
 	}
-	const want = `-- Compiled with sloptor v2.8.0
+	const want = `-- Compiled with sloptor v2.8.1
 local function NoReference()
 	return 1
 end
@@ -73,7 +73,7 @@ func TestCompileFilePreservesReachableHoistedFunction(test *testing.T) {
 	if compileError != nil || len(diagnostics) != 0 {
 		test.Fatalf("CompileFile: %v (diagnostics: %v)", compileError, diagnostics)
 	}
-	const want = `-- Compiled with sloptor v2.8.0
+	const want = `-- Compiled with sloptor v2.8.1
 local function Reachable(value)
 	local read
 	local later = function()

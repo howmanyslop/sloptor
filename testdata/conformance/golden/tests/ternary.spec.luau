@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.0
+-- Compiled with sloptor v2.8.1
 return function()
 	it("should support ternary expressions", function()
 		expect(if true then 1 else 0).to.equal(1)

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.0
+-- Compiled with sloptor v2.8.1
 return function()
 	it("should understand number literals", function()
 		expect(1).to.equal(1)

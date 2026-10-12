@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.0
+-- Compiled with sloptor v2.8.1
 local TS = _G[script]
 local function runtimePromise()
 	return TS.Promise.new(function(resolve)

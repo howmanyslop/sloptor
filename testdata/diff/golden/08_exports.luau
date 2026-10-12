@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.0
+-- Compiled with sloptor v2.8.1
 local exports = {}
 local constant = 42
 exports.mutable = "start"
