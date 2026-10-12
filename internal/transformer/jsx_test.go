@@ -8,7 +8,8 @@ import (
 	"rotor/internal/transformer"
 )
 
-// All expected text below is byte-for-byte what rbxtsc 3.0.0 emits for the
+// Expected text below follows rbxtsc 3.0.0, except identifier tag names follow
+// TypeScript's intrinsic-name rule. The recordings cover the
 // same constructs (phase3c jsx digest §3, oracle-verified 2026-06-07; header
 // and import lines stripped — those belong to TransformSourceFile). The test
 // project declares its own ambient React + JSX namespace (see
@@ -141,8 +142,7 @@ print(d, i, e)
 	}
 }
 
-// TestJsxTagShapes pins digest §3 cases L/I/F/G/K/10 and quirk §7.12: the
-// `<_Comp/>` lowercase-test string quirk, dotted component tags, namespaced
+// TestJsxTagShapes covers component bindings, dotted component tags, namespaced
 // tag/attribute names, `{}` child dropped, `{...arr}` last child -> unpack,
 // empty fragment, and fragment-with-children (always nil placeholder).
 func TestJsxTagShapes(t *testing.T) {
@@ -151,7 +151,7 @@ func TestJsxTagShapes(t *testing.T) {
 	want := `local function _Comp()
 	return React.createElement("frame")
 end
-local a = React.createElement("_Comp")
+local a = React.createElement(_Comp)
 local function Item(props)
 	return React.createElement("frame")
 end

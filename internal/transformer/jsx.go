@@ -18,6 +18,7 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/core"
 	"rotor/tsgo/parser"
+	"rotor/tsgo/scanner"
 )
 
 // transformJsxElement ports transformJsxElement.ts (L5-7).
@@ -153,17 +154,8 @@ func getTextOfJsxNamespacedName(node *ast.Node) string {
 
 // transformJsxTagNameExpression ports transformJsxTagNameExpression (L9-28).
 func transformJsxTagNameExpression(s *State, node *ast.Node) luau.Expression {
-	// host component
-	if ast.IsIdentifier(node) {
-		// QUIRK (digest §7.1): intrinsic-vs-component is decided by JS
-		// `firstChar === firstChar.toLowerCase()` on the raw text — `_` passes,
-		// so `<_Comp/>` emits the STRING `"_Comp"` (oracle-proven). First-rune
-		// + strings.ToLower reproduces the semantics.
-		text := node.Text()
-		firstChar := string([]rune(text)[0:1])
-		if firstChar == strings.ToLower(firstChar) {
-			return luau.Str(text)
-		}
+	if ast.IsIdentifier(node) && scanner.IsIntrinsicJsxName(node.Text()) {
+		return luau.Str(node.Text())
 	}
 
 	if ast.IsPropertyAccessExpression(node) {
