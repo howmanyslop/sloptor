@@ -51,7 +51,7 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 	result := luau.NewList[luau.Statement]()
 	arrayAppendPlans := analyzeArrayAppendStatements(s, statements)
 
-	for _, statement := range statements {
+	for index, statement := range statements {
 		// Capture prerequisite statements for the ts.Statement while
 		// transforming it. transformStatement runs BEFORE
 		// createHoistDeclaration is consulted, so hoists registered while
@@ -87,6 +87,7 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 		result.PushList(transformed)
 
 		if lastNode != nil && luau.IsFinalStatement(lastNode.Value) {
+			reportUnreachableHoistedFunctions(s, statements[index+1:])
 			break
 		}
 
@@ -110,6 +111,25 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 	}
 
 	return result
+}
+
+func reportUnreachableHoistedFunctions(state *State, statements []*ast.Node) {
+	if len(state.IsHoisted) == 0 {
+		return
+	}
+	for _, statement := range statements {
+		if !ast.IsFunctionDeclaration(statement) {
+			continue
+		}
+		declaration := statement.AsFunctionDeclaration()
+		if declaration.Body == nil || declaration.Name() == nil {
+			continue
+		}
+		symbol := state.Checker.GetSymbolAtLocation(declaration.Name())
+		if state.IsHoisted[symbol] {
+			state.Diags.Add(DiagRotorUnreachableHoistedFunction(statement))
+		}
+	}
 }
 
 // getLastToken ports transformStatementList.ts getLastToken: the trailing

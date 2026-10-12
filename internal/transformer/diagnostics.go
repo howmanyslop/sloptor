@@ -418,6 +418,13 @@ func DiagRotorNotYetSupported(node *ast.Node, what string) Diagnostic {
 	return errorDiag("rotorNotYetSupported", node, fmt.Sprintf("rotor: %s not yet supported", what))
 }
 
+func DiagRotorUnreachableHoistedFunction(node *ast.Node) Diagnostic {
+	return errorDiag("rotorUnreachableHoistedFunction", node,
+		fmt.Sprintf("Function %q is unreachable after a final statement.", node.Name().Text()),
+		"Declare the function before the first statement that uses it.",
+	)
+}
+
 // DiagRotorUnknownLabel fires when `break <name>` / `continue <name>` names a
 // label that is not in scope. TypeScript already reports this, so it is only
 // reachable when the TS error was suppressed (`// @ts-ignore`); emitting a
