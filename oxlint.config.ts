@@ -1,8 +1,6 @@
 import { argv } from "node:process";
 import { defineConfig } from "oxlint";
 
-import type { ExternalPluginEntry } from "oxlint";
-
 const configuration = defineConfig({
 	$schema: "node_modules/oxlint/configuration_schema.json",
 	categories: {
@@ -23,6 +21,7 @@ const configuration = defineConfig({
 		"**/*.js",
 		"scripts/dupes-viewer.html",
 		"scripts/clis/**/*.ts",
+		".mise/**",
 	],
 	jsPlugins: [
 		"@pobammer-ts/small-rules",
