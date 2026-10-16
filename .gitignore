@@ -66,3 +66,4 @@ bin/
 .agents/skills/wayfinder/
 .agents/skills/wizard/
 .agents/skills/writing-for-agents/
+.envrc
