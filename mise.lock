@@ -414,6 +414,14 @@ url = "https://dl.google.com/go/go1.26.9.windows-amd64.zip"
 checksum = "sha256:d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59"
 url = "https://dl.google.com/go/go1.26.9.windows-amd64.zip"
 
+[[tools."go:github.com/uudashr/gocognit/cmd/gocognit"]]
+version = "1.3.0"
+backend = "go:github.com/uudashr/gocognit/cmd/gocognit"
+
+[[tools."go:go.uber.org/nilaway/cmd/nilaway"]]
+version = "0.0.0-20260918162853-acb8859b9031"
+backend = "go:go.uber.org/nilaway/cmd/nilaway"
+
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
 version = "1.3.0"
 backend = "go:golang.org/x/vuln/cmd/govulncheck"
