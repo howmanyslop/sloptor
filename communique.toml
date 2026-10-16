@@ -82,12 +82,24 @@ Use exactly these section headings, in this order, and only the ones that apply:
 ## 🗑️ Removed
 ```
 
-Breaking Changes goes first when present, and each entry states the before, the after, and
-the exact edit the reader makes to their config, command, or code.
+Classify by the reader's contract with the tool, not by the commit type prefix:
+- Fixed: the tool did something wrong by its own contract (crashed, drifted from `rbxtsc 3.0.0`
+  or the fork archive, emitted broken Luau, produced stale output, missed a documented
+  behavior), and now does the right thing.
+- Changed: intended behavior is now different, including a deliberate divergence from upstream
+  `rbxtsc`. Name the divergence and its reason in the bullet.
+- Breaking Changes: code, config, or commands that worked before now fail or behave
+  differently, and the reader must edit something. A new diagnostic that rejects code which
+  previously compiled and ran correctly is breaking; a new diagnostic that rejects code which
+  previously compiled to broken Luau is a fix.
+- Added: a new command, flag, macro, config key, or supported syntax that did not exist before.
+Each Breaking Changes entry states the before, the after, and the exact edit the reader makes.
+Never list the same change under two headings.
 
-Group bullets by command or surface. If `rotor build` got three fixes that a reader
-experiences as one behavior change, write one bullet. If they are genuinely distinct
-behaviors, write separate bullets and keep them adjacent.
+Group bullets by command or surface. One behavior change is one bullet, even when the PR
+touches several code paths. A rebuild fix that covers direct imports, re-exports, and solution
+dependencies is one bullet that lists those cases, not three bullets. If a PR contains two
+genuinely distinct behaviors, write separate bullets and keep them adjacent.
 
 ## Bullet format
 
@@ -113,10 +125,20 @@ config use the section: `rotor.toml [assets]`, `rotor.toml [deploy]`, `tsconfig.
 diagnostics use `diagnostics`. For the npm package use `@rotor-rbx/rotor`. Code identifiers,
 flag names, option names, and option values go in backticks.
 
-One sentence per bullet. Add a second short sentence only when a concrete command snippet or
-config snippet makes the change unambiguous, and put the snippet inline in backticks rather
-than in a fenced block. Fenced code blocks belong only under Added, for a new command or new
-flag, and only when four lines or fewer.
+A bullet is one sentence, at most two, and at most 45 words before the ` - by` attribution.
+The first sentence states what the tool does now. The second sentence, when present, does one
+job: it states the previous behavior ("Previously the binding was silently `nil`") or it gives
+one inline snippet that makes the change unambiguous. Do not add a third sentence to list
+edge cases, exceptions, or advice; fold a necessary exception into the first sentence or drop
+it. No period before ` - by`. Snippets go inline in backticks; fenced code blocks belong only
+under Added, for a new command or new flag, and only when four lines or fewer.
+
+When quoting a diagnostic message that contains a user identifier, replace the identifier with
+a placeholder such as `name`, never an identifier taken from a test fixture.
+
+Cite the PR whenever the commit landed through a merged PR, even if you read the change from
+an individual commit inside it. Use the commit SHA form only for commits pushed directly to
+the default branch with no PR.
 
 For a fixed bug, name the pattern that stopped failing: "`for...of` over a `Map` no longer
 emits a wrong iterator" beats "improved for-of handling". For a new flag, show the invocation:
@@ -147,8 +169,8 @@ Do not stack more than one emoji per heading, and never put emoji in bullets or 
 The title is a fragment, not a sentence, under 60 characters, with no version prefix, no
 trailing period, and no emoji. It names the concrete change. "Solution builds and checker
 parallelism" is good. "Bug fixes and improvements" is not. When one command dominates the
-release, name that command. When three or more surfaces changed, describe the shared theme
-instead of listing them all.
+release, name that command. Join at most two items with "and"; never write a comma-separated
+list. When three or more surfaces changed, describe the shared theme instead of listing them.
 """
 
 context = """
