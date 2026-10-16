@@ -335,6 +335,14 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           OPENAI_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         name: Generate and publish release notes
-        run: communique generate "${{ github.ref_name }}" --github-release
+        run: communique generate "${{ github.ref_name }}" --github-release --review-report release-notes-review.md
+
+      - name: Upload release notes coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-notes-review
+          path: release-notes-review.md
+          if-no-files-found: ignore
 
     timeout-minutes: 15
