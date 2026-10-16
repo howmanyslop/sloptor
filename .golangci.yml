@@ -1,0 +1,45 @@
+# golangci-lint v2 configuration - https://golangci-lint.run/docs/configuration/file/
+#
+# Runs over ./internal/... ./cmd/... ./tools/... only (see hk.pkl and ci.yml);
+# tsgo/, reference/, and include/ are vendored mirrors and never linted.
+#
+# Only issues introduced since the merge base with main block a push or PR:
+# the pre-existing backlog (errcheck, unused, staticcheck, ineffassign) is
+# tracked separately. Drop `new-from-merge-base` once it is cleared.
+version: "2"
+
+run:
+  timeout: 10m
+
+linters:
+  default: standard
+  enable:
+    - gocognit
+  settings:
+    gocognit:
+      min-complexity: 30
+  exclusions:
+    generated: lax
+    paths:
+      - tsgo
+      - reference
+      - include
+      - testdata
+
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    paths:
+      - tsgo
+      - reference
+      - include
+      - testdata
+
+issues:
+  new-from-merge-base: main
+  max-issues-per-linter: 0
+  max-same-issues: 0
