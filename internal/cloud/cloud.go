@@ -58,12 +58,6 @@ func WithBaseURL(u string) Option {
 	}
 }
 
-// WithHTTPClient replaces the underlying *http.Client (timeouts, proxies,
-// test transports).
-func WithHTTPClient(h *http.Client) Option {
-	return func(c *Client) { c.httpClient = h }
-}
-
 // WithUserAgent overrides the User-Agent header sent on every request.
 func WithUserAgent(ua string) Option {
 	return func(c *Client) { c.userAgent = ua }

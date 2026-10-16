@@ -350,21 +350,6 @@ func TestDeclarationSignatureSelectionRebuildsForChangedExternalDeclaration(t *t
 	}
 }
 
-func addPathAliases(t *testing.T, dir string) {
-	t.Helper()
-	path := filepath.Join(dir, "tsconfig.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated := strings.Replace(string(data), `"rootDir": "src"`, `"rootDir": "src",
-		"baseUrl": ".",
-		"paths": { "@app/*": ["src/*"] }`, 1)
-	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // A `.json` module is copied, not compiled, so its value never reaches an
 // importer's Luau — but its inferred TYPE reaches the importer's declaration
 // output. Selection has to seed the importers of a changed data file, or that

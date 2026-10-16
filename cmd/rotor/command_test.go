@@ -1,8 +1,6 @@
 package main
 
 import (
-	"io"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -15,24 +13,16 @@ import (
 func cmdBuild(args []string) int       { return run(append([]string{"build"}, args...)) }
 func cmdCheck(args []string) int       { return run(append([]string{"check"}, args...)) }
 func cmdDiagnostics(args []string) int { return run(append([]string{"diagnostics"}, args...)) }
-func cmdDoctor(args []string) int      { return run(append([]string{"doctor"}, args...)) }
 func cmdMinify(args []string) int      { return run(append([]string{"minify"}, args...)) }
 func cmdBundle(args []string) int      { return run(append([]string{"bundle"}, args...)) }
-func cmdDev(args []string) int         { return run(append([]string{"dev"}, args...)) }
 func cmdPack(args []string) int        { return run(append([]string{"pack"}, args...)) }
 func cmdInit(args []string) int        { return run(append([]string{"init"}, args...)) }
-func cmdMigrate(args []string) int     { return run(append([]string{"migrate"}, args...)) }
 func cmdSchema(args []string) int      { return run(append([]string{"schema"}, args...)) }
 func cmdSourcemap(args []string) int   { return run(append([]string{"sourcemap"}, args...)) }
 func cmdAsset(args []string) int       { return run(append([]string{"asset"}, args...)) }
 func cmdDeploy(args []string) int      { return run(append([]string{"deploy"}, args...)) }
 func cmdClean(args []string) int       { return run(append([]string{"clean"}, args...)) }
 func cmdAdd(args []string) int         { return run(append([]string{"add"}, args...)) }
-
-// testStreams are the discard streams used when only parsing matters.
-func testStreams() cliStreams {
-	return cliStreams{in: strings.NewReader(""), out: io.Discard, err: io.Discard}
-}
 
 // parseCommandFlags runs Cobra's flag parsing (including legacy --no-*
 // normalization) against a bare command and returns the positional args.
