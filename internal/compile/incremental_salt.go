@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 
+	"rotor/internal/rojo"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
 	tsjson "rotor/tsgo/json"
@@ -37,6 +38,12 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	if err != nil {
 		return "", err
 	}
+	// Import paths come from the Rojo resolver, which reads project files the
+	// manifest does not hash, such as a dependency's default.project.json.
+	rojoResolver, err := rojoResolverFingerprint(opts.rojoCache, rojoConfigPath)
+	if err != nil {
+		return "", err
+	}
 	// External transformers rewrite the output of every file they see, and
 	// nothing else in this payload notices them: tsgo drops
 	// `compilerOptions.plugins` while parsing options, and the plugin code
@@ -65,6 +72,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		FlameworkSalt         string                         `json:"flameworkSalt,omitempty"`
 		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
 		ProjectReferencePaths map[string]string              `json:"projectReferencePaths,omitempty"`
+		RojoResolver          string                         `json:"rojoResolver,omitempty"`
 	}{
 		Version:               "rotor-incremental-v2",
 		CompilerOptions:       options,
@@ -84,6 +92,37 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		FlameworkSalt:         flameworkSalt,
 		TransformerPlugins:    plugins,
 		ProjectReferencePaths: projectReferencePaths,
+		RojoResolver:          rojoResolver,
+	}, tsjson.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// rojoResolverFingerprint hashes the resolver state that maps files to Roblox
+// paths, so a build whose Rojo paths changed rebuilds every file. It leaves out
+// the walked configs and directories: those only validate the resolver cache,
+// and the first build's own outDir joins them. It is empty without a Rojo
+// project.
+func rojoResolverFingerprint(cache *rojo.RojoResolverCache, rojoConfigPath string) (string, error) {
+	if cache == nil || rojoConfigPath == "" {
+		return "", nil
+	}
+	state := cache.Load(rojoConfigPath).GetState()
+	payload, err := tsjson.Marshal(struct {
+		RbxPath            rojo.RbxPath                 `json:"rbxPath"`
+		Partitions         []rojo.PartitionInfo         `json:"partitions"`
+		FilePaths          []rojo.ResolverFilePathState `json:"filePaths"`
+		IsolatedContainers []rojo.RbxPath               `json:"isolatedContainers"`
+		IsGame             bool                         `json:"isGame"`
+	}{
+		RbxPath:            state.RbxPath,
+		Partitions:         state.Partitions,
+		FilePaths:          state.FilePaths,
+		IsolatedContainers: state.IsolatedContainers,
+		IsGame:             state.IsGame,
 	}, tsjson.Deterministic(true))
 	if err != nil {
 		return "", err

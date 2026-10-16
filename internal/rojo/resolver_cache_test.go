@@ -208,6 +208,44 @@ func TestRojoCache_rebuildsWhenNestedProjectChanges(t *testing.T) {
 	}
 }
 
+func TestRojoCache_rebuildsWhenProjectChangesKeepingItsMtime(t *testing.T) {
+	// Given a cached resolver whose nested project names a partition
+	dir := writeProject(t, map[string]string{
+		"default.project.json": `{"name":"root","tree":{"Pkg":{"$path":"shared.project.json"}}}`,
+		"shared.project.json":  `{"name":"ignored","tree":{"$path":"first"}}`,
+		"first/":               "",
+		"second/":              "",
+	})
+	configPath := filepath.Join(dir, "default.project.json")
+	nestedConfigPath := filepath.Join(dir, "shared.project.json")
+	cache := NewRojoResolverCache(filepath.Join(dir, ".cache"), "compiler-v1")
+	mustRbxPath(t, cache.Load(configPath), filepath.Join(dir, "first", "item.luau"))
+	info, err := os.Stat(nestedConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// When the nested project changes but keeps its mtime, as package
+	// managers extracting a tarball with fixed timestamps do
+	if err := os.WriteFile(nestedConfigPath, []byte(`{"name":"ignored","tree":{"$path":"second"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(nestedConfigPath, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Then both the memory and disk caches rebuild the resolver
+	for name, cache := range map[string]*RojoResolverCache{
+		"memory": cache,
+		"disk":   NewRojoResolverCache(filepath.Join(dir, ".cache"), "compiler-v1"),
+	} {
+		resolver := cache.Load(configPath)
+		if _, ok := resolver.GetRbxPathFromFilePath(filepath.Join(dir, "first", "item.luau")); ok {
+			t.Errorf("%s cache kept the stale partition", name)
+		}
+	}
+}
+
 func TestRojoCache_rebuildsWhenCompilerVersionOrDiskDataChanges(t *testing.T) {
 	// Given
 	dir := writeProject(t, map[string]string{

@@ -108,6 +108,13 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		stopManifest()
 		return nil, nil, err
 	}
+	// Loaded before the salt, which fingerprints the resolver: emitted import
+	// paths depend on it. Declaration-only builds never resolve Rojo paths.
+	var rojoCache *rojo.RojoResolverCache
+	if !opts.EmitDeclarationOnly {
+		rojoCache = loadRojoCachesPreBuild(dir, opts)
+		opts.rojoCache = rojoCache
+	}
 	salt, err := incrementalSaltWithFlamework(dir, program, opts, manifestPath, flameworkInputs)
 	if err != nil {
 		stopManifest()
@@ -192,9 +199,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		stopSelection()
 		return nil, nil, err
 	}
-	rojoCache := loadRojoCachesPreBuild(dir, opts)
-	opts.rojoCache = rojoCache
-
 	selectedFiles := sourceFiles
 	// signatureDeclarations is the declaration text the selection pass already
 	// emitted, handed to the pipeline so the build does not emit it twice.
