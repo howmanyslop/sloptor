@@ -408,6 +408,15 @@ func sourceDeclaresFlameworkExpressionSurface(state *TransformState, sourceFile 
 	if sourceFile == nil {
 		return false
 	}
+	if cached, found := state.flameworkExpressionSurface(sourceFile); found {
+		return cached
+	}
+	declares := scanFlameworkExpressionSurface(state, sourceFile)
+	state.setFlameworkExpressionSurface(sourceFile, declares)
+	return declares
+}
+
+func scanFlameworkExpressionSurface(state *TransformState, sourceFile *ast.SourceFile) bool {
 	if sourceDeclaresFlameworkSurface(state, sourceFile) {
 		return true
 	}

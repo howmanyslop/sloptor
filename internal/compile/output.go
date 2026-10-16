@@ -586,25 +586,24 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 	}
 	// Checker state left by one file's emit (e.g. the cached `?: undefined`
 	// widening property) shapes the next file's text, so each checker emits
-	// its files serially, in program order.
+	// its files serially, in program order. Checkers share no state, so the
+	// groups run concurrently. This is not parallelize: its small-batch
+	// cutoff would run a handful of checker groups one after another.
 	order := declarationEmitOrder(program, files)
 	ordered := make([]*ast.SourceFile, len(order))
 	for i, index := range order {
 		ordered[i] = files[index]
 	}
 	groups := groupSourceFilesByChecker(ctx, program, ordered)
-	jobs := make([]func() error, len(groups))
-	for groupIndex, group := range groups {
-		jobs[groupIndex] = func() error {
+	wg := core.NewWorkGroup(program.SingleThreaded() || len(groups) <= 1)
+	for _, group := range groups {
+		wg.Queue(func() {
 			for i, sourceFile := range group.files {
 				emitFile(order[group.indices[i]], sourceFile)
 			}
-			return nil
-		}
+		})
 	}
-	if err := parallelize(len(groups), jobs); err != nil {
-		return nil, err
-	}
+	wg.RunAndWait()
 	var diagnostics []DiagnosticInfo
 	for _, fileDiagnostics := range perFileDiagnostics {
 		diagnostics = append(diagnostics, fileDiagnostics...)

@@ -77,6 +77,10 @@ type TransformState struct {
 	// surfaces caches the Flamework surface scan per file so the expression
 	// prefilter reads an imported module's text at most once per transform.
 	surfaces map[string]bool
+	// expressionSurfaces caches sourceDeclaresFlameworkExpressionSurface per
+	// file. The prefilters run it for every call and property access, and its
+	// text scan is a dozen full passes over the file.
+	expressionSurfaces map[string]bool
 	// flameworkExpressionSurfaces is the immutable per-transform reachability
 	// index. Keyed by SourceFile.FileName(). A file is present iff it (or any
 	// transitive importer via type/value/re-export edges, including type-only)
@@ -160,6 +164,24 @@ func (s *TransformState) setFlameworkSurface(sourceFile *ast.SourceFile, declare
 		s.surfaces = make(map[string]bool)
 	}
 	s.surfaces[sourceFile.FileName()] = declares
+}
+
+func (s *TransformState) flameworkExpressionSurface(sourceFile *ast.SourceFile) (bool, bool) {
+	if s == nil || s.expressionSurfaces == nil {
+		return false, false
+	}
+	declares, found := s.expressionSurfaces[sourceFile.FileName()]
+	return declares, found
+}
+
+func (s *TransformState) setFlameworkExpressionSurface(sourceFile *ast.SourceFile, declares bool) {
+	if s == nil {
+		return
+	}
+	if s.expressionSurfaces == nil {
+		s.expressionSurfaces = make(map[string]bool)
+	}
+	s.expressionSurfaces[sourceFile.FileName()] = declares
 }
 
 func (s *TransformState) Program() *compiler.Program { return s.program }
