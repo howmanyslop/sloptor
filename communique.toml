@@ -82,12 +82,17 @@ Use exactly these section headings, in this order, and only the ones that apply:
 ## 🗑️ Removed
 ```
 
-Classify by the reader's contract with the tool, not by the commit type prefix:
+Classify by the reader's contract with the tool, not by the commit type prefix. A PR titled
+`fix:` can still be a Changed or Breaking entry, and a PR's "intentionally differs" or
+"deliberately" language is a signal for Changed:
 - Fixed: the tool did something wrong by its own contract (crashed, drifted from `rbxtsc 3.0.0`
   or the fork archive, emitted broken Luau, produced stale output, missed a documented
   behavior), and now does the right thing.
 - Changed: intended behavior is now different, including a deliberate divergence from upstream
-  `rbxtsc`. Name the divergence and its reason in the bullet.
+  `rbxtsc`. The test is mechanical: if `rbxtsc 3.0.0` emits X for an input and sloptor now
+  emits Y, and the surface is not one the fork archive governs, the change is Changed (or
+  Breaking) and never Fixed, however much more correct Y is and whatever the commit prefix
+  says. The bullet names both outputs and says it diverges from `rbxtsc 3.0.0`.
 - Breaking Changes: code, config, or commands that worked before now fail or behave
   differently, and the reader must edit something. A new diagnostic that rejects code which
   previously compiled and ran correctly is breaking; a new diagnostic that rejects code which
