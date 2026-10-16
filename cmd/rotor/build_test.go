@@ -979,6 +979,32 @@ func TestCmdBuildJSONWithDiagnostic(t *testing.T) {
 	}
 }
 
+func TestCmdBuildJSONReportsTypeErrorsFromEveryFile(t *testing.T) {
+	// Given type errors in two files of one project
+	dir := writeBuildableProject(t, "export const probeA: number = \"a\";\n")
+	mustWrite(t, filepath.Join(dir, "src", "other.ts"), "export const probeB: number = \"b\";\n")
+
+	output, code := captureStdout(t, func() int {
+		return cmdBuild([]string{"--json", dir})
+	})
+	if code != 1 {
+		t.Fatalf("cmdBuild --json (error) exit = %d, want 1; output:\n%s", code, output)
+	}
+
+	var res jsonResult
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput:\n%s", err, output)
+	}
+	// Then each file's error is reported
+	files := map[string]bool{}
+	for _, diagnostic := range res.Diagnostics {
+		files[filepath.Base(diagnostic.File)] = true
+	}
+	if !files["main.ts"] || !files["other.ts"] {
+		t.Errorf("diagnostic files = %v, want main.ts and other.ts", files)
+	}
+}
+
 func TestCmdBuildJSONCarriesTheTransformerDiagnosticCode(t *testing.T) {
 	// Given a file the transformer rejects rather than the checker
 	dir := writeBuildableProject(t, "declare const loose: any;\nexport const taken = loose.field;\n")

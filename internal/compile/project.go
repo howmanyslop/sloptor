@@ -894,21 +894,25 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 		return nil, nil, nil, fmt.Errorf("compile: %w", err)
 	}
 
-	// Gate 2 of 4, the one that matters most: this returns at the FIRST file
-	// with type errors, before the transform work group below is ever queued —
-	// so a single type error suppresses the whole transform stage. Census mode
-	// keeps the diagnostics on the file and lets execution reach the
-	// transformer.
+	// Gate 2 of 4, the one that matters most: any file with type errors stops
+	// the build before the transform work group below is ever queued — so a
+	// single type error suppresses the whole transform stage. Every file has
+	// already been checked, so report all of their errors, as upstream does.
+	// Census mode keeps the diagnostics on the file and lets execution reach
+	// the transformer.
 	if census == nil {
+		var tsDiags, commentDiags []DiagnosticInfo
 		for _, precheck := range prechecks {
-			if len(precheck.tsDiags) > 0 {
-				stopDiagnostics()
-				return nil, nil, tsDiagnosticInfos(precheck.tsDiags, pctx.sourceTraces), errors.New("compile: TypeScript diagnostics")
-			}
-			if len(precheck.commentDiags) > 0 {
-				stopDiagnostics()
-				return nil, nil, stringDiagnostics(precheck.commentDiags), errors.New("compile: comment directive diagnostics")
-			}
+			tsDiags = append(tsDiags, tsDiagnosticInfos(precheck.tsDiags, pctx.sourceTraces)...)
+			commentDiags = append(commentDiags, stringDiagnostics(precheck.commentDiags)...)
+		}
+		if len(tsDiags) > 0 {
+			stopDiagnostics()
+			return nil, nil, tsDiags, errors.New("compile: TypeScript diagnostics")
+		}
+		if len(commentDiags) > 0 {
+			stopDiagnostics()
+			return nil, nil, commentDiags, errors.New("compile: comment directive diagnostics")
 		}
 	}
 

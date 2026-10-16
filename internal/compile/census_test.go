@@ -229,6 +229,25 @@ func TestCompileProjectStopsBeforeTransformOnTypeErrors(t *testing.T) {
 	}
 }
 
+func TestCompileProjectReportsTypeErrorsFromEveryFile(t *testing.T) {
+	// Given a project with type errors in two files
+	dir := writeCensusProject(t, map[string]string{
+		"a.ts": "export const probeA: number = \"a\";\n",
+		"b.ts": "export const probeB: number = \"b\";\n",
+	})
+
+	// When it is compiled without census mode
+	_, diags, err := CompileProjectWithOptions(dir, ProjectOptions{})
+
+	// Then both files' errors are reported, not only the first file's
+	if err == nil {
+		t.Fatal("compile of a type-broken project succeeded")
+	}
+	if len(diags) != 2 {
+		t.Errorf("got %d diagnostics, want one per broken file: %q", len(diags), diags)
+	}
+}
+
 func TestCompileProjectDiagnosticsTransformsPastTypeErrors(t *testing.T) {
 	// Given the same project
 	dir := writeCensusProject(t, map[string]string{
