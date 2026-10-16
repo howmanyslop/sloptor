@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"rotor/internal/fsutil"
 	"rotor/internal/rojo"
 	"rotor/tsgo/outputpaths"
 	"rotor/tsgo/tspath"
@@ -269,7 +270,7 @@ func canonicalWriteRoot(path string) string {
 	}
 	missing := []string{}
 	for {
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		if resolved, err := fsutil.EvalSymlinks(path); err == nil {
 			for index := len(missing) - 1; index >= 0; index-- {
 				resolved = filepath.Join(resolved, missing[index])
 			}

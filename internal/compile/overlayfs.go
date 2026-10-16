@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"rotor/internal/fsutil"
 	"rotor/tsgo/bundled"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/vfs"
@@ -36,7 +37,7 @@ func overlayAliases(overlays map[string]string, configPath string, caseSensitive
 	}
 	aliases := make(map[string]string, len(overlays)*2)
 	configDir := filepath.Dir(filepath.FromSlash(configPath))
-	canonicalConfigDir, configIsPhysical := filepath.EvalSymlinks(configDir)
+	canonicalConfigDir, configIsPhysical := fsutil.EvalSymlinks(configDir)
 	for path, text := range overlays {
 		aliases[normalizeOverlayPath(path, caseSensitive)] = text
 		if physical, ok := canonicalExistingOverlayPath(path, caseSensitive); ok {
@@ -76,7 +77,7 @@ func canonicalExistingOverlayPath(path string, caseSensitive bool) (string, bool
 	if !filepath.IsAbs(path) {
 		return "", false
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	resolved, err := fsutil.EvalSymlinks(path)
 	if err != nil {
 		return "", false
 	}

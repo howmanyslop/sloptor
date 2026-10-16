@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"rotor/internal/fsutil"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/core"
 	"rotor/tsgo/diagnostics"
@@ -25,7 +26,7 @@ func flameworkGuardLibrary(state *TransformState, file *ast.SourceFile) string {
 	// A hoisted dependency can resolve in TypeScript without being importable
 	// through this package's runtime node_modules scope.
 	if fileGuardOK && coreGuardOK && filepath.Clean(fileGuard) == filepath.Clean(coreGuard) {
-		localGuard, err := filepath.EvalSymlinks(filepath.Join(state.project.rootDirectory, "node_modules", "@rbxts", "t"))
+		localGuard, err := fsutil.EvalSymlinks(filepath.Join(state.project.rootDirectory, "node_modules", "@rbxts", "t"))
 		if err == nil && filepath.Clean(localGuard) == filepath.Clean(fileGuard) {
 			state.guardLibrary = "@rbxts/t"
 		} else {
@@ -51,7 +52,7 @@ func resolveNodeModuleRoot(start, module string) (string, bool) {
 	for current := filepath.Clean(start); ; current = filepath.Dir(current) {
 		candidate := filepath.Join(current, "node_modules", filepath.FromSlash(module))
 		if info, err := os.Stat(filepath.Join(candidate, "package.json")); err == nil && info.Mode().IsRegular() {
-			resolved, resolveErr := filepath.EvalSymlinks(candidate)
+			resolved, resolveErr := fsutil.EvalSymlinks(candidate)
 			if resolveErr == nil {
 				candidate = resolved
 			}

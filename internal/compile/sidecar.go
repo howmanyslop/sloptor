@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"rotor/internal/config"
+	"rotor/internal/fsutil"
 	"rotor/internal/logservice"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/bundled"
@@ -968,10 +969,11 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 // canonicalSidecarPath gives the Node worker the same physical root that its
 // resolver sees after chdir. On macOS, /var is a symlink to /private/var; a
 // lexical project path there otherwise makes transformer resolver roots differ
-// from TypeScript's source-file paths.
+// from TypeScript's source-file paths. On Windows the worker's realpath also
+// resolves junctions, subst drives and 8.3 names, so this must too.
 func canonicalSidecarPath(path string) string {
 	cleaned := filepath.Clean(filepath.FromSlash(path))
-	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+	if resolved, err := fsutil.EvalSymlinks(cleaned); err == nil {
 		return filepath.ToSlash(resolved)
 	}
 	return filepath.ToSlash(cleaned)

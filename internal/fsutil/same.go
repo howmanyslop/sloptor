@@ -1,4 +1,4 @@
-// Package fsutil holds small filesystem helpers shared by the output writers.
+// Package fsutil holds small filesystem helpers shared across the compiler.
 package fsutil
 
 import (

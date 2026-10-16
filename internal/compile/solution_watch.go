@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"rotor/internal/fsutil"
 	"rotor/internal/rojo"
 )
 
@@ -157,7 +158,7 @@ func appendDistinctWatchDirectory(directories []string, directory string) []stri
 
 func canonicalWatchDirectory(directory string) string {
 	directory = filepath.Clean(filepath.FromSlash(directory))
-	if resolved, err := filepath.EvalSymlinks(directory); err == nil {
+	if resolved, err := fsutil.EvalSymlinks(directory); err == nil {
 		return resolved
 	}
 	return filepath.Join(canonicalWatchDirectoryParent(directory), filepath.Base(directory))
@@ -176,7 +177,7 @@ func canonicalWatchDirectoryParent(directory string) string {
 	if parent == directory {
 		return directory
 	}
-	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+	if resolved, err := fsutil.EvalSymlinks(parent); err == nil {
 		return resolved
 	}
 	return canonicalWatchDirectoryParent(parent)
