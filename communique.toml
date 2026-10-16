@@ -135,8 +135,11 @@ The first sentence states what the tool does now. The second sentence, when pres
 job: it states the previous behavior ("Previously the binding was silently `nil`") or it gives
 one inline snippet that makes the change unambiguous. Do not add a third sentence to list
 edge cases, exceptions, or advice; fold a necessary exception into the first sentence or drop
-it. No period before ` - by`. Snippets go inline in backticks; fenced code blocks belong only
-under Added, for a new command or new flag, and only when four lines or fewer.
+it. The ` - by @author in [#N](...)` attribution is the last thing in the bullet: every
+sentence, including the "Previously" sentence, comes before it, there is no period before
+` - by`, and nothing follows the closing `)` of the link. Snippets go inline in backticks;
+fenced code blocks belong only under Added, for a new command or new flag, and only when four
+lines or fewer.
 
 When quoting a diagnostic message that contains a user identifier, replace the identifier with
 a placeholder such as `name`, never an identifier taken from a test fixture.
