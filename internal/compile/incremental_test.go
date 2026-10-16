@@ -379,6 +379,60 @@ func TestBuildProjectIncrementalInvalidatesPathChanges(t *testing.T) {
 	}
 }
 
+func TestBuildProjectIncrementalInvalidatesDependencyRojoNameChanges(t *testing.T) {
+	// Given an incremental game project whose Rojo tree maps node_modules/@rbxts
+	// as a directory, importing a package that ships its own Rojo project
+	dir := writePnpmFixture(t)
+	if resolvedDir, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolvedDir
+	}
+	enableIncrementalBuilds(t, dir)
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
+		t.Fatalf("first build: %v (diags: %v)", err, diags)
+	}
+	unchanged := NewBuildTimings()
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: unchanged}); err != nil {
+		t.Fatalf("unchanged build: %v (diags: %v)", err, diags)
+	}
+	if unchanged.Counts.SelectedSources != 0 {
+		t.Fatalf("unchanged build selected %d sources, want 0", unchanged.Counts.SelectedSources)
+	}
+
+	// When an upgrade renames the package's Rojo project without touching its
+	// declarations, and the package manager keeps the file's mtime
+	packageConfig := filepath.Join(dir, "node_modules", ".pnpm", "@rbxts+linked@1.0.0", "node_modules", "@rbxts", "linked", "default.project.json")
+	info, err := os.Stat(packageConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packageConfig, []byte(`{"name":"renamed","tree":{"$path":"src"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(packageConfig, info.ModTime(), info.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	timings := NewBuildTimings()
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings}); err != nil {
+		t.Fatalf("second build: %v (diags: %v)", err, diags)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "out", "main.luau"))
+	if err != nil {
+		t.Fatalf("incremental build left no out/main.luau: %v", err)
+	}
+
+	// Then the incremental output matches a clean compile of the same inputs
+	clean, diags, err := CompileProject(dir)
+	if err != nil {
+		t.Fatalf("clean compile: %v (diags: %v)", err, diags)
+	}
+	if string(got) != clean["out/main.luau"] {
+		t.Errorf("incremental out/main.luau is stale:\ngot:\n%s\nclean build:\n%s", got, clean["out/main.luau"])
+	}
+	if timings.Counts.SelectedSources == 0 {
+		t.Error("Rojo project rename selected no sources")
+	}
+}
+
 func enableIncrementalBuilds(t *testing.T, dir string) {
 	t.Helper()
 	tsconfigPath := filepath.Join(dir, "tsconfig.json")

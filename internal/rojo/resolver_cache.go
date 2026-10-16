@@ -11,18 +11,21 @@ import (
 	"sync"
 )
 
-const resolverCacheFormatVersion = 3
+const resolverCacheFormatVersion = 4
 
 // resolverCacheManifestEntry is one path the resolver read. Missing marks a
 // partition path that did not exist; creating it changes the resolver (a new
 // directory is walked), so the entry stays valid only while it is absent.
 // Listing is a walked directory's entries that the resolver reads, so a new
 // mtime from writing other files (such as build outputs) keeps the entry.
+// Sha256 is a project file's contents: package managers extract tarballs with
+// fixed mtimes, so an upgraded package's project file can keep its mtime.
 type resolverCacheManifestEntry struct {
 	Path          string `json:"path"`
 	MtimeUnixNano int64  `json:"mtimeUnixNano"`
 	Missing       bool   `json:"missing,omitempty"`
 	Listing       string `json:"listing,omitempty"`
+	Sha256        string `json:"sha256,omitempty"`
 }
 
 type resolverCacheFile struct {
@@ -198,6 +201,8 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 			if entry.Listing, ok = resolverDirectoryListing(path); !ok {
 				return nil, false
 			}
+		} else if entry.Sha256, ok = resolverFileHash(path); !ok {
+			return nil, false
 		}
 		manifest = append(manifest, entry)
 	}
@@ -236,8 +241,22 @@ func manifestStillValid(manifest []resolverCacheManifestEntry) bool {
 			}
 			entry.MtimeUnixNano = mtime
 		}
+		if !info.IsDir() {
+			if hash, ok := resolverFileHash(entry.Path); !ok || hash != entry.Sha256 {
+				return false
+			}
+		}
 	}
 	return true
+}
+
+func resolverFileHash(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), true
 }
 
 // resolverDirectoryListing lists what parsing reads from a directory: its
