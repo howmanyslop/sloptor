@@ -201,7 +201,7 @@ changes that affect their generated Luau, and compatibility parity shifts.
 """
 
 [defaults]
-model = "openai/gpt-6-luna"
+model = "anthropic/claude-haiku-5.5"
 max_tokens = 16384
 repo = "howmanyslop/sloptor"
 provider = "openai"
