@@ -1,8 +1,10 @@
-amends "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Config.pkl"
+amends "package://github.com/jdx/hk/releases/download/v2.6.0/hk@2.6.0#/Config.pkl"
 
-import "package://github.com/jdx/hk/releases/download/v1.55.0/hk@1.55.0#/Builtins.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.6.0/hk@2.6.0#/Builtins.pkl"
 
-min_hk_version = "1.55.0"
+min_hk_version = "2.6.0"
+display_skip_reasons = List()
+terminal_progress = false
 
 // Paths hk must never touch:
 // - tsgo/, reference/, include/: vendored or generated mirrors of upstream sources
@@ -36,96 +38,130 @@ exclude =
     "oxlint.config.ts",
   )
 
-display_skip_reasons = List()
-terminal_progress = false
-
-// Binary payloads that whitespace/newline/spellcheck steps must skip.
-local binary_excludes =
+local GO_FILES = List("**/*.go", "go.mod", "go.sum")
+local OMP_FILES = List(".omp/**/*.ts", ".omp/tsconfig.json")
+// Binary payloads that whitespace, newline, and spellcheck steps must skip.
+local BINARY_FILES =
   List(
-    "**/*.png",
-    "**/*.jpg",
-    "**/*.jpeg",
-    "**/*.gif",
-    "**/*.webp",
-    "**/*.ico",
-    "**/*.woff",
-    "**/*.woff2",
-    "**/*.ttf",
-    "**/*.pdf",
-    "**/*.zip",
+    "**/*.{png,jpg,jpeg,gif,webp,ico}",
+    "**/*.{woff,woff2,ttf}",
+    "**/*.{pdf,zip}",
   )
 
-// File-scoped hygiene, formatting, and linting: runs only over the files a commit touches.
-local format_steps = new Mapping<String, Step> {
+// Windows runs these hooks under cmd.exe, which shapes two choices below:
+// - Builtins whose commands are `sh` snippets (gitleaks, typos, shfmt) run through
+//   scripts/check-hook-tools.mjs instead, which also keeps gitleaks scans parallel.
+// - `Command { argv }` execs directly and finds only `.exe` files, never pnpm's
+//   `node_modules/.bin/biome.CMD` shim. A string command goes through the shell,
+//   which resolves the shim, so `package.json` stays the one biome pin.
+local fileChecks = new Mapping<String, Step> {
+  // Hygiene.
   ["trailing-whitespace"] = (Builtins.trailing_whitespace) {
-    exclude = binary_excludes
+    exclude = BINARY_FILES
   }
-  ["newlines"] = (Builtins.newlines) {
-    exclude = binary_excludes
+  ["final-newline"] = (Builtins.newlines) {
+    exclude = BINARY_FILES
   }
-  ["check-merge-conflict"] = Builtins.check_merge_conflict
-  ["detect-private-key"] = Builtins.detect_private_key
-  // `gitleaks dir` takes a single path: handed several it silently scans the whole working
-  // directory instead (node_modules, ignored scratch state), so scan one file per process.
-  // The Node helper keeps scans parallel and works with both Windows cmd and POSIX shells.
+  ["merge-conflicts"] = Builtins.check_merge_conflict
+  ["private-keys"] = Builtins.detect_private_key
+  // `gitleaks dir` takes a single path: handed several it silently scans the whole
+  // working directory instead (node_modules, ignored scratch state), so the helper
+  // scans one file per process.
   ["gitleaks"] = (Builtins.gitleaks) {
     check = new CommandSpec {
-      command = "node scripts/check-hook-tools.mjs gitleaks {{ files }}"
+      command = new Command {
+        argv = List("node", "scripts/check-hook-tools.mjs", "gitleaks", "{{files}}")
+      }
       effect = "read"
     }
   }
   ["typos"] = (Builtins.typos) {
-    exclude = binary_excludes
+    exclude = BINARY_FILES
     check = new CommandSpec {
-      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
+      command = new Command {
+        argv = List("node", "scripts/check-hook-tools.mjs", "typos", "{{files}}")
+      }
       effect = "read"
     }
-    check_diff = new CommandSpec {
-      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
-      effect = "read"
-    }
-    check_list_files = new CommandSpec {
-      command = "node scripts/check-hook-tools.mjs typos {{ files }}"
-      effect = "read"
-    }
+    check_diff = null
+    check_list_files = null
   }
-  // The builtin's checks use `sh` syntax, which cmd.exe cannot run on Windows. `gofmt -d`
-  // exits 1 on a diff, so it needs no wrapper and serves as both the check and the file list.
+
+  // Go.
+  // `gofmt -d` exits 1 on a diff, so it needs no wrapper and serves as the check.
   ["gofmt"] = (Builtins.go_fmt) {
     check_list_files = null
     check_diff = new CommandSpec {
-      command = "gofmt -s -d {{ files }}"
+      command = new Command {
+        argv = List("gofmt", "-s", "-d", "{{files}}")
+      }
       effect = "read"
     }
   }
-  // The builtin execs an argv directly, and Windows direct exec finds only `.exe` files, never
-  // pnpm's `node_modules/.bin/biome.CMD` shim. A string command runs through the shell
-  // (cmd.exe on Windows), which resolves the shim, so `package.json` stays the one biome pin.
+  // Mirrors CI; the vendored tsgo mirror is deliberately excluded.
+  ["go-vet"] {
+    glob = GO_FILES
+    depends = List("gofmt")
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("go", "vet", "./internal/...", "./cmd/...", "./tools/...")
+      }
+      effect = "write"
+    }
+  }
+  ["go-build"] {
+    glob = GO_FILES
+    depends = List("gofmt")
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("go", "build", "./...")
+      }
+      effect = "write"
+    }
+  }
+  ["gomod-tidy"] = Builtins.gomod_tidy
+
+  // TypeScript.
   ["biome"] = (Builtins.biome) {
     check = new CommandSpec {
-      command = "biome check --no-errors-on-unmatched {{ files }}"
+      command = "biome check --no-errors-on-unmatched {{files}}"
       effect = "write"
     }
     fix = new CommandSpec {
-      command = "biome check --write --no-errors-on-unmatched {{ files }}"
+      command = "biome check --write --no-errors-on-unmatched {{files}}"
       effect = "write"
     }
   }
   ["oxfmt"] = Builtins.oxfmt
+  ["type-check"] {
+    glob = OMP_FILES
+    depends = List("biome")
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("tsgo", "-p", ".omp/tsconfig.json", "--noEmit", "--pretty", "false")
+      }
+      effect = "read"
+    }
+  }
+
+  // Shell, workflows, docs, config.
   // `-i 4`: the repo's shell scripts are 4-space indented; shfmt's tab default would
   // rewrite every line of every script.
   ["shfmt"] = (Builtins.shfmt) {
-    check_diff = new CommandSpec {
-      command = "shfmt -i 4 -d --apply-ignore {{ files }}"
-      effect = "read"
+    check_diff = (Builtins.shfmt.check_diff) {
+      command = new Command {
+        argv = List("shfmt", "-i", "4", "-d", "--apply-ignore", "{{files}}")
+      }
     }
-    check_list_files = new CommandSpec {
-      command = "node scripts/check-hook-tools.mjs shfmt {{ files }}"
-      effect = "read"
+    check_list_files = (Builtins.shfmt.check_list_files) {
+      command = new Command {
+        argv = List("node", "scripts/check-hook-tools.mjs", "shfmt", "{{files}}")
+      }
     }
-    fix = new CommandSpec {
-      command = "shfmt -i 4 -w --apply-ignore {{ files }}"
-      effect = "write"
+    fix = (Builtins.shfmt.fix) {
+      command = new Command {
+        argv = List("shfmt", "-i", "4", "-w", "--apply-ignore", "{{files}}")
+      }
     }
   }
   ["shellcheck"] = Builtins.shellcheck
@@ -134,68 +170,21 @@ local format_steps = new Mapping<String, Step> {
   ["pkl-format"] = Builtins.pkl_format
 }
 
-// Whole-module checks: package-scoped by nature, gated on a matching file being staged.
-local validate_steps = new Mapping<String, Step> {
-  ["go-vet"] {
-    glob = List("**/*.go", "go.mod", "go.sum")
-    check = new CommandSpec {
-      // Mirrors CI; the vendored tsgo mirror is deliberately excluded.
-      command = "go vet ./internal/... ./cmd/... ./tools/..."
-      effect = "write"
-    }
-  }
-  ["go-build"] {
-    glob = List("**/*.go", "go.mod", "go.sum")
-    check = new CommandSpec {
-      command = "go build ./..."
-      effect = "write"
-    }
-  }
-  ["gomod-tidy"] = Builtins.gomod_tidy
-  ["type-check"] {
-    glob = List(".omp/**/*.ts", ".omp/tsconfig.json")
-    check = new CommandSpec {
-      command = "tsgo -p .omp/tsconfig.json --noEmit --pretty false"
-      effect = "read"
-    }
-  }
-}
-
-local all_steps = new Mapping<String, Step | Group> {
-  ["format"] = new Group {
-    steps = format_steps
-  }
-  ["validate"] = new Group {
-    steps = validate_steps
-  }
-}
+// Materializes `check`, `fix`, and `pre-commit`: CI and the agent Stop hook run
+// `hk check`; `pre-commit` fixes, stages, and uses Git stashing by default.
+steps = fileChecks
 
 hooks {
-  ["pre-commit"] {
-    fix = true
-    stash = "git"
-    steps = all_steps
-  }
-
   ["commit-msg"] {
     steps {
       ["commitlint"] {
         check = new CommandSpec {
-          command = "commitlint --edit {{commit_msg_file}}"
+          command = new Command {
+            argv = List("commitlint", "--edit", "{{commit_msg_file}}")
+          }
           effect = "read"
         }
       }
     }
-  }
-
-  // `hk check` / `hk run check` — used by CI and by the agent Stop hook.
-  ["check"] {
-    steps = all_steps
-  }
-
-  // `hk fix` — applies every available auto-fix.
-  ["fix"] {
-    fix = true
-    steps = all_steps
   }
 }
