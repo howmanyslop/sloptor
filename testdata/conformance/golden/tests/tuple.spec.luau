@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 return function()
 	it("should unpack function return tuples", function()
 		local function foo()

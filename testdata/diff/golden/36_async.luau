@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local TS = require(script.Parent.include.RuntimeLib)
 local fetchValue
 fetchValue = TS.async(function(x)

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local BASE = 10
 local function scale(n)
 	return n * BASE

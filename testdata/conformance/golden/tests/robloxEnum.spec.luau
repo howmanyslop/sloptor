@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 return function()
 	it("should permit the use of GetEnums()", function()
 		for _, enumType in Enum:GetEnums() do

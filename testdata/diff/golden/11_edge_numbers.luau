@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local big = 1e21
 local tiny = 0.00001
 local sci = 1.5e-7

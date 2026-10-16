@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local function descendingRange()
 	for i = 9, 1, -1 do
 		print(i)

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local alpha = {
 	label = "alpha",
 	weight = 1,

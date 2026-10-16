@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local brackets = "contains ]] double brackets"
 local bothQuotes = `has "double" and 'single'`
 local newlines = "line1\nline2"

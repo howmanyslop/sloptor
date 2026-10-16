@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.1
+-- Compiled with sloptor v2.8.2
 local counter = 0
 local arr = { 1, 2, 3 }
 local obj = {
