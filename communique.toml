@@ -111,7 +111,7 @@ genuinely distinct behaviors, write separate bullets and keep them adjacent.
 Every bullet uses this shape, with no variation:
 
 ```
-- **rotor build**: Sentence describing the observable change - by @author in [#32](https://github.com/howmanyslop/sloptor/pull/32)
+- **rotor build**: Sentence describing what the tool does now. Previously what it did instead - by @author in [#32](https://github.com/howmanyslop/sloptor/pull/32)
 ```
 
 When there is no PR, use the commit instead, with a seven-character short SHA:
@@ -127,8 +127,9 @@ The command or surface name goes in bold. For CLI commands use the exact invocat
 `rotor migrate`, `rotor flamework`, `rotor add`, `rotor list`, `rotor completion`,
 `rotor api-server`. For macros use the exact macro name, for example `$asset` or `$nameof`. For
 config use the section: `rotor.toml [assets]`, `rotor.toml [deploy]`, `tsconfig.json`. For
-diagnostics use `diagnostics`. For the npm package use `@rotor-rbx/rotor`. Code identifiers,
-flag names, option names, and option values go in backticks.
+diagnostics use `diagnostics`. For a change in generated Luau that is not tied to one command
+use `emit`. For the npm package use `@rotor-rbx/rotor`. Use no other surface names. Code
+identifiers, flag names, option names, and option values go in backticks.
 
 A bullet is one sentence, at most two, and at most 45 words before the ` - by` attribution.
 The first sentence states what the tool does now. The second sentence, when present, does one
