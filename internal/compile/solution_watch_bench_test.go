@@ -27,6 +27,20 @@ func newManyReferenceFixture(tb testing.TB, count int) *referenceFixture {
 	return f
 }
 
+func BenchmarkSolutionWatchSetsCached(b *testing.B) {
+	f := newManyReferenceFixture(b, 40)
+	coordinator, err := NewSolutionCoordinator(filepath.Join(f.dir, "game/tsconfig.json"), f.options())
+	if err != nil {
+		b.Fatal(err)
+	}
+	coordinator.WatchSets()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		coordinator.WatchSets()
+	}
+}
+
 // BenchmarkSolutionWatchEditCycle measures one watch cycle: Invalidate,
 // Drain, and WatchSets. leaf edits text in one package, core edits text in
 // the project every package references, and file adds or removes a source

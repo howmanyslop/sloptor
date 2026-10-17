@@ -49,20 +49,43 @@ func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
 			TsConfigPaths: canonicalWatchPaths(chain.configPaths),
 		})
 	}
+	filterSolutionWatchArtifacts(sets, canonicalWatchDirectory)
+	return sets
+}
+
+func filterSolutionWatchArtifacts(sets []SolutionWatchSet, canonicalize func(string) string) {
+	// Resolve repeated inherited paths once per call. A later call must see
+	// filesystem changes, including symlink retargets without invalidation.
+	canonicalPaths := map[string]string{}
+	canonical := func(path string) string {
+		path = filepath.Clean(filepath.FromSlash(path))
+		if resolved, ok := canonicalPaths[path]; ok {
+			return resolved
+		}
+		resolved := canonicalize(path)
+		canonicalPaths[path] = resolved
+		return resolved
+	}
 	// An inherited Rojo config can walk another project's generated files.
 	// Keep the cached sets project-local, then apply solution ownership to the
 	// returned Rojo paths. Source roots remain explicit inputs, even when they
 	// point at another project's declarations or generated sources.
 	artifacts := []string{}
+	seenArtifacts := map[string]struct{}{}
 	for _, set := range sets {
-		artifacts = append(artifacts, canonicalWatchPaths(set.ArtifactDirectories)...)
+		for _, path := range set.ArtifactDirectories {
+			resolved := canonical(path)
+			if _, ok := seenArtifacts[resolved]; !ok {
+				seenArtifacts[resolved] = struct{}{}
+				artifacts = append(artifacts, resolved)
+			}
+		}
 	}
 	for index := range sets {
 		sets[index].RojoDirectories = slices.DeleteFunc(slices.Clone(sets[index].RojoDirectories), func(path string) bool {
-			return pathWithinAnyRoot(canonicalWatchDirectory(path), artifacts)
+			return pathWithinAnyRoot(canonical(path), artifacts)
 		})
 	}
-	return sets
 }
 
 // projectWatchSet reads the cached config unless the project is invalidated

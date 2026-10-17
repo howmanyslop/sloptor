@@ -16,6 +16,18 @@ const {
   wrapTransformersWithParentFix,
 } = require("./plugins");
 
+function measurePhase(phases, phase, run) {
+  if (!phases) {
+    return run();
+  }
+  const started = process.hrtime.bigint();
+  try {
+    return run();
+  } finally {
+    phases[phase] += process.hrtime.bigint() - started;
+  }
+}
+
 function createParseHost(session, ts) {
   return {
     useCaseSensitiveFileNames: ts.sys.useCaseSensitiveFileNames,
@@ -245,6 +257,7 @@ class SidecarProjectSession {
     });
 
     if (!this.parsed || this.configSignature !== configSignature) {
+      this.service?.dispose();
       this.parsed = parsed;
       this.configSignature = configSignature;
       this.service = undefined;
@@ -272,8 +285,12 @@ class SidecarProjectSession {
     return program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === canonical);
   }
 
-  transformSourceFiles(program, sourceFiles, transforms) {
-    const transformerList = wrapTransformersWithParentFix(this.ts, flattenIntoTransformers(transforms));
+  transformSourceFiles(program, sourceFiles, transforms, phases) {
+    const transformerList = wrapTransformersWithParentFix(
+      this.ts,
+      flattenIntoTransformers(transforms),
+      phases ? (repair) => measurePhase(phases, "parentRepairMs", repair) : undefined,
+    );
     // rbxtsc uses a bare intermediate printer. Compiler emit settings belong
     // to final emit, not to the text handed from one transformer to the next.
     const printer = this.ts.createPrinter();
@@ -292,7 +309,7 @@ class SidecarProjectSession {
       };
     }
 
-    const result = this.ts.transformNodes(
+    const result = measurePhase(phases, "transformMs", () => this.ts.transformNodes(
       undefined,
       undefined,
       this.ts.factory,
@@ -300,17 +317,17 @@ class SidecarProjectSession {
       sourceFiles,
       transformerList,
       false,
-    );
+    ));
 
     try {
       return {
         diagnostics: (result.diagnostics ?? []).map((diagnostic) => toProtocolDiagnostic(this.ts, diagnostic)),
-        transformed: result.transformed
+        transformed: measurePhase(phases, "printMs", () => result.transformed
           .filter((node) => this.ts.isSourceFile(node) && !sourceFiles.includes(node))
           .map((sourceFile) => ({
             fileName: sourceFile.fileName,
             ...printSourceFileWithTraceMap(this.ts, printer, sourceFile),
-          })),
+          }))),
       };
     } finally {
       if (typeof result.dispose === "function") {
@@ -320,41 +337,54 @@ class SidecarProjectSession {
   }
 
   handleRequest(request) {
+    // Round only when responding so short repairs accumulate across the batch.
+    const phases = { configMs: 0n, programMs: 0n, factoriesMs: 0n, transformMs: 0n, parentRepairMs: 0n, printMs: 0n };
+    const respond = (response) => ({
+      ...response,
+      metrics: {
+        ...response.metrics,
+        phases: Object.fromEntries(Object.entries(phases).map(([phase, ns]) => [phase, Number(ns / 1000000n)])),
+      },
+    });
     try {
       if (request.operation === "validate") {
-        const parsedState = this.refreshParsedConfig(false);
+        const parsedState = measurePhase(phases, "configMs", () => this.refreshParsedConfig(false));
         if (!this.parsed) {
-          return { diagnostics: parsedState.diagnostics, transformed: [] };
+          return respond({ diagnostics: parsedState.diagnostics, transformed: [] });
         }
         const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-        const validation = validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath);
-        return {
+        const validation = measurePhase(phases, "factoriesMs", () => validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath));
+        return respond({
           diagnostics: [...parsedState.diagnostics, ...validation.diagnostics],
           transformed: [],
           afterDeclarationsTransformers: validation.afterDeclarationsTransformers,
-        };
+        });
       }
 
       for (const changedFile of request.changedFiles) {
         this.updateFile(changedFile.fileName, changedFile.text);
       }
 
-      const parsedState = this.refreshParsedConfig();
-      this.setRootLimit(request.rootFileNames);
+      const parsedState = measurePhase(phases, "configMs", () => {
+        const state = this.refreshParsedConfig();
+        this.setRootLimit(request.rootFileNames);
+        return state;
+      });
       if (!this.parsed) {
-        return { diagnostics: parsedState.diagnostics, transformed: [] };
+        return respond({ diagnostics: parsedState.diagnostics, transformed: [] });
       }
 
-      const program = this.service.getProgram();
+      const program = measurePhase(phases, "programMs", () => this.service.getProgram());
       if (!program) {
-        return {
+        return respond({
           diagnostics: [...parsedState.diagnostics, createProtocolDiagnostic("error", "program-missing", "Language service did not return a program")],
           transformed: [],
-        };
+        });
       }
 
       const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
-      const { transforms, diagnostics: pluginDiagnostics, plugins } = createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath);
+      const { transforms, diagnostics: pluginDiagnostics, plugins } = measurePhase(phases, "factoriesMs", () =>
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath));
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       const sourceFiles = [];
@@ -368,11 +398,11 @@ class SidecarProjectSession {
       }
 
       if (sourceFiles.length === 0) {
-        return { diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length };
+        return respond({ diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length });
       }
 
-      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms);
-      return {
+      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms, phases);
+      return respond({
         diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
         metrics: { plugins: pluginMetrics(plugins) },
@@ -380,12 +410,12 @@ class SidecarProjectSession {
         // hook), so the count is reported rather than run: rotor turns a
         // non-zero value into a one-shot warning for the project.
         afterDeclarationsTransformers: transforms.afterDeclarations.length,
-      };
+      });
     } catch (error) {
-      return {
+      return respond({
         diagnostics: [createInternalDiagnostic(error)],
         transformed: [],
-      };
+      });
     }
   }
 

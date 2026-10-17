@@ -46,7 +46,12 @@ func (c *solutionCompileCache) wrap(host compiler.CompilerHost, skip map[string]
 	if c == nil {
 		return host
 	}
-	return &cachingCompilerHost{CompilerHost: host, cache: c, skip: skip}
+	canonicalSkip := make(map[string]struct{}, len(skip))
+	caseSensitive := host.FS().UseCaseSensitiveFileNames()
+	for path := range skip {
+		canonicalSkip[normalizeOverlayPath(path, caseSensitive)] = struct{}{}
+	}
+	return &cachingCompilerHost{CompilerHost: host, cache: c, skip: canonicalSkip}
 }
 
 func (c *solutionCompileCache) getSourceFile(opts ast.SourceFileParseOptions, parse func(ast.SourceFileParseOptions) *ast.SourceFile) *ast.SourceFile {
@@ -99,7 +104,7 @@ func (h *cachingCompilerHost) skipFile(fileName string) bool {
 	if len(h.skip) == 0 {
 		return false
 	}
-	_, ok := h.skip[normalizeSourceFilePath(fileName)]
+	_, ok := h.skip[normalizeOverlayPath(fileName, h.FS().UseCaseSensitiveFileNames())]
 	return ok
 }
 

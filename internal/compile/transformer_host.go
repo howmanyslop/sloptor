@@ -47,6 +47,18 @@ type TransformerResponseMetrics struct {
 	CPUSystemUs int64                     `json:"cpuSystemUs"`
 	NodeVersion string                    `json:"nodeVersion"`
 	Plugins     []TransformerPluginMetric `json:"plugins,omitempty"`
+	Phases      *TransformerPhaseMetrics  `json:"phases,omitempty"`
+}
+
+// TransformerPhaseMetrics describe one worker request. TransformMs includes
+// ParentRepairMs; plugin metrics overlap FactoriesMs and TransformMs.
+type TransformerPhaseMetrics struct {
+	ConfigMs       int64 `json:"configMs"`
+	ProgramMs      int64 `json:"programMs"`
+	FactoriesMs    int64 `json:"factoriesMs"`
+	TransformMs    int64 `json:"transformMs"`
+	ParentRepairMs int64 `json:"parentRepairMs"`
+	PrintMs        int64 `json:"printMs"`
 }
 
 type TransformerPluginMetric struct {

@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
+
+	"rotor/internal/logservice"
 )
 
 type sidecarTransformerHost struct{}
@@ -123,6 +126,15 @@ func applyTransformerResponseMetrics(stats *sidecarCallStats, response *sidecarR
 	stats.nodeCPUSystemUs = response.Metrics.CPUSystemUs
 	stats.nodeVersion = response.Metrics.NodeVersion
 	logPluginMetrics(configPath, response.Metrics.Plugins)
+	if phases := response.Metrics.Phases; phases != nil {
+		label := projectLabel(configPath)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker config", time.Duration(phases.ConfigMs)*time.Millisecond)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker program", time.Duration(phases.ProgramMs)*time.Millisecond)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker factories", time.Duration(phases.FactoriesMs)*time.Millisecond)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker transform (includes parent repair)", time.Duration(phases.TransformMs)*time.Millisecond)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker parent repair", time.Duration(phases.ParentRepairMs)*time.Millisecond)
+		logservice.WriteStageDoneIfVerbose(label, "transformer worker print/trace map", time.Duration(phases.PrintMs)*time.Millisecond)
+	}
 }
 
 func nonNilContext(ctx context.Context) context.Context {

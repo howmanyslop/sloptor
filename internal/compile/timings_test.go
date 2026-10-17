@@ -2,6 +2,7 @@ package compile
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -263,6 +264,62 @@ func TestSidecarMetricsJSONRoundTrip(t *testing.T) {
 	if metered.Metrics == nil || metered.Metrics.WallMs != 12 || metered.Metrics.NodeVersion != "v22.0.0" {
 		t.Fatalf("metrics = %+v", metered.Metrics)
 	}
+	if metered.Metrics.Phases != nil {
+		t.Fatalf("phases = %+v, want nil for older worker", metered.Metrics.Phases)
+	}
+	withPhases := []byte(`{"diagnostics":[],"transformed":[],"metrics":{"wallMs":21,"phases":{"configMs":1,"programMs":2,"factoriesMs":3,"transformMs":9,"parentRepairMs":5,"printMs":6,"futureMs":7},"futureMetric":8}}`)
+	if err := json.Unmarshal(withPhases, &metered); err != nil {
+		t.Fatalf("unmarshal with phases and future fields: %v", err)
+	}
+	want := TransformerPhaseMetrics{ConfigMs: 1, ProgramMs: 2, FactoriesMs: 3, TransformMs: 9, ParentRepairMs: 5, PrintMs: 6}
+	if metered.Metrics.Phases == nil || *metered.Metrics.Phases != want {
+		t.Fatalf("phases = %+v, want %+v", metered.Metrics.Phases, want)
+	}
+	payload, err := json.Marshal(metered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundTrip sidecarResponse
+	if err := json.Unmarshal(payload, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.Metrics.Phases == nil || *roundTrip.Metrics.Phases != want {
+		t.Fatalf("round-trip phases = %+v, want %+v", roundTrip.Metrics.Phases, want)
+	}
+}
+
+func TestTransformerPhaseMetricsVerboseGate(t *testing.T) {
+	logged := captureVerboseLog(t)
+	dir := t.TempDir()
+	host := newCallbackTransformerHost(func(context.Context, TransformerRequest) (TransformerResponse, error) {
+		return TransformerResponse{Metrics: &TransformerResponseMetrics{
+			Phases: &TransformerPhaseMetrics{ConfigMs: 1, ProgramMs: 2, FactoriesMs: 3, TransformMs: 9, ParentRepairMs: 5, PrintMs: 6},
+		}}, nil
+	})
+	configPath := filepath.Join(dir, "tsconfig.json")
+	if _, _, err := host.validate(context.Background(), dir, configPath); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"transformer worker config ( 1 ms )",
+		"transformer worker program ( 2 ms )",
+		"transformer worker factories ( 3 ms )",
+		"transformer worker transform (includes parent repair) ( 9 ms )",
+		"transformer worker parent repair ( 5 ms )",
+		"transformer worker print/trace map ( 6 ms )",
+	} {
+		if !bytes.Contains(logged.Bytes(), []byte(line)) {
+			t.Errorf("missing %q in log: %s", line, logged.String())
+		}
+	}
+	logged.Reset()
+	logservice.Verbose = false
+	if _, _, err := host.validate(context.Background(), dir, configPath); err != nil {
+		t.Fatal(err)
+	}
+	if logged.Len() != 0 {
+		t.Fatalf("non-verbose phase log = %q, want empty", logged.String())
+	}
 }
 
 func TestVerboseSidecarStages(t *testing.T) {
@@ -290,6 +347,12 @@ func TestVerboseSidecarStages(t *testing.T) {
 		line := regexp.MustCompile(`(?m)^.*: transformer plugin \./plugins/prefix-string\.js \( \d+ ms \)$`)
 		if !line.MatchString(logged) {
 			t.Errorf("missing per-plugin line; log: %s", logged)
+		}
+		for _, phase := range []string{"config", "program", "factories", "transform (includes parent repair)", "parent repair", "print/trace map"} {
+			pattern := regexp.MustCompile(`(?m)^.*: ` + regexp.QuoteMeta("transformer worker "+phase) + ` \( \d+ ms \)$`)
+			if !pattern.MatchString(logged) {
+				t.Errorf("missing worker phase %q; log: %s", phase, logged)
+			}
 		}
 	})
 }

@@ -1,8 +1,8 @@
 package compile
 
 import (
+	"slices"
 	"sync"
-	"sync/atomic"
 )
 
 type solutionTask struct {
@@ -19,47 +19,72 @@ func RunSolutionTasks(tasks []solutionTask, builders int, run func(index int) er
 		builders = 4
 	}
 
-	done := make(map[int]chan struct{}, len(tasks))
+	successors := make(map[int][]int, len(tasks))
+	remainingBarriers := make([]int, len(tasks))
+	ready := make([]int, 0, len(tasks))
 	outcomeLength := 0
-	for _, task := range tasks {
-		done[task.index] = make(chan struct{})
+	for position, task := range tasks {
+		seen := make(map[int]struct{}, len(task.predecessors)+len(task.waitOnly))
+		for _, barriers := range [][]int{task.predecessors, task.waitOnly} {
+			for _, predecessor := range barriers {
+				if _, ok := seen[predecessor]; ok {
+					continue
+				}
+				seen[predecessor] = struct{}{}
+				successors[predecessor] = append(successors[predecessor], position)
+				remainingBarriers[position]++
+			}
+		}
+		if remainingBarriers[position] == 0 {
+			ready = append(ready, position)
+		}
 		if task.index >= outcomeLength {
 			outcomeLength = task.index + 1
 		}
 	}
 	outcomes := make([]error, outcomeLength)
-	executed := make([]atomic.Bool, len(tasks))
-
-	var next atomic.Int64
+	var mu sync.Mutex
+	changed := sync.NewCond(&mu)
+	remaining := len(tasks)
 	var workers sync.WaitGroup
-	workers.Add(builders)
-	for range builders {
+	workers.Add(min(builders, len(tasks)))
+	for range min(builders, len(tasks)) {
 		go func() {
 			defer workers.Done()
 			for {
-				position := int(next.Add(1) - 1)
-				if position >= len(tasks) {
+				mu.Lock()
+				for len(ready) == 0 && remaining > 0 {
+					changed.Wait()
+				}
+				if remaining == 0 {
+					mu.Unlock()
 					return
 				}
+				position := ready[0]
+				ready = ready[1:]
+				mu.Unlock()
+
 				task := tasks[position]
-				executed[position].Store(true)
-				for _, predecessor := range task.predecessors {
-					<-done[predecessor]
+				err := run(task.index)
+
+				mu.Lock()
+				outcomes[task.index] = err
+				for _, successor := range successors[task.index] {
+					remainingBarriers[successor]--
+					if remainingBarriers[successor] == 0 {
+						// Prefer graph order among runnable projects, including
+						// projects released by a just-completed predecessor.
+						at, _ := slices.BinarySearch(ready, successor)
+						ready = slices.Insert(ready, at, successor)
+					}
 				}
-				for _, predecessor := range task.waitOnly {
-					<-done[predecessor]
-				}
-				outcomes[task.index] = run(task.index)
-				close(done[task.index])
+				remaining--
+				changed.Broadcast()
+				mu.Unlock()
 			}
 		}()
 	}
 	workers.Wait()
 
-	for position, task := range tasks {
-		if !executed[position].Load() {
-			close(done[task.index])
-		}
-	}
 	return outcomes
 }

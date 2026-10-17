@@ -10,10 +10,16 @@ import (
 type tempScope struct {
 	ids     map[string]struct{}
 	lastTry map[string]int
+	nextTry map[tempNameFamily]int
 	parent  *tempScope
 }
 
-// newTempScope leaves both maps nil; they are allocated on first write
+type tempNameFamily struct {
+	base      string
+	separator string
+}
+
+// newTempScope leaves maps nil; they are allocated on first write
 // (reads of nil maps are safe), since most scopes never register an id.
 func newTempScope(parent *tempScope) *tempScope {
 	return &tempScope{parent: parent}
@@ -31,6 +37,34 @@ func (s *tempScope) setLastTry(input string, i int) {
 		s.lastTry = make(map[string]int)
 	}
 	s.lastTry[input] = i
+}
+
+func (s *tempScope) nextID(base, separator string) string {
+	family := tempNameFamily{base, separator}
+	i, ok := s.nextTry[family]
+	if !ok {
+		// A final-name counter is written only when that name is reserved,
+		// so the legacy starting suffix for this base cannot later change.
+		i, ok = s.lastTry[base]
+		if !ok {
+			i = 1
+		}
+	}
+	input := base
+	for s.has(input) {
+		input = base + separator + strconv.Itoa(i)
+		i++
+	}
+	// Preserve upstream's final-name counter: overlapping hints can read it.
+	s.setLastTry(input, i)
+	s.addID(input)
+	if s.nextTry == nil {
+		s.nextTry = make(map[tempNameFamily]int)
+	}
+	// All skipped candidates remain reserved in this scope or an ancestor.
+	// Keep separate cursors for anonymous "_1" and exact "__1" suffixes.
+	s.nextTry[family] = i
+	return input
 }
 
 // has mirrors upstream scopeHasId: checks this scope and all ancestors.
@@ -206,39 +240,14 @@ func solveTempIDs(state *RenderState, ast luau.NodeOrList) {
 			continue
 		}
 		scope := nodesToScopes[tempID]
-		if tempID.ExactName {
-			input := tempID.Name
-			i, ok := scope.lastTry[input]
-			if !ok {
-				i = 1
-			}
-			for scope.has(input) {
-				input = tempID.Name + "_" + strconv.Itoa(i)
-				i++
-			}
-			scope.setLastTry(input, i)
-			scope.addID(input)
-			state.seenTempNodes[tempID.ID] = input
-			continue
-		}
+		base := tempID.Name
 		separator := "_"
-		if tempID.Name == "" {
-			separator = ""
+		if !tempID.ExactName {
+			base = "_" + base
+			if tempID.Name == "" {
+				separator = ""
+			}
 		}
-		// NOTE (upstream parity): lastTry is read with the pre-loop input
-		// ("_" + name) but written with the post-loop (final) input and the
-		// post-loop value of i — replicating upstream exactly.
-		input := "_" + tempID.Name
-		i, ok := scope.lastTry[input]
-		if !ok {
-			i = 1
-		}
-		for scope.has(input) {
-			input = "_" + tempID.Name + separator + strconv.Itoa(i)
-			i++
-		}
-		scope.setLastTry(input, i)
-		scope.addID(input)
-		state.seenTempNodes[tempID.ID] = input
+		state.seenTempNodes[tempID.ID] = scope.nextID(base, separator)
 	}
 }
