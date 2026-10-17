@@ -195,7 +195,7 @@ changes that affect their generated Luau, and compatibility parity shifts.
 
 [defaults]
 model = "anthropic/claude-haiku-5.5"
-max_tokens = 16384
+max_tokens = 65536
 repo = "howmanyslop/sloptor"
 provider = "openai"
 base_url = "https://openrouter.ai/api/v1"

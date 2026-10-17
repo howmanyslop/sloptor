@@ -105,6 +105,9 @@ func runCompilePipeline(dir string, program *compiler.Program, sourceFiles []*as
 func runCompilePipelineWithOptions(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, pipeline *flameworkPipeline, opts ProjectOptions) (*compilePipelineResult, []string, error) {
 	ctx := opts.context()
 	host := transformerHostFromContext(ctx)
+	if opts.declarationPrefetch != nil {
+		host = prefetchingTransformerHost{transformerHost: host, prefetch: opts.declarationPrefetch}
+	}
 	if len(overlays) > 0 {
 		// Project setup already rejects unmatched overlays for a single project
 		// and leaves them for the solution-wide check otherwise. Transformer and

@@ -652,6 +652,11 @@ type ProjectOptions struct {
 	solutionOverlays *solutionOverlayMatches
 
 	pendingSolutionDependencyPersists *[]func() error
+
+	// declarationPrefetch is emitted during the transformer sidecar round
+	// trip when set. BuildProjectWithOptions sets it only on the options it
+	// hands its own compile pipeline.
+	declarationPrefetch *declarationPrefetch
 }
 
 func (opts ProjectOptions) context() context.Context {

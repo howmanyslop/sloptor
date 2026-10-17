@@ -412,6 +412,10 @@ backend = "go:github.com/uudashr/gocognit/cmd/gocognit"
 version = "0.0.0-20260918162853-acb8859b9031"
 backend = "go:go.uber.org/nilaway/cmd/nilaway"
 
+[[tools."go:golang.org/x/tools/cmd/deadcode"]]
+version = "0.52.0"
+backend = "go:golang.org/x/tools/cmd/deadcode"
+
 [[tools."go:golang.org/x/vuln/cmd/govulncheck"]]
 version = "1.3.0"
 backend = "go:golang.org/x/vuln/cmd/govulncheck"
