@@ -103,9 +103,11 @@ type BuildTimingStages struct {
 	// SidecarRoundTripMs; this is where that time went.
 	//
 	// The write path's share is a SUBSET of DeclarationEmitWritesMs, not an
-	// addition to it. The declaration-signature selection pass emits too, and
-	// that share is taken back out of IncrementalSelectionMs instead, so no
-	// stage total counts it twice.
+	// addition to it, unless a declarationPrefetch ran it during the
+	// transformer sidecar round trip: that share overlaps SidecarRoundTripMs
+	// instead. The declaration-signature selection pass emits too, and that
+	// share is taken back out of IncrementalSelectionMs instead, so no stage
+	// total counts it twice.
 	DeclarationEmitMs     int64 `json:"declarationEmitMs"`
 	IncrementalManifestMs int64 `json:"incrementalManifestMs"`
 	PersistenceMs         int64 `json:"persistenceMs"`

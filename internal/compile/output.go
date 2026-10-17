@@ -287,7 +287,17 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	// Held across the pipeline because declaration emit reads it: declarations
 	// describe the source the user wrote, not the source transformers produced.
 	originalProgram := program
-	pipeline, diags, err := runCompilePipelineWithOptions(dir, program, selectedFiles, opts.Overlays, nativePipeline, opts)
+	// Transformer stages remap source files by path, so this is also the
+	// selection the pipeline hands back.
+	selectedPaths := make(map[string]struct{}, len(selectedFiles))
+	for _, sourceFile := range selectedFiles {
+		selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
+	}
+	pipelineOpts := opts
+	if signatureDeclarations == nil {
+		pipelineOpts.declarationPrefetch = newDeclarationPrefetch(originalProgram, selectedPaths, timings)
+	}
+	pipeline, diags, err := runCompilePipelineWithOptions(dir, program, selectedFiles, opts.Overlays, nativePipeline, pipelineOpts)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -414,13 +424,16 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 	timings.setEmittedEntries(len(emittedFiles))
 
-	selectedPaths := make(map[string]struct{}, len(selectedFiles))
-	for _, sourceFile := range selectedFiles {
-		selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
+	declarations := signatureDeclarations
+	prefetched, ok, err := pipelineOpts.declarationPrefetch.result()
+	if err != nil {
+		return declarationBuildFailure(err)
 	}
-
+	if ok {
+		declarations = prefetched
+	}
 	stopDeclarations := timings.startStage(declarationEmitWritesStage)
-	declFiles, err := emitDeclarations(originalProgram, selectedPaths, signatureDeclarations, opts.WriteOnlyChanged, writer, timings)
+	declFiles, err := emitDeclarations(originalProgram, selectedPaths, declarations, opts.WriteOnlyChanged, writer, timings)
 	stopDeclarations()
 	if err != nil {
 		return declarationBuildFailure(err)
@@ -560,6 +573,26 @@ func declarationBuildFailure(err error) (*BuildResult, []string, error) {
 // program must be the ORIGINAL, untransformed program: declarations describe
 // the source the user wrote, never the output of a source transformer.
 func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([]declarationEmitFile, error) {
+	return emitDeclarationTextsUntil(program, files, nil)
+}
+
+// errDeclarationEmitAbandoned reports an emitDeclarationTextsUntil whose
+// abandon channel closed before it finished.
+var errDeclarationEmitAbandoned = errors.New("compile: declaration emit abandoned")
+
+func abandoned(abandon <-chan struct{}) bool {
+	select {
+	case <-abandon:
+		return true
+	default:
+		return false
+	}
+}
+
+// emitDeclarationTextsUntil is emitDeclarationTexts, except that closing
+// abandon stops it between files with errDeclarationEmitAbandoned. A nil
+// abandon never closes.
+func emitDeclarationTextsUntil(program *compiler.Program, files []*ast.SourceFile, abandon <-chan struct{}) ([]declarationEmitFile, error) {
 	if !program.Options().GetEmitDeclarations() || len(files) == 0 {
 		return nil, nil
 	}
@@ -599,11 +632,17 @@ func emitDeclarationTexts(program *compiler.Program, files []*ast.SourceFile) ([
 	for _, group := range groups {
 		wg.Queue(func() {
 			for i, sourceFile := range group.files {
+				if abandoned(abandon) {
+					return
+				}
 				emitFile(order[group.indices[i]], sourceFile)
 			}
 		})
 	}
 	wg.RunAndWait()
+	if abandoned(abandon) {
+		return nil, errDeclarationEmitAbandoned
+	}
 	var diagnostics []DiagnosticInfo
 	for _, fileDiagnostics := range perFileDiagnostics {
 		diagnostics = append(diagnostics, fileDiagnostics...)
@@ -688,12 +727,13 @@ func declarationEmitSourceFiles(program *compiler.Program, selectedPaths map[str
 
 // emitDeclarations produces and writes this build's declaration output.
 //
-// preEmitted is the text the declaration-signature selection pass already
-// produced for exactly selectedPaths, off exactly this program
-// (narrowSelectionByDeclarationSignature). Re-emitting it would run the type
-// checker over those files a second time for text that is already in hand, so
-// the emit half is skipped and only the write half runs. It carries each
-// file's WriteFileData, so a skipped write still reports SkippedDtsWrite.
+// preEmitted is the text the declaration-signature selection pass
+// (narrowSelectionByDeclarationSignature) or a declarationPrefetch already
+// produced for exactly selectedPaths, off exactly this program. Re-emitting it
+// would run the type checker over those files a second time for text that is
+// already in hand, so the emit half is skipped and only the write half runs.
+// It carries each file's WriteFileData, so a skipped write still reports
+// SkippedDtsWrite.
 func emitDeclarations(program *compiler.Program, selectedPaths map[string]struct{}, preEmitted []declarationEmitFile, writeOnlyChanged bool, writer *outputWriter, timings *BuildTimings) ([]string, error) {
 	// Checked before the stage timer starts so a project that emits no
 	// declarations reports no declaration stage and prints no --verbose line.

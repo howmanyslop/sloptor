@@ -53,6 +53,12 @@ func transformFlameworkExpressionWithRuntime(state *TransformState, node *ast.No
 }
 
 func transformFlameworkExpressionChildrenWithRuntime(state *TransformState, node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
+	// Identifiers, literals, and keywords have nothing to visit, and they are
+	// a large share of all expressions. Returning them directly saves a
+	// visitor and its closure per node.
+	if !node.ForEachChild(func(*ast.Node) bool { return true }) {
+		return expressionTransformResult{expression: node, prerequisites: []*ast.Node{}, imports: []MacroImport{}}, nil
+	}
 	var transformErr error
 	prerequisites := make([]*ast.Node, 0)
 	imports := make([]MacroImport, 0)
