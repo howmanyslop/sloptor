@@ -289,6 +289,9 @@ func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 			keys = append(keys, solutionWatchKey{kind: kind, project: set.ProjectPath, path: directory})
 		}
 		for _, config := range append(slices.Clone(set.TsConfigPaths), set.RojoConfigs...) {
+			if solutionWatchDirectoryIsArtifact(config, artifacts) {
+				continue
+			}
 			keys = append(keys, solutionWatchKey{kind: solutionWatchConfig, project: set.ProjectPath, path: config})
 		}
 	}
@@ -462,15 +465,13 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 	seen := map[string]struct{}{}
 	artifacts := solutionArtifactDirectories(sets)
-	for _, set := range sets {
-		set.ArtifactDirectories = artifacts
-		for _, directory := range solutionWatchDirectories(set) {
-			for path := range newTreeWatcher(directory, set.ArtifactDirectories...).snapshot() {
-				seen[path] = struct{}{}
-			}
+	for _, key := range solutionWatchKeys(sets) {
+		if key.kind == solutionWatchConfig {
+			seen[key.path] = struct{}{}
+			continue
 		}
-		for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
-			seen[config] = struct{}{}
+		for path := range newTreeWatcher(key.path, artifacts...).snapshot() {
+			seen[path] = struct{}{}
 		}
 	}
 	return len(seen)

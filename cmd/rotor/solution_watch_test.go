@@ -257,11 +257,15 @@ func startArtifactSolutionWatch(t *testing.T, root string) (*fakeSolutionWatcher
 
 func TestSolutionWatchDoesNotWatchReferencedOutputs(t *testing.T) {
 	root := writeArtifactWatchSolution(t)
+	mustWrite(t, filepath.Join(root, "left/src/default.project.json"), `{"name":"nested","tree":{"main":{"$path":"main.luau"}}}`)
 	watcher, _ := startArtifactSolutionWatch(t, root)
 	for _, name := range []string{"left", "right"} {
 		if opens, _ := watcher.counts(filepath.Join(root, name, "out")); opens != 0 {
 			t.Errorf("referenced %s output directory watched %d times", name, opens)
 		}
+	}
+	if opens, _ := watcher.counts(filepath.Join(root, "left/out/default.project.json")); opens != 0 {
+		t.Errorf("generated Rojo config watched %d times", opens)
 	}
 }
 
