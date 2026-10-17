@@ -329,3 +329,52 @@ func TestWatchAssetDrainNormalizesCanonicalEventPath(t *testing.T) {
 		t.Fatalf("asset output stat error = %v, want not exists", err)
 	}
 }
+
+func TestWatchAssetDrainFindsRojoInputsThroughConfigAliases(t *testing.T) {
+	for _, spelling := range []string{"symlink", "relative"} {
+		t.Run(spelling, func(t *testing.T) {
+			root := t.TempDir()
+			projectDir := filepath.Join(root, "project")
+			writeBuildableSolutionProject(t, projectDir)
+			configPath := filepath.Join(projectDir, "tsconfig.json")
+			config := strings.Replace(string(mustReadFile(t, configPath)), `"outDir":"out"`, `"outDir":"build/out"`, 1)
+			if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			writeSolutionFile(t, projectDir, "assets/icon.luau", "return { external = true }\n")
+			writeSolutionFile(t, projectDir, "game.project.json", `{"name":"external-assets","tree":{"assets":{"$path":"assets"}}}`)
+			coordinator, err := NewSolutionCoordinator(configPath, ProjectOptions{RojoConfigPath: filepath.Join(projectDir, "game.project.json")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			requestPath := configPath
+			if spelling == "symlink" {
+				alias := filepath.Join(root, "alias")
+				if err := os.Symlink(projectDir, alias); err != nil {
+					t.Skipf("cannot create symlink: %v", err)
+				}
+				requestPath = filepath.Join(alias, "tsconfig.json")
+			} else {
+				t.Chdir(projectDir)
+				requestPath = "tsconfig.json"
+			}
+			asset := filepath.Join(projectDir, "assets/icon.luau")
+			output := filepath.Join(projectDir, "build/assets/icon.luau")
+			if err := coordinator.DrainAssets(requestPath, []WatchAssetEvent{{Path: asset}}); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(output); err != nil || string(got) != "return { external = true }\n" {
+				t.Fatalf("Rojo asset copied through %s config = %q, err %v", spelling, got, err)
+			}
+			if err := os.Remove(asset); err != nil {
+				t.Fatal(err)
+			}
+			if err := coordinator.DrainAssets(requestPath, []WatchAssetEvent{{Path: asset, Deleted: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(output); !os.IsNotExist(err) {
+				t.Fatalf("deleted Rojo asset output stat = %v, want not exist", err)
+			}
+		})
+	}
+}

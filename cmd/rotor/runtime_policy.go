@@ -9,14 +9,37 @@ const (
 	fallbackMemory = int64(8 << 30)
 	minimumLimit   = int64(512 << 20)
 	maximumLimit   = int64(16 << 30)
+	watchLimit     = int64(6 << 30)
 )
 
-func applyRuntimePolicy() {
+// applyRuntimePolicy scopes CLI defaults to an invocation. Environment values
+// belong to the caller, including empty values and GOGC=off, so never replace
+// them. Library/API watch sessions retain their process owner's runtime policy.
+func applyRuntimePolicy(watch bool) func() {
+	var restoreGC, restoreLimit func()
 	if _, set := os.LookupEnv("GOGC"); !set {
-		debug.SetGCPercent(400)
+		percent := 400
+		if watch {
+			percent = 100
+		}
+		previous := debug.SetGCPercent(percent)
+		restoreGC = func() { debug.SetGCPercent(previous) }
 	}
 	if _, set := os.LookupEnv("GOMEMLIMIT"); !set {
-		debug.SetMemoryLimit(automaticMemoryLimit(effectiveMemory()))
+		limit := automaticMemoryLimit(effectiveMemory())
+		if watch {
+			limit = min(limit, watchLimit)
+		}
+		previous := debug.SetMemoryLimit(limit)
+		restoreLimit = func() { debug.SetMemoryLimit(previous) }
+	}
+	return func() {
+		if restoreGC != nil {
+			restoreGC()
+		}
+		if restoreLimit != nil {
+			restoreLimit()
+		}
 	}
 }
 

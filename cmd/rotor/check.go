@@ -82,6 +82,9 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 	if _, statErr := os.Stat(filepath.Join(dir, "tsconfig.json")); statErr != nil {
 		return runtimeFailure(fmt.Errorf("no tsconfig.json found in %s", dir))
 	}
+	if args.watch {
+		defer applyRuntimePolicy(true)()
+	}
 
 	// rbxts-style projects resolve all of their types (including the
 	// runtime/global definitions) out of node_modules; missing packages

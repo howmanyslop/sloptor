@@ -352,6 +352,9 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 			return runtimeFailure(fmt.Errorf("cannot prepare timings output: %w", err))
 		}
 	}
+	if opts.watch {
+		defer applyRuntimePolicy(true)()
+	}
 
 	// LogService.verbose = projectOptions.verbose === true (build.ts L132).
 	logservice.Verbose = opts.verbose
