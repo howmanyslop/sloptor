@@ -1,0 +1,24 @@
+{
+	"mcpServers": {
+		"astro-docs": {
+			"type": "http",
+			"url": "https://mcp.docs.astro.build/mcp"
+		},
+		"chrome-devtools": {
+			"args": ["scripts/get-chrome-path.sh", "--serve"],
+			"command": "bash"
+		},
+		"gh-grep": {
+			"type": "http",
+			"url": "https://mcp.grep.app"
+		},
+		"hk": {
+			"args": ["x", "--", "hk", "mcp", "--root", "."],
+			"command": "mise"
+		},
+		"playwright": {
+			"args": ["x", "--", "nlx", "@playwright/mcp@latest"],
+			"command": "mise"
+		}
+	}
+}
