@@ -567,33 +567,6 @@ func TestSolutionInvalidateDirectProjectKeepsIncrementalSelection(t *testing.T) 
 	}
 }
 
-func TestSolutionInvalidateKeepsDownstreamFullBuild(t *testing.T) {
-	root := t.TempDir()
-	writeSolutionConfig(t, root, "tsconfig.json", []string{"./app"}, true)
-	writeSolutionConfig(t, filepath.Join(root, "app"), "tsconfig.json", []string{"../shared"}, false)
-	writeSolutionConfig(t, filepath.Join(root, "shared"), "tsconfig.json", nil, false)
-	builders := 1
-	coordinator, err := NewSolutionCoordinatorWithDrainer(filepath.Join(root, "tsconfig.json"), ProjectOptions{Builders: &builders}, &recordingSolutionDrainer{})
-	if err != nil {
-		t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
-	}
-	if _, _, err := coordinator.Drain(); err != nil {
-		t.Fatalf("initial Drain: %v", err)
-	}
-
-	sharedConfig := filepath.Join(root, "shared", "tsconfig.json")
-	coordinator.Invalidate(sharedConfig)
-
-	sharedState, ok := coordinator.ProjectState(sharedConfig)
-	if !ok || sharedState.forceFullBuild {
-		t.Fatalf("directly invalidated shared forceFullBuild = %t, want false", sharedState.forceFullBuild)
-	}
-	appState, ok := coordinator.ProjectState(filepath.Join(root, "app", "tsconfig.json"))
-	if !ok || !appState.forceFullBuild {
-		t.Fatalf("downstream app forceFullBuild = %t, want true", appState.forceFullBuild)
-	}
-}
-
 func writeSolutionConfig(t *testing.T, dir, name string, references []string, coordinator bool) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

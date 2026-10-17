@@ -140,9 +140,9 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 			return nil
 		}
 
-		if state.forceFullBuild {
-			project.Options.forceFullBuild = true
-		}
+		// Each project's incremental manifest tracks referenced declarations.
+		// Let it select affected sources after dependencies have emitted, just
+		// as a fresh one-shot solution build does.
 		var child *BuildTimings
 		if c.timings != nil {
 			child = c.timings.newProject(project.ConfigPath)
@@ -269,7 +269,6 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 			state.BlockedBy = ""
 			state.Err = nil
 			state.UpToDate = true
-			state.forceFullBuild = false
 		}
 		c.states[project.ConfigPath] = state
 

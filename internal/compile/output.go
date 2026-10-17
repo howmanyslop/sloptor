@@ -205,31 +205,27 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	var signatureDeclarations []declarationEmitFile
 	if program.Options().IsIncremental() && pathTranslator.BuildInfoOutputPath != "" {
 		selectedFiles = selectIncrementalSourceFiles(sourceFiles, currentManifest, previousManifest)
-		if opts.forceFullBuild {
-			selectedFiles = sourceFiles
-		} else {
-			recovered := recoveredInputPaths(dir, pathTranslator, previousOutputs, previousPresence)
-			narrowed, declarations, ok, err := narrowSelectionByDeclarationSignature(
-				dir, program, sourceFiles, recovered,
-				currentManifest, previousManifest, previousOutputs, timings,
-			)
-			if err != nil {
-				stopSelection()
-				return nil, nil, err
+		recovered := recoveredInputPaths(dir, pathTranslator, previousOutputs, previousPresence)
+		narrowed, declarations, ok, err := narrowSelectionByDeclarationSignature(
+			dir, program, sourceFiles, recovered,
+			currentManifest, previousManifest, previousOutputs, timings,
+		)
+		if err != nil {
+			stopSelection()
+			return nil, nil, err
+		}
+		if ok {
+			selectedFiles, signatureDeclarations = narrowed, declarations
+		} else if len(previousOutputs) > 0 {
+			selectedPaths := make(map[string]struct{}, len(selectedFiles)+len(recovered))
+			for _, sourceFile := range selectedFiles {
+				selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
 			}
-			if ok {
-				selectedFiles, signatureDeclarations = narrowed, declarations
-			} else if len(previousOutputs) > 0 {
-				selectedPaths := make(map[string]struct{}, len(selectedFiles)+len(recovered))
-				for _, sourceFile := range selectedFiles {
-					selectedPaths[normalizeSourceFilePath(sourceFile.FileName())] = struct{}{}
-				}
-				maps.Copy(selectedPaths, recovered)
-				selectedFiles = selectedFiles[:0]
-				for _, sourceFile := range sourceFiles {
-					if _, ok := selectedPaths[normalizeSourceFilePath(sourceFile.FileName())]; ok {
-						selectedFiles = append(selectedFiles, sourceFile)
-					}
+			maps.Copy(selectedPaths, recovered)
+			selectedFiles = selectedFiles[:0]
+			for _, sourceFile := range sourceFiles {
+				if _, ok := selectedPaths[normalizeSourceFilePath(sourceFile.FileName())]; ok {
+					selectedFiles = append(selectedFiles, sourceFile)
 				}
 			}
 		}

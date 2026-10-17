@@ -38,12 +38,11 @@ type SolutionProjectDrainer interface {
 }
 
 type SolutionProjectState struct {
-	Project        SolutionProject
-	Result         *BuildResult
-	UpToDate       bool
-	BlockedBy      string
-	Err            error
-	forceFullBuild bool
+	Project   SolutionProject
+	Result    *BuildResult
+	UpToDate  bool
+	BlockedBy string
+	Err       error
 }
 
 type SolutionProjectStatus string
@@ -343,7 +342,6 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	left.solutionOverlays, right.solutionOverlays = nil, nil
 	left.census, right.census = nil, nil
 	left.deferRojoCachePersist, right.deferRojoCachePersist = false, false
-	left.forceFullBuild, right.forceFullBuild = false, false
 	return reflect.DeepEqual(left, right)
 }
 
@@ -580,13 +578,6 @@ func (c *SolutionCoordinator) Invalidate(paths ...string) []string {
 			state.UpToDate = false
 			state.BlockedBy = ""
 			state.Err = nil
-			// Downstream projects must rebuild fully: their inputs (the
-			// referenced project's outputs) changed, which the per-project
-			// manifest cannot track. The directly invalidated project's own
-			// source changed, so its manifest stays trustworthy.
-			if _, ok := direct[project.ConfigPath]; !ok {
-				state.forceFullBuild = true
-			}
 			c.states[project.ConfigPath] = state
 			c.pendingProjects[project.ConfigPath] = struct{}{}
 			delete(c.watchSets, project.ConfigPath)

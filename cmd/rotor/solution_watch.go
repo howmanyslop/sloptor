@@ -278,7 +278,9 @@ func (w *solutionWatches) close() {
 
 func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 	keys := []solutionWatchKey{}
+	artifacts := solutionArtifactDirectories(sets)
 	for _, set := range sets {
+		set.ArtifactDirectories = artifacts
 		for index, directory := range solutionWatchDirectories(set) {
 			kind := solutionWatchRoot
 			if index >= len(set.RootDirs) {
@@ -287,10 +289,25 @@ func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 			keys = append(keys, solutionWatchKey{kind: kind, project: set.ProjectPath, path: directory})
 		}
 		for _, config := range append(slices.Clone(set.TsConfigPaths), set.RojoConfigs...) {
+			if solutionWatchDirectoryIsArtifact(config, artifacts) {
+				continue
+			}
 			keys = append(keys, solutionWatchKey{kind: solutionWatchConfig, project: set.ProjectPath, path: config})
 		}
 	}
 	return keys
+}
+
+func solutionArtifactDirectories(sets []compile.SolutionWatchSet) []string {
+	var directories []string
+	for _, set := range sets {
+		for _, directory := range set.ArtifactDirectories {
+			if !slices.Contains(directories, directory) {
+				directories = append(directories, directory)
+			}
+		}
+	}
+	return directories
 }
 
 // runBuildSolutionWatchLoop builds the solution once, then rebuilds the
@@ -305,10 +322,15 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		return 1
 	}
 	var mu sync.Mutex
-	stopped := false // guarded by mu; set once ctx is done
+	stopped := false                 // guarded by mu; set once ctx is done
+	var artifactDirectories []string // guarded by mu; refreshed with the watch sets
 	watches := &solutionWatches{watcher: newSolutionWatcher(), watches: map[solutionWatchKey]fswatch.Watch{}}
 	refresh := func(dead map[solutionWatchKey]struct{}) {
-		watches.refresh(coordinator.WatchSets(), dead)
+		sets := coordinator.WatchSets()
+		mu.Lock()
+		artifactDirectories = solutionArtifactDirectories(sets)
+		mu.Unlock()
+		watches.refresh(sets, dead)
 	}
 	// rebuild invalidates and drains the changed projects, first reloading
 	// options and the graph when a config changed. reloaded is false when
@@ -334,6 +356,13 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 				refresh(events.dead)
 				return nil, nil, false, err
 			}
+			// A reloaded project may emit into new directories during this
+			// drain. Keep the old roots excluded until stale-output cleanup
+			// finishes, then refresh replaces this union with the current set.
+			nextArtifacts := solutionArtifactDirectories(coordinator.WatchSets())
+			mu.Lock()
+			artifactDirectories = append(artifactDirectories, nextArtifacts...)
+			mu.Unlock()
 			if len(events.projects) == 0 {
 				for _, set := range coordinator.WatchSets() {
 					events.projects[set.ProjectPath] = struct{}{}
@@ -392,6 +421,18 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			if stopped {
 				return
 			}
+			// A source or Rojo directory can contain another project's outputs.
+			// Filter against the whole solution before recording any changes.
+			filtered := make([]fswatch.Event, 0, len(events))
+			for _, event := range events {
+				if !solutionWatchDirectoryIsArtifact(event.Path, artifactDirectories) {
+					filtered = append(filtered, event)
+				}
+			}
+			if len(filtered) == 0 && watchErr == nil {
+				return
+			}
+			events = filtered
 			switch key.kind {
 			case solutionWatchRoot:
 				s.add(key, events, watchErr)
@@ -423,14 +464,14 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 // observes: every file under the watched directories plus the config files.
 func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 	seen := map[string]struct{}{}
-	for _, set := range sets {
-		for _, directory := range solutionWatchDirectories(set) {
-			for path := range newTreeWatcher(directory, set.ArtifactDirectories...).snapshot() {
-				seen[path] = struct{}{}
-			}
+	artifacts := solutionArtifactDirectories(sets)
+	for _, key := range solutionWatchKeys(sets) {
+		if key.kind == solutionWatchConfig {
+			seen[key.path] = struct{}{}
+			continue
 		}
-		for _, config := range append(set.TsConfigPaths, set.RojoConfigs...) {
-			seen[config] = struct{}{}
+		for path := range newTreeWatcher(key.path, artifacts...).snapshot() {
+			seen[path] = struct{}{}
 		}
 	}
 	return len(seen)
