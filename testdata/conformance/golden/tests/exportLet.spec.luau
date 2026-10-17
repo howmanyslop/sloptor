@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.2
+-- Compiled with sloptor v2.8.3
 local y = 0
 local Foo = {}
 do

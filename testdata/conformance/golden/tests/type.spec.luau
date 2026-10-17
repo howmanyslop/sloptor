@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.2
+-- Compiled with sloptor v2.8.3
 return function()
 	it("should properly fetch types with parenthesis and nonNull assertions", function()
 		local function loop(array)

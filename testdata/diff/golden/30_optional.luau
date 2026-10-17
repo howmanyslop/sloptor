@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.2
+-- Compiled with sloptor v2.8.3
 -- optional property access chains
 local _num = holder
 if _num ~= nil then

@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.2
+-- Compiled with sloptor v2.8.3
 local ClassWithInstanceFoo
 do
 	ClassWithInstanceFoo = setmetatable({}, {

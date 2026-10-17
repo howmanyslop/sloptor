@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.2
+-- Compiled with sloptor v2.8.3
 local function safeRead(index, ...)
 	local a = (...)
 	local b = (select(2, ...))
