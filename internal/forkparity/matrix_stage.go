@@ -51,7 +51,7 @@ func (r MatrixRunner) runTransformerFixture(
 	if err != nil {
 		return matrixFixtureResult{}, err
 	}
-	defer os.RemoveAll(stage.dir)
+	defer func() { _ = os.RemoveAll(stage.dir) }() // best-effort temp cleanup
 
 	runner := Runner{RotorBinPath: rotorBin}
 	result, err := runner.RunRotor(ctx, rotorBin, stage.dir, filepath.Join(stage.dir, "out"))
@@ -78,7 +78,7 @@ func (r MatrixRunner) runProjectFixture(
 	if err != nil {
 		return matrixFixtureResult{}, err
 	}
-	defer os.RemoveAll(stage.dir)
+	defer func() { _ = os.RemoveAll(stage.dir) }() // best-effort temp cleanup
 
 	runner := Runner{RotorBinPath: rotorBin}
 	run := RotorRun{

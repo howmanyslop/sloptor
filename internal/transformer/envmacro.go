@@ -34,7 +34,7 @@ import (
 // for `declare function` ambients but not for $env's
 // index-signature-and-call-signature intersection type; keying on the
 // IDENTIFIER's symbol (the global `$env` const injected by
-// compile.newProjectProgramFromFS's synthetic declaration file) is exact and
+// compile.parseProjectCommandLine's synthetic declaration file) is exact and
 // shadowing-safe — a user-defined local `$env` resolves to a different
 // symbol and compiles as plain code, exactly like upstream macro globals.
 // The remaining position — a bare `$env` that is NOT the head of a

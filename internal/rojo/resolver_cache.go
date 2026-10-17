@@ -187,7 +187,7 @@ func resolverMtimeManifest(state ResolverState) ([]resolverCacheManifestEntry, b
 		return nil, false
 	}
 	manifest := make([]resolverCacheManifestEntry, 0, len(paths))
-	ok := true
+	var ok bool
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {

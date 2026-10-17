@@ -166,7 +166,7 @@ func renderUnaryExpression(s *RenderState, node *luau.UnaryExpression) string {
 // renderIfExpression.ts
 func renderIfExpression(s *RenderState, node *luau.IfExpression) string {
 	result := "if " + Render(s, node.Condition) + " then " + Render(s, node.Expression) + " "
-	var currentAlternative luau.Expression = node.Alternative
+	currentAlternative := node.Alternative
 	for {
 		ifExp, ok := currentAlternative.(*luau.IfExpression)
 		if !ok {

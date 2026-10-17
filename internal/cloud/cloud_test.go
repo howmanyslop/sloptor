@@ -372,7 +372,9 @@ func TestUpdateUniverseMaskAndMethod(t *testing.T) {
 			t.Fatalf("decoding body: %v", err)
 		}
 		u.Path = "universes/99"
-		json.NewEncoder(w).Encode(u)
+		if err := json.NewEncoder(w).Encode(u); err != nil {
+			t.Errorf("encoding response: %v", err)
+		}
 	}))
 
 	in := Universe{DisplayName: "My Game", Visibility: "PUBLIC"}

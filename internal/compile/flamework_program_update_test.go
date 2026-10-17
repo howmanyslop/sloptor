@@ -247,7 +247,7 @@ func TestNativeOverlayHostUsesPhysicalAliases(t *testing.T) {
 	const text = "export const transformed = 2;"
 	base := compiler.NewCompilerHost(filepath.ToSlash(dir), osvfs.FS(), "", nil, nil)
 	aliasPath := filepath.Join(aliasDir, "source.ts")
-	host := newNativeOverlayHost(base, normalizeOverlays(map[string]string{aliasPath: text}))
+	host := newNativeOverlayHost(base, map[string]string{aliasPath: text})
 	for _, path := range []string{aliasPath, physicalPath} {
 		parsed := host.GetSourceFile(declarationSourceFileParseOptions(path))
 		if parsed == nil || parsed.Text() != text {

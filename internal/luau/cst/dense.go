@@ -35,7 +35,7 @@ func MinifyWith(src string, opts MinifyOptions) (string, []Diagnostic) {
 		b.WriteString(d)
 		b.WriteByte('\n')
 	}
-	b.WriteString(DenseWith(file, DenseOptions{ConvertIndexToField: opts.ConvertIndexToField}))
+	b.WriteString(DenseWith(file, DenseOptions(opts)))
 	return b.String(), diags
 }
 
@@ -303,5 +303,5 @@ func needsSeparator(a, b string) bool {
 			return true
 		}
 	}
-	return !(len(sig) == 2 && sig[0].Text == a && sig[1].Text == b)
+	return len(sig) != 2 || sig[0].Text != a || sig[1].Text != b
 }

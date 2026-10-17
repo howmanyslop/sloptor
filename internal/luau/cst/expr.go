@@ -288,10 +288,7 @@ func (c *cursor) parseInterpString() Node {
 	}
 	start := c.next() // InterpStart
 	is := &InterpString{Start: &start}
-	for {
-		if c.atEnd() {
-			break
-		}
+	for !c.atEnd() {
 		expr := c.parseExpr()
 		mid := c.next()
 		is.Exprs = append(is.Exprs, expr)

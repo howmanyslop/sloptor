@@ -150,7 +150,7 @@ func findTsConfigPath(projectArg string) (string, error) {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", errors.New("Unable to find tsconfig.json!")
+			return "", errors.New("Unable to find tsconfig.json!") //nolint:staticcheck // ST1005: verbatim roblox-ts CLIError text; parity asserted in task7_diag_preconditions_test.go
 		}
 		dir = parent
 	}
