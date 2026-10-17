@@ -67,3 +67,11 @@ bin/
 .agents/skills/wizard/
 .agents/skills/writing-for-agents/
 .envrc
+
+.vale/styles/*
+!.vale/styles/config/
+.vale/styles/config/*
+!.vale/styles/config/vocabularies/
+.vale/styles/config/vocabularies/*
+!.vale/styles/config/vocabularies/Project/
+!.vale/styles/config/vocabularies/Project/accept.txt
