@@ -163,12 +163,14 @@ func newFakeSolutionWatcher() *fakeSolutionWatcher {
 }
 
 func (w *fakeSolutionWatcher) open(path string, fn fswatch.WatchCallback) (fswatch.Watch, error) {
-	path = filepath.Clean(path)
+	path = filepath.ToSlash(solutionWatchCanonicalPath(path))
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.opens[path]++
-	if w.fail[path] {
-		return nil, errors.New("watch failed")
+	for failedPath, fail := range w.fail {
+		if fail && filepath.ToSlash(solutionWatchCanonicalPath(failedPath)) == path {
+			return nil, errors.New("watch failed")
+		}
 	}
 	index := len(w.callbacks[path])
 	w.callbacks[path] = append(w.callbacks[path], fn)
@@ -192,7 +194,7 @@ func (w *fakeSolutionWatch) Close() error {
 }
 
 func (w *fakeSolutionWatcher) counts(path string) (opens, closes int) {
-	path = filepath.Clean(path)
+	path = filepath.ToSlash(solutionWatchCanonicalPath(path))
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.opens[path], w.closes[path]
@@ -200,7 +202,7 @@ func (w *fakeSolutionWatcher) counts(path string) (opens, closes int) {
 
 func (w *fakeSolutionWatcher) deliver(t *testing.T, path string, events []fswatch.Event, err error) {
 	t.Helper()
-	path = filepath.Clean(path)
+	path = filepath.ToSlash(solutionWatchCanonicalPath(path))
 	w.mu.Lock()
 	callbacks := append([]fswatch.WatchCallback(nil), w.callbacks[path]...)
 	w.mu.Unlock()
@@ -315,7 +317,7 @@ func TestSolutionWatchIgnoresArtifactsFromAncestorWatch(t *testing.T) {
 	// batch never leak into the reported change list.
 	source := filepath.Join(root, "left/src/main.ts")
 	mustWrite(t, source, "export const value = 2;\n")
-	watcher.deliver(t, filepath.Join(root, "left/src"), append(generated, fswatch.Event{Kind: fswatch.EventUpdate, Path: source}), nil)
+	watcher.deliver(t, filepath.Join(root, "left"), append(generated, fswatch.Event{Kind: fswatch.EventUpdate, Path: source}), nil)
 	start := nextWatchEvent(t, events, "buildStart")
 	if changed, _ := start["changed"].([]any); !reflect.DeepEqual(changed, []any{"left/src/main.ts"}) {
 		t.Errorf("changed = %v, want only left/src/main.ts", changed)

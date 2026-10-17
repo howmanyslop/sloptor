@@ -357,7 +357,7 @@ The manifest is invalidated wholesale by a salt over the compiler options, the R
 
 Both flags accept positive integers only. Missing, zero, negative, or non-integer values are usage errors.
 
-The two flags multiply: `--builders 4 --checkers 4` can run up to 16 checker workers at once, plus parsing, emit, and write work. CPU and memory use grow with the product. Find the right balance for the machine — CI runners with limited cores or memory may want smaller values.
+The two flags multiply: `--builders 4 --checkers 4` can run up to 16 checker workers at once, plus parsing, emit, and write work. CPU and memory use grow with the product. Find the right balance for the machine — CI runners with limited cores or memory may want smaller values. For large watch builds, `--build --builders 1 --checkers 1` reduces concurrent compiler state at the cost of potential rebuild latency. The default checker and builder counts remain 4 in watch mode.
 
 **Result guarantees.** Varying `--builders` never changes build results: dependencies always build first, and output, diagnostics, and caching stay deterministic. TypeScript 7 notes that in rare cases varying `--checkers` can surface order-dependent results. Teams that need perfectly stable diagnostics across environments may want to pin `--checkers` to a fixed value.
 
@@ -373,7 +373,9 @@ The write-worker controls are:
 
 `UV_THREADPOOL_SIZE` may still affect the Node sidecar's libuv thread pool, but it does not select Rotor's Go output-write worker count.
 
-Rotor uses `GOGC=400` when `GOGC` is unset. When `GOMEMLIMIT` is unset, Rotor uses 75% of effective memory, clamped from 512 MiB to 16 GiB; Linux accounts for finite cgroup v1/v2 limits, while macOS and Windows use the host memory reported by the OS. Explicit environment values always win.
+When `GOGC` is unset, one-shot CLI commands use `GOGC=400`; `build --watch` (including solution builds), `check --watch`, and `dev` use `GOGC=100` before the initial compilation. The lower watch target collects temporary compiler allocations sooner, with a possible throughput cost. When `GOMEMLIMIT` is unset, Rotor uses 75% of effective memory, clamped from 512 MiB to 16 GiB for one-shot commands and to 6 GiB for watch commands. Linux accounts for finite cgroup v1/v2 limits, while macOS and Windows use the host memory reported by the OS. API watch sessions keep the API process's runtime policy.
+
+Explicit `GOGC` and `GOMEMLIMIT` environment values always take precedence, so they can tune the memory/throughput tradeoff for a particular project. `GOMEMLIMIT` is a soft Go runtime budget, not a hard process-memory cap: it can be exceeded, and it excludes Node transformer children and some OS allocations. Lower checker/builder counts can reduce the live compiler state when a tighter budget causes frequent collection. Watch mode does not force periodic garbage collections or OS memory release.
 
 ## Production readiness
 

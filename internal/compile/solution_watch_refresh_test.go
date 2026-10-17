@@ -221,6 +221,10 @@ func TestWatchSetsMatchProgramWatchSets(t *testing.T) {
 	f.rojo("default.project.json", "", map[string]any{"assets": map[string]string{"$path": "shared/assets"}})
 	coordinator := f.coordinator("game")
 	sets := coordinator.WatchSets()
+	var solutionArtifacts []string
+	for _, set := range sets {
+		solutionArtifacts = append(solutionArtifacts, set.ArtifactDirectories...)
+	}
 	if !slices.Contains(sets[0].RojoDirectories, filepath.Join(f.dir, "shared", "assets")) {
 		t.Fatalf("Rojo directories = %v, want the assets directory", sets[0].RojoDirectories)
 	}
@@ -235,7 +239,7 @@ func TestWatchSetsMatchProgramWatchSets(t *testing.T) {
 			t.Fatalf("%s: Rojo config %q: %v", project.ConfigPath, rojoPath, err)
 		}
 		state := newRojoWatchState(rojo.FromPath(rojoPath))
-		rojoDirectories := filterRojoWatchDirectories(dir, state, artifactDirectories)
+		rojoDirectories := filterRojoWatchDirectories(dir, state, solutionArtifacts)
 		if !reflect.DeepEqual(sets[index].RojoConfigs, state.configs) || !reflect.DeepEqual(sets[index].RojoDirectories, rojoDirectories) {
 			t.Fatalf("%s: watch set Rojo configs %v directories %v, fresh %v %v", project.ConfigPath, sets[index].RojoConfigs, sets[index].RojoDirectories, state.configs, rojoDirectories)
 		}

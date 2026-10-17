@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+
+	"golang.org/x/text/unicode/norm"
 
 	"rotor/internal/fsutil"
 	"rotor/internal/rojo"
@@ -44,6 +47,19 @@ func (c *SolutionCoordinator) WatchSets() []SolutionWatchSet {
 		sets = append(sets, SolutionWatchSet{
 			ProjectPath:   chain.projectPath,
 			TsConfigPaths: canonicalWatchPaths(chain.configPaths),
+		})
+	}
+	// An inherited Rojo config can walk another project's generated files.
+	// Keep the cached sets project-local, then apply solution ownership to the
+	// returned Rojo paths. Source roots remain explicit inputs, even when they
+	// point at another project's declarations or generated sources.
+	artifacts := []string{}
+	for _, set := range sets {
+		artifacts = append(artifacts, canonicalWatchPaths(set.ArtifactDirectories)...)
+	}
+	for index := range sets {
+		sets[index].RojoDirectories = slices.DeleteFunc(slices.Clone(sets[index].RojoDirectories), func(path string) bool {
+			return pathWithinAnyRoot(canonicalWatchDirectory(path), artifacts)
 		})
 	}
 	return sets
@@ -102,18 +118,28 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 	}
 	translator := createPathTranslator(config, !state.Project.Options.LuaExtension)
 	assetDirectories := append([]string{}, getRootDirs(config)...)
-	dir := filepath.Dir(state.Project.ConfigPath)
-	if rojoPath, _, rojoErr := resolveRojoConfigPath(dir, state.Project.Options.RojoConfigPath); rojoErr == nil && rojoPath != "" {
-		artifactDirectories := solutionWatchArtifactDirectories(
-			dir,
-			translator.OutDir,
-			config.Options().DeclarationDir,
-			state.Project.Options.IncludePath,
-		)
-		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, newRojoWatchState(c.metadata.references.resolver(rojoPath)), artifactDirectories)...)
+	canonicalSourceDirectories := canonicalWatchPaths(assetDirectories)
+	artifacts := []string{}
+	for _, set := range c.WatchSets() {
+		artifacts = append(artifacts, canonicalWatchPaths(set.ArtifactDirectories)...)
+		if set.ProjectPath == state.Project.ConfigPath {
+			assetDirectories = append(assetDirectories, set.RojoDirectories...)
+		}
 	}
 	changes := map[string]bool{}
+	excludedArtifacts := slices.DeleteFunc(slices.Clone(artifacts), func(artifact string) bool {
+		for _, source := range canonicalSourceDirectories {
+			if pathWithinAnyRoot(source, []string{artifact}) {
+				return true
+			}
+		}
+		return false
+	})
 	for _, event := range events {
+		canonicalPath := canonicalWatchDirectory(event.Path)
+		if pathWithinAnyRoot(canonicalPath, excludedArtifacts) {
+			continue
+		}
 		changes[rebaseWatchAssetPath(event.Path, assetDirectories)] = event.Deleted
 	}
 	paths := make([]string, 0, len(changes))
@@ -163,10 +189,18 @@ func appendDistinctWatchDirectory(directories []string, directory string) []stri
 
 func canonicalWatchDirectory(directory string) string {
 	directory = filepath.Clean(filepath.FromSlash(directory))
+	var canonical string
 	if resolved, err := fsutil.EvalSymlinks(directory); err == nil {
-		return resolved
+		canonical = resolved
+	} else {
+		canonical = filepath.Join(canonicalWatchDirectoryParent(directory), filepath.Base(directory))
 	}
-	return filepath.Join(canonicalWatchDirectoryParent(directory), filepath.Base(directory))
+	// fswatch's Darwin backend normalizes subscriptions and events to NFC.
+	// Keep artifact ownership and asset rebasing in that same path domain.
+	if runtime.GOOS == "darwin" {
+		canonical = norm.NFC.String(canonical)
+	}
+	return canonical
 }
 
 func canonicalWatchPaths(paths []string) []string {
@@ -185,7 +219,7 @@ func canonicalWatchDirectoryParent(directory string) string {
 	if resolved, err := fsutil.EvalSymlinks(parent); err == nil {
 		return resolved
 	}
-	return canonicalWatchDirectoryParent(parent)
+	return canonicalWatchDirectory(parent)
 }
 
 func rebaseWatchAssetPath(path string, assetDirectories []string) string {

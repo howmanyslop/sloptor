@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -100,20 +99,23 @@ func (key solutionWatchKey) directory() (string, bool) {
 	return filepath.Clean(key.path), true
 }
 
-// addWatchError records the paths of events and a watch error, and reports
-// whether events were missed. An overflow leaves the watch running; any
-// other error, or a delete of the watched path, ends it.
+// addWatchError records paths and watch errors, and reports whether the
+// route needs full invalidation. Deleting a logical root requires the same
+// recovery as a terminated dedicated watch, even if shared ancestor coverage
+// is still live. An overflow invalidates inputs without ending the watch.
 func (s *solutionWatchEvents) addWatchError(key solutionWatchKey, events []fswatch.Event, watchErr error) bool {
+	rootDeleted := false
 	for _, event := range events {
 		s.paths[event.Path] = struct{}{}
 		if event.Kind == fswatch.EventDelete && filepath.Clean(event.Path) == filepath.Clean(key.path) {
 			s.dead[key] = struct{}{}
+			rootDeleted = true
 		}
 	}
 	if watchErr != nil && !errors.Is(watchErr, fswatch.ErrOverflow) {
 		s.dead[key] = struct{}{}
 	}
-	return watchErr != nil
+	return watchErr != nil || rootDeleted
 }
 
 func (s *solutionWatchEvents) add(key solutionWatchKey, events []fswatch.Event, watchErr error) {
@@ -172,9 +174,9 @@ func solutionWatchDirectories(set compile.SolutionWatchSet) []string {
 }
 
 func solutionWatchDirectoryIsArtifact(directory string, artifactDirectories []string) bool {
-	directory = filepath.Clean(directory)
+	directory = solutionWatchNormalizePath(directory)
 	for _, artifactDirectory := range artifactDirectories {
-		rel, err := filepath.Rel(filepath.Clean(artifactDirectory), directory)
+		rel, err := filepath.Rel(solutionWatchNormalizePath(artifactDirectory), directory)
 		if err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))) {
 			return true
 		}
@@ -206,71 +208,24 @@ func newSolutionWatchEvents() *solutionWatchEvents {
 // newSolutionWatcher is the file watcher; tests replace it.
 var newSolutionWatcher = fswatch.Default
 
-// solutionWatches keeps one watch per key of the solution's watch sets.
+// solutionWatches shares physical watches between logical project routes.
 type solutionWatches struct {
 	watcher fswatch.Watcher
 	// callback returns the event handler of key.
 	callback func(key solutionWatchKey) fswatch.WatchCallback
 	watches  map[solutionWatchKey]fswatch.Watch
+	dispatch map[solutionWatchKey]*solutionWatchDispatch
 	sets     []compile.SolutionWatchSet
 	// armed is false while a wanted watch failed to open.
 	armed bool
 }
 
-// refresh re-arms the watches. It keeps them when the watch sets are
-// unchanged, every watch is open, and no watch died. Otherwise it closes the
-// watches that are no longer wanted or share a directory with a dead watch,
-// and opens the missing ones; the others stay open.
-func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solutionWatchKey]struct{}) {
-	if len(dead) == 0 && w.armed && reflect.DeepEqual(sets, w.sets) {
-		return
-	}
-	keys := solutionWatchKeys(sets)
-	wanted := make(map[solutionWatchKey]struct{}, len(keys))
-	for _, key := range keys {
-		wanted[key] = struct{}{}
-	}
-	type directory struct {
-		path      string
-		recursive bool
-	}
-	deadDirectories := map[directory]struct{}{}
-	for key := range dead {
-		path, recursive := key.directory()
-		deadDirectories[directory{path, recursive}] = struct{}{}
-	}
-	for key, watch := range w.watches {
-		path, recursive := key.directory()
-		_, isWanted := wanted[key]
-		if _, isDead := deadDirectories[directory{path, recursive}]; isWanted && !isDead {
-			continue
-		}
-		_ = watch.Close()
-		delete(w.watches, key)
-	}
-	w.sets = sets
-	w.armed = true
-	for _, key := range keys {
-		if _, ok := w.watches[key]; ok {
-			continue
-		}
-		var watch fswatch.Watch
-		var err error
-		if key.kind == solutionWatchConfig {
-			watch, err = w.watcher.WatchFile(key.path, w.callback(key))
-		} else {
-			watch, err = w.watcher.WatchDirectory(key.path, w.callback(key), fswatch.WithRecursive())
-		}
-		if err != nil {
-			w.armed = false
-			continue
-		}
-		w.watches[key] = watch
-	}
-}
-
 func (w *solutionWatches) close() {
 	for key, watch := range w.watches {
+		if dispatch := w.dispatch[key]; dispatch != nil {
+			dispatch.set(nil)
+			delete(w.dispatch, key)
+		}
 		_ = watch.Close()
 		delete(w.watches, key)
 	}
@@ -280,34 +235,22 @@ func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 	keys := []solutionWatchKey{}
 	artifacts := solutionArtifactDirectories(sets)
 	for _, set := range sets {
-		set.ArtifactDirectories = artifacts
-		for index, directory := range solutionWatchDirectories(set) {
-			kind := solutionWatchRoot
-			if index >= len(set.RootDirs) {
-				kind = solutionWatchRojo
+		for _, directory := range set.RootDirs {
+			keys = append(keys, solutionWatchKey{kind: solutionWatchRoot, project: set.ProjectPath, path: directory})
+		}
+		for _, directory := range set.RojoDirectories {
+			if !solutionWatchDirectoryIsArtifact(solutionWatchCanonicalPath(directory), artifacts) {
+				keys = append(keys, solutionWatchKey{kind: solutionWatchRojo, project: set.ProjectPath, path: directory})
 			}
-			keys = append(keys, solutionWatchKey{kind: kind, project: set.ProjectPath, path: directory})
 		}
 		for _, config := range append(slices.Clone(set.TsConfigPaths), set.RojoConfigs...) {
-			if solutionWatchDirectoryIsArtifact(config, artifacts) {
+			if solutionWatchDirectoryIsArtifact(solutionWatchCanonicalPath(config), artifacts) {
 				continue
 			}
 			keys = append(keys, solutionWatchKey{kind: solutionWatchConfig, project: set.ProjectPath, path: config})
 		}
 	}
 	return keys
-}
-
-func solutionArtifactDirectories(sets []compile.SolutionWatchSet) []string {
-	var directories []string
-	for _, set := range sets {
-		for _, directory := range set.ArtifactDirectories {
-			if !slices.Contains(directories, directory) {
-				directories = append(directories, directory)
-			}
-		}
-	}
-	return directories
 }
 
 // runBuildSolutionWatchLoop builds the solution once, then rebuilds the
@@ -424,8 +367,9 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 			// A source or Rojo directory can contain another project's outputs.
 			// Filter against the whole solution before recording any changes.
 			filtered := make([]fswatch.Event, 0, len(events))
+			exclusions := solutionWatchExclusions(key, artifactDirectories)
 			for _, event := range events {
-				if !solutionWatchDirectoryIsArtifact(event.Path, artifactDirectories) {
+				if !solutionWatchDirectoryIsArtifact(solutionWatchCanonicalPath(event.Path), exclusions) {
 					filtered = append(filtered, event)
 				}
 			}
@@ -467,11 +411,11 @@ func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 	artifacts := solutionArtifactDirectories(sets)
 	for _, key := range solutionWatchKeys(sets) {
 		if key.kind == solutionWatchConfig {
-			seen[key.path] = struct{}{}
+			seen[solutionWatchCanonicalPath(key.path)] = struct{}{}
 			continue
 		}
-		for path := range newTreeWatcher(key.path, artifacts...).snapshot() {
-			seen[path] = struct{}{}
+		for path := range newTreeWatcher(solutionWatchCanonicalPath(key.path), solutionWatchExclusions(key, artifacts)...).snapshot() {
+			seen[solutionWatchCanonicalPath(path)] = struct{}{}
 		}
 	}
 	return len(seen)

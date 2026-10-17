@@ -63,7 +63,7 @@ func reportedFailure(err error) *commandFailure {
 // run is the process entry: apply runtime policy, then execute against the
 // real process streams. main stays `os.Exit(run(os.Args[1:]))`.
 func run(args []string) int {
-	applyRuntimePolicy()
+	defer applyRuntimePolicy(false)()
 	return execute(args, cliStreams{in: os.Stdin, out: os.Stdout, err: os.Stderr})
 }
 
@@ -512,8 +512,8 @@ func renderCommandList(b *strings.Builder, s *term.Styler, children []*cobra.Com
 // and an optional dim default annotation ("" = none). Rendered by
 // renderRootNotes as three aligned columns.
 var helpEnvRows = []struct{ name, desc, def string }{
-	{"GOGC", "Go GC target percentage", "default: 400"},
-	{"GOMEMLIMIT", "Go memory limit", "default: 75% of effective memory"},
+	{"GOGC", "Go GC target percentage", "default: 400 (100 in watch)"},
+	{"GOMEMLIMIT", "Go memory limit", "default: 75% of effective memory; max 16 GiB (6 GiB in watch)"},
 	{"RBXTSC_WRITE_CONCURRENCY", "output-write worker override", "max: 256"},
 	{"ROTOR_WRITE_WORKERS", "rotor-specific output-write worker override", ""},
 	{"UV_THREADPOOL_SIZE", "Node sidecar libuv pool size (not Go output writers)", ""},
