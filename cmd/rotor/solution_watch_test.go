@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"rotor/internal/compile"
+	"rotor/internal/fsutil"
 	"rotor/tsgo/fswatch"
 )
 
@@ -216,6 +217,12 @@ func (w *fakeSolutionWatcher) deliver(t *testing.T, path string, events []fswatc
 func writeArtifactWatchSolution(t *testing.T) string {
 	t.Helper()
 	root, configs := writeConcurrencySolution(t)
+	// Config watches use the compiler's canonical project paths, including
+	// resolved Windows junctions and short-name temporary directories.
+	root, err := fsutil.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, config := range configs {
 		data, err := os.ReadFile(config)
 		if err != nil {
