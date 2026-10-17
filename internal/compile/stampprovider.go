@@ -171,7 +171,7 @@ func (p *gitStampProvider) nearestTag(fullSHA string) string {
 	// Packed tags: a "refs/tags/<name>" line whose sha matches, OR a peel line
 	// "^<sha>" immediately following an annotated tag whose object is fullSHA.
 	if f, err := os.Open(filepath.Join(p.gitDir, "packed-refs")); err == nil {
-		defer f.Close()
+		defer func() { _ = f.Close() }() // read-only; nothing to flush
 		scanner := bufio.NewScanner(f)
 		lastTag := ""
 		for scanner.Scan() {
@@ -213,7 +213,7 @@ func (p *gitStampProvider) packedRefs() map[string]string {
 	if err != nil {
 		return out
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only; nothing to flush
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())

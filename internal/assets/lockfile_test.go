@@ -56,7 +56,7 @@ func TestLockfileRoundTripAndDeterminism(t *testing.T) {
 	ia := strings.Index(s, "assets/alpha.png")
 	ib := strings.Index(s, "assets/mid/beta.ogg")
 	iz := strings.Index(s, "assets/zebra.png")
-	if !(ia >= 0 && ia < ib && ib < iz) {
+	if ia < 0 || ia >= ib || ib >= iz {
 		t.Fatalf("keys not in sorted order: alpha@%d beta@%d zebra@%d\n%s", ia, ib, iz, s)
 	}
 

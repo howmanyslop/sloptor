@@ -141,7 +141,7 @@ func TestNativeFlameworkSparseUpdate_updatesOnlyChangedSourcesInStableSourceOrde
 
 func TestNativeFlameworkSparseUpdate_batchesCompatibleOverlaysIntoOneProgramReconstruction(t *testing.T) {
 	// Given: three shape-compatible text overlays that would previously each rebuild a Program.
-	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
+	dir, program, _ := sparseNativeProgram(t, map[string]string{
 		"a.ts": "export const a = 1;\n",
 		"b.ts": "export const b = 1;\n",
 		"c.ts": "export const c = 1;\n",
@@ -156,7 +156,7 @@ func TestNativeFlameworkSparseUpdate_batchesCompatibleOverlaysIntoOneProgramReco
 		},
 	})
 	programCreations = 0
-	sourceFiles = projectSourceFiles(program)
+	sourceFiles := projectSourceFiles(program)
 	a := program.GetSourceFile(filepath.Join(dir, "src", "a.ts"))
 	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
 	c := program.GetSourceFile(filepath.Join(dir, "src", "c.ts"))
@@ -190,7 +190,7 @@ func TestNativeFlameworkSparseUpdate_batchesCompatibleOverlaysIntoOneProgramReco
 
 func TestNativeFlameworkSparseUpdate_reusesUnchangedFiles_whenImportTargetsAlreadyLoaded(t *testing.T) {
 	// Given: Flamework-like output that adds an import of a module already in the Program.
-	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
+	dir, program, _ := sparseNativeProgram(t, map[string]string{
 		"a.ts":   "export const a = 1;\n",
 		"b.ts":   "export const b = 1;\n",
 		"dep.ts": "export const value = 1;\n",
@@ -205,7 +205,7 @@ func TestNativeFlameworkSparseUpdate_reusesUnchangedFiles_whenImportTargetsAlrea
 		},
 	})
 	programCreations = 0
-	sourceFiles = projectSourceFiles(program)
+	sourceFiles := projectSourceFiles(program)
 	a := program.GetSourceFile(filepath.Join(dir, "src", "a.ts"))
 	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
 	dep := program.GetSourceFile(filepath.Join(dir, "src", "dep.ts"))
@@ -239,7 +239,7 @@ func TestNativeFlameworkSparseUpdate_reusesUnchangedFiles_whenImportTargetsAlrea
 
 func TestNativeFlameworkSparseUpdate_fallsBackOnceWithEveryOverlay_whenNewModuleIsRequired(t *testing.T) {
 	// Given: a new on-disk module is not part of the current Program file set.
-	dir, program, sourceFiles := sparseNativeProgram(t, map[string]string{
+	dir, program, _ := sparseNativeProgram(t, map[string]string{
 		"a.ts": "export const a = 1;\n",
 		"b.ts": "export const b = 1;\n",
 	})
@@ -256,7 +256,7 @@ func TestNativeFlameworkSparseUpdate_fallsBackOnceWithEveryOverlay_whenNewModule
 		},
 	})
 	programCreations = 0
-	sourceFiles = projectSourceFiles(program)
+	sourceFiles := projectSourceFiles(program)
 	a := program.GetSourceFile(filepath.Join(dir, "src", "a.ts"))
 	b := program.GetSourceFile(filepath.Join(dir, "src", "b.ts"))
 	if program.GetSourceFile(filepath.Join(dir, "src", "extra.ts")) != nil {

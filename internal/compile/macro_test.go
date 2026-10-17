@@ -13,7 +13,7 @@ import (
 //
 // The fixtures deliberately do NOT declare these macros in their globals.d.ts:
 // the type surface must come from the synthetic in-memory __rotor_macros.d.ts
-// that newProjectProgramFromFS injects (macrodecl.go), so these tests cover
+// that parseProjectCommandLine injects (macrodecl.go), so these tests cover
 // both the declaration injection and the transformer inlining.
 //
 // $git / $buildTime vary per checkout/build, so the golden injects a stable

@@ -36,8 +36,7 @@ func startBuildProfiles(args *buildArgs) (*buildProfiles, error) {
 		}
 		file, err := profiles.create(output.path)
 		if err != nil {
-			profiles.stop()
-			return nil, fmt.Errorf("create profile %q: %w", output.path, err)
+			return nil, errors.Join(fmt.Errorf("create profile %q: %w", output.path, err), profiles.stop())
 		}
 		*output.destination = file
 	}
@@ -50,24 +49,20 @@ func startBuildProfiles(args *buildArgs) (*buildProfiles, error) {
 	if args.cpuprofile != "" {
 		file, err := profiles.create(args.cpuprofile)
 		if err != nil {
-			profiles.stop()
-			return nil, fmt.Errorf("create cpu profile: %w", err)
+			return nil, errors.Join(fmt.Errorf("create cpu profile: %w", err), profiles.stop())
 		}
 		if err := pprof.StartCPUProfile(file); err != nil {
-			profiles.stop()
-			return nil, fmt.Errorf("start cpu profile: %w", err)
+			return nil, errors.Join(fmt.Errorf("start cpu profile: %w", err), profiles.stop())
 		}
 		profiles.cpu = true
 	}
 	if args.traceOut != "" {
 		file, err := profiles.create(args.traceOut)
 		if err != nil {
-			profiles.stop()
-			return nil, fmt.Errorf("create trace: %w", err)
+			return nil, errors.Join(fmt.Errorf("create trace: %w", err), profiles.stop())
 		}
 		if err := trace.Start(file); err != nil {
-			profiles.stop()
-			return nil, fmt.Errorf("start trace: %w", err)
+			return nil, errors.Join(fmt.Errorf("start trace: %w", err), profiles.stop())
 		}
 		profiles.tracing = true
 	}

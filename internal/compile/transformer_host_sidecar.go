@@ -85,7 +85,7 @@ func (h *callbackTransformerHost) validate(parent context.Context, dir, configPa
 	if err != nil {
 		return nil, stats, err
 	}
-	request, dir, configPath, key := prepareTransformerValidationRequest(dir, configPath)
+	request, _, configPath, key := prepareTransformerValidationRequest(dir, configPath)
 	slot := h.slot(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()

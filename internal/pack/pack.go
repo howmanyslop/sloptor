@@ -97,7 +97,7 @@ func rojoBuildBytes(project, ext string) ([]byte, error) {
 	}
 	tmpPath := tmp.Name()
 	_ = tmp.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }() // best-effort temp cleanup
 
 	cmd := exec.Command(rojoBin, "build", project, "-o", tmpPath)
 	if out, err := cmd.CombinedOutput(); err != nil {

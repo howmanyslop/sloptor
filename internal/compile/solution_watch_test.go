@@ -347,7 +347,7 @@ func TestWatchAssetDrainFindsRojoInputsThroughConfigAliases(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requestPath := configPath
+			var requestPath string
 			if spelling == "symlink" {
 				alias := filepath.Join(root, "alias")
 				if err := os.Symlink(projectDir, alias); err != nil {

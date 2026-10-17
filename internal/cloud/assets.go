@@ -176,7 +176,7 @@ func (c *Client) ResolveImageID(ctx context.Context, decalID int64) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // body already read; a close error has nothing left to report
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return 0, err

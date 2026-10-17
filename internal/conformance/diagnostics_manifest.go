@@ -110,7 +110,7 @@ func compileDiagnosticFixtureWithProjectPlan(baseProjectDir, fixturePath string,
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(tmpProj)
+	defer func() { _ = os.RemoveAll(tmpProj) }() // best-effort temp cleanup
 
 	if err := os.WriteFile(filepath.Join(tmpProj, "package.json"), []byte(`{"name":"conformance-diagnostic-fixture"}`), 0o644); err != nil {
 		return nil, err

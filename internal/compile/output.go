@@ -149,7 +149,9 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		return nil, nil, err
 	}
 	stopManifest()
-	defer writer.close()
+	// close only releases os.Root directory handles; every file write goes
+	// through Root.WriteFile, which closes and reports its own error.
+	defer func() { _ = writer.close() }()
 	previousPresence := writer.newOutputPresenceIndex(writer.previous)
 	if opts.EmitDeclarationOnly {
 		if !program.Options().GetEmitDeclarations() {

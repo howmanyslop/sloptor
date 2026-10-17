@@ -247,14 +247,14 @@ func runMigrateCommand(streams cliStreams, dir string, force bool) error {
 	}
 	if legacyPath == "" {
 		return runtimeFailure(fmt.Errorf(
-			"no rotor.config.ts (or rotor.config.js) found in %s\n    migrate converts an existing TypeScript config to rotor.toml;\n    there is nothing to migrate here. Use `sloptor init` to start fresh.", dir,
+			"no rotor.config.ts (or rotor.config.js) found in %s\n    migrate converts an existing TypeScript config to rotor.toml;\n    there is nothing to migrate here. Use `sloptor init` to start fresh", dir,
 		))
 	}
 
 	tomlPath := filepath.Join(dir, config.ConfigFileName)
 	if fileExists(tomlPath) && !force {
 		return runtimeFailure(fmt.Errorf(
-			"%s already exists\n    refusing to overwrite it; re-run with --force to replace it.", config.ConfigFileName,
+			"%s already exists\n    refusing to overwrite it; re-run with --force to replace it", config.ConfigFileName,
 		))
 	}
 

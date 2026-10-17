@@ -77,17 +77,15 @@ func (s *State) Save(path string) error {
 		return fmt.Errorf("deploy: writing state: %w", err)
 	}
 	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
-		return fmt.Errorf("deploy: writing state: %w", err)
+	_, err = tmp.Write(data)
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
 	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
-		return fmt.Errorf("deploy: writing state: %w", err)
+	if err == nil {
+		err = os.Rename(tmpName, path)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
+	if err != nil {
+		_ = os.Remove(tmpName) // best-effort; the write error is what the caller needs
 		return fmt.Errorf("deploy: writing state: %w", err)
 	}
 	return nil

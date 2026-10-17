@@ -81,7 +81,7 @@ func mirror(repo, ref, destination string) (int, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	defer os.RemoveAll(source)
+	defer func() { _ = os.RemoveAll(source) }() // best-effort removal of a scratch temp dir
 
 	if err := run(source, "git", "init", "-q"); err != nil {
 		return 0, "", err
@@ -277,7 +277,7 @@ func seedPatchBases(candidate, currentMirror string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(bases)
+	defer func() { _ = os.RemoveAll(bases) }() // best-effort removal of a scratch temp dir
 
 	for _, target := range targets {
 		data, err := os.ReadFile(filepath.Join(currentMirror, target))
