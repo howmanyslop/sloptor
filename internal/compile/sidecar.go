@@ -753,10 +753,6 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed, reads, stats
 }
 
-func runTransformerSidecar(dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
-	return runTransformerSidecarWithContext(context.Background(), dir, configPath, compileFiles, stampFiles, overlays, plugins, state)
-}
-
 func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	call := transformerCall{
@@ -853,15 +849,11 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 	}
 }
 
-// validateTransformerSidecar verifies the configured transformer modules
+// validateTransformerHost verifies the configured transformer modules
 // without creating a JavaScript language-service program or invoking any
 // factory. Declaration emit uses the original Go program, so a transform round
 // trip would only allocate a discarded overlay program and execute arbitrary
 // plugin code that cannot affect the declarations.
-func validateTransformerSidecar(dir string, program *compiler.Program) ([]string, error) {
-	return validateTransformerHost(context.Background(), sidecarTransformerHost{}, dir, program)
-}
-
 func validateTransformerHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program) ([]string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
@@ -889,10 +881,6 @@ func validateTransformerHost(ctx context.Context, host transformerHost, dir stri
 		return errorDiags, errors.New("compile: transformer sidecar diagnostics")
 	}
 	return nil, nil
-}
-
-func runTransformerSidecarValidation(dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
-	return runTransformerSidecarValidationWithContext(context.Background(), dir, configPath)
 }
 
 func runTransformerSidecarValidationWithContext(parent context.Context, dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
@@ -1235,10 +1223,6 @@ func singleThreadedFromOptions(options *core.CompilerOptions) *bool {
 	}
 	value := options.SingleThreaded.IsTrue()
 	return &value
-}
-
-func newProjectProgramFromFS(dir, configPath string, fs vfs.FS) (*compiler.Program, []string, error) {
-	return newProjectProgramFromFSWithOptions(dir, configPath, fs, nil, nil, nil, nil)
 }
 
 // parseProjectCommandLine parses the sanitized config into the compiler

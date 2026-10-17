@@ -674,20 +674,6 @@ func DiagTruthyChange(node *ast.Node, checksStr string) Diagnostic {
 	return warningDiag("truthyChange", node, fmt.Sprintf("Value will be checked against %s", checksStr))
 }
 
-func DiagStringOffsetChange(node *ast.Node, text string) Diagnostic {
-	return warningDiag("stringOffsetChange", node, fmt.Sprintf("String macros no longer offset inputs: %s", text))
-}
-
-// DiagTransformerNotFound ports the warningText factory (no node). err is the
-// stringified load error (upstream concatenates `"More info: " + err`).
-func DiagTransformerNotFound(name string, err string) Diagnostic {
-	return warningDiag("transformerNotFound", nil,
-		fmt.Sprintf("Transformer `%s` was not found!", name),
-		"More info: "+err,
-		suggestion("Did you forget to install the package?"),
-	)
-}
-
 func DiagRuntimeLibUsedInReplicatedFirst(node *ast.Node) Diagnostic {
 	return warningDiag("runtimeLibUsedInReplicatedFirst", node,
 		"This statement would generate a call to the runtime library. The runtime library should not be used from ReplicatedFirst.",

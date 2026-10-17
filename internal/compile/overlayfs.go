@@ -15,18 +15,6 @@ import (
 	"rotor/tsgo/vfs/wrapvfs"
 )
 
-// normalizeOverlays rekeys a caller-supplied overlay map into the form
-// newOverlayFS looks up: slash-normalized, and lowercased on case-insensitive
-// filesystems. Callers pass ordinary absolute paths and stay unaware of it.
-func normalizeOverlays(overlays map[string]string) map[string]string {
-	caseSensitive := osvfs.FS().UseCaseSensitiveFileNames()
-	out := make(map[string]string, len(overlays))
-	for path, text := range overlays {
-		out[normalizeOverlayPath(path, caseSensitive)] = text
-	}
-	return out
-}
-
 // overlayAliases expands the small caller-provided overlay set once, before a
 // compiler host starts probing the filesystem. The hot FileExists/ReadFile
 // path remains lexical: module resolution may make thousands of probes per

@@ -169,32 +169,6 @@ func (s *Server) serve(decoder *json.Decoder) error {
 	}
 }
 
-// ResultFromCompile converts compiler-owned data to the stable protocol shape.
-func ResultFromCompile(projectDir string, result *compile.BuildResult, diagnostics []compile.DiagnosticInfo, elapsed time.Duration, buildErr error) BuildResult {
-	response := BuildResult{
-		OK:          buildErr == nil,
-		DurationMS:  elapsed.Milliseconds(),
-		Diagnostics: []Diagnostic{},
-		Outputs:     []string{},
-		Projects:    []ProjectResult{},
-	}
-	if result != nil {
-		response.Outputs = make([]string, 0, len(result.Outputs))
-		for output := range result.Outputs {
-			response.Outputs = append(response.Outputs, projectOutputPath(projectDir, output))
-		}
-		sort.Strings(response.Outputs)
-		if buildErr == nil {
-			response.Files = len(result.Outputs)
-		}
-	}
-	response.Diagnostics = diagnosticsFromCompile(projectDir, diagnostics)
-	if buildErr != nil && len(response.Diagnostics) == 0 {
-		response.Diagnostics = append(response.Diagnostics, Diagnostic{Severity: "error", Message: buildErr.Error()})
-	}
-	return response
-}
-
 // ResultFromSolution converts coordinator-owned outcomes without reconstructing
 // diagnostic or output ownership from the aggregate result.
 func ResultFromSolution(projects []compile.SolutionProjectResult, timings *compile.BuildTimings, elapsed time.Duration, buildErr error) BuildResult {

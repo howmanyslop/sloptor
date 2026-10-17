@@ -21,11 +21,6 @@ func (s *DiagService) Add(d Diagnostic) {
 	s.diagnostics = append(s.diagnostics, d)
 }
 
-// AddMany appends all diagnostics (upstream addDiagnostics).
-func (s *DiagService) AddMany(ds []Diagnostic) {
-	s.diagnostics = append(s.diagnostics, ds...)
-}
-
 // AddSingle appends a diagnostic unless one with the same Code was already
 // added via AddSingle since the last Flush (upstream addSingleDiagnostic).
 func (s *DiagService) AddSingle(d Diagnostic) {

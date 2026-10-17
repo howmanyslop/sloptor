@@ -233,12 +233,6 @@ func (p *prompter) hint(msg string) {
 	fmt.Fprintf(p.w, "    %s %s\n", p.s.Muted(p.s.Glyphs().Arrow), p.s.Muted(msg))
 }
 
-// ask prompts for free text with no default.
-func (p *prompter) ask(label string) (string, error) {
-	fmt.Fprintf(p.w, "\n  %s%s ", p.s.Bold(label), p.s.Muted(":"))
-	return p.line()
-}
-
 // askDefault prompts for free text, `label (default):`, empty answer = default.
 func (p *prompter) askDefault(label, def string) (string, error) {
 	fmt.Fprintf(p.w, "\n  %s %s ", p.s.Bold(label), p.s.Muted("("+def+"):"))

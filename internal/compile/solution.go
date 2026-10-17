@@ -654,25 +654,6 @@ func solutionCoordinatorPaths(graph *SolutionGraph) map[string]string {
 	return paths
 }
 
-func postOrderProjectPaths(rootPath string, projects map[string]SolutionProject) []string {
-	paths := []string{}
-	visited := map[string]struct{}{}
-	var visit func(string)
-	visit = func(configPath string) {
-		if _, ok := visited[configPath]; ok {
-			return
-		}
-		visited[configPath] = struct{}{}
-		project := projects[configPath]
-		for _, reference := range project.References {
-			visit(reference)
-		}
-		paths = append(paths, configPath)
-	}
-	visit(rootPath)
-	return paths
-}
-
 func solutionCycleError(stack []string, repeated string) error {
 	start := 0
 	for index, configPath := range stack {

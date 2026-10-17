@@ -140,15 +140,6 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	return transformAndRenderDetailed(state)
 }
 
-// transformAndRender runs the transformer and renderer behind a recover
-// boundary: the transformer panics on internal invariant violations (ported
-// upstream asserts — missing symbols, prereq-stack misuse), and a user's
-// source must surface as an error, never crash the process.
-func transformAndRender(state *transformer.State) (text string, diags []string, err error) {
-	text, infos, err := transformAndRenderDetailed(state)
-	return text, diagnosticInfoMessages(infos), err
-}
-
 func transformAndRenderDetailed(state *transformer.State) (text string, diags []DiagnosticInfo, err error) {
 	text, _, diags, err = transformAndRenderSourceMapDetailed(state, nil)
 	return text, diags, err
@@ -212,29 +203,14 @@ func transformAndRenderSourceMapDetailed(state *transformer.State, sourceFile *a
 	return text, sourceMap, diags, nil
 }
 
-// preEmitDiagnostics ports the per-file half of ts.getPreEmitDiagnostics
-// (TypeScript program.ts), which rbxtsc runs for every compiled file
-// (compileFiles.ts:156). Upstream concatenates config-parse, options,
-// syntactic, global, and semantic diagnostics, then sorts and dedupes;
+// preEmitProjectFileDiagnosticsWithOptions ports the per-file half of
+// ts.getPreEmitDiagnostics (TypeScript program.ts), which rbxtsc runs for
+// every compiled file (compileFiles.ts:156). Upstream concatenates config-parse,
+// options, syntactic, global, and semantic diagnostics, then sorts and dedupes;
 // rbxtsc fails the file when any are present. Config-parse failures already
 // aborted in newProjectProgram and options diagnostics are program-level
-// (GetProgramDiagnostics, checked once by each caller), so this collects the
-// rest: syntactic first (upstream order), then semantic, then the checker's
-// global diagnostics — tsgo accumulates globals only as checkers run, so they
-// are queried after the semantic pass, exactly as tsgo's own CLI does
-// (compiler.GetDiagnosticsOfAnyProgram re-queries globals after checking).
-// Upstream sorts the combined list anyway, and any non-empty result aborts
-// the compile, so the global/semantic order swap is unobservable.
-func preEmitDiagnostics(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile) []*ast.Diagnostic {
-	tsDiags := preEmitProjectFileDiagnostics(ctx, program, sourceFile)
-	tsDiags = append(tsDiags, program.GetGlobalDiagnostics(ctx)...)
-	return tsDiags
-}
-
-func preEmitProjectFileDiagnostics(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile) []*ast.Diagnostic {
-	return preEmitProjectFileDiagnosticsWithOptions(ctx, program, sourceFile, ProjectOptions{})
-}
-
+// (GetProgramDiagnostics, checked once by each caller), so this collects what
+// remains for the file: syntactic first (upstream order), then semantic.
 func preEmitProjectFileDiagnosticsWithOptions(ctx context.Context, program *compiler.Program, sourceFile *ast.SourceFile, opts ProjectOptions) []*ast.Diagnostic {
 	tsDiags := program.GetSyntacticDiagnostics(ctx, sourceFile)
 	if opts.SkipSemanticDiagnostics {

@@ -191,15 +191,11 @@ func (s *TransformState) setFlameworkExpressionSurface(sourceFile *ast.SourceFil
 	s.expressionSurfaces[sourceFile] = declares
 }
 
-func (s *TransformState) Program() *compiler.Program { return s.program }
-func (s *TransformState) Checker() *checker.Checker  { return s.checker }
-func (s *TransformState) Project() *Project          { return s.project }
-func (s *TransformState) Factory() *ast.NodeFactory  { return s.factory }
+func (s *TransformState) Factory() *ast.NodeFactory { return s.factory }
 func (s *TransformState) EmitContext() *printer.EmitContext {
 	return s.emitContext
 }
 func (s *TransformState) MacroRuntime() MacroRuntime { return s.macroRuntime }
-func (s *TransformState) Plans() []FilePlan          { return clonePlans(s.plans) }
 
 func (s *TransformState) AddDiagnostic(diagnostic *ast.Diagnostic) {
 	if diagnostic != nil {

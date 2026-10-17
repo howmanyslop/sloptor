@@ -236,37 +236,6 @@ func (c *cursor) parseExprListInto(list *ExprList, stop string) {
 	}
 }
 
-func (c *cursor) parsePrimary() Node {
-	switch {
-	case c.atKeyword("nil"):
-		return &Nil{Tok: c.next()}
-	case c.atKeyword("true"):
-		return &True{Tok: c.next()}
-	case c.atKeyword("false"):
-		return &False{Tok: c.next()}
-	case c.atKeyword("function"):
-		fn := c.next()
-		return &FuncExpr{Func: fn, Body: c.parseFuncBody()}
-	case c.atSymbol("..."):
-		return &Vararg{Tok: c.next()}
-	case c.atSymbol("("):
-		return c.parseParen()
-	case c.atSymbol("{"):
-		return c.parseTable()
-	case c.peek().Token.Kind == lex.Number:
-		return &Number{Tok: c.next()}
-	case c.peek().Token.Kind == lex.String:
-		return &String{Tok: c.next()}
-	case c.peek().Token.Kind == lex.InterpSimple || c.peek().Token.Kind == lex.InterpStart:
-		return c.parseInterpString()
-	case c.peek().Token.Kind == lex.Name:
-		return &Name{Tok: c.next()}
-	default:
-		c.errHere("expected an expression")
-		return &Name{Tok: c.next()}
-	}
-}
-
 func (c *cursor) parseParen() Node {
 	open := c.expectSymbol("(")
 	inner := c.parseExpr()

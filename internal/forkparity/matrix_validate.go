@@ -128,15 +128,6 @@ func hasArtifactSuffix(artifacts map[string][]byte, suffix string) bool {
 	return false
 }
 
-func hasArtifactPrefix(artifacts map[string][]byte, prefix string) bool {
-	for path := range artifacts {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 func hasArtifactComponent(artifacts map[string][]byte, component string) bool {
 	for path := range artifacts {
 		if strings.Contains(path, component) {
