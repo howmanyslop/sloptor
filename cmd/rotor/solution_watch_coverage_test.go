@@ -11,8 +11,20 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"rotor/internal/compile"
+	"rotor/internal/fsutil"
 	"rotor/tsgo/fswatch"
 )
+
+func canonicalSolutionWatchTempDir(t *testing.T) string {
+	t.Helper()
+	root, err := fsutil.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Physical watches use resolved roots; backend events use those same
+	// prefixes. Keep explicit symlink aliases in each test's logical routes.
+	return root
+}
 
 func recordingSolutionWatches(watcher *fakeSolutionWatcher, events **solutionWatchEvents) *solutionWatches {
 	return &solutionWatches{
@@ -34,7 +46,7 @@ func recordingSolutionWatches(watcher *fakeSolutionWatcher, events **solutionWat
 }
 
 func TestSolutionWatchSharedCoverageRoutesEveryOwner(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	source := filepath.Join(root, "src")
 	nested := filepath.Join(source, "nested")
 	first, second, rojo := "first", "second", "assets"
@@ -100,7 +112,7 @@ func TestSolutionWatchSharedCoverageRoutesEveryOwner(t *testing.T) {
 }
 
 func TestSolutionWatchSharedCoverageExcludesSolutionArtifacts(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	out := filepath.Join(root, "game", "out")
 	include := filepath.Join(root, "game", "include")
 	cache := filepath.Join(root, "game", ".rotor")
@@ -141,7 +153,7 @@ func TestSolutionWatchSharedCoverageExcludesSolutionArtifacts(t *testing.T) {
 }
 
 func TestSolutionWatchSharedCoverageRecovery(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	child := filepath.Join(root, "child")
 	sets := []compile.SolutionWatchSet{
 		{ProjectPath: "parent", RootDirs: []string{root}},
@@ -210,7 +222,7 @@ func TestSolutionWatchSharedCoverageRecovery(t *testing.T) {
 }
 
 func TestSolutionWatchCanonicalMissingPath(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	path := filepath.Join(root, "missing", "nested", "src")
 	canonical, err := filepath.EvalSymlinks(root)
 	if err != nil {
@@ -228,7 +240,7 @@ func TestSolutionWatchSharedCoverageDottedRootRemoval(t *testing.T) {
 			name = "containing directory"
 		}
 		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
+			root := canonicalSolutionWatchTempDir(t)
 			group := filepath.Join(root, "group.v1")
 			source := filepath.Join(group, "src.v1")
 			if err := os.MkdirAll(source, 0o755); err != nil {
@@ -283,7 +295,7 @@ func TestSolutionWatchSharedCoverageDottedRootRemoval(t *testing.T) {
 }
 
 func TestSolutionWatchSharedCoverageSymlink(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	real := filepath.Join(root, "real")
 	if err := os.MkdirAll(filepath.Join(real, "src"), 0o755); err != nil {
 		t.Fatal(err)
@@ -314,7 +326,7 @@ func TestSolutionWatchSharedCoverageSymlink(t *testing.T) {
 }
 
 func TestSolutionWatchSharedCoverageUnicodePaths(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	decomposed := filepath.Join(root, "cafe\u0301")
 	source := filepath.Join(decomposed, "src")
 	artifact := filepath.Join(decomposed, "out")
@@ -368,7 +380,7 @@ func TestSolutionWatchSharedCoverageUnicodePaths(t *testing.T) {
 }
 
 func TestSolutionWatchedFileCountCanonicalizesAliases(t *testing.T) {
-	root := t.TempDir()
+	root := canonicalSolutionWatchTempDir(t)
 	real := filepath.Join(root, "real")
 	for _, directory := range []string{"src", "out"} {
 		if err := os.MkdirAll(filepath.Join(real, directory), 0o755); err != nil {

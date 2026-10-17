@@ -355,14 +355,8 @@ func TestWatchAssetDrainFindsRojoInputsThroughConfigAliases(t *testing.T) {
 				}
 				requestPath = filepath.Join(alias, "tsconfig.json")
 			} else {
-				cwd, err := os.Getwd()
-				if err != nil {
-					t.Fatal(err)
-				}
-				requestPath, err = filepath.Rel(cwd, configPath)
-				if err != nil {
-					t.Fatal(err)
-				}
+				t.Chdir(projectDir)
+				requestPath = "tsconfig.json"
 			}
 			asset := filepath.Join(projectDir, "assets/icon.luau")
 			output := filepath.Join(projectDir, "build/assets/icon.luau")
