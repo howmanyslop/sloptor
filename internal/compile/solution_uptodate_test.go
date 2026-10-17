@@ -49,6 +49,54 @@ func TestSolutionBuildReusesDirectReferencedProjectBuild(t *testing.T) {
 	}
 }
 
+func TestSolutionWatchCommentEditSkipsDependentCompile(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, nil)
+	f.write("game/src/index.ts", `import { value } from "../../shared/src"; export const result = value;`)
+	coordinator := f.coordinator("game")
+
+	for _, text := range []string{
+		"export const value = 1;\n// comment only\n",
+		"export const value = 1;\n",
+	} {
+		f.write("shared/src/index.ts", text)
+		coordinator.Invalidate(filepath.Join(f.dir, "shared/tsconfig.json"))
+		result, messages, err := coordinator.Drain()
+		if err != nil {
+			t.Fatalf("watch drain: %v (%v)", err, messages)
+		}
+		if len(result.Outputs) != 1 {
+			t.Fatalf("comment edit compiled %d files, want only the changed source: %v", len(result.Outputs), result.Outputs)
+		}
+		for path := range result.Outputs {
+			if !strings.Contains(filepath.ToSlash(path), "/shared/") {
+				t.Fatalf("comment edit recompiled dependent output %s", path)
+			}
+		}
+	}
+}
+
+func TestSolutionWatchDeclarationChangeRecompilesDependent(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, nil)
+	f.project("game", []string{"shared"}, nil)
+	f.write("shared/src/index.ts", "export const enum Value { Current = 1 }\n")
+	f.write("game/src/index.ts", `import { Value } from "../../shared/src"; export const result = Value.Current;`)
+	coordinator := f.coordinator("game")
+
+	f.write("shared/src/index.ts", "export const enum Value { Current = 2 }\n")
+	coordinator.Invalidate(filepath.Join(f.dir, "shared/tsconfig.json"))
+	result, messages, err := coordinator.Drain()
+	if err != nil {
+		t.Fatalf("watch drain: %v (%v)", err, messages)
+	}
+	output := result.Outputs[filepath.Join(f.dir, "game/out/init.luau")]
+	if !strings.Contains(output, "local result = 2") {
+		t.Fatalf("dependent did not compile against the new declaration:\n%s", output)
+	}
+}
+
 func TestSolutionGraphLayersReferencedRbxtsOptions(t *testing.T) {
 	// Given: a coordinator and a reference that each declare rbxts options,
 	// and a command line that sets one of them.

@@ -208,7 +208,7 @@ func programWatchSet(t *testing.T, project SolutionProject) (rootDirs, artifactD
 		t.Fatal(err)
 	}
 	translator := createPathTranslator(program, !project.Options.LuaExtension)
-	return getRootDirs(program), solutionWatchArtifactDirectories(dir, translator.OutDir, project.Options.IncludePath)
+	return getRootDirs(program), solutionWatchArtifactDirectories(dir, translator.OutDir, program.Options().DeclarationDir, project.Options.IncludePath)
 }
 
 func TestWatchSetsMatchProgramWatchSets(t *testing.T) {

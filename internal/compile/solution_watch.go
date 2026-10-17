@@ -75,6 +75,7 @@ func (c *SolutionCoordinator) projectWatchSet(project SolutionProject, rojoState
 	set.ArtifactDirectories = solutionWatchArtifactDirectories(
 		dir,
 		pathTranslator.OutDir,
+		config.Options().DeclarationDir,
 		project.Options.IncludePath,
 	)
 	rojoPath, _, rojoErr := resolveRojoConfigPath(dir, project.Options.RojoConfigPath)
@@ -106,6 +107,7 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 		artifactDirectories := solutionWatchArtifactDirectories(
 			dir,
 			translator.OutDir,
+			config.Options().DeclarationDir,
 			state.Project.Options.IncludePath,
 		)
 		assetDirectories = append(assetDirectories, filterRojoWatchDirectories(dir, newRojoWatchState(c.metadata.references.resolver(rojoPath)), artifactDirectories)...)
@@ -140,8 +142,11 @@ func (c *SolutionCoordinator) DrainAssets(tsConfigPath string, events []WatchAss
 	return nil
 }
 
-func solutionWatchArtifactDirectories(projectDir, outputDir, includePath string) []string {
+func solutionWatchArtifactDirectories(projectDir, outputDir, declarationDir, includePath string) []string {
 	directories := []string{filepath.Clean(filepath.FromSlash(outputDir))}
+	if declarationDir != "" {
+		directories = appendDistinctWatchDirectory(directories, declarationDir)
+	}
 	if includeDir, err := resolveIncludePath(projectDir, includePath); err == nil {
 		directories = appendDistinctWatchDirectory(directories, includeDir)
 	}

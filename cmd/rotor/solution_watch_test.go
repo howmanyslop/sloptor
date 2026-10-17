@@ -147,28 +147,31 @@ type fakeSolutionWatcher struct {
 	opens     map[string]int
 	closes    map[string]int
 	fail      map[string]bool
-	callbacks map[string]fswatch.WatchCallback
+	callbacks map[string][]fswatch.WatchCallback
 }
 
 type fakeSolutionWatch struct {
 	fswatch.Watch
 	watcher *fakeSolutionWatcher
 	path    string
+	index   int
 }
 
 func newFakeSolutionWatcher() *fakeSolutionWatcher {
-	return &fakeSolutionWatcher{opens: map[string]int{}, closes: map[string]int{}, fail: map[string]bool{}, callbacks: map[string]fswatch.WatchCallback{}}
+	return &fakeSolutionWatcher{opens: map[string]int{}, closes: map[string]int{}, fail: map[string]bool{}, callbacks: map[string][]fswatch.WatchCallback{}}
 }
 
 func (w *fakeSolutionWatcher) open(path string, fn fswatch.WatchCallback) (fswatch.Watch, error) {
+	path = filepath.Clean(path)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.opens[path]++
 	if w.fail[path] {
 		return nil, errors.New("watch failed")
 	}
-	w.callbacks[path] = fn
-	return &fakeSolutionWatch{watcher: w, path: path}, nil
+	index := len(w.callbacks[path])
+	w.callbacks[path] = append(w.callbacks[path], fn)
+	return &fakeSolutionWatch{watcher: w, path: path, index: index}, nil
 }
 
 func (w *fakeSolutionWatcher) WatchDirectory(dir string, fn fswatch.WatchCallback, _ ...fswatch.WatchOption) (fswatch.Watch, error) {
@@ -183,10 +186,12 @@ func (w *fakeSolutionWatch) Close() error {
 	w.watcher.mu.Lock()
 	defer w.watcher.mu.Unlock()
 	w.watcher.closes[w.path]++
+	w.watcher.callbacks[w.path][w.index] = nil
 	return nil
 }
 
 func (w *fakeSolutionWatcher) counts(path string) (opens, closes int) {
+	path = filepath.Clean(path)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.opens[path], w.closes[path]
@@ -194,13 +199,150 @@ func (w *fakeSolutionWatcher) counts(path string) (opens, closes int) {
 
 func (w *fakeSolutionWatcher) deliver(t *testing.T, path string, events []fswatch.Event, err error) {
 	t.Helper()
+	path = filepath.Clean(path)
 	w.mu.Lock()
-	callback := w.callbacks[path]
+	callbacks := append([]fswatch.WatchCallback(nil), w.callbacks[path]...)
 	w.mu.Unlock()
-	if callback == nil {
+	if len(callbacks) == 0 {
 		t.Fatalf("no watch on %s", path)
 	}
-	callback(events, err)
+	for _, callback := range callbacks {
+		if callback != nil {
+			callback(events, err)
+		}
+	}
+}
+
+func writeArtifactWatchSolution(t *testing.T) string {
+	t.Helper()
+	root, configs := writeConcurrencySolution(t)
+	for _, config := range configs {
+		data, err := os.ReadFile(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustWrite(t, config, strings.Replace(string(data), `"types":[]`, `"types":[],"typeRoots":["node_modules/@rbxts"]`, 1))
+	}
+	data, err := os.ReadFile(configs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := string(data)
+	config = strings.TrimSuffix(config, "}") + `,"references":[{"path":"./left"},{"path":"./right"}]}`
+	mustWrite(t, filepath.Join(root, "tsconfig.json"), config)
+	mustWrite(t, filepath.Join(root, "package.json"), `{"name":"root"}`)
+	mustWrite(t, filepath.Join(root, "src/globals.d.ts"), noLibGlobalStubs)
+	mustWrite(t, filepath.Join(root, "src/main.ts"), "export const value = 1;\n")
+	mustWrite(t, filepath.Join(root, "default.project.json"), `{"name":"solution","tree":{"$className":"DataModel","ReplicatedStorage":{"left":{"$path":"left/out"},"right":{"$path":"right/out"},"root":{"$path":"out"},"include":{"$path":"include"}}}}`)
+	return root
+}
+
+func startArtifactSolutionWatch(t *testing.T, root string) (*fakeSolutionWatcher, <-chan map[string]any) {
+	t.Helper()
+	watcher := newFakeSolutionWatcher()
+	previous := newSolutionWatcher
+	newSolutionWatcher = func() fswatch.Watcher { return watcher }
+	t.Cleanup(func() { newSolutionWatcher = previous })
+	config := filepath.Join(root, "tsconfig.json")
+	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {
+		runBuildSolutionWatchLoop(ctx, config, defaultProjectOptions, newBuildOptionsReload(config, &buildArgs{build: true}), newBuildWatchJSONReporter(out, root))
+	})
+	nextWatchEvent(t, events, "buildStart")
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true {
+		t.Fatalf("initial build failed: %v", end)
+	}
+	nextWatchEvent(t, events, "watching")
+	return watcher, events
+}
+
+func TestSolutionWatchDoesNotWatchReferencedOutputs(t *testing.T) {
+	root := writeArtifactWatchSolution(t)
+	watcher, _ := startArtifactSolutionWatch(t, root)
+	for _, name := range []string{"left", "right"} {
+		if opens, _ := watcher.counts(filepath.Join(root, name, "out")); opens != 0 {
+			t.Errorf("referenced %s output directory watched %d times", name, opens)
+		}
+	}
+}
+
+func TestSolutionWatchDoesNotWatchReferencedDeclarationDir(t *testing.T) {
+	root := writeArtifactWatchSolution(t)
+	configPath := filepath.Join(root, "left/tsconfig.json")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, configPath, strings.Replace(string(config), `"outDir":"out"`, `"outDir":"out","declarationDir":"types"`, 1))
+	mustWrite(t, filepath.Join(root, "default.project.json"), `{"name":"solution","tree":{"$className":"DataModel","ReplicatedStorage":{"left":{"$path":"left/out"},"types":{"$path":"left/types"},"right":{"$path":"right/out"},"root":{"$path":"out"},"include":{"$path":"include"}}}}`)
+	watcher, _ := startArtifactSolutionWatch(t, root)
+	if opens, _ := watcher.counts(filepath.Join(root, "left/types")); opens != 0 {
+		t.Errorf("referenced declaration directory watched %d times", opens)
+	}
+}
+
+func TestSolutionWatchIgnoresArtifactsFromAncestorWatch(t *testing.T) {
+	root := writeArtifactWatchSolution(t)
+	mustWrite(t, filepath.Join(root, "default.project.json"), `{"name":"solution","tree":{"$className":"DataModel","ReplicatedStorage":{"left":{"$path":"left"},"right":{"$path":"right/out"},"root":{"$path":"out"},"include":{"$path":"include"}}}}`)
+	watcher, events := startArtifactSolutionWatch(t, root)
+
+	var generated []fswatch.Event
+	for _, path := range []string{
+		"out/main.d.ts", "out/main.d.ts.map", "out/main.luau", "out/main.luau.map",
+		"out/.copyfiles-123.tmp", "out/rbxts.copyfiles.json", "out/default.project.json",
+		"include/RuntimeLib.lua", ".rotor/cache/rojo.json",
+	} {
+		generated = append(generated, fswatch.Event{Kind: fswatch.EventUpdate, Path: filepath.Join(root, "left", path)})
+	}
+	watcher.deliver(t, filepath.Join(root, "left"), generated, nil)
+	select {
+	case event := <-events:
+		t.Fatalf("generated files triggered a watch event: %v", event)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// A real source edit still rebuilds, and generated paths from the same
+	// batch never leak into the reported change list.
+	source := filepath.Join(root, "left/src/main.ts")
+	mustWrite(t, source, "export const value = 2;\n")
+	watcher.deliver(t, filepath.Join(root, "left/src"), append(generated, fswatch.Event{Kind: fswatch.EventUpdate, Path: source}), nil)
+	start := nextWatchEvent(t, events, "buildStart")
+	if changed, _ := start["changed"].([]any); !reflect.DeepEqual(changed, []any{"left/src/main.ts"}) {
+		t.Errorf("changed = %v, want only left/src/main.ts", changed)
+	}
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true || end["files"] != float64(1) {
+		t.Errorf("source edit build = %v, want one successfully compiled source", end)
+	}
+}
+
+func TestSolutionWatchReloadUpdatesArtifactDirectories(t *testing.T) {
+	root := writeArtifactWatchSolution(t)
+	mustWrite(t, filepath.Join(root, "default.project.json"), `{"name":"solution","tree":{"$className":"DataModel","ReplicatedStorage":{"left":{"$path":"left"},"right":{"$path":"right/out"},"root":{"$path":"out"},"include":{"$path":"include"}}}}`)
+	watcher, events := startArtifactSolutionWatch(t, root)
+	configPath := filepath.Join(root, "left/tsconfig.json")
+	config, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, configPath, strings.Replace(string(config), `"outDir":"out"`, `"outDir":"generated","declarationDir":"types"`, 1))
+	watcher.deliver(t, configPath, []fswatch.Event{{Kind: fswatch.EventUpdate, Path: configPath}}, nil)
+	nextWatchEvent(t, events, "buildStart")
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true {
+		t.Fatalf("reloaded build failed: %v", end)
+	}
+	for _, path := range []string{"generated", "types"} {
+		if opens, _ := watcher.counts(filepath.Join(root, "left", path)); opens != 0 {
+			t.Errorf("reloaded artifact directory %s watched %d times", path, opens)
+		}
+	}
+	watcher.deliver(t, filepath.Join(root, "left"), []fswatch.Event{
+		{Kind: fswatch.EventUpdate, Path: filepath.Join(root, "left/generated/default.project.json")},
+		{Kind: fswatch.EventUpdate, Path: filepath.Join(root, "left/types/main.d.ts")},
+	}, nil)
+	select {
+	case event := <-events:
+		t.Fatalf("reloaded artifacts triggered a watch event: %v", event)
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 func TestSolutionWatchTerminatedRootIsReopened(t *testing.T) {
@@ -270,14 +412,14 @@ func TestSolutionWatchesReopenOnlyFailedOrDead(t *testing.T) {
 		{ProjectPath: "/a/tsconfig.json", TsConfigPaths: []string{"/a/tsconfig.json"}, RootDirs: []string{"/a/src"}, RojoDirectories: []string{"/a/assets"}},
 		{ProjectPath: "/b/tsconfig.json", TsConfigPaths: []string{"/b/tsconfig.json"}, RootDirs: []string{"/b/src"}},
 	}
-	watcher.fail["/a/assets"] = true
+	watcher.fail[filepath.Clean("/a/assets")] = true
 	watches.refresh(sets, nil)
 	if watches.armed {
 		t.Fatal("armed with a failed watch")
 	}
 
 	// The failed watch is retried; the open ones stay.
-	watcher.fail["/a/assets"] = false
+	watcher.fail[filepath.Clean("/a/assets")] = false
 	watches.refresh(sets, nil)
 	for path, want := range map[string][2]int{"/a/assets": {2, 0}, "/a/src": {1, 0}, "/b/src": {1, 0}, "/a/tsconfig.json": {1, 0}} {
 		if opens, closes := watcher.counts(path); [2]int{opens, closes} != want {

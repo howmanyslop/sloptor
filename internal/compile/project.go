@@ -651,8 +651,6 @@ type ProjectOptions struct {
 	// unchanged.
 	solutionOverlays *solutionOverlayMatches
 
-	forceFullBuild bool
-
 	pendingSolutionDependencyPersists *[]func() error
 }
 
