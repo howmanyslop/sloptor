@@ -186,12 +186,12 @@ func TestRbxtsOptionsValidation(t *testing.T) {
 	}
 
 	badType := writeConfig("bad-type.json", `{"rbxts":{"type":"library"}}`)
-	if _, err := ReadRbxtsOptions(badType); err == nil || err.Error() != `Invalid "rbxts" config in `+badType+`: type must be "game", "model" or "package" (was "library")` {
+	if _, err := ReadRbxtsOptions(badType); err == nil || err.Error() != `invalid "rbxts" config in `+badType+`: type must be "game", "model" or "package" (was "library")` {
 		t.Errorf("bad type error = %v", err)
 	}
 
 	badRojo := writeConfig("bad-rojo.json", `{"rbxts":{"rojo":42}}`)
-	if _, err := ReadRbxtsOptions(badRojo); err == nil || err.Error() != `Invalid "rbxts" config in `+badRojo+`: rojo must be a string (was a number)` {
+	if _, err := ReadRbxtsOptions(badRojo); err == nil || err.Error() != `invalid "rbxts" config in `+badRojo+`: rojo must be a string (was a number)` {
 		t.Errorf("bad rojo error = %v", err)
 	}
 }

@@ -172,7 +172,6 @@ local moduleChecks = new Mapping<String, Step> {
       effect = "write"
     }
   }
-  // Only issues new since the merge base with main fail (see .golangci.yml).
   ["golangci-lint"] = (Builtins.golangci_lint) {
     glob = GO_FILES
     check = new CommandSpec {
@@ -190,6 +189,22 @@ local moduleChecks = new Mapping<String, Step> {
 steps = fileChecks
 
 hooks {
+  // `hk run reports`: advisory metrics that never gate a commit or push.
+  ["reports"] {
+    steps {
+      ["gocognit"] {
+        profiles = List("complexity")
+        check = new CommandSpec {
+          command = new Command {
+            argv =
+              List("gocognit", "-over", "30", "-ignore", "_test\\.go$", "internal", "cmd", "tools")
+          }
+          effect = "read"
+        }
+      }
+    }
+  }
+
   ["pre-push"] {
     fix = false
     stage = false

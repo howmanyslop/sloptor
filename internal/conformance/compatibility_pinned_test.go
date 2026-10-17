@@ -93,7 +93,11 @@ func requirePinnedCompiler(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
+	t.Cleanup(func() {
+		if err := os.RemoveAll(tmpDir); err != nil {
+			t.Errorf("remove %s: %v", tmpDir, err)
+		}
+	})
 
 	verifyPinnedPackageMetadata(t)
 	cmd := exec.Command(

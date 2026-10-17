@@ -13,7 +13,7 @@ import (
 //
 // The fixture deliberately does NOT declare `$env` in its globals.d.ts: the
 // type surface must come from the synthetic in-memory __rotor_env.d.ts that
-// newProjectProgramFromFS injects (envdecl.go), so this test covers both the
+// parseProjectCommandLine injects (envdecl.go), so this test covers both the
 // declaration injection and the transformer inlining (envmacro.go).
 //
 // Value resolution priority (internal/dotenv): process env >

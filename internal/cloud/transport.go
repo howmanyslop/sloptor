@@ -127,7 +127,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 			continue
 		}
 		respBody, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close() // body fully read; readErr carries any real failure
 		if readErr != nil {
 			lastErr = readErr
 			continue

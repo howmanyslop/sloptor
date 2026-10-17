@@ -130,16 +130,20 @@ func extractZipEntry(extractDir string, file *zip.File) error {
 	if err != nil {
 		return fmt.Errorf("create file %q: %w", name, err)
 	}
-	defer out.Close()
 
 	in, err := file.Open()
 	if err != nil {
+		_ = out.Close() // nothing written yet
 		return fmt.Errorf("open zip entry %q: %w", name, err)
 	}
-	defer in.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy zip entry %q: %w", name, err)
+	_, copyErr := io.Copy(out, in)
+	_ = in.Close() // read-only; read errors already surface through io.Copy
+	closeErr := out.Close()
+	if copyErr != nil {
+		return fmt.Errorf("copy zip entry %q: %w", name, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close file %q: %w", name, closeErr)
 	}
 	return nil
 }

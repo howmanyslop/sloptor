@@ -258,20 +258,13 @@ jobs:
         working-directory: tools/sidecar
         run: node --test test/*.test.js
 
-  # Only issues new since the merge base with the target branch fail; the
-  # pre-existing backlog is tracked separately (see .golangci.yml). Pull
-  # requests only: a push to the default branch has no merge base to diff.
   lint:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          # golangci-lint diffs against the merge base, which needs history.
-          fetch-depth: 0
 
       - name: Set up Mise toolchain
         uses: jdx/mise-action@v2
@@ -291,10 +284,8 @@ jobs:
             ${{ runner.os }}-golangci-
 
       - name: golangci-lint
-        run: |
-          git fetch --no-tags origin "${{ github.base_ref }}"
-          golangci-lint run --new-from-merge-base="origin/${{ github.base_ref }}" \
-            ./internal/... ./cmd/... ./tools/...
+        # Same package set as vet; the vendored tsgo mirror is excluded.
+        run: golangci-lint run ./internal/... ./cmd/... ./tools/...
 
   vuln:
     runs-on: ubuntu-24.04

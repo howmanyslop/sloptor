@@ -13,7 +13,7 @@ import (
 //
 // The fixture deliberately does NOT declare `$asset` in its globals.d.ts: the
 // type surface must come from the synthetic in-memory __rotor_asset.d.ts that
-// newProjectProgramFromFS injects (assetdecl.go), so this test covers both the
+// parseProjectCommandLine injects (assetdecl.go), so this test covers both the
 // declaration injection and the transformer inlining (assetmacro.go).
 //
 // asset_model carries a committed tiny PNG and a pre-seeded rotor-lock.json

@@ -128,7 +128,9 @@ func (f *fakeCloud) CreateAsset(ctx context.Context, req cloud.CreateAssetReques
 func (f *fakeCloud) PollOperation(ctx context.Context, path string, into any) error {
 	if a, ok := into.(*cloud.Asset); ok {
 		var n int64
-		fmt.Sscanf(path, "operations/%d", &n)
+		if _, err := fmt.Sscanf(path, "operations/%d", &n); err != nil {
+			return fmt.Errorf("fakeCloud: parsing operation path %q: %w", path, err)
+		}
 		a.AssetID = 700 + n
 	}
 	return nil

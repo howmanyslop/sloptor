@@ -42,7 +42,6 @@ const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 type sidecarRequest = TransformerRequest
 type sidecarChangedFile = TransformerChangedFile
 type sidecarResponse = TransformerResponse
-type sidecarResponseMetrics = TransformerResponseMetrics
 
 // sidecarPluginMetric is one plugin's share of a round trip: the wall time the
 // worker spent inside that transformer's factory and node visits. The shares

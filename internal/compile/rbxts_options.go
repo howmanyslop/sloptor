@@ -60,7 +60,7 @@ func readRbxtsOptions(tsConfigPath string, visited map[string]struct{}, chain *[
 
 	var config map[string]any
 	if err := json.Unmarshal([]byte(stripJSONC(string(data))), &config); err != nil {
-		return nil, fmt.Errorf("Failed to parse tsconfig at %s: %w", normalized, err)
+		return nil, fmt.Errorf("failed to parse tsconfig at %s: %w", normalized, err)
 	}
 
 	var inherited *RbxtsOptions
@@ -138,7 +138,7 @@ func parseRbxtsOptions(raw map[string]any, configPath string) (*RbxtsOptions, er
 			return nil, rbxtsTypeError(configPath, "type", `"game", "model" or "package"`, value)
 		}
 		if text != "game" && text != "model" && text != "package" {
-			return nil, fmt.Errorf("Invalid \"rbxts\" config in %s: type must be \"game\", \"model\" or \"package\" (was %q)", configPath, text)
+			return nil, fmt.Errorf("invalid \"rbxts\" config in %s: type must be \"game\", \"model\" or \"package\" (was %q)", configPath, text)
 		}
 		result.Type = &text
 	}
@@ -185,7 +185,7 @@ func rbxtsPath(raw map[string]any, key, configPath string) (*string, error) {
 }
 
 func rbxtsTypeError(configPath, key, expected string, value any) error {
-	return fmt.Errorf("Invalid \"rbxts\" config in %s: %s must be %s (was %s)", configPath, key, expected, rbxtsValueDescription(value))
+	return fmt.Errorf("invalid \"rbxts\" config in %s: %s must be %s (was %s)", configPath, key, expected, rbxtsValueDescription(value))
 }
 
 func rbxtsValueDescription(value any) string {

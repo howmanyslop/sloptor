@@ -228,7 +228,6 @@ func buildSolutionGraphForRoots(roots []solutionGraphRoot) (*SolutionGraph, erro
 				if !sameSolutionProjectOptions(existing.Options, options) {
 					return "", solutionOptionsConflict(existing.ConfigPath, rootByProject[configKey], rootPath, existing.Options, options)
 				}
-				configPath = existing.ConfigPath
 			} else {
 				projects[configKey] = SolutionProject{ConfigPath: configPath, Options: options, Coordinator: coordinator}
 				configPathsByProject[configKey] = configPaths
