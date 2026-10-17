@@ -2,8 +2,107 @@ package compile
 
 import (
 	"errors"
+	"reflect"
 	"testing"
+	"time"
 )
+
+func TestSolutionSchedulerRunsReadyTaskPastBlockedDependants(t *testing.T) {
+	for _, waitOnly := range []bool{false, true} {
+		name := "predecessors"
+		if waitOnly {
+			name = "waitOnly"
+		}
+		t.Run(name, func(t *testing.T) {
+			tasks := indexedSolutionTasks(5)
+			for index := 1; index <= 3; index++ {
+				if waitOnly {
+					tasks[index].waitOnly = []int{0}
+				} else {
+					tasks[index].predecessors = []int{0}
+				}
+			}
+			started := make(chan int, len(tasks))
+			release := make(chan struct{})
+			done := make(chan []error, 1)
+			go func() {
+				done <- RunSolutionTasks(tasks, 4, func(index int) error {
+					started <- index
+					if index == 0 {
+						<-release
+					}
+					return nil
+				})
+			}()
+			defer func() {
+				close(release)
+				assertNoErrors(t, <-done)
+			}()
+			// Neither runnable root may depend on releasing the other. The
+			// timeout guards deadlock; no assertion depends on their duration.
+			seen := map[int]bool{}
+			timer := time.NewTimer(2 * time.Second)
+			defer timer.Stop()
+			for len(seen) < 2 {
+				select {
+				case index := <-started:
+					if index != 0 && index != 4 || seen[index] {
+						t.Fatalf("task %d started before root 0 completed", index)
+					}
+					seen[index] = true
+				case <-timer.C:
+					t.Fatalf("runnable roots did not both start while root 0 was held: %v", seen)
+				}
+			}
+		})
+	}
+}
+
+func TestSolutionSchedulerDeduplicatesBarriersAndPrioritizesGraphOrder(t *testing.T) {
+	tasks := []solutionTask{
+		{index: 0},
+		{index: 1, predecessors: []int{0, 0}, waitOnly: []int{0, 0}},
+		{index: 2},
+	}
+	var order []int
+	outcomes := RunSolutionTasks(tasks, 1, func(index int) error {
+		order = append(order, index)
+		return nil
+	})
+	assertNoErrors(t, outcomes)
+	if !reflect.DeepEqual(order, []int{0, 1, 2}) {
+		t.Fatalf("callback order = %v, want [0 1 2]", order)
+	}
+}
+
+func TestSolutionSchedulerPreservesSparseOutcomeIndexes(t *testing.T) {
+	failure := errors.New("dependency failed")
+	tasks := []solutionTask{{index: 2}, {index: 7, predecessors: []int{2}}, {index: 9, waitOnly: []int{2}}}
+	started := make(chan int, len(tasks))
+	outcomes := RunSolutionTasks(tasks, 3, func(index int) error {
+		started <- index
+		if index == 2 {
+			return failure
+		}
+		return nil
+	})
+	if len(outcomes) != 10 || !errors.Is(outcomes[2], failure) {
+		t.Fatalf("sparse outcomes = %v, want failure at index 2 of 10", outcomes)
+	}
+	seen := map[int]bool{}
+	for range tasks {
+		index := <-started
+		if seen[index] {
+			t.Fatalf("callback %d ran twice", index)
+		}
+		seen[index] = true
+	}
+	for _, index := range []int{7, 9} {
+		if !seen[index] || outcomes[index] != nil {
+			t.Fatalf("callback %d did not complete successfully: seen=%v, outcomes=%v", index, seen, outcomes)
+		}
+	}
+}
 
 func TestSolutionSchedulerSerializesBuildersOne(t *testing.T) {
 	tasks := indexedSolutionTasks(3)

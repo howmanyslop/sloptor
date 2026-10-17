@@ -157,6 +157,19 @@ Response shape:
 the worker built for the project after flattening. The worker never runs them;
 the count exists so rotor can warn (see "Declaration Emit Is Native").
 
+Responses may include `metrics` with request wall/CPU time, Node version,
+per-plugin factory/visit time, and an optional `phases` object. Its integer
+millisecond fields are `configMs` (config and root synchronization), `programMs`
+(LanguageService program), `factoriesMs` (plugin loading and factory creation),
+`transformMs` (`transformNodes`), `parentRepairMs`, and `printMs` (final printing
+and trace-map generation/serialization). Validation requests measure plugin
+loading under `factoriesMs` without invoking factories. These are per-request
+values, including completed work on failures. They overlap: `transformMs`
+includes parent repair, and plugin times overlap factory and transform phases;
+they must not be summed. Other request work and protocol response encoding are
+outside these phases. Existing `--verbose` output displays the phase details;
+`--timings` continues to report Node wall/CPU totals without these phase fields.
+
 `diagnostics` may contain:
 
 - TypeScript config/program diagnostics converted to `{ category, code, file, start, length, message }`

@@ -60,7 +60,7 @@ func (d *parallelSolutionDrainer) Drain(project SolutionProject) (*BuildResult, 
 	}, []string{"message:" + name}, nil
 }
 
-func (d *parallelSolutionDrainer) appendPersists(persists []func() error) {
+func (d *parallelSolutionDrainer) appendPersists(_ string, persists []func() error) {
 	d.mu.Lock()
 	d.persists = append(d.persists, persists...)
 	d.mu.Unlock()

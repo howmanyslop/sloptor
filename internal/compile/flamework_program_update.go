@@ -116,28 +116,32 @@ func updateNativeFlameworkProgram(input nativeProgramUpdate) (*compiler.Program,
 
 type nativeOverlayHost struct {
 	compiler.CompilerHost
-	fs vfs.FS
+	fs          vfs.FS
+	readOverlay func(string) (string, bool)
 }
 
 func newNativeOverlayHost(base compiler.CompilerHost, overlays map[string]string) compiler.CompilerHost {
 	baseFS := base.FS()
 	caseSensitive := baseFS.UseCaseSensitiveFileNames()
 	aliases := overlayAliases(overlays, "", caseSensitive)
+	readOverlay := func(path string) (string, bool) {
+		return overlayText(overlays, aliases, path, caseSensitive)
+	}
 	fs := wrapvfs.Wrap(baseFS, wrapvfs.Replacements{
 		FileExists: func(path string) bool {
-			if _, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
+			if _, ok := readOverlay(path); ok {
 				return true
 			}
 			return baseFS.FileExists(path)
 		},
 		ReadFile: func(path string) (string, bool) {
-			if text, ok := overlayText(overlays, aliases, path, caseSensitive); ok {
+			if text, ok := readOverlay(path); ok {
 				return text, true
 			}
 			return baseFS.ReadFile(path)
 		},
 	})
-	return nativeOverlayHost{CompilerHost: base, fs: fs}
+	return nativeOverlayHost{CompilerHost: base, fs: fs, readOverlay: readOverlay}
 }
 
 func (host nativeOverlayHost) FS() vfs.FS {
@@ -145,9 +149,11 @@ func (host nativeOverlayHost) FS() vfs.FS {
 }
 
 func (host nativeOverlayHost) GetSourceFile(opts ast.SourceFileParseOptions) *ast.SourceFile {
-	text, ok := host.fs.ReadFile(opts.FileName)
+	text, ok := host.readOverlay(opts.FileName)
 	if !ok {
-		return nil
+		// Preserve the underlying host's parse cache and any host-specific source
+		// loading behavior for files this overlay does not change.
+		return host.CompilerHost.GetSourceFile(opts)
 	}
 	return parser.ParseSourceFile(opts, text, core.GetScriptKindFromFileName(opts.FileName))
 }

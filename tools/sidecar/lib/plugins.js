@@ -242,7 +242,7 @@ function fixOrphanedParents(ts, root) {
   walk(root);
 }
 
-function wrapTransformersWithParentFix(ts, transformers) {
+function wrapTransformersWithParentFix(ts, transformers, measureRepair) {
   const lastIndex = transformers.length - 1;
   return transformers.map((factory, index) => {
     if (index === lastIndex) {
@@ -253,7 +253,11 @@ function wrapTransformersWithParentFix(ts, transformers) {
       return (sourceFile) => {
         const result = transform(sourceFile);
         if (result !== sourceFile && ts.isSourceFile(result)) {
-          fixOrphanedParents(ts, result);
+          if (measureRepair) {
+            measureRepair(() => fixOrphanedParents(ts, result));
+          } else {
+            fixOrphanedParents(ts, result);
+          }
         }
         return result;
       };

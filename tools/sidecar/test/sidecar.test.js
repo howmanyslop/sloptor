@@ -479,6 +479,107 @@ test("sidecar protocol metrics split wall time per transformer plugin", () => {
     assert.ok(plugin.ms >= 0);
   }
 });
+test("worker phase metrics attribute work and reset across requests", (t) => {
+  // Give only these module instances a deterministic clock. Plugin work,
+  // parent repair and printing advance it independently without global mocks.
+  const { compileFunction } = require("node:vm");
+  const { createRequire } = require("node:module");
+  let now = 0n;
+  const advance = (ms) => { now += BigInt(ms) * 1000000n; };
+  const localProcess = { ...process, hrtime: { bigint: () => now } };
+  const load = (name, overrides = {}) => {
+    const filename = path.resolve(__dirname, "..", "lib", name);
+    const localRequire = createRequire(filename);
+    const module = { exports: {} };
+    compileFunction(fs.readFileSync(filename, "utf8"), ["require", "module", "exports", "process", "__dirname"])(
+      Object.assign((id) => overrides[id] ?? localRequire(id), localRequire), module, module.exports, localProcess, path.dirname(filename),
+    );
+    return module.exports;
+  };
+  const plugins = load("plugins.js");
+  const { SidecarProjectSession } = load("session.js", { "./plugins": plugins });
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), "rotor-sidecar-phases-"));
+  const previousCwd = process.cwd();
+  t.after(() => {
+    process.chdir(previousCwd);
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  });
+  const fileName = path.join(fixtureDir, "main.ts");
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(fileName, "export const value = 1;\n");
+  fs.writeFileSync(configPath, JSON.stringify({ compilerOptions: { noLib: true }, files: ["main.ts"] }));
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), `module.exports = (_program, config, { ts }) => {
+    ts.advance(5);
+    return () => file => {
+      ts.advance(7);
+      if (config.fail) throw new Error("phase failure");
+      return config.identity ? file : ts.factory.updateSourceFile(file, [...file.statements]);
+    };
+  };\n`);
+  const measuredTs = {
+    ...ts,
+    advance,
+    getParsedCommandLineOfConfigFile: (...args) => {
+      advance(2);
+      return ts.getParsedCommandLineOfConfigFile(...args);
+    },
+    createLanguageService: (...args) => {
+      const service = ts.createLanguageService(...args);
+      const getProgram = service.getProgram;
+      service.getProgram = () => { advance(3); return getProgram(); };
+      return service;
+    },
+    forEachChild: (node, ...args) => {
+      if (ts.isSourceFile(node)) advance(11);
+      return ts.forEachChild(node, ...args);
+    },
+    createPrinter: (...args) => {
+      const printer = ts.createPrinter(...args);
+      return { ...printer, writeFile: (...writeArgs) => { advance(13); return printer.writeFile(...writeArgs); } };
+    },
+  };
+  const session = new SidecarProjectSession(measuredTs, fixtureDir, configPath);
+  t.after(() => session.dispose());
+  const request = {
+    protocol: 1, operation: "transform", projectDir: fixtureDir, tsConfigPath: configPath,
+    compileFileNames: [fileName], changedFiles: [],
+    plugins: [{ transform: "./plugin.js" }, { transform: "./plugin.js", identity: true }],
+  };
+  const first = session.handleRequest(request);
+  assert.deepEqual(first.diagnostics, []);
+  assert.deepEqual(first.metrics.phases, {
+    configMs: 2, programMs: 3, factoriesMs: 10, transformMs: 25, parentRepairMs: 11, printMs: 13,
+  });
+  assert.deepEqual(first.metrics.plugins.map((plugin) => plugin.ms), [12, 12]);
+  assert.deepEqual(session.handleRequest(request), first, "warm response includes only this request's work");
+  const baseline = new sidecar.SidecarProjectSession(measuredTs, fixtureDir, configPath);
+  t.after(() => baseline.dispose());
+  baseline.refreshParsedConfig();
+  const program = baseline.service.getProgram();
+  const { transforms } = sidecar.createTransformerList(measuredTs, program, request.plugins, fixtureDir);
+  const unmetered = baseline.transformSourceFiles(program, [baseline.getSourceFile(program, fileName)], transforms);
+  assert.deepEqual(first.transformed, unmetered.transformed, "instrumentation preserves text and trace maps");
+  assert.deepEqual(first.diagnostics, unmetered.diagnostics);
+
+  const zeros = { configMs: 2, programMs: 3, factoriesMs: 5, transformMs: 0, parentRepairMs: 0, printMs: 0 };
+  const empty = session.handleRequest({ ...request, compileFileNames: [], plugins: [request.plugins[0]] });
+  assert.deepEqual(empty.metrics.phases, zeros);
+  const identity = session.handleRequest({ ...request, plugins: [{ transform: "./plugin.js", identity: true }] });
+  assert.deepEqual(identity.metrics.phases, { ...zeros, transformMs: 7 });
+  assert.deepEqual(identity.transformed, []);
+  const validate = session.handleRequest({ ...request, operation: "validate" });
+  assert.deepEqual(validate.diagnostics, []);
+  assert.deepEqual(validate.metrics.phases, { ...zeros, programMs: 0, factoriesMs: 0 });
+  const failed = session.handleRequest({ ...request, plugins: [{ transform: "./plugin.js", fail: true }] });
+  assert.equal(failed.diagnostics[0].code, "sidecar-internal");
+  assert.deepEqual(failed.metrics.phases, { ...zeros, transformMs: 7 });
+  const missing = new SidecarProjectSession(measuredTs, fixtureDir, path.join(fixtureDir, "missing.json"));
+  t.after(() => missing.dispose());
+  const invalid = missing.handleRequest(request);
+  assert.equal(invalid.diagnostics[0].code, "config-parse");
+  assert.deepEqual(invalid.metrics.phases, { ...zeros, programMs: 0, factoriesMs: 0 });
+});
+
 test("transformSourceFiles repairs orphaned parents between transformers", () => {
   const program = createProgram();
   const sourceFile = program.getSourceFile(sourcePath);

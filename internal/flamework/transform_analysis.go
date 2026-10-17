@@ -74,7 +74,7 @@ func AnalyzeFlameworkClasses(input TransformInput) (FlameworkClassAnalysis, erro
 }
 
 func analyzeFlameworkClasses(input TransformInput, includeNativeSafetyDiagnostics bool) (FlameworkClassAnalysis, error) {
-	state, err := newTransformState(input, nil)
+	state, err := newTransformStateBase(input, nil)
 	if err != nil {
 		return FlameworkClassAnalysis{}, err
 	}

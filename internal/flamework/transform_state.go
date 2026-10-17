@@ -74,13 +74,10 @@ type TransformState struct {
 	diagnostics    []*ast.Diagnostic
 	generatedNames map[string]map[string]int
 	guardLibrary   string
-	// surfaces caches the Flamework surface scan per file so the expression
-	// prefilter reads an imported module's text at most once per transform.
-	surfaces map[string]bool
-	// expressionSurfaces caches sourceDeclaresFlameworkExpressionSurface per
-	// file. The prefilters run it for every call and property access, and its
-	// text scan is a dozen full passes over the file.
-	expressionSurfaces map[string]bool
+	// Direct surface caches belong to this invocation and source identity,
+	// including negative results. Distinct ASTs may have the same file name.
+	surfaces           map[*ast.SourceFile]bool
+	expressionSurfaces map[*ast.SourceFile]bool
 	// flameworkExpressionSurfaces is the immutable per-transform reachability
 	// index. Keyed by SourceFile.FileName(). A file is present iff it (or any
 	// transitive importer via type/value/re-export edges, including type-only)
@@ -90,6 +87,17 @@ type TransformState struct {
 }
 
 func newTransformState(input TransformInput, plans []FilePlan) (*TransformState, error) {
+	state, err := newTransformStateBase(input, plans)
+	if err != nil {
+		return nil, err
+	}
+	initializeFlameworkExpressionSurfaces(state)
+	return state, nil
+}
+
+// Class discovery needs the same validated state, but never queries expression
+// reachability. Keep its construction independent of that whole-program index.
+func newTransformStateBase(input TransformInput, plans []FilePlan) (*TransformState, error) {
 	if input.Program == nil {
 		return nil, fmt.Errorf("%w: program is nil", ErrInvalidTransformInput)
 	}
@@ -127,7 +135,6 @@ func newTransformState(input TransformInput, plans []FilePlan) (*TransformState,
 		plans:          clonePlans(plans),
 		generatedNames: make(map[string]map[string]int),
 	}
-	initializeFlameworkExpressionSurfaces(s)
 	return s, nil
 }
 
@@ -152,7 +159,7 @@ func (s *TransformState) flameworkSurface(sourceFile *ast.SourceFile) (bool, boo
 	if s == nil || s.surfaces == nil {
 		return false, false
 	}
-	declares, found := s.surfaces[sourceFile.FileName()]
+	declares, found := s.surfaces[sourceFile]
 	return declares, found
 }
 
@@ -161,16 +168,16 @@ func (s *TransformState) setFlameworkSurface(sourceFile *ast.SourceFile, declare
 		return
 	}
 	if s.surfaces == nil {
-		s.surfaces = make(map[string]bool)
+		s.surfaces = make(map[*ast.SourceFile]bool)
 	}
-	s.surfaces[sourceFile.FileName()] = declares
+	s.surfaces[sourceFile] = declares
 }
 
 func (s *TransformState) flameworkExpressionSurface(sourceFile *ast.SourceFile) (bool, bool) {
 	if s == nil || s.expressionSurfaces == nil {
 		return false, false
 	}
-	declares, found := s.expressionSurfaces[sourceFile.FileName()]
+	declares, found := s.expressionSurfaces[sourceFile]
 	return declares, found
 }
 
@@ -179,9 +186,9 @@ func (s *TransformState) setFlameworkExpressionSurface(sourceFile *ast.SourceFil
 		return
 	}
 	if s.expressionSurfaces == nil {
-		s.expressionSurfaces = make(map[string]bool)
+		s.expressionSurfaces = make(map[*ast.SourceFile]bool)
 	}
-	s.expressionSurfaces[sourceFile.FileName()] = declares
+	s.expressionSurfaces[sourceFile] = declares
 }
 
 func (s *TransformState) Program() *compiler.Program { return s.program }

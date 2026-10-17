@@ -15,7 +15,8 @@ type solutionBuildDrainer struct {
 	restoredDeclarations map[string][]string
 	restoredMetadataErrs map[string]string
 	references           *referenceRojoCache
-	persists             []func() error
+	persists             map[string][]func() error
+	persistOrder         []string
 }
 
 func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
@@ -241,8 +242,8 @@ func (c *SolutionCoordinator) DrainWithProjectResultsForSelection(selection *Sol
 			})
 			continue
 		}
-		if appender, ok := c.drainer.(interface{ appendPersists([]func() error) }); ok {
-			appender.appendPersists(outcome.persists)
+		if appender, ok := c.drainer.(interface{ appendPersists(string, []func() error) }); ok && outcome.err == nil {
+			appender.appendPersists(project.ConfigPath, outcome.persists)
 		}
 		state := c.states[project.ConfigPath]
 		state.Result = outcome.result
@@ -630,17 +631,35 @@ func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []s
 	return BuildProjectWithOptions(filepath.Dir(project.ConfigPath), options)
 }
 
-func (d *solutionBuildDrainer) appendPersists(persists []func() error) {
-	d.persists = append(d.persists, persists...)
+func (d *solutionBuildDrainer) appendPersists(configPath string, persists []func() error) {
+	if d.persists == nil {
+		d.persists = make(map[string][]func() error)
+	}
+	if _, pending := d.persists[configPath]; !pending {
+		d.persistOrder = append(d.persistOrder, configPath)
+	}
+	// Each successful build captures replacement snapshots. Keep only the
+	// latest generation while another project prevents solution publication.
+	d.persists[configPath] = persists
 }
 
 func (d *solutionBuildDrainer) persist() error {
-	for index, persist := range d.persists {
-		if err := persist(); err != nil {
-			d.persists = d.persists[index:]
-			return fmt.Errorf("persist solution build state: %w", err)
+	for projectIndex, configPath := range d.persistOrder {
+		persists := d.persists[configPath]
+		for index, persist := range persists {
+			if err := persist(); err != nil {
+				d.persists[configPath] = persists[index:]
+				d.persistOrder = d.persistOrder[projectIndex:]
+				return fmt.Errorf("persist solution build state: %w", err)
+			}
+			// Clear consumed closures even when a later callback fails: a
+			// suffix slice otherwise keeps their backing array reachable.
+			persists[index] = nil
 		}
+		delete(d.persists, configPath)
+		d.persistOrder[projectIndex] = ""
 	}
 	d.persists = nil
+	d.persistOrder = nil
 	return nil
 }
