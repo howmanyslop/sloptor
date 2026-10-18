@@ -145,15 +145,30 @@ upper <= allowance passes, lower > allowance fails, otherwise inconclusive.
 The JSON includes exact limits, route, percentage/absolute changes, both-arm
 mean/median/p95/range, additive totals, raw pairs and block/order/batch counts.
 
-Additive CPU/I/O **mean** decisions use exact counter integers and arbitrary-size
-sums: difference of totals divided by count (and 10000 for CPU milliseconds),
-and ratio of totals. Their bootstrap ratios/differences and type7 interpolation
-remain rational through comparison with the exact decimal policy limits. Each
-mean direction includes `exact_mean` point/interval fraction strings; a null ratio
-retains the whole-row zero-denominator rule. Other numeric fields are rounded
-float64 displays and can coincide for exact values on opposite sides of a limit;
-recompute mean decisions from `exact_mean`, not those display copies. This exact
-path does not change elapsed estimators, resource median/p95 or the noise rule.
+All marginal decisions in this optional mode use exact admitted integers and
+rational arithmetic. CPU uses the exact user+kernel tick sum divided by 10000;
+I/O and peak memory use uint64 counters. Elapsed uses the admitted positive int64
+manifest `duration_ms` (<=MaxInt64/2), matching journal `DurationMS` after validated
+collector ties-even/max-one normalization. Fractional `ElapsedMS` remains raw
+correspondence evidence; it is never substituted into elapsed marginal statistics.
+CPU component signed-native bounds and the existing unsigned counter ranges still
+apply. Arbitrary-size sums avoid overflow, even medians retain central halves,
+and p95 selects nearest rank ceil(.95*n). Ratios/differences and type7 endpoints
+at exactly 1/40 and 39/40 remain rational through exact decimal limit comparison.
+
+Mean directions retain `exact_mean`; median/p95 directions add `exact_marginal`,
+each containing point/interval fraction strings. Only one is emitted per direction.
+These fields determine decisions and ratio availability, including after JSON
+roundtrip; float ratio/difference/percentage and descriptive summaries are displays.
+Displays can coincide on opposite sides of a limit. Whole-row zero-denominator
+fallback retains every draw and its exact zero count. Reverse ratios are computed
+before percentile interpolation, using the same selected blocks. Additive totals
+remain separate from non-additive peaks. Journal-free internal synthetic helpers
+interpret shortest decimal spellings of their supplied finite floats exactly;
+the CLI uses admitted raw integers. Original paired-log effect/noise conventions,
+primary/legacy classifiers and original manifest-only behavior remain unchanged.
+The optional mode's candidate no-change p95 guard also uses the exact marginal
+ratio-only rule; its existing gate name and 1.10 threshold are retained.
 
 A/A applies elapsed guards to every fixture and all resource guards in both
 directions using reversed draw statistics, including ratio-only no-change p95

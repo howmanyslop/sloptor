@@ -30,14 +30,15 @@ type resourceOrderSummary struct {
 }
 
 type resourceDirection struct {
-	Ratio                *estimate          `json:"ratio"`
-	PercentageChange     *estimate          `json:"percentage_change"`
-	Difference           estimate           `json:"difference"`
-	PointZeroDenominator bool               `json:"point_zero_denominator"`
-	ZeroDenominatorDraws int                `json:"zero_denominator_draws"`
-	Gate                 decision           `json:"gate"`
-	DecisiveRoute        string             `json:"decisive_route"`
-	ExactMean            *resourceExactMean `json:"exact_mean,omitempty"`
+	Ratio                *estimate              `json:"ratio"`
+	PercentageChange     *estimate              `json:"percentage_change"`
+	Difference           estimate               `json:"difference"`
+	PointZeroDenominator bool                   `json:"point_zero_denominator"`
+	ZeroDenominatorDraws int                    `json:"zero_denominator_draws"`
+	Gate                 decision               `json:"gate"`
+	DecisiveRoute        string                 `json:"decisive_route"`
+	ExactMean            *resourceExactMean     `json:"exact_mean,omitempty"`
+	ExactMarginal        *resourceExactMarginal `json:"exact_marginal,omitempty"`
 }
 
 type resourceStatisticResult struct {
@@ -147,19 +148,6 @@ func resourceArms(pairs []pair, additive bool) (resourceArmSummary, resourceArmS
 	return resourceArm(baseline, additive), resourceArm(candidate, additive)
 }
 
-func resourceStatistic(arm resourceArmSummary, name string) float64 {
-	switch name {
-	case "mean":
-		return arm.Mean
-	case "median":
-		return arm.Median
-	case "p95":
-		return arm.P95
-	default:
-		panic("unknown resource statistic: " + name)
-	}
-}
-
 func resourceEstimate(point float64, values []float64) estimate {
 	ordered := slices.Clone(values)
 	slices.Sort(ordered)
@@ -209,9 +197,9 @@ func resourceGate(direction resourceDirection, relative float64, absolute *float
 	switch {
 	case ratioPass || absolutePass:
 		d.Status, d.Message = criterionMet, "interval is within a declared relative or absolute allowance"
-	case direction.Ratio == nil && absolute == nil:
+	case !direction.ratioDefined() && absolute == nil:
 		d.Status, d.Message = inconclusive, "ratio is undefined and this guard has no absolute allowance"
-	case direction.Ratio == nil && absoluteFail:
+	case !direction.ratioDefined() && absoluteFail:
 		d.Status, d.Message = criterionNotMet, "absolute-only interval exceeds the allowance"
 	case absolute == nil && ratioFail:
 		d.Status, d.Message = criterionNotMet, "ratio-only interval exceeds the limit"
@@ -224,7 +212,7 @@ func resourceGate(direction resourceDirection, relative float64, absolute *float
 }
 
 func resourceRoute(direction resourceDirection, relative float64, absolute *float64) string {
-	if direction.Ratio == nil {
+	if !direction.ratioDefined() {
 		if absolute != nil {
 			return "absolute-only"
 		}
@@ -314,32 +302,27 @@ func resourcePhaseStatistics(batches [][]pair, metric string, symmetric bool, co
 		baseline, candidate := resourceArms(subset, additive)
 		result.Order[order] = resourceOrderSummary{len(subset), baseline, candidate}
 	}
-	draws := make(map[string][]resourceMarginals, len(statistics))
-	for _, name := range statistics {
-		draws[name] = make([]resourceMarginals, 0, bootstrapReplicates)
-	}
 	var exactMean *resourceMeanSamples
-	var indexVisitors []func([]int)
+	exactOrder := newResourceOrderSamples(batches, metric, statistics, counters...)
+	indexVisitors := []func([]int){exactOrder.record}
 	if statistics[0] == "mean" {
 		exactMean = newResourceMeanSamples(batches, metric, counters...)
 		indexVisitors = append(indexVisitors, exactMean.record)
 	}
-	result.DrawSHA256 = resourceDraws(batches, func(sample []pair) {
-		baseline, candidate := resourceArms(sample, false)
-		for _, name := range statistics {
-			draws[name] = append(draws[name], resourceMarginals{resourceStatistic(baseline, name), resourceStatistic(candidate, name)})
-		}
-	}, indexVisitors...)
+	result.DrawSHA256 = resourceDraws(batches, func([]pair) {}, indexVisitors...)
 	for _, name := range statistics {
-		point := resourceMarginals{resourceStatistic(result.Baseline, name), resourceStatistic(result.Candidate, name)}
-		row := resourceStatisticResult{Statistic: name, Forward: resourceDirectionFor(point, draws[name], false)}
+		row := resourceStatisticResult{Statistic: name}
 		if name == "mean" {
 			row.Forward = exactMean.direction(false)
+		} else {
+			row.Forward = exactOrder.direction(name, false)
 		}
 		if symmetric {
-			reversed := resourceDirectionFor(point, draws[name], true)
+			var reversed resourceDirection
 			if name == "mean" {
 				reversed = exactMean.direction(true)
+			} else {
+				reversed = exactOrder.direction(name, true)
 			}
 			row.Reverse = &reversed
 		}

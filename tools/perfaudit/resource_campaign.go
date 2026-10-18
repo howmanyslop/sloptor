@@ -205,7 +205,7 @@ func summarizeResources(batches []resourceBatch, p resourcePlan, symmetric bool,
 		}
 		s.Metrics[phase] = map[string]resourceMetricResult{}
 		for _, metric := range []string{"elapsed_ms", "job_cpu_ms", "job_peak_bytes", "read_operations", "write_operations", "other_operations", "read_bytes", "write_bytes", "other_bytes"} {
-			if metric == "elapsed_ms" && !symmetric && (phase != cold || p.Role != "negative-control") {
+			if metric == "elapsed_ms" && !symmetric && phase == cold && p.Role != "negative-control" {
 				continue
 			}
 			var values [][]pair
@@ -227,12 +227,20 @@ func summarizeResources(batches []resourceBatch, p resourcePlan, symmetric bool,
 			r := resourcePhaseStatistics(values, metric, symmetric, resourceCounterBatches(batches, metric, phase))
 			r.Status = criterionMet
 			for name, row := range r.Rows {
+				if metric == "elapsed_ms" && !symmetric && phase == noChange && name == "median" {
+					delete(r.Rows, name) // Candidates retain only the existing p95 guard here.
+					continue
+				}
 				if metric == "elapsed_ms" && phase == noChange && name == "p95" {
 					reconfigureResourceRow(&row, guardrailLimit, nil)
 					r.Rows[name] = row
 				}
 				r.Status = resourceOutcome(r.Status, row.Status)
-				s.Gates[phase+"/"+metric+"/"+name+"/forward"] = row.Forward.Gate
+				key := phase + "/" + metric + "/" + name + "/forward"
+				if metric == "elapsed_ms" && !symmetric && phase == noChange {
+					key = "no_change/p95"
+				}
+				s.Gates[key] = row.Forward.Gate
 				if row.Reverse != nil {
 					s.Gates[phase+"/"+metric+"/"+name+"/reverse"] = row.Reverse.Gate
 				}
@@ -241,7 +249,6 @@ func summarizeResources(batches []resourceBatch, p resourcePlan, symmetric bool,
 		}
 	}
 	if !symmetric {
-		s.Gates["no_change/p95"] = guardrailDecision(s.Elapsed[noChange].Estimates.P95Ratio)
 		if p.Role != "negative-control" {
 			ratio := s.Elapsed[p.Primary].Estimates.PairedRatio
 			s.Gates["primary_benefit"] = primaryDecision(ratio, .95)

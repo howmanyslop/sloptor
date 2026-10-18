@@ -1,13 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"math/big"
 	"slices"
 	"strconv"
 )
 
 // Rat marshals as a reduced fraction string. These values, not their float64
-// display copies, determine additive mean gates. Units match the metric row.
+// display copies, determine marginal gates. Units match the metric row.
 type resourceRationalInterval struct {
 	Lower *big.Rat `json:"lower"`
 	Upper *big.Rat `json:"upper"`
@@ -18,19 +19,25 @@ type resourceRationalEstimate struct {
 	CI95  resourceRationalInterval `json:"ci95"`
 }
 
-type resourceExactMean struct {
+type resourceExactMarginal struct {
 	Ratio      *resourceRationalEstimate `json:"ratio"`
 	Difference resourceRationalEstimate  `json:"difference"`
 }
 
+// Retain the mean payload/API introduced in R2; order-statistic rows use the
+// same rational representation under their separate exact_marginal field.
+type resourceExactMean = resourceExactMarginal
+
 type resourceCounterPair struct{ baseline, candidate uint64 }
 type resourceMeanTotals struct{ baseline, candidate big.Int }
-type resourceMeanSamples struct {
+type resourceExactSamples struct {
 	blocks      []resourceMeanTotals
 	point       resourceMeanTotals
 	draws       []resourceMeanTotals
-	denominator big.Int // common observation scale multiplied by invocation count
+	denominator big.Int // common denominator for the named statistic's numerators
 }
+
+type resourceMeanSamples = resourceExactSamples
 
 func resourceDecimal(value float64) *big.Rat {
 	r, ok := new(big.Rat).SetString(strconv.FormatFloat(value, 'g', -1, 64))
@@ -44,9 +51,6 @@ func resourceDecimal(value float64) *big.Rat {
 // Keep raw counter integers through the mean seam; CPU scale is applied later.
 // In-memory synthetic callers without journals retain the decimal helper API.
 func resourceCounterBatches(batches []resourceBatch, metric, phase string) [][]resourceCounterPair {
-	if metric == "elapsed_ms" || metric == "job_peak_bytes" {
-		return nil
-	}
 	key := metric
 	if metric == "job_cpu_ms" {
 		key = "job_cpu_ticks_100ns"
@@ -62,7 +66,11 @@ func resourceCounterBatches(batches []resourceBatch, metric, phase string) [][]r
 				observations = append(observations, o)
 			}
 		}
-		if len(observations) != 2*len(batch.Resources[metric][phase]) {
+		count := len(batch.Resources[metric][phase])
+		if metric == "elapsed_ms" {
+			count = len(batch.Phases[phase])
+		}
+		if len(observations) != 2*count {
 			panic("admitted resource count mismatch")
 		}
 		for j := 0; j < len(observations); j += 2 {
@@ -72,6 +80,18 @@ func resourceCounterBatches(batches []resourceBatch, metric, phase string) [][]r
 			}
 			av, aok := a.CounterValues[key]
 			cv, cok := c.CounterValues[key]
+			if metric == "elapsed_ms" {
+				// Admission binds these integers to manifest duration_ms and to
+				// the collector's normalized DurationMS. ElapsedMS stays raw
+				// correspondence evidence, not a substitute fractional estimand.
+				get := func(o resourceObservation) (uint64, bool) {
+					var result struct{ DurationMS int64 }
+					err := json.Unmarshal(o.entry["result"], &result)
+					return uint64(result.DurationMS), err == nil && result.DurationMS > 0
+				}
+				av, aok = get(a)
+				cv, cok = get(c)
+			}
 			if !aok || !cok {
 				panic("admitted exact resource counter missing")
 			}
@@ -84,7 +104,7 @@ func resourceCounterBatches(batches []resourceBatch, metric, phase string) [][]r
 // A common integer scale permits allocation-light, overflow-safe block sums.
 // Native CPU inputs have scale 10000 and I/O inputs scale 1. Only the synthetic
 // float helper path obtains exact rationals from shortest decimal spellings.
-func newResourceMeanSamples(batches [][]pair, metric string, counters ...[][]resourceCounterPair) *resourceMeanSamples {
+func resourceScaledValues(batches [][]pair, metric string, counters ...[][]resourceCounterPair) ([]resourceMeanTotals, *big.Int) {
 	var exact [][]resourceCounterPair
 	if len(counters) > 0 {
 		exact = counters[0]
@@ -93,7 +113,7 @@ func newResourceMeanSamples(batches [][]pair, metric string, counters ...[][]res
 	scale := big.NewInt(1)
 	for b, batch := range batches {
 		for i, p := range batch {
-			a, c := resourceDecimal(p.baseline), resourceDecimal(p.candidate)
+			var a, c *big.Rat
 			if exact != nil {
 				unit := int64(1)
 				if metric == "job_cpu_ms" {
@@ -101,6 +121,8 @@ func newResourceMeanSamples(batches [][]pair, metric string, counters ...[][]res
 				}
 				a = new(big.Rat).SetFrac(new(big.Int).SetUint64(exact[b][i].baseline), big.NewInt(unit))
 				c = new(big.Rat).SetFrac(new(big.Int).SetUint64(exact[b][i].candidate), big.NewInt(unit))
+			} else {
+				a, c = resourceDecimal(p.baseline), resourceDecimal(p.candidate)
 			}
 			values = append(values, [2]*big.Rat{a, c})
 			for _, v := range []*big.Rat{a, c} {
@@ -109,17 +131,27 @@ func newResourceMeanSamples(batches [][]pair, metric string, counters ...[][]res
 			}
 		}
 	}
-	s := &resourceMeanSamples{blocks: make([]resourceMeanTotals, len(values)/2), draws: make([]resourceMeanTotals, 0, bootstrapReplicates)}
-	s.denominator.Mul(scale, big.NewInt(int64(len(values))))
+	integers := make([]resourceMeanTotals, len(values))
 	for i, p := range values {
 		for arm, v := range p {
 			n := new(big.Int).Mul(v.Num(), new(big.Int).Quo(new(big.Int).Set(scale), v.Denom()))
-			dst := &s.blocks[i/2].baseline
+			dst := &integers[i].baseline
 			if arm == 1 {
-				dst = &s.blocks[i/2].candidate
+				dst = &integers[i].candidate
 			}
-			dst.Add(dst, n)
+			dst.Set(n)
 		}
+	}
+	return integers, scale
+}
+
+func newResourceMeanSamples(batches [][]pair, metric string, counters ...[][]resourceCounterPair) *resourceMeanSamples {
+	values, scale := resourceScaledValues(batches, metric, counters...)
+	s := &resourceMeanSamples{blocks: make([]resourceMeanTotals, len(values)/2), draws: make([]resourceMeanTotals, 0, bootstrapReplicates)}
+	s.denominator.Mul(scale, big.NewInt(int64(len(values))))
+	for i := range values {
+		s.blocks[i/2].baseline.Add(&s.blocks[i/2].baseline, &values[i].baseline)
+		s.blocks[i/2].candidate.Add(&s.blocks[i/2].candidate, &values[i].candidate)
 	}
 	for i := range s.blocks {
 		s.point.baseline.Add(&s.point.baseline, &s.blocks[i].baseline)
@@ -199,8 +231,7 @@ func (s *resourceMeanSamples) direction(reverse bool) resourceDirection {
 }
 
 func resourceComparisons(d resourceDirection, relative float64, absolute *float64) (ratioPass, absolutePass, ratioFail, absoluteFail bool) {
-	if d.ExactMean != nil {
-		e := d.ExactMean
+	if e := d.exactMarginal(); e != nil {
 		if e.Ratio != nil {
 			limit := resourceDecimal(relative)
 			ratioPass = e.Ratio.CI95.Upper.Cmp(limit) <= 0
