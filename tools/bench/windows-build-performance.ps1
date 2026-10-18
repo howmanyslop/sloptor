@@ -475,6 +475,56 @@ namespace RotorBench {
         public void CloseEvidence() { try { file.Flush(); } finally { file.Dispose(); } }
         public void Dispose() { try { pipe?.Dispose(); } finally { file.Dispose(); } }
     }
+    public sealed class ResourceMetric {
+        public string Status { get; set; }
+        public string Error { get; set; }
+        public Dictionary<string, object> Values { get; set; }
+        public static ResourceMetric Available(Dictionary<string, object> values) => new ResourceMetric { Status = "available", Values = values };
+        public static ResourceMetric Missing(string status, string error) => new ResourceMetric { Status = status, Error = error };
+    }
+    public sealed class ResourceSnapshot {
+        public int Schema { get; } = 1;
+        public string Status { get; private set; }
+        public string Completion { get; private set; }
+        public string CompletionError { get; private set; }
+        public ResourceMetric JobAccounting { get; set; }
+        public ResourceMetric JobMemory { get; set; }
+        public ResourceMetric RootCpu { get; set; }
+        public ResourceMetric OtherOwnedCpu { get; set; }
+        public double? QueryElapsedMS { get; set; }
+        public ResourceSnapshot(bool partial, string error) { Completion = partial ? "partial" : "complete"; CompletionError = partial ? error : null; }
+        public static ResourceSnapshot Missing(string status, string error, bool partial) {
+            var value = new ResourceSnapshot(partial, partial ? error : null) {
+                JobAccounting = ResourceMetric.Missing(status, error), JobMemory = ResourceMetric.Missing(status, error),
+                RootCpu = ResourceMetric.Missing(status, error), OtherOwnedCpu = ResourceMetric.Missing(status, error)
+            };
+            value.RefreshStatus(); return value;
+        }
+        public void MarkPartial(string reason) {
+            Completion = "partial";
+            if (!string.IsNullOrEmpty(reason)) CompletionError = string.IsNullOrEmpty(CompletionError) ? reason : CompletionError + "; " + reason;
+            RefreshStatus();
+        }
+        public void RefreshStatus() {
+            var metrics = new[] { JobAccounting, JobMemory, RootCpu, OtherOwnedCpu };
+            bool allAvailable = true, anyAvailable = false, allUnsupported = true, allUnavailable = true;
+            foreach (var metric in metrics) {
+                allAvailable &= metric.Status == "available"; anyAvailable |= metric.Status == "available";
+                allUnsupported &= metric.Status == "unsupported"; allUnavailable &= metric.Status == "unavailable";
+            }
+            Status = allAvailable ? (Completion == "complete" ? "available" : "partial") :
+                anyAvailable ? "partial" : allUnsupported ? "unsupported" : allUnavailable ? "unavailable" : "failed";
+        }
+        public static ResourceMetric SubtractOtherCpu(ResourceMetric job, ResourceMetric root) {
+            if (job.Status != "available" || root.Status != "available") return ResourceMetric.Missing(
+                job.Status == "unsupported" || root.Status == "unsupported" ? "unsupported" : "unavailable", "job/root CPU accounting unavailable; subtraction not measured");
+            long user = (long)job.Values["UserTicks100ns"], kernel = (long)job.Values["KernelTicks100ns"];
+            long rootUser = (long)root.Values["UserTicks100ns"], rootKernel = (long)root.Values["KernelTicks100ns"];
+            if (user < 0 || kernel < 0 || rootUser < 0 || rootKernel < 0 || user < rootUser || kernel < rootKernel)
+                return ResourceMetric.Missing("failed", "job/root CPU accounting inconsistent; negative subtraction is not clamped");
+            return ResourceMetric.Available(new Dictionary<string, object> { ["UserTicks100ns"] = user - rootUser, ["KernelTicks100ns"] = kernel - rootKernel });
+        }
+    }
     public sealed class Invocation : IDisposable {
         [StructLayout(LayoutKind.Sequential)] struct SecurityAttributes {
             public int Length; public IntPtr Descriptor; [MarshalAs(UnmanagedType.Bool)] public bool Inherit;
@@ -501,11 +551,15 @@ namespace RotorBench {
             public long UserTime, KernelTime, PeriodUserTime, PeriodKernelTime;
             public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
         }
+        [StructLayout(LayoutKind.Sequential)] struct BasicIoAccounting { public Accounting Basic; public IoCounters Io; }
         [StructLayout(LayoutKind.Sequential)] struct CompletionPort { public IntPtr Key, Port; }
         [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int kind, ref ExtendedLimits info, uint size);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int kind, ref CompletionPort info, uint size);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int kind, out Accounting info, uint size, IntPtr returned);
+        [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)] static extern bool QueryBasicIo(IntPtr job, int kind, out BasicIoAccounting info, uint size, IntPtr returned);
+        [DllImport("kernel32.dll", EntryPoint = "QueryInformationJobObject", SetLastError = true)] static extern bool QueryExtended(IntPtr job, int kind, out ExtendedLimits info, uint size, IntPtr returned);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SecurityAttributes attributes, uint size);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
@@ -658,6 +712,52 @@ namespace RotorBench {
             } else if (portable != null && !RootExited) { portable.WaitForExit(milliseconds); }
         }
         public void CloseEvidence() { Stdout?.CloseEvidence(); Stderr?.CloseEvidence(); }
+        static ResourceMetric ResourceFailure(Exception error) {
+            string status = error is PlatformNotSupportedException || error is EntryPointNotFoundException ||
+                (error is Win32Exception win32 && (win32.NativeErrorCode == 50 || win32.NativeErrorCode == 120)) ? "unsupported" : "failed";
+            return ResourceMetric.Missing(status, error.GetType().Name + ": " + error.Message);
+        }
+        // Retained handles, getters only. Called after the authoritative wall
+        // endpoint; no resource query or sampler is added to the wait loop.
+        public ResourceSnapshot ReadResources(bool partial, string reason) {
+            if (!OperatingSystem.IsWindows()) return ResourceSnapshot.Missing("unsupported", "Windows owned-job resources require Windows", partial);
+            if (!started || disposed || job == IntPtr.Zero || process == IntPtr.Zero)
+                return ResourceSnapshot.Missing("unavailable", "owned job/root handles not available (not started or disposed)", true);
+            var watch = Stopwatch.StartNew();
+            var snapshot = new ResourceSnapshot(partial, reason);
+            bool active = false;
+            try {
+                Check(QueryBasicIo(job, 8, out BasicIoAccounting value, (uint)Marshal.SizeOf<BasicIoAccounting>(), IntPtr.Zero));
+                if (value.Basic.UserTime < 0 || value.Basic.KernelTime < 0) throw new InvalidOperationException("negative job CPU counter");
+                snapshot.JobAccounting = ResourceMetric.Available(new Dictionary<string, object> {
+                    ["UserTicks100ns"] = value.Basic.UserTime, ["KernelTicks100ns"] = value.Basic.KernelTime,
+                    ["TotalProcesses"] = value.Basic.TotalProcesses, ["ActiveProcesses"] = value.Basic.ActiveProcesses,
+                    ["LimitTerminatedProcesses"] = value.Basic.TerminatedProcesses, ["TotalPageFaults"] = value.Basic.PageFaults,
+                    ["ReadOperations"] = value.Io.ReadOps, ["WriteOperations"] = value.Io.WriteOps, ["OtherOperations"] = value.Io.OtherOps,
+                    ["ReadBytes"] = value.Io.ReadBytes, ["WriteBytes"] = value.Io.WriteBytes, ["OtherBytes"] = value.Io.OtherBytes,
+                    ["StructureBytes"] = Marshal.SizeOf<BasicIoAccounting>()
+                });
+                active = value.Basic.ActiveProcesses != 0;
+            } catch (Exception error) { snapshot.JobAccounting = ResourceFailure(error); }
+            try {
+                Check(QueryExtended(job, 9, out ExtendedLimits value, (uint)Marshal.SizeOf<ExtendedLimits>(), IntPtr.Zero));
+                // Extended-limit Io is reserved. All six I/O values come from class 8.
+                snapshot.JobMemory = ResourceMetric.Available(new Dictionary<string, object> {
+                    ["PeakJobMemoryBytes"] = value.PeakJobMemory.ToUInt64(), ["PeakProcessMemoryBytes"] = value.PeakProcessMemory.ToUInt64(),
+                    ["StructureBytes"] = Marshal.SizeOf<ExtendedLimits>()
+                });
+            } catch (Exception error) { snapshot.JobMemory = ResourceFailure(error); }
+            try {
+                Check(GetProcessTimes(process, out _, out _, out long kernel, out long user));
+                if (user < 0 || kernel < 0) throw new InvalidOperationException("negative root CPU counter");
+                snapshot.RootCpu = ResourceMetric.Available(new Dictionary<string, object> { ["UserTicks100ns"] = user, ["KernelTicks100ns"] = kernel });
+            } catch (Exception error) { snapshot.RootCpu = ResourceFailure(error); }
+            snapshot.OtherOwnedCpu = ResourceSnapshot.SubtractOtherCpu(snapshot.JobAccounting, snapshot.RootCpu);
+            if (active) snapshot.MarkPartial("owned job still has active members; counters are a partial snapshot");
+            else snapshot.RefreshStatus();
+            watch.Stop(); snapshot.QueryElapsedMS = watch.Elapsed.TotalMilliseconds;
+            return snapshot;
+        }
         public void TerminateAndJoin() {
             try {
                 if (job != IntPtr.Zero && ActiveProcesses != 0) Check(TerminateJobObject(job, 1));
@@ -706,6 +806,14 @@ function Write-ProcessEvidence {
     $Owner.CloseEvidence()
 }
 
+function Read-InvocationResources {
+    param($Owner, [bool]$Partial, [string]$Failure)
+
+    if (-not $IsWindows) { return [RotorBench.ResourceSnapshot]::Missing('unsupported', 'Windows owned-job resources require Windows', $Partial) }
+    try { return $Owner.ReadResources($Partial, $Failure) }
+    catch { return [RotorBench.ResourceSnapshot]::Missing('failed', "resource collection failed: $($_.Exception.Message)", $Partial) }
+}
+
 function Invoke-ProcessWithTimeout {
     param(
         [string]$Executable,
@@ -721,7 +829,7 @@ function Invoke-ProcessWithTimeout {
     Initialize-ProcessOwnership
     $owner = [RotorBench.Invocation]::new($StdoutPath, $StderrPath, $CaptureLimit)
     if ($null -ne $Ownership) { $Ownership.Value = $owner }
-    $result = [ordered]@{ DurationMS = $null; ElapsedMS = $null; ExitCode = $null; Status = 'incomplete'; Error = $null; EvidencePersistenceMS = $null; CaptureLimitBytes = $CaptureLimit }
+    $result = [ordered]@{ DurationMS = $null; ElapsedMS = $null; ExitCode = $null; Status = 'incomplete'; Error = $null; EvidencePersistenceMS = $null; CaptureLimitBytes = $CaptureLimit; ResourceAccounting = $null }
     $stopwatch = [Diagnostics.Stopwatch]::new()
     try {
         $stopwatch.Start()
@@ -752,7 +860,13 @@ function Invoke-ProcessWithTimeout {
             try { Write-ProcessEvidence $owner }
             catch { $result.Status = 'incomplete'; $result.Error += "; evidence persistence: $($_.Exception.Message)" }
             finally { $persistence.Stop(); $result.EvidencePersistenceMS = $persistence.Elapsed.TotalMilliseconds }
-        } finally { if ($null -eq $Ownership) { $owner.Dispose() } }
+        } finally {
+            try {
+                $partial = $result.Status -ne 'completed' -or $result.ExitCode -ne 0
+                $reason = if ($result.Error) { $result.Error } elseif ($partial) { 'invocation failed or was interrupted; owned work may be truncated' } else { $null }
+                $result.ResourceAccounting = Read-InvocationResources $owner $partial $reason
+            } finally { if ($null -eq $Ownership) { $owner.Dispose() } }
+        }
     }
     return $result
 }
@@ -774,6 +888,7 @@ function Invoke-ScoredBuild {
         status = 'incomplete'; executable = $Executable; working_directory = $WorkCopy
         stdout = "$EvidencePath.stdout.json"; stderr = "$EvidencePath.stderr.txt"
         diagnostics_digest_format = 'sha256-diagnostics-v2'
+        resource_accounting_format = 'windows-job-post-wall-v1'
     }
     Add-InvocationRecord $JournalPath $entry
     $result = $null
@@ -803,6 +918,7 @@ function Invoke-ScoredBuild {
             if (-not $validationCompleted) {
                 if (-not $entry.error) { $entry.error = 'validation interrupted or did not complete' }
                 if ($null -ne $result -and $result.Status -eq 'completed') { $result.Status = 'incomplete'; $result.Error = $entry.error }
+                if ($null -ne $result -and $null -ne $result.ResourceAccounting) { $result.ResourceAccounting.MarkPartial($entry.error) }
             }
             $entry.event = 'finished'
             $entry.at_utc = [DateTime]::UtcNow.ToString('o')
@@ -1023,6 +1139,12 @@ function Invoke-RealBenchmark {
         invocation_journal = $journalPath
         tree_digest_format = 'sha256-tree-v2'
         diagnostics_digest_format = 'sha256-diagnostics-v2'
+        resource_accounting = [ordered]@{
+            format = 'windows-job-post-wall-v1'; invocation_journal = $journalPath
+            boundary = 'getters after wall endpoint and owned cleanup, before retained handle disposal'
+            cpu_units = '100ns ticks; observed resolution may be coarse'; memory = 'Windows job/process peak memory bytes, not RSS'
+            io = 'OS-accounted read/write/other operations and bytes; not filesystem-only or durable writes'
+        }
         measurement_boundary = 'owned-job-quiescence-and-spooled-stream-eof-v2'
         capture_limit_bytes_per_stream = $MaxCaptureBytes
         scope = 'single-project fresh-process; output/state reset; warm OS cache; output digest excludes include, custom outputs and mtimes; canonical digest covers all files except .git'

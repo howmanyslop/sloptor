@@ -12,6 +12,7 @@ function Invoke-HarnessRegressions {
     $journal = Join-Path $root 'invocations.ndjson'
     try {
         Invoke-DiagnosticAdmissionRegressions $HarnessFile $StubFile $Repository $root
+        Invoke-ResourceRegressions $StubFile $root
         # No attach operation exists. Immediate roots and child creation are
         # legal schedules inside the creation-time job, including fast exits.
         foreach ($index in 1..25) {
@@ -375,6 +376,123 @@ function Invoke-DiagnosticAdmissionRegressions {
         if ($failures.Count) { throw ($failures -join '; ') }
         Write-Output 'PASS R4-C8/C9/P06/A01: accepted-depth, Unicode scalars, exact number tokens and JSON types reach real evaluator; rejected inputs preserve incomplete raw evidence'
     } finally { $env:ROTOR_BENCH_TEST_MODE = $savedMode; $env:ROTOR_BENCH_TEST_JSON = $savedJson }
+}
+
+function Invoke-ResourceRegressions {
+    param([string]$StubFile, [string]$Artifacts)
+
+    $root = Join-Path $Artifacts 'resources'
+    [void][IO.Directory]::CreateDirectory($root)
+    $savedMode = $env:ROTOR_BENCH_TEST_MODE
+    $savedRoot = $env:ROTOR_BENCH_TEST_RESOURCE_ROOT
+    $rows = [ordered]@{}
+    try {
+        foreach ($mode in @('leaf','cpu','child-cpu','io','child-io','staggered','overlap','timeout','nonzero')) {
+            $case = Join-Path $root $mode
+            [void][IO.Directory]::CreateDirectory($case)
+            $env:ROTOR_BENCH_TEST_MODE = "resource-$mode"
+            $env:ROTOR_BENCH_TEST_RESOURCE_ROOT = $case
+            $deadline = if ($mode -eq 'timeout') { [TimeSpan]::FromSeconds(1) } else { [TimeSpan]::FromSeconds(12) }
+            $result = Invoke-ProcessWithTimeout $StubFile @('build') $case $deadline (Join-Path $case 'stdout') (Join-Path $case 'stderr')
+            $result | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $case 'result.json')
+            $rows[$mode] = $result
+            $resources = $result.ResourceAccounting
+            $partial = $mode -in @('timeout','nonzero')
+            $status = if ($partial -or $resources.OtherOwnedCpu.Status -ne 'available') { 'partial' } else { 'available' }
+            Assert-True ($resources.Status -eq $status -and $resources.Completion -eq $(if ($partial) { 'partial' } else { 'complete' })) "resource completeness wrong: $mode"
+            Assert-True ($resources.JobAccounting.Values.ActiveProcesses -eq 0 -and $resources.JobAccounting.Values.TotalProcesses -ge 1) 'resource snapshot preceded owned-job quiescence'
+            Assert-True ($resources.RootCpu.Status -eq 'available' -and $resources.JobAccounting.Status -eq 'available') 'raw CPU components unavailable on supported control'
+            if ($resources.OtherOwnedCpu.Status -ne 'available') {
+                Assert-True ($resources.OtherOwnedCpu.Status -eq 'failed' -and $null -eq $resources.OtherOwnedCpu.Values -and $resources.OtherOwnedCpu.Error -like '*inconsistent*') 'CPU inconsistency lost its unmeasured cause'
+                Assert-True ($resources.JobAccounting.Values.UserTicks100ns -lt $resources.RootCpu.Values.UserTicks100ns -or $resources.JobAccounting.Values.KernelTicks100ns -lt $resources.RootCpu.Values.KernelTicks100ns) 'CPU inconsistency was not supported by raw values'
+            }
+            if ($partial) { Assert-True ([bool]$resources.CompletionError) 'partial resources lost failure cause' }
+            if ($mode -in @('cpu','child-cpu')) {
+                $tag = if ($mode -eq 'cpu') { 'root' } else { 'child' }
+                Assert-True ((Test-Path -LiteralPath (Join-Path $case "$tag-cpu")) -and (Test-Path -LiteralPath (Join-Path $case "$tag-done"))) 'CPU work did not complete'
+                $cpu = if ($tag -eq 'root') { $resources.RootCpu } else { $resources.OtherOwnedCpu }
+                if ($cpu.Status -eq 'available') {
+                    Assert-True (($cpu.Values.UserTicks100ns + $cpu.Values.KernelTicks100ns) -gt 0) 'completed fixed CPU work was missing from retained counters'
+                } else {
+                    Assert-True (($resources.JobAccounting.Values.UserTicks100ns + $resources.JobAccounting.Values.KernelTicks100ns) -gt ($resources.RootCpu.Values.UserTicks100ns + $resources.RootCpu.Values.KernelTicks100ns)) 'child CPU work missing from raw job/root totals'
+                }
+            }
+            if ($mode -in @('child-cpu','child-io')) {
+                Assert-True (Test-Path -LiteralPath (Join-Path $case 'child-parent-exited')) 'child did not observe parent exit before resource work'
+                $childId = [int][IO.File]::ReadAllText((Join-Path $case 'child-pid'))
+                Assert-True ($null -eq (Get-Process -Id $childId -ErrorAction SilentlyContinue)) 'resource child still alive after measured completion'
+                Assert-True ($resources.JobAccounting.Values.TotalProcesses -ge 2) 'exited child omitted from lifetime count'
+            }
+            if ($mode -in @('io','child-io','timeout','nonzero')) {
+                $tag = if ($mode -eq 'child-io') { 'child' } else { 'root' }
+                $file = Join-Path $case "$tag-io.bin"
+                Assert-True ((Get-Item -LiteralPath $file).Length -eq 16MB -and [IO.File]::ReadAllText((Join-Path $case "$tag-io-verified")) -eq (Get-FileHash $file).Hash) 'resource I/O artifacts not verified'
+                Assert-True ($resources.JobAccounting.Values.ReadBytes -ge 16MB -and $resources.JobAccounting.Values.WriteBytes -ge 16MB) 'completed OS I/O missing from job accounting'
+            }
+            if ($mode -in @('staggered','overlap')) {
+                foreach ($tag in @('a','b')) { Assert-True (Test-Path -LiteralPath (Join-Path $case "$tag-done")) 'allocation control did not complete' }
+                Assert-True ($resources.JobMemory.Values.PeakProcessMemoryBytes -ge 128MB) 'touched allocation missing from retained process peak'
+            }
+        }
+        Assert-True ($rows['overlap'].ResourceAccounting.JobMemory.Values.PeakJobMemoryBytes -gt $rows['staggered'].ResourceAccounting.JobMemory.Values.PeakJobMemoryBytes) 'job memory peak did not distinguish overlap from staggered allocations'
+        Assert-True ($rows['overlap'].ResourceAccounting.JobMemory.Values.PeakJobMemoryBytes -gt $rows['overlap'].ResourceAccounting.JobMemory.Values.PeakProcessMemoryBytes) 'job peak was substituted with individual process peak'
+        $rows | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $root 'controls.json')
+        Write-Output 'PASS resources: root/exited-private-child CPU and verified OS I/O, lifetime counts, staggered/overlapping touched peaks, timeout/nonzero partial accounting'
+
+        $owner = [RotorBench.Invocation]::new((Join-Path $root 'unstarted.stdout'), (Join-Path $root 'unstarted.stderr'), 1024)
+        try { $missing = $owner.ReadResources($true, 'unstarted control'); Assert-True ($missing.Status -eq 'unavailable' -and $null -eq $missing.JobAccounting.Values -and $missing.JobAccounting.Error) 'unavailable counters became successful zero' }
+        finally { $owner.Dispose() }
+        $env:ROTOR_BENCH_TEST_MODE = 'resource-leaf'
+        $env:ROTOR_BENCH_TEST_RESOURCE_ROOT = Join-Path $root 'fault-leaf'
+        $owner = $null
+        try {
+            [void](Invoke-ProcessWithTimeout $StubFile @('build') $root ([TimeSpan]::FromSeconds(4)) (Join-Path $root 'fault.stdout') (Join-Path $root 'fault.stderr') -Ownership ([ref]$owner))
+            $field = $owner.GetType().GetField('job', [Reflection.BindingFlags]'NonPublic,Instance')
+            $heldJob = $field.GetValue($owner)
+            try {
+                # Read fault only after quiescence; restore the real owned handle
+                # before disposal. No test process is allowed to escape its job.
+                $field.SetValue($owner, [IntPtr]::new(1))
+                $failed = $owner.ReadResources($false, $null)
+                Assert-True ($failed.Status -eq 'partial' -and $failed.JobAccounting.Status -eq 'failed' -and $failed.JobMemory.Status -eq 'failed' -and $failed.RootCpu.Status -eq 'available' -and $null -eq $failed.JobAccounting.Values -and $failed.JobAccounting.Error) 'native getter failure became zero or erased available components'
+            } finally { $field.SetValue($owner, $heldJob) }
+        } finally { if ($null -ne $owner) { $owner.Dispose() } }
+        $jobValues = [Collections.Generic.Dictionary[string,object]]::new()
+        $jobValues['UserTicks100ns'] = [long]1; $jobValues['KernelTicks100ns'] = [long]2
+        $parentValues = [Collections.Generic.Dictionary[string,object]]::new()
+        $parentValues['UserTicks100ns'] = [long]2; $parentValues['KernelTicks100ns'] = [long]2
+        $job = [RotorBench.ResourceMetric]::Available($jobValues)
+        $parent = [RotorBench.ResourceMetric]::Available($parentValues)
+        $inconsistent = [RotorBench.ResourceSnapshot]::SubtractOtherCpu($job, $parent)
+        Assert-True ($inconsistent.Status -eq 'failed' -and $null -eq $inconsistent.Values -and $inconsistent.Error -like '*not clamped*') 'inconsistent subtraction was silently clamped'
+        $fake = [pscustomobject]@{}
+        $fake | Add-Member ScriptMethod ReadResources { param($Partial, $Failure); throw 'injected resource getter failure' }
+        $originalReader = (Get-Item Function:Read-InvocationResources).ScriptBlock
+        try {
+            function Read-InvocationResources { param($Owner, [bool]$Partial, [string]$Failure); return & $originalReader $fake $Partial $Failure }
+            $env:ROTOR_BENCH_TEST_MODE = ''
+            $good = Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(4)) (Join-Path $root 'query-failure-good') (Join-Path $root 'fault.ndjson') @{ scored = $false }
+            Assert-True ($good.Status -eq 'completed' -and $good.ResourceAccounting.Status -eq 'failed' -and $null -eq $good.ResourceAccounting.JobAccounting.Values) 'resource failure invalidated valid wall measurement or became zero'
+            $env:ROTOR_BENCH_TEST_MODE = 'nonzero'
+            Assert-Throws { Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(4)) (Join-Path $root 'query-failure-bad') (Join-Path $root 'fault.ndjson') @{ scored = $false } } 'build failed.*exit_code=9'
+            $last = (Read-Journal (Join-Path $root 'fault.ndjson'))[-1]
+            Assert-True ($last.error -like '*build failed*' -and $last.result.ResourceAccounting.Status -eq 'failed') 'resource failure masked original process error'
+        } finally { Set-Item Function:Read-InvocationResources $originalReader }
+        $unsupported = [RotorBench.ResourceSnapshot]::Missing('unsupported', 'unsupported-platform representation control', $false)
+        Assert-True ($unsupported.Status -eq 'unsupported' -and $null -eq $unsupported.JobAccounting.Values -and $unsupported.JobAccounting.Error) 'portable branch queried native counters or became zero'
+        @{ unavailable = $missing; native_failure = $failed; inconsistent = $inconsistent; unsupported_branch = $unsupported; valid_wall_query_failure = $good.ResourceAccounting } | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $root 'faults.json')
+
+        $env:ROTOR_BENCH_TEST_MODE = ''
+        try {
+            function Read-InvocationResources { param($Owner, [bool]$Partial, [string]$Failure); Start-Sleep -Milliseconds 700; return & $originalReader $Owner $Partial $Failure }
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            $delayed = Invoke-ProcessWithTimeout $StubFile @('build') $root ([TimeSpan]::FromSeconds(4)) (Join-Path $root 'delayed.stdout') (Join-Path $root 'delayed.stderr')
+            $timer.Stop()
+            @{ result = $delayed; total_ms = $timer.Elapsed.TotalMilliseconds } | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $root 'post-wall-delay.json')
+            Assert-True (($timer.Elapsed.TotalMilliseconds - $delayed.ElapsedMS) -ge 650 -and $delayed.ResourceAccounting.JobAccounting.Status -eq 'available') 'resource getter delay contaminated wall duration'
+        } finally { Set-Item Function:Read-InvocationResources $originalReader }
+        Write-Output 'PASS resources: unavailable/native-failed/unsupported states retain null values and causes; inconsistent CPU fails; collector failure preserves original outcome; getter delay excluded from wall endpoint'
+    } finally { $env:ROTOR_BENCH_TEST_MODE = $savedMode; $env:ROTOR_BENCH_TEST_RESOURCE_ROOT = $savedRoot }
 }
 
 function Invoke-PublicationRegressions {

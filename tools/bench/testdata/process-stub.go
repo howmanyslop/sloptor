@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,10 +10,33 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"time"
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--resource-worker" {
+		if len(os.Args) > 5 {
+			parentID, err := strconv.Atoi(os.Args[5])
+			if err != nil {
+				panic(err)
+			}
+			// Windows permits waiting on this retained parent process object.
+			// The harness owns its original handle, preventing PID reuse here.
+			parent, err := os.FindProcess(parentID)
+			if err != nil {
+				panic(err)
+			}
+			if _, err := parent.Wait(); err != nil {
+				panic(err)
+			}
+			if err := os.WriteFile(filepath.Join(os.Args[3], os.Args[4]+"-parent-exited"), []byte("parent exit observed"), 0o600); err != nil {
+				panic(err)
+			}
+		}
+		resourceWorker(os.Args[2], os.Args[3], os.Args[4])
+		return
+	}
 	if len(os.Args) > 1 && (os.Args[1] == "--persist" || os.Args[1] == "--persist-ready") {
 		if err := os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_PID"), []byte(fmt.Sprint(os.Getpid())), 0o600); err != nil {
 			panic(err)
@@ -59,6 +83,11 @@ func main() {
 	}
 	fmt.Fprintln(os.Stderr, "stub stderr before completion")
 	mode := os.Getenv("ROTOR_BENCH_TEST_MODE")
+	if len(mode) > len("resource-") && mode[:len("resource-")] == "resource-" {
+		resourceControl(mode[len("resource-"):], os.Getenv("ROTOR_BENCH_TEST_RESOURCE_ROOT"))
+		fmt.Println(`{"ok":true,"diagnostics":[]}`)
+		return
+	}
 	if mode == "abrupt" {
 		child := exec.Command(os.Args[0], "--hang")
 		if err := child.Start(); err != nil {
@@ -176,5 +205,116 @@ func main() {
 	fmt.Println(`{"ok":true,"diagnostics":[]}`)
 	if mode == "nonzero" || mode == "closed-nonzero" {
 		os.Exit(9)
+	}
+}
+
+func resourceWorker(kind, directory, tag string) {
+	write := func(name string, bytes []byte) {
+		if err := os.WriteFile(filepath.Join(directory, tag+"-"+name), bytes, 0o600); err != nil {
+			panic(err)
+		}
+	}
+	write("pid", []byte(strconv.Itoa(os.Getpid())))
+	switch kind {
+	case "cpu":
+		var sum [32]byte
+		for range 1_000_000 {
+			sum = sha256.Sum256(sum[:])
+		}
+		write("cpu", []byte(fmt.Sprintf("%x", sum)))
+	case "io":
+		bytes := make([]byte, 16*1024*1024)
+		for index := range bytes {
+			bytes[index] = 0x5a
+		}
+		write("io.bin", bytes)
+		read, err := os.ReadFile(filepath.Join(directory, tag+"-io.bin"))
+		if err != nil || sha256.Sum256(read) != sha256.Sum256(bytes) {
+			panic("resource I/O verification failed")
+		}
+		write("io-verified", []byte(fmt.Sprintf("%x", sha256.Sum256(read))))
+	case "memory", "memory-gated":
+		bytes := make([]byte, 128*1024*1024)
+		for index := 0; index < len(bytes); index += 4096 {
+			bytes[index] = 0x5a
+		}
+		write("ready", []byte("allocated and touched"))
+		if kind == "memory-gated" {
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if _, err := os.Stat(filepath.Join(directory, "gate")); err == nil {
+					break
+				}
+				if time.Now().After(deadline) {
+					panic("resource allocation gate timed out")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+		if bytes[len(bytes)-4096] != 0x5a {
+			panic("resource allocation lost")
+		}
+		runtime.KeepAlive(bytes)
+	default:
+		panic("unknown resource worker")
+	}
+	write("done", []byte("complete"))
+}
+
+func resourceControl(kind, directory string) {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		panic(err)
+	}
+	spawn := func(worker, tag string) *exec.Cmd {
+		args := []string{"--resource-worker", worker, directory, tag}
+		if kind == "child-cpu" || kind == "child-io" {
+			args = append(args, strconv.Itoa(os.Getpid()))
+		}
+		child := exec.Command(os.Args[0], args...)
+		// Private streams; Go does not kill this child when its root exits.
+		if err := child.Start(); err != nil {
+			panic(err)
+		}
+		return child
+	}
+	switch kind {
+	case "leaf":
+	case "cpu", "io":
+		resourceWorker(kind, directory, "root")
+	case "child-cpu", "child-io":
+		spawn(kind[len("child-"):], "child")
+	case "staggered":
+		for _, tag := range []string{"a", "b"} {
+			if err := spawn("memory", tag).Wait(); err != nil {
+				panic(err)
+			}
+		}
+	case "overlap":
+		spawn("memory-gated", "a")
+		spawn("memory-gated", "b")
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			_, a := os.Stat(filepath.Join(directory, "a-ready"))
+			_, b := os.Stat(filepath.Join(directory, "b-ready"))
+			if a == nil && b == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				panic("overlapping resource allocations did not become ready")
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "gate"), []byte("both live and touched"), 0o600); err != nil {
+			panic(err)
+		}
+	case "timeout":
+		resourceWorker("io", directory, "root")
+		time.Sleep(10 * time.Second)
+	case "nonzero":
+		resourceWorker("io", directory, "root")
+		os.Exit(9)
+	default:
+		panic("unknown resource control")
 	}
 }

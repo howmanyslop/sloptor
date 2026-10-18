@@ -199,7 +199,49 @@ by ordinal normalized relative path: uint64 UTF-8 path length, path bytes,
 uint64 file length, and the fixed 32-byte SHA-256 content hash. Integers are
 little-endian. This framing distinguishes split-file layouts and is deliberately
 incompatible with old unframed digests; each manifest records its format identity.
-This tool collects no process CPU/peak memory, whole-tree CPU/memory, physical
-disk writes, cache/thermal state, noise intervals, or competing-load observations.
+This tool collects no RSS, physical disk writes, cache/thermal state, noise
+intervals, or competing-load observations.
 The quiet-host lease, sample policy, independent confirmation, and full semantic
 acceptance remain the measurement owner's responsibility.
+
+## Resource accounting
+
+Raw invocation results/journals contain `ResourceAccounting` schema 1, identified
+as `windows-job-post-wall-v1` in run/intent metadata. After the authoritative wall
+endpoint, owned failure cleanup and evidence finalization, the owner queries its
+still-retained job/root handles before disposal. The existing wait loop and wall
+endpoint are unchanged; no sampler, limits, or inherited settings are added.
+`QueryElapsedMS` measures the getters only, outside wall duration. Query/JIT and
+serialization work can affect later samples; root must calibrate A/A overhead.
+
+`JobAccounting` uses QueryInformationJobObject class 8 for cumulative user/kernel
+100 ns ticks, lifetime/active/limit-terminated process counts, page faults and all
+six OS I/O operation/byte counters, including exited owned members. Lifetime
+count includes every associated process; limit-terminated count is not all exits.
+The OS I/O counters include non-filesystem traffic such as pipes. They do not
+measure application writes, stat/open/rename calls or physical/durable disk I/O.
+`JobMemory` uses class 9 only for `PeakJobMemoryBytes` and
+`PeakProcessMemoryBytes`; its reserved I/O field is never read as accounting.
+These are continuously tracked Windows job/individual-process memory peaks,
+including retained peaks after exit, not RSS, sampled working sets, Go/Node heap,
+or a sum of process peaks. The overlapping/staggered touched-allocation controls
+check that the aggregate peak tracks overlap on the tested Windows host.
+
+`RootCpu` uses GetProcessTimes on the original retained root handle.
+`OtherOwnedCpu` subtracts root user/kernel ticks from job totals only when all
+inputs are available and each difference is nonnegative. Inconsistency is a
+failed metric with a cause and null values, never silently clamped. Other-owned
+CPU includes any other job members and is not Node-only attribution. Supervisor
+PowerShell/capture/digest work is outside this invocation's job. Stored CPU units
+are 100 ns; observed accounting resolution may be much coarser.
+
+Each component reports `available`, `failed`, `unsupported`, or `unavailable`,
+with a cause and null `Values` when unmeasured. Top-level `partial` means partial
+coverage or a mixture of measured/missing components. `Completion` independently
+records `complete`/`partial` and its invocation failure/interruption cause.
+Timeout/nonzero/cancelled/invalid invocations retain partial counters where
+observable. A getter failure leaves otherwise valid wall evidence intact but
+that resource gate unmeasured; it does not replace the original invocation error.
+Abrupt host death can prevent any final counter snapshot; started/incomplete
+intent remains. Portable execution reports unsupported Windows job resources.
+Metrics stay in raw evidence, outside the unchanged perfcompare manifest fields.
