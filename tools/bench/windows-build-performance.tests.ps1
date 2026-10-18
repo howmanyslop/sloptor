@@ -64,9 +64,9 @@ try {
     # Inject slow evidence storage without delaying the compiler's own writes.
     $originalWriter = (Get-Item Function:Write-ProcessEvidence).ScriptBlock
     function Write-ProcessEvidence {
-        param($StdoutPath, $StderrPath, $Stdout, $Stderr)
+        param($Owner)
         Start-Sleep -Milliseconds 1000
-        & $originalWriter $StdoutPath $StderrPath $Stdout $Stderr
+        & $originalWriter $Owner
     }
     $env:ROTOR_BENCH_TEST_MODE = 'compiler-persistence'
     $total = [Diagnostics.Stopwatch]::StartNew()
@@ -160,6 +160,7 @@ try {
         foreach ($record in $synthetic.records) {
             if ($record.binary -eq 'candidate') { $record.duration_ms++ }
         }
+        $syntheticVerdict = Join-Path $testRoot 'synthetic-threshold-fail-verdict.json'
         $synthetic | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $syntheticPath
         $evaluation = Invoke-PerfCompare $repo $syntheticPath $syntheticVerdict
         $verdict = Get-Content -LiteralPath $syntheticVerdict -Raw | ConvertFrom-Json
@@ -218,6 +219,8 @@ try {
     Assert-Throws { Remove-TestOwnedWorkCopies $testRoot $ownedCleanup } 'reparse point'
     Assert-True ((Test-Path -LiteralPath (Join-Path $Fixture 'input.ts')) -and (Test-Path -LiteralPath $ownedCleanup)) 'reparse cleanup refusal did not preserve inputs/work tree'
     Write-Output 'PASS: clean HEAD changes and traversal/junction cleanup escapes are rejected'
+    . (Join-Path $PSScriptRoot 'windows-build-performance.regressions.ps1')
+    Invoke-HarnessRegressions $harness $stub $repo $testRoot
     Write-Output "Stub self-tests passed. Synthetic evidence: $testRoot"
 } finally {
     if ($null -ne $sentinel) {

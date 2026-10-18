@@ -24,9 +24,10 @@ pwsh -NoProfile -File tools/bench/windows-build-performance.tests.ps1
 ```
 
 These prebuild a small Go stub, then test compiler persistence versus delayed
-evidence writes, inherited-stream completion, timeout/cancellation tree ownership, nonzero
-exits, invalid JSON, launch failures, missing evaluator prerequisites, caller
-cwd, binary/fixture/clean-HEAD changes, and cleanup traversal/junction guards.
+tail writes, immediate exits, private/inherited-stream descendants, atomic job
+ownership on host death, bounded incremental log retention, capture overflow,
+strict JSON/duplicate fields, cancellation during validation, cleanup publication,
+digest framing, provenance changes, and missing evaluator/wrong-cwd behavior.
 They also check the unchanged evaluator using fabricated threshold fixtures.
 They run no Rotor performance scores. The printed evidence directory retains
 the synthetic logs and identities; optional `-EvidenceRoot` must name a new path.
@@ -70,36 +71,63 @@ fixtures whose diagnostics are appropriate to retain.
 ## Timing and evidence
 
 The existing schema-1 integer `duration_ms` remains rounded to milliseconds with
-a 1 ms floor. It starts immediately before process launch and stops after both
-process exit and redirected stdout/stderr completion. This includes the
-compiler's own output persistence and process startup, plus capture/ownership
-overhead. It excludes harness evidence-log writes, JSON parsing, output hashing,
-and journal writes. Invocation results separately report `EvidencePersistenceMS`
-for writing captured stdout/stderr; this is elapsed API write time, without a
-durable-disk-flush guarantee. A descendant retaining an inherited stream keeps
-the invocation open until completion or its timeout. Timeouts are unscored;
-their recorded duration ends at detection and excludes termination/drain cleanup.
+a 1 ms floor; `ElapsedMS` retains the unrounded observation. Timing starts before
+process creation and ends when the root has exited, the owned job has no active
+processes, and both redirected streams have completed capture. Children with
+private/closed streams must finish within the same deadline. Successful children
+are awaited, so their required persistence stays inside the interval. Only failed,
+cancelled, or overdue invocations are terminated. Job completion notifications
+normally wake the owner immediately. Notifications can be missed; a 25 ms
+fallback rechecks authoritative active-process counts, so scheduling/fallback
+observation delay remains part of the measured overhead.
+
+Capture uses two dedicated reader threads with 64 KiB buffers and flushes retained
+chunks to the OS file cache as they arrive. This capture I/O, scheduling, setup,
+and pipe backpressure are honest in-interval overhead. `CaptureSpoolWriteMS`
+reports aggregate write/flush API elapsed across both threads; those writes may
+overlap, and their sum must not be subtracted from duration. `EvidencePersistenceMS`
+reports only final evidence flush/close after timing stops. JSON validation,
+output hashing, and journal writes also occur outside timing. Incremental
+retention deliberately trades memory-only capture for observable I/O overhead:
+calibrate A/A noise and output-volume effects before interpreting small changes.
+No durable-disk-flush or physical-write guarantee is implied.
 
 `invocations.ndjson` appends a `started` record before launch and a `finished`
-record after evidence persistence and result validation. Both name the raw logs
-and invocation role; a failed finish is explicitly `incomplete`. A successful
+record after evidence retention and result validation. `validation_completed`
+starts false and becomes true only after public JSON and output digest validation.
+Both records name the raw logs and invocation role; a failed or cancelled finish,
+including cancellation during hashing, is explicitly `incomplete`. A successful
 invocation followed by a failure remains in the journal. Timeout, nonzero exit,
 invalid public JSON, or `ok:false` stops the run and preserves captured stdout,
 stderr, records, and `run.json` with before/after identities when observable.
-The candidate `--timings` invocation is separately marked unscored and must
-succeed. On Windows, timeouts terminate only that invocation's owned job,
-including job members whose parent already exited. Job attachment happens
-immediately after launch, rather than using suspended process creation; a child
-created before attachment can escape membership. Assignment failure invalidates
-the invocation. Cleanup checks absolute
-ownership and rejects reparse points; refusal preserves the work tree and records
-`cleanup_error`. Normal cleanup removes only the harness's `work-*` copies.
+Public results, timings, evaluator verdicts, and fixture JSON metadata use the
+same strict UTF-8 JSON guard: one document, no comments/trailing commas, no
+duplicate object names, and the required shape for the result kind. The candidate
+`--timings` invocation is separately unscored and must succeed.
+
+Windows 10/Server 2016 or newer is required. `CreateProcessW` uses creation-time
+`PROC_THREAD_ATTRIBUTE_JOB_LIST` membership and an explicit inherited handle list
+containing only the two pipe writers and NUL stdin. Arguments are quoted without
+a shell; cwd and inherited environment are explicit/preserved. There is no
+suspended-but-unowned or post-launch attachment window. Unsupported/restricted
+creation fails without accepting a sample. The non-inherited job handle retains
+kill-on-close through validation, so ordinary owner-host death terminates its
+members, including children whose root already exited. Failure/cancellation
+terminates and joins only owned members; inability to quiesce blocks cleanup.
+Cleanup checks absolute ownership and rejects reparse points; refusal preserves
+the work tree and records `cleanup_error`. Normal cleanup removes only the
+harness's `work-*` copies.
 
 `run.json` starts as `incomplete`. A `.pending` schema-1 manifest is evaluated
 only after successful invocations and identity checks. The evaluator runs in an
 explicit repository working directory, retaining its stdout/stderr and verdict.
-Invalid evidence or evaluator failure leaves the run incomplete and never
-publishes a final manifest. A valid evaluation publishes
+Invalid evidence, retention/overflow failure, or unsafe/failed cleanup leaves the
+run incomplete and the manifest pending. The evaluator's real PASS/FAIL remains
+available even when cleanup later fails. After valid evaluation and successful
+cleanup, publication writes the evaluated status and then renames the manifest
+last. Require both `run.json.status == evaluated` and the final manifest, plus its
+verdict, as the completion gate; interruption during publication can leave only
+one of those artifacts. A completed evaluation publishes
 `windows-build-performance-manifest.json` and marks the run `evaluated`, retaining
 the actual verdict even when it is `FAIL`; the harness then exits nonzero.
 `tools/perfcompare` is unchanged: at least 10 cold and 20 no-change pairs,
@@ -107,11 +135,16 @@ the actual verdict even when it is `FAIL`; the harness then exits nonzero.
 improvement or A/A comparison can correctly fail this legacy target. `evaluated`
 describes evidence completion, not performance acceptance.
 
-Output is buffered in memory until process/stream completion or handled failure.
-Abrupt host termination or power loss can leave a `started` record without a
-finish and lose that invocation's buffered output; the run remains incomplete.
-There is no resume/retry that silently drops failed samples. Completed journal
-appends close their file handles, but do not promise survival of power loss.
+`-MaxCaptureBytes` bounds retained bytes independently per stream (default
+16 MiB). Extra output invalidates the invocation and retains only its bounded
+prefix; no overflow or retention failure can publish completed/scored evidence.
+Validation may allocate from the bounded stdout file. Already-spooled chunks
+survive ordinary abrupt host termination; bytes still in pipes or an in-flight
+read/write may be lost. A started record without a finished record and an
+incomplete run preserve that distinction. No extra supervisor is needed for
+this OS-cache retention guarantee. Power loss, storage failure, and simultaneous
+loss of the owner and unflushed kernel data remain outside the guarantee. There
+is no resume/retry that silently drops failed samples.
 
 ## Scope limits
 
@@ -127,6 +160,12 @@ output comparison digest covers only the allowlisted output directories and
 build-info files; it excludes include files, custom output paths, dependencies,
 `.rotor`, mtimes, and write counts. It cannot establish write-only-changed
 behavior. Add fixture-specific oracles separately when those contracts matter.
+Tree digests now carry the prefix `sha256-tree-v2:`. SHA-256 hashes the UTF-8
+header `rotor-tree-digest-v2` plus NUL, a uint64 file count, then records sorted
+by ordinal normalized relative path: uint64 UTF-8 path length, path bytes,
+uint64 file length, and the fixed 32-byte SHA-256 content hash. Integers are
+little-endian. This framing distinguishes split-file layouts and is deliberately
+incompatible with old unframed digests; each manifest records its format identity.
 This tool collects no process CPU/peak memory, whole-tree CPU/memory, physical
 disk writes, cache/thermal state, noise intervals, or competing-load observations.
 The quiet-host lease, sample policy, independent confirmation, and full semantic

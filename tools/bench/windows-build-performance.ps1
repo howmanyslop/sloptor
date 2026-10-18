@@ -10,6 +10,8 @@ param(
     [string]$BaselineSourceSha,
     [string]$CandidateSourceSha,
     [string]$FixtureIdentity,
+    [ValidateRange(1, 1073741824)]
+    [long]$MaxCaptureBytes = 16777216,
     [switch]$ValidateOnly
 )
 
@@ -111,33 +113,39 @@ function Get-TreeDigest {
         } |
         Sort-Object FullName
 
+    $paths = [string[]]@($files | ForEach-Object { [IO.Path]::GetRelativePath($rootPath, $_.FullName).Replace('\', '/') })
+    [Array]::Sort($paths, [StringComparer]::Ordinal)
     $hash = [Security.Cryptography.SHA256]::Create()
-    $separator = [byte[]](0)
-    $buffer = New-Object byte[] 65536
     try {
-        foreach ($file in $files) {
-            $relative = [IO.Path]::GetRelativePath($rootPath, $file.FullName).Replace('\', '/')
-            Add-HashBytes $hash ([Text.Encoding]::UTF8.GetBytes($relative))
-            Add-HashBytes $hash $separator
-            $stream = [IO.File]::OpenRead($file.FullName)
+        Add-HashBytes $hash ([Text.Encoding]::UTF8.GetBytes("rotor-tree-digest-v2`0"))
+        Add-HashLength $hash $paths.Length
+        foreach ($relative in $paths) {
+            $pathBytes = [Text.Encoding]::UTF8.GetBytes($relative)
+            Add-HashLength $hash $pathBytes.Length
+            Add-HashBytes $hash $pathBytes
+            $stream = [IO.File]::OpenRead((Join-Path $rootPath $relative))
             try {
-                while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                    if ($read -eq $buffer.Length) {
-                        Add-HashBytes $hash $buffer
-                    } else {
-                        Add-HashBytes $hash $buffer[0..($read - 1)]
-                    }
-                }
+                $length = $stream.Length
+                Add-HashLength $hash $length
+                Add-HashBytes $hash ([Security.Cryptography.SHA256]::HashData($stream))
+                if ($stream.Length -ne $length) { throw "file length changed while hashing: $relative" }
             } finally {
                 $stream.Dispose()
             }
-            Add-HashBytes $hash $separator
         }
         [void]$hash.TransformFinalBlock([byte[]]::new(0), 0, 0)
-        return ($hash.Hash | ForEach-Object ToString x2) -join ''
+        return 'sha256-tree-v2:' + (($hash.Hash | ForEach-Object ToString x2) -join '')
     } finally {
         $hash.Dispose()
     }
+}
+
+function Add-HashLength {
+    param([Security.Cryptography.HashAlgorithm]$Hash, [uint64]$Length)
+
+    $bytes = [BitConverter]::GetBytes($Length)
+    if (-not [BitConverter]::IsLittleEndian) { [Array]::Reverse($bytes) }
+    Add-HashBytes $Hash $bytes
 }
 
 function Test-AllowedColdStateTarget {
@@ -314,98 +322,332 @@ function Assert-BenchmarkInputs {
 }
 
 function Initialize-ProcessOwnership {
-    if ('RotorBench.OwnedProcess' -as [type]) { return }
-    # A job retains ownership of descendants even if the parent exits while a
-    # descendant still holds a redirected stream. No name/PID-wide taskkill.
+    if ('RotorBench.Invocation' -as [type]) { return }
+    # JOB_LIST assigns membership inside CreateProcess, before child code runs.
     Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 namespace RotorBench {
-    public sealed class Capture {
-        readonly StringBuilder text = new StringBuilder();
-        public Task Completion { get; }
-        public string Text { get { lock (text) return text.ToString(); } }
-        public Capture(StreamReader reader) { Completion = Read(reader); }
-        async Task Read(StreamReader reader) {
-            var buffer = new char[4096];
-            int count;
-            while ((count = await reader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false)) != 0) {
-                lock (text) text.Append(buffer, 0, count);
+    public static class StrictJson {
+        public static void Validate(string json, string kind) {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions {
+                AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64
+            });
+            Check(doc.RootElement);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) throw new FormatException("JSON result must be one object");
+            if (kind == "public_result") {
+                if (!root.TryGetProperty("ok", out var ok) || (ok.ValueKind != JsonValueKind.True && ok.ValueKind != JsonValueKind.False) ||
+                    !root.TryGetProperty("diagnostics", out var diagnostics) || diagnostics.ValueKind != JsonValueKind.Array)
+                    throw new FormatException("public JSON requires Boolean ok and diagnostics array");
+                foreach (var diagnostic in diagnostics.EnumerateArray()) {
+                    if (diagnostic.ValueKind != JsonValueKind.Object || !StringField(diagnostic, "message") || !StringField(diagnostic, "severity"))
+                        throw new FormatException("JSON diagnostics require object entries with message and severity strings");
+                }
+                if ((root.TryGetProperty("version", out var release) && release.ValueKind != JsonValueKind.String) ||
+                    (root.TryGetProperty("files", out var files) && (!files.TryGetInt64(out long count) || count < 0)) ||
+                    (root.TryGetProperty("durationMs", out var elapsed) && (!elapsed.TryGetInt64(out long duration) || duration < 0)))
+                    throw new FormatException("invalid public JSON version/files/durationMs fields");
+            } else if (kind == "timings") {
+                if (!root.TryGetProperty("schemaVersion", out var schema) || !schema.TryGetInt32(out int version) || version != 2 ||
+                    !root.TryGetProperty("ok", out var ok) || ok.ValueKind != JsonValueKind.True ||
+                    !root.TryGetProperty("totalMs", out var total) || !total.TryGetInt64(out long time) || time < 0 ||
+                    !root.TryGetProperty("stageSemantics", out var semantics) || semantics.ValueKind != JsonValueKind.String || semantics.GetString() != "workMs" ||
+                    !ObjectField(root, "stages") || !ObjectField(root, "counts") || !ObjectField(root, "metadata"))
+                    throw new FormatException("timing JSON requires the successful schemaVersion 2 build timing shape");
+            } else if (kind == "verdict") {
+                if (!root.TryGetProperty("schema", out var schema) || !schema.TryGetInt32(out int version) || version != 1 ||
+                    !root.TryGetProperty("status", out var status) || status.ValueKind != JsonValueKind.String ||
+                    (status.GetString() != "PASS" && status.GetString() != "FAIL") ||
+                    !root.TryGetProperty("reasons", out var reasons) || reasons.ValueKind != JsonValueKind.Array)
+                    throw new FormatException("invalid evaluator JSON verdict shape");
+                foreach (var reason in reasons.EnumerateArray()) {
+                    if (reason.ValueKind != JsonValueKind.Object || !StringField(reason, "code") || !StringField(reason, "message"))
+                        throw new FormatException("invalid evaluator JSON reason shape");
+                }
+            }
+        }
+        static bool StringField(JsonElement value, string name) => value.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String;
+        static bool ObjectField(JsonElement value, string name) => value.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.Object;
+        static void Check(JsonElement value) {
+            if (value.ValueKind == JsonValueKind.Object) {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var property in value.EnumerateObject()) {
+                    if (!names.Add(property.Name)) throw new FormatException("duplicate JSON property: " + property.Name);
+                    Check(property.Value);
+                }
+            } else if (value.ValueKind == JsonValueKind.Array) {
+                foreach (var element in value.EnumerateArray()) Check(element);
             }
         }
     }
-    public sealed class OwnedProcess : IDisposable {
+    public sealed class Capture : IDisposable {
+        Stream pipe;
+        readonly FileStream file;
+        readonly long limit;
+        public Task Completion { get; private set; } = Task.CompletedTask;
+        public volatile bool Overflow;
+        public volatile string Error;
+        public long RetainedBytes { get; private set; }
+        public double SpoolWriteMS { get; private set; }
+        public Capture(Stream input, string path, long maxBytes) {
+            pipe = input; limit = maxBytes;
+            file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 4096);
+        }
+        public void Start(Stream input = null) {
+            if (input != null) pipe = input;
+            Completion = Task.Factory.StartNew(Read, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        }
+        void Read() {
+            var buffer = new byte[65536];
+            try {
+                int count;
+                while ((count = pipe.Read(buffer, 0, buffer.Length)) != 0) {
+                    int keep = (int)Math.Min(count, limit - RetainedBytes);
+                    var clock = Stopwatch.StartNew();
+                    if (keep != 0) { file.Write(buffer, 0, keep); file.Flush(); RetainedBytes += keep; }
+                    SpoolWriteMS += clock.Elapsed.TotalMilliseconds;
+                    if (keep != count) { Overflow = true; break; }
+                }
+            } catch (Exception ex) { Error = ex.Message; }
+        }
+        public void CloseEvidence() { try { file.Flush(); } finally { file.Dispose(); } }
+        public void Dispose() { try { pipe?.Dispose(); } finally { file.Dispose(); } }
+    }
+    public sealed class Invocation : IDisposable {
+        [StructLayout(LayoutKind.Sequential)] struct SecurityAttributes {
+            public int Length; public IntPtr Descriptor; [MarshalAs(UnmanagedType.Bool)] public bool Inherit;
+        }
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct StartupInfo {
+            public int Size; public string Reserved, Desktop, Title;
+            public uint X, Y, XSize, YSize, XCountChars, YCountChars, FillAttribute, Flags;
+            public ushort ShowWindow, ReservedSize;
+            public IntPtr ReservedBytes, Input, Output, Error;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct StartupInfoEx { public StartupInfo Info; public IntPtr Attributes; }
+        [StructLayout(LayoutKind.Sequential)] struct ProcessInfo { public IntPtr Process, Thread; public uint ProcessId, ThreadId; }
         [StructLayout(LayoutKind.Sequential)] struct BasicLimits {
-            public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
-            public uint LimitFlags;
-            public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
-            public uint ActiveProcessLimit;
-            public UIntPtr Affinity;
-            public uint PriorityClass, SchedulingClass;
+            public long ProcessTime, JobTime; public uint Flags;
+            public UIntPtr MinimumWorkingSet, MaximumWorkingSet; public uint ActiveLimit;
+            public UIntPtr Affinity; public uint PriorityClass, SchedulingClass;
         }
-        [StructLayout(LayoutKind.Sequential)] struct IoCounters {
-            public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
-            public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
-        }
+        [StructLayout(LayoutKind.Sequential)] struct IoCounters { public ulong ReadOps, WriteOps, OtherOps, ReadBytes, WriteBytes, OtherBytes; }
         [StructLayout(LayoutKind.Sequential)] struct ExtendedLimits {
-            public BasicLimits BasicLimitInformation;
-            public IoCounters IoInfo;
-            public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+            public BasicLimits Basic; public IoCounters Io;
+            public UIntPtr ProcessMemory, JobMemory, PeakProcessMemory, PeakJobMemory;
         }
+        [StructLayout(LayoutKind.Sequential)] struct Accounting {
+            public long UserTime, KernelTime, PeriodUserTime, PeriodKernelTime;
+            public uint PageFaults, TotalProcesses, ActiveProcesses, TerminatedProcesses;
+        }
+        [StructLayout(LayoutKind.Sequential)] struct CompletionPort { public IntPtr Key, Port; }
         [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
-        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref ExtendedLimits info, uint length);
-        [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int kind, ref ExtendedLimits info, uint size);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int kind, ref CompletionPort info, uint size);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int kind, out Accounting info, uint size, IntPtr returned);
         [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool CreatePipe(out IntPtr read, out IntPtr write, ref SecurityAttributes attributes, uint size);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateFileW(string name, uint access, uint share, ref SecurityAttributes attributes, uint disposition, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref UIntPtr size);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, UIntPtr attribute, IntPtr value, UIntPtr size, IntPtr previous, IntPtr returned);
+        [DllImport("kernel32.dll")] static extern void DeleteProcThreadAttributeList(IntPtr list);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool CreateProcessW(string application, StringBuilder command, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref StartupInfoEx startup, out ProcessInfo process);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint code);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateIoCompletionPort(IntPtr file, IntPtr existing, UIntPtr key, uint threads);
+        [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetQueuedCompletionStatus(IntPtr port, out uint bytes, out UIntPtr key, out IntPtr overlapped, uint milliseconds);
         [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-        IntPtr job;
-        bool attached, complete;
-        public Process Process { get; } = new Process();
-        void SetKillOnClose(bool enabled) {
-            var limits = new ExtendedLimits();
-            limits.BasicLimitInformation.LimitFlags = enabled ? 0x2000u : 0u;
-            if (!SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>()))
-                throw new System.ComponentModel.Win32Exception();
+        IntPtr job, port, process, outputWrite, errorWrite, input;
+        Process portable;
+        bool started, disposed;
+        public static bool CleanupSafe { get; private set; } = true;
+        public Capture Stdout { get; private set; }
+        public Capture Stderr { get; private set; }
+        public int ProcessId { get; private set; }
+        static void Check(bool success) { if (!success) throw new Win32Exception(Marshal.GetLastWin32Error()); }
+        static void Close(ref IntPtr handle) { if (handle != IntPtr.Zero) { CloseHandle(handle); handle = IntPtr.Zero; } }
+        public Invocation(string stdout, string stderr, long maxBytes) {
+            if (maxBytes < 1) throw new ArgumentOutOfRangeException(nameof(maxBytes));
+            try {
+                if (OperatingSystem.IsWindows()) {
+                    job = CreateJobObject(IntPtr.Zero, null);
+                    if (job == IntPtr.Zero) throw new Win32Exception();
+                    var limits = new ExtendedLimits(); limits.Basic.Flags = 0x2000; // KILL_ON_JOB_CLOSE; never disabled.
+                    Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf<ExtendedLimits>()));
+                    port = CreateIoCompletionPort(new IntPtr(-1), IntPtr.Zero, UIntPtr.Zero, 1);
+                    if (port == IntPtr.Zero) throw new Win32Exception();
+                    var association = new CompletionPort { Key = new IntPtr(1), Port = port };
+                    Check(SetInformationJobObject(job, 7, ref association, (uint)Marshal.SizeOf<CompletionPort>()));
+                    Stdout = MakePipe(stdout, maxBytes, out outputWrite);
+                    Stderr = MakePipe(stderr, maxBytes, out errorWrite);
+                    var attributes = new SecurityAttributes { Length = Marshal.SizeOf<SecurityAttributes>(), Inherit = true };
+                    input = CreateFileW("NUL", 0x80000000, 3, ref attributes, 3, 0, IntPtr.Zero);
+                    if (input == new IntPtr(-1)) { input = IntPtr.Zero; throw new Win32Exception(); }
+                } else {
+                    // Portable ValidateOnly; scored runs require Windows.
+                    portable = new Process();
+                    Stdout = new Capture(null, stdout, maxBytes); Stderr = new Capture(null, stderr, maxBytes);
+                }
+            } catch { Dispose(); throw; }
         }
-        public OwnedProcess() {
-            if (OperatingSystem.IsWindows()) {
-                job = CreateJobObject(IntPtr.Zero, null);
-                if (job == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
-                try { SetKillOnClose(true); } catch { CloseHandle(job); job = IntPtr.Zero; throw; }
+        static Capture MakePipe(string path, long limit, out IntPtr write) {
+            var attributes = new SecurityAttributes { Length = Marshal.SizeOf<SecurityAttributes>(), Inherit = true };
+            Check(CreatePipe(out IntPtr read, out write, ref attributes, 65536));
+            var safe = new SafeFileHandle(read, true);
+            try {
+                Check(SetHandleInformation(read, 1, 0));
+                var stream = new FileStream(safe, FileAccess.Read);
+                try { return new Capture(stream, path, limit); }
+                catch { stream.Dispose(); throw; }
+            } catch { safe.Dispose(); Close(ref write); throw; }
+        }
+        // Windows argv backslash/quote rules, including empty arguments and
+        // trailing backslashes. No shell or command substitution.
+        static string Quote(string value) {
+            var quoted = new StringBuilder("\""); int slashes = 0;
+            foreach (char c in value) {
+                if (c == '\\') { slashes++; continue; }
+                if (c == '"') quoted.Append('\\', slashes * 2 + 1);
+                else quoted.Append('\\', slashes);
+                quoted.Append(c); slashes = 0;
+            }
+            return quoted.Append('\\', slashes * 2).Append('"').ToString();
+        }
+        public void Start(string executable, string[] arguments, string directory) {
+            if (started) throw new InvalidOperationException("invocation already started");
+            if (!OperatingSystem.IsWindows()) {
+                var info = new ProcessStartInfo(executable) { WorkingDirectory = directory, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+                foreach (string argument in arguments) info.ArgumentList.Add(argument);
+                portable.StartInfo = info;
+                if (!portable.Start()) throw new InvalidOperationException("could not start process");
+                started = true; ProcessId = portable.Id;
+                Stdout.Start(portable.StandardOutput.BaseStream); Stderr.Start(portable.StandardError.BaseStream); return;
+            }
+            IntPtr list = IntPtr.Zero, jobs = IntPtr.Zero, handles = IntPtr.Zero;
+            bool initialized = false;
+            try {
+                UIntPtr size = UIntPtr.Zero;
+                InitializeProcThreadAttributeList(IntPtr.Zero, 2, 0, ref size);
+                list = Marshal.AllocHGlobal(checked((int)size.ToUInt64()));
+                Check(InitializeProcThreadAttributeList(list, 2, 0, ref size)); initialized = true;
+                jobs = Marshal.AllocHGlobal(IntPtr.Size); Marshal.WriteIntPtr(jobs, job);
+                handles = Marshal.AllocHGlobal(IntPtr.Size * 3);
+                Marshal.WriteIntPtr(handles, 0, input); Marshal.WriteIntPtr(handles, IntPtr.Size, outputWrite); Marshal.WriteIntPtr(handles, IntPtr.Size * 2, errorWrite);
+                Check(UpdateProcThreadAttribute(list, 0, new UIntPtr(0x2000D), jobs, new UIntPtr((uint)IntPtr.Size), IntPtr.Zero, IntPtr.Zero));
+                Check(UpdateProcThreadAttribute(list, 0, new UIntPtr(0x20002), handles, new UIntPtr((uint)(IntPtr.Size * 3)), IntPtr.Zero, IntPtr.Zero));
+                var startup = new StartupInfoEx { Attributes = list };
+                startup.Info.Size = Marshal.SizeOf<StartupInfoEx>(); startup.Info.Flags = 0x100;
+                startup.Info.Input = input; startup.Info.Output = outputWrite; startup.Info.Error = errorWrite;
+                var command = new StringBuilder(Quote(executable));
+                foreach (string argument in arguments) command.Append(' ').Append(Quote(argument));
+                Stdout.Start(); Stderr.Start();
+                // EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT.
+                // Null environment inherits unchanged; no suspended/attach or breakaway window.
+                Check(CreateProcessW(executable, command, IntPtr.Zero, IntPtr.Zero, true, 0x08080400, IntPtr.Zero, directory, ref startup, out ProcessInfo created));
+                process = created.Process; CloseHandle(created.Thread);
+                ProcessId = (int)created.ProcessId; started = true;
+            } finally {
+                Close(ref outputWrite); Close(ref errorWrite); Close(ref input);
+                if (initialized) DeleteProcThreadAttributeList(list);
+                if (list != IntPtr.Zero) Marshal.FreeHGlobal(list);
+                if (jobs != IntPtr.Zero) Marshal.FreeHGlobal(jobs);
+                if (handles != IntPtr.Zero) Marshal.FreeHGlobal(handles);
             }
         }
-        public void Attach() {
-            if (job != IntPtr.Zero) {
-                if (!AssignProcessToJobObject(job, Process.Handle)) throw new System.ComponentModel.Win32Exception();
-                attached = true;
+        public bool RootExited {
+            get {
+                if (!started) return true;
+                if (portable != null) return portable.HasExited;
+                uint state = WaitForSingleObject(process, 0);
+                if (state == 0xffffffff) throw new Win32Exception();
+                return state == 0;
             }
         }
-        public void Kill() {
-            if (attached) {
-                if (!TerminateJobObject(job, 1)) throw new System.ComponentModel.Win32Exception();
-            } else if (!Process.HasExited) { Process.Kill(true); }
+        public int? ExitCode {
+            get {
+                if (!started || !RootExited) return null;
+                if (portable != null) return portable.ExitCode;
+                Check(GetExitCodeProcess(process, out uint code)); return unchecked((int)code);
+            }
         }
-        public void Complete() {
-            if (job != IntPtr.Zero) SetKillOnClose(false);
-            complete = true;
+        public uint ActiveProcesses {
+            get {
+                if (portable != null) return RootExited ? 0u : 1u;
+                if (job == IntPtr.Zero) return 0;
+                Check(QueryInformationJobObject(job, 1, out Accounting accounting, (uint)Marshal.SizeOf<Accounting>(), IntPtr.Zero));
+                return accounting.ActiveProcesses;
+            }
+        }
+        public bool CapturesComplete => (Stdout == null || Stdout.Completion.IsCompleted) && (Stderr == null || Stderr.Completion.IsCompleted);
+        public string CaptureFailure {
+            get {
+                if ((Stdout?.Overflow ?? false) || (Stderr?.Overflow ?? false)) return "capture overflow: per-stream byte limit exceeded; retained prefix only";
+                if (Stdout?.Error != null || Stderr?.Error != null) return "capture retention failed: " + Stdout?.Error + "; " + Stderr?.Error;
+                if ((Stdout?.Completion.IsFaulted ?? false) || (Stderr?.Completion.IsFaulted ?? false) ||
+                    (Stdout?.Completion.IsCanceled ?? false) || (Stderr?.Completion.IsCanceled ?? false)) return "capture task failed or was cancelled; retention incomplete";
+                return null;
+            }
+        }
+        public void Wait(int milliseconds) {
+            if (portable == null && ActiveProcesses != 0) {
+                if (!GetQueuedCompletionStatus(port, out _, out _, out _, (uint)milliseconds) && Marshal.GetLastWin32Error() != 258) throw new Win32Exception();
+            } else if (!CapturesComplete) {
+                Task.WhenAll(Stdout?.Completion ?? Task.CompletedTask, Stderr?.Completion ?? Task.CompletedTask).Wait(milliseconds);
+            } else if (portable != null && !RootExited) { portable.WaitForExit(milliseconds); }
+        }
+        public void CloseEvidence() { Stdout?.CloseEvidence(); Stderr?.CloseEvidence(); }
+        public void TerminateAndJoin() {
+            try {
+                if (job != IntPtr.Zero && ActiveProcesses != 0) Check(TerminateJobObject(job, 1));
+                if (portable != null && started && !portable.HasExited) portable.Kill(true);
+                var timer = Stopwatch.StartNew();
+                while (!RootExited || ActiveProcesses != 0 || !CapturesComplete) {
+                    if (timer.ElapsedMilliseconds > 5000) throw new TimeoutException("owned invocation did not quiesce after termination; preserve work copies");
+                    Wait(25);
+                }
+            } catch { CleanupSafe = false; throw; }
         }
         public void Dispose() {
-            try { if (!complete) { try { Kill(); } catch (InvalidOperationException) {} } }
-            finally { if (job != IntPtr.Zero) CloseHandle(job); Process.Dispose(); }
+            if (disposed) return; disposed = true;
+            try { Close(ref outputWrite); Close(ref errorWrite); Close(ref input); TerminateAndJoin(); }
+            finally {
+                Close(ref process); Close(ref job); Close(ref port);
+                try { Stdout?.Dispose(); } finally { Stderr?.Dispose(); portable?.Dispose(); }
+            }
         }
     }
 }
 '@
 }
 
-function Write-ProcessEvidence {
-    param([string]$StdoutPath, [string]$StderrPath, [string]$Stdout, [string]$Stderr)
+function Read-StrictJson {
+    param([string]$Path, [ValidateSet('object', 'public_result', 'timings', 'verdict')][string]$Kind = 'object')
 
-    [IO.File]::WriteAllText($StdoutPath, $Stdout, [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText($StderrPath, $Stderr, [Text.UTF8Encoding]::new($false))
+    Initialize-ProcessOwnership
+    $stream = [IO.File]::OpenRead($Path)
+    $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $false)
+    try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    [RotorBench.StrictJson]::Validate($raw, $Kind)
+    $value = ConvertFrom-Json -InputObject $raw -AsHashtable -NoEnumerate
+    if ($value -isnot [System.Collections.IDictionary]) { throw 'JSON result must be one object' }
+    return $value
+}
+
+function Write-ProcessEvidence {
+    param($Owner)
+
+    # Chunks are already spooled. Only final flush/close is a tail write.
+    $Owner.CloseEvidence()
 }
 
 function Invoke-ProcessWithTimeout {
@@ -415,77 +657,50 @@ function Invoke-ProcessWithTimeout {
         [string]$WorkingDirectory,
         [TimeSpan]$Timeout,
         [string]$StdoutPath,
-        [string]$StderrPath
+        [string]$StderrPath,
+        [ref]$Ownership,
+        [long]$CaptureLimit = $MaxCaptureBytes
     )
 
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Executable
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
     Initialize-ProcessOwnership
-    $owned = [RotorBench.OwnedProcess]::new()
-    $process = $owned.Process
-    $process.StartInfo = $startInfo
-    $stdoutCapture = $stderrCapture = $null
-    $result = [ordered]@{ DurationMS = $null; ExitCode = $null; Status = 'incomplete'; Error = $null; EvidencePersistenceMS = $null }
+    $owner = [RotorBench.Invocation]::new($StdoutPath, $StderrPath, $CaptureLimit)
+    if ($null -ne $Ownership) { $Ownership.Value = $owner }
+    $result = [ordered]@{ DurationMS = $null; ElapsedMS = $null; ExitCode = $null; Status = 'incomplete'; Error = $null; EvidencePersistenceMS = $null; CaptureLimitBytes = $CaptureLimit }
     $stopwatch = [Diagnostics.Stopwatch]::new()
     try {
         $stopwatch.Start()
-        if (-not $process.Start()) {
-            throw "could not start $Executable"
-        }
-        try { $owned.Attach() }
-        finally {
-            $stdoutCapture = [RotorBench.Capture]::new($process.StandardOutput)
-            $stderrCapture = [RotorBench.Capture]::new($process.StandardError)
-        }
-        $completion = [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($process.WaitForExitAsync(), $stdoutCapture.Completion, $stderrCapture.Completion))
-        # Short waits let PowerShell deliver cancellation and execute finally.
-        # A completed task wakes immediately, without a polling-sized timing tail.
+        $owner.Start($Executable, $Arguments, $WorkingDirectory)
         while ($true) {
-            $milliseconds = [Math]::Min(100, [Math]::Max(0, [Math]::Ceiling($Timeout.TotalMilliseconds - $stopwatch.Elapsed.TotalMilliseconds)))
-            if ($completion.Wait([int]$milliseconds)) { break }
-            if ($stopwatch.Elapsed -ge $Timeout) {
-                $result.Status = 'timeout'
-                throw "command or redirected streams timed out after ${Timeout}"
-            }
+            if ($null -ne $owner.CaptureFailure) { throw $owner.CaptureFailure }
+            if ($stopwatch.Elapsed -ge $Timeout) { $result.Status = 'timeout'; throw "owned process tree or redirected streams timed out after $Timeout" }
+            if ($owner.RootExited -and $owner.ExitCode -ne 0) { $owner.TerminateAndJoin(); break }
+            if ($owner.RootExited -and $owner.ActiveProcesses -eq 0 -and $owner.CapturesComplete) { break }
+            $owner.Wait([int][Math]::Min(25, [Math]::Max(0, [Math]::Ceiling($Timeout.TotalMilliseconds - $stopwatch.Elapsed.TotalMilliseconds))))
         }
         $stopwatch.Stop()
-        $owned.Complete()
+        if ($null -ne $owner.CaptureFailure) { throw $owner.CaptureFailure }
         $result.Status = 'completed'
-    } catch {
-        $result.Error = $_.Exception.Message
-    } finally {
+    } catch { $result.Error = $_.Exception.Message }
+    finally {
         $stopwatch.Stop()
-        $result.DurationMS = [Math]::Max(1, [int64][Math]::Round($stopwatch.Elapsed.TotalMilliseconds))
+        $result.ElapsedMS = $stopwatch.Elapsed.TotalMilliseconds
+        $result.DurationMS = [Math]::Max(1, [int64][Math]::Round($result.ElapsedMS))
         try {
-            if ($result.Status -ne 'completed') {
-                try { $owned.Kill() } catch { $result.Error += "; cleanup: $($_.Exception.Message)" }
-                if ($null -ne $stdoutCapture) {
-                    try {
-                        $drain = [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($stdoutCapture.Completion, $stderrCapture.Completion))
-                        if (-not $drain.Wait(5000)) { $result.Error += '; redirected streams did not close after termination' }
-                    } catch { $result.Error += "; stream capture: $($_.Exception.Message)" }
-                }
-            }
-            # Killing this invocation's job closes inherited pipes, preserving
-            # output already produced on timeout/cancellation as well as success.
-            $stdout = if ($null -ne $stdoutCapture) { $stdoutCapture.Text } else { '' }
-            $stderr = if ($null -ne $stderrCapture) { $stderrCapture.Text } else { '' }
-            if ($null -ne $stdoutCapture -and $process.HasExited) { $result.ExitCode = $process.ExitCode }
+            if ($result.Status -ne 'completed') { $owner.TerminateAndJoin() }
+            $result.ExitCode = $owner.ExitCode
+            $result.StdoutBytes = if ($null -ne $owner.Stdout) { $owner.Stdout.RetainedBytes } else { 0 }
+            $result.StderrBytes = if ($null -ne $owner.Stderr) { $owner.Stderr.RetainedBytes } else { 0 }
+            $result.CaptureOverflow = ($null -ne $owner.Stdout -and $owner.Stdout.Overflow) -or ($null -ne $owner.Stderr -and $owner.Stderr.Overflow)
+            $result.CaptureSpoolWriteMS = $owner.Stdout.SpoolWriteMS + $owner.Stderr.SpoolWriteMS
             $persistence = [Diagnostics.Stopwatch]::StartNew()
-            try { Write-ProcessEvidence $StdoutPath $StderrPath $stdout $stderr }
+            try { Write-ProcessEvidence $owner }
             catch { $result.Status = 'incomplete'; $result.Error += "; evidence persistence: $($_.Exception.Message)" }
             finally { $persistence.Stop(); $result.EvidencePersistenceMS = $persistence.Elapsed.TotalMilliseconds }
-        } finally { $owned.Dispose() }
+        } finally { if ($null -eq $Ownership) { $owner.Dispose() } }
     }
     return $result
 }
+
 
 function Invoke-ScoredBuild {
     param(
@@ -505,17 +720,18 @@ function Invoke-ScoredBuild {
     }
     Add-InvocationRecord $JournalPath $entry
     $result = $null
+    $owner = $null
+    $validationCompleted = $false
     $entry.error = $null
     try {
-        $result = Invoke-ProcessWithTimeout $Executable (@('build', '--project', $WorkCopy, '--json') + $ExtraArguments) $WorkCopy $Timeout $entry.stdout $entry.stderr
+        $result = Invoke-ProcessWithTimeout $Executable (@('build', '--project', $WorkCopy, '--json') + $ExtraArguments) $WorkCopy $Timeout $entry.stdout $entry.stderr -Ownership ([ref]$owner)
         if ($result.Status -ne 'completed') { throw $result.Error }
-        $publicResult = [IO.File]::ReadAllText($entry.stdout) | ConvertFrom-Json -AsHashtable
-        if ($publicResult -isnot [System.Collections.IDictionary] -or $publicResult.ok -isnot [bool] -or $publicResult.diagnostics -isnot [array]) {
-            throw 'prebuilt binary did not emit a public --json result object with ok and diagnostics'
-        }
-        if ($result.ExitCode -ne 0 -or -not $publicResult.ok) { throw "build failed (exit_code=$($result.ExitCode), ok=$($publicResult.ok))" }
-        $result.DiagnosticsDigest = Get-Sha256Text (ConvertTo-Json -InputObject $publicResult.diagnostics -Compress -Depth 32)
+        try { $publicResult = Read-StrictJson $entry.stdout -Kind public_result }
+        catch { throw "invalid public JSON: $($_.Exception.Message)" }
+        if ($result.ExitCode -ne 0 -or -not $publicResult['ok']) { throw "build failed (exit_code=$($result.ExitCode), ok=$($publicResult['ok']))" }
+        $result.DiagnosticsDigest = Get-Sha256Text (ConvertTo-Json -InputObject $publicResult['diagnostics'] -Compress -Depth 32)
         $result.OutputTreeDigest = Get-TreeDigest $WorkCopy -OutputStateOnly
+        $validationCompleted = $true
     } catch {
         $entry.error = $_.Exception.Message
         if ($null -ne $result) {
@@ -524,11 +740,20 @@ function Invoke-ScoredBuild {
         }
         throw
     } finally {
-        $entry.event = 'finished'
-        $entry.at_utc = [DateTime]::UtcNow.ToString('o')
-        $entry.status = if ($null -ne $result -and $result.Status -eq 'completed') { 'completed' } else { 'incomplete' }
-        $entry.result = $result
-        Add-InvocationRecord $JournalPath $entry
+        try { if ($null -ne $owner) { $owner.Dispose() } }
+        catch { $validationCompleted = $false; $entry.error += "; ownership cleanup: $($_.Exception.Message)"; throw }
+        finally {
+            if (-not $validationCompleted) {
+                if (-not $entry.error) { $entry.error = 'validation interrupted or did not complete' }
+                if ($null -ne $result -and $result.Status -eq 'completed') { $result.Status = 'incomplete'; $result.Error = $entry.error }
+            }
+            $entry.event = 'finished'
+            $entry.at_utc = [DateTime]::UtcNow.ToString('o')
+            $entry.validation_completed = $validationCompleted
+            $entry.status = if ($validationCompleted) { 'completed' } else { 'incomplete' }
+            $entry.result = $result
+            Add-InvocationRecord $JournalPath $entry
+        }
     }
     return $result
 }
@@ -610,11 +835,11 @@ function Invoke-PerfCompare {
     $result = Invoke-ProcessWithTimeout $go @('run', './tools/perfcompare', '--input', $ManifestPath, '--output', $VerdictPath) $RepositoryRoot ([TimeSpan]::FromMinutes(5)) "$VerdictPath.stdout.txt" "$VerdictPath.stderr.txt"
     if ($result.Status -ne 'completed') { throw "perfcompare did not complete: $($result.Error)" }
     if (-not (Test-Path -LiteralPath $VerdictPath -PathType Leaf)) { throw 'perfcompare did not produce a verdict' }
-    $verdict = Get-Content -LiteralPath $VerdictPath -Raw | ConvertFrom-Json
-    if ($verdict.schema -ne 1 -or $verdict.status -notin @('PASS', 'FAIL') -or (($result.ExitCode -eq 0) -ne ($verdict.status -eq 'PASS'))) {
+    $verdict = Read-StrictJson $VerdictPath -Kind verdict
+    if ($verdict['schema'] -ne 1 -or $verdict['status'] -notin @('PASS', 'FAIL') -or (($result.ExitCode -eq 0) -ne ($verdict['status'] -eq 'PASS'))) {
         throw 'perfcompare exit code and verdict are inconsistent'
     }
-    return [ordered]@{ ExitCode = $result.ExitCode; Status = $verdict.status; Output = [IO.File]::ReadAllText("$VerdictPath.stderr.txt") }
+    return [ordered]@{ ExitCode = $result.ExitCode; Status = $verdict['status']; Output = [IO.File]::ReadAllText("$VerdictPath.stderr.txt") }
 }
 
 function Remove-TestOwnedWorkCopies {
@@ -662,8 +887,8 @@ function Get-FixtureProvenance {
     foreach ($name in @('typescript', 'roblox-ts', '@rbxts/types', '@rbxts/compiler-types', 'rbxts-transformer-flamework')) {
         $path = Join-Path $Root "node_modules/$name/package.json"
         if (Test-Path -LiteralPath $path -PathType Leaf) {
-            $package = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable
-            $packages[$name] = [ordered]@{ version = $package.version; manifest_sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
+            $package = Read-StrictJson $path
+            $packages[$name] = [ordered]@{ version = $package['version']; manifest_sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash }
         }
     }
     return [ordered]@{ input_file_hashes = $files; observed_package_versions = $packages }
@@ -705,6 +930,7 @@ function Invoke-RealBenchmark {
         throw 'Windows benchmark runs require Windows. Use -ValidateOnly on other platforms.'
     }
     $go = Assert-EvaluatorPrerequisites $RepositoryRoot
+    Initialize-ProcessOwnership
     foreach ($variable in @('BaselineExe', 'CandidateExe', 'Fixture', 'EvidenceDir')) {
         $value = Get-Variable -Name $variable -ValueOnly
         if ([string]::IsNullOrWhiteSpace($value)) { throw "$variable is required" }
@@ -732,10 +958,15 @@ function Invoke-RealBenchmark {
     $environment = Get-EnvironmentSnapshot
     $oldSidecarTimeout = [Environment]::GetEnvironmentVariable('ROTOR_SIDECAR_TIMEOUT', 'Process')
     $records = [Collections.Generic.List[object]]::new()
+    $evaluationReady = $false
+    $cleanupCompleted = $false
     $run = [ordered]@{
         schema = 1; status = 'incomplete'; started_utc = [DateTime]::UtcNow.ToString('o'); finished_utc = $null
         error = $null; before = $null; after = $null; evaluation = $null
         invocation_journal = $journalPath
+        tree_digest_format = 'sha256-tree-v2'
+        measurement_boundary = 'owned-job-quiescence-and-spooled-stream-eof-v2'
+        capture_limit_bytes_per_stream = $MaxCaptureBytes
         scope = 'single-project fresh-process; output/state reset; warm OS cache; output digest excludes include, custom outputs and mtimes; canonical digest covers all files except .git'
         tools = [ordered]@{ powershell = $PSVersionTable.PSVersion.ToString(); go = (& $go version) -join ' '; git = (& git --version) -join ' ' }
         machine = $null
@@ -776,11 +1007,14 @@ function Invoke-RealBenchmark {
         $timingPath = Join-Path $evidencePath 'candidate-timings.json'
         [void](Invoke-ScoredBuild $CandidateExe $candidateWork $timeout (Join-Path $evidencePath 'candidate-timings') $journalPath ([ordered]@{ phase = 'diagnostic'; binary = 'candidate'; scored = $false }) @('--timings', $timingPath))
         if (-not (Test-Path -LiteralPath $timingPath -PathType Leaf)) { throw 'candidate diagnostic did not write the requested timing file' }
+        [void](Read-StrictJson $timingPath -Kind timings)
         $run.after = Get-InputIdentity $trackedWorktrees $go
         Assert-InputIdentityEqual $run.before $run.after
         Assert-EnvironmentEqual $environment (Get-EnvironmentSnapshot)
         $manifest = [ordered]@{
             schema = 1
+            tree_digest_format = 'sha256-tree-v2'
+            measurement_boundary = 'owned-job-quiescence-and-spooled-stream-eof-v2'
             machine = $run.machine
             baseline = [ordered]@{ revision = "sha256:$($run.before.baseline.sha256)"; command = "$BaselineExe build --project <work-copy> --json" }
             candidate = [ordered]@{ revision = "sha256:$($run.before.candidate.sha256)"; command = "$CandidateExe build --project <work-copy> --json" }
@@ -793,41 +1027,65 @@ function Invoke-RealBenchmark {
         Assert-InputIdentityEqual $run.before $run.after
         Assert-EnvironmentEqual $environment (Get-EnvironmentSnapshot)
         if (Test-Path -LiteralPath $verdictPath) {
-            $verdict = Get-Content -LiteralPath $verdictPath -Raw | ConvertFrom-Json
-            if (@($verdict.reasons | Where-Object code -eq 'invalid_manifest').Count -gt 0) {
+            $verdict = Read-StrictJson $verdictPath -Kind verdict
+            if (@($verdict['reasons'] | Where-Object { $_['code'] -eq 'invalid_manifest' }).Count -gt 0) {
                 throw "perfcompare rejected invalid evidence: $($evaluation.Output)"
             }
         }
-        [IO.File]::Move($pendingManifest, $manifestPath)
-        $run.status = 'evaluated'
-        if ($evaluation.ExitCode -ne 0) {
-            throw "perfcompare rejected benchmark evidence: $($evaluation.Output)"
-        }
+        $evaluationReady = $true
     } catch {
         $run.error = $_.Exception.Message
         throw
     } finally {
         try {
-            if ($run.status -eq 'incomplete' -and $null -ne $run.before) {
+            if (-not $evaluationReady -and $null -ne $run.before) {
                 try { $run.after = Get-InputIdentity $trackedWorktrees $go }
                 catch { $run.error += "; final identity unavailable: $($_.Exception.Message)"; $run.status = 'incomplete' }
             }
-            $run.finished_utc = [DateTime]::UtcNow.ToString('o')
-            Write-RunStatus $runPath $run
         } finally {
             if ($null -eq $oldSidecarTimeout) {
                 Remove-Item Env:ROTOR_SIDECAR_TIMEOUT -ErrorAction SilentlyContinue
             } else {
                 $env:ROTOR_SIDECAR_TIMEOUT = $oldSidecarTimeout
             }
-            try { Remove-TestOwnedWorkCopies $evidencePath $workRoot }
+            try {
+                if (-not [RotorBench.Invocation]::CleanupSafe) { throw 'owned process cleanup did not quiesce; preserve work copies' }
+                Remove-TestOwnedWorkCopies $evidencePath $workRoot
+                $cleanupCompleted = $true
+            }
             catch {
                 $run.cleanup_error = $_.Exception.Message
-                Write-RunStatus $runPath $run
+                $run.error = if ($run.error) { $run.error + "; ownership-safe cleanup failed: $($_.Exception.Message)" } else { "ownership-safe cleanup failed: $($_.Exception.Message)" }
                 throw
+            } finally {
+                # Cancellation can bypass catch; keep both completion gates false
+                # until their entire operations have returned successfully.
+                if (-not $evaluationReady -and -not $run.error) { $run.error = 'run interrupted before evaluation completed' }
+                if (-not $cleanupCompleted -and -not $run.error) { $run.error = 'cleanup interrupted or did not complete' }
+                $run.status = 'incomplete'
+                $run.finished_utc = [DateTime]::UtcNow.ToString('o')
+                Write-RunStatus $runPath $run
             }
         }
     }
+    # Publish only after identity, evaluation, ownership and cleanup have all
+    # completed. Roll back the filename if publication itself is interrupted.
+    $publicationCompleted = $false
+    if (-not $evaluationReady -or -not $cleanupCompleted) { throw 'evaluation or cleanup did not complete' }
+    try {
+        $run.status = 'evaluated'
+        if ($evaluation.ExitCode -ne 0) { $run.error = "perfcompare rejected benchmark evidence: $($evaluation.Output)" }
+        Write-RunStatus $runPath $run
+        [IO.File]::Move($pendingManifest, $manifestPath)
+        $publicationCompleted = $true
+    } finally {
+        if (-not $publicationCompleted) {
+            $run.status = 'incomplete'
+            if (Test-Path -LiteralPath $manifestPath) { [IO.File]::Move($manifestPath, $pendingManifest) }
+            Write-RunStatus $runPath $run
+        }
+    }
+    if ($evaluation.ExitCode -ne 0) { throw $run.error }
 }
 
 function Invoke-HarnessValidation {

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,17 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--persist" {
+		_ = os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_PID"), []byte(fmt.Sprint(os.Getpid())), 0o600)
+		time.Sleep(350 * time.Millisecond)
+		_ = os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_DONE"), []byte("persistence complete"), 0o600)
+		return
+	}
+	if os.Getenv("ROTOR_BENCH_TEST_MODE") == "echo" {
+		cwd, _ := os.Getwd()
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"arguments": os.Args[1:], "cwd": cwd, "value": os.Getenv("ROTOR_BENCH_TEST_VALUE")})
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "--hold-stream" {
 		time.Sleep(250 * time.Millisecond)
 		fmt.Fprintln(os.Stderr, "descendant stream tail")
@@ -30,6 +42,44 @@ func main() {
 		}
 	}
 	fmt.Fprintln(os.Stderr, "stub stderr before completion")
+	mode := os.Getenv("ROTOR_BENCH_TEST_MODE")
+	if mode == "abrupt" {
+		child := exec.Command(os.Args[0], "--hang")
+		if err := child.Start(); err != nil {
+			panic(err)
+		}
+		fmt.Println(`{"ok":true,"diagnostics":[]}`)
+		fmt.Fprintln(os.Stderr, "ABRUPT_EVIDENCE_ALREADY_EMITTED")
+		time.Sleep(time.Minute)
+		return
+	}
+	if mode == "raw-json" {
+		fmt.Print(os.Getenv("ROTOR_BENCH_TEST_JSON"))
+		return
+	}
+	if mode == "overflow" {
+		fmt.Print(string(make([]byte, 32768)))
+		return
+	}
+	if mode == "closed-success" || mode == "closed-private" || mode == "closed-nonzero" || mode == "closed-invalid" || mode == "closed-not-ok" || mode == "closed-timeout" {
+		child := exec.Command(os.Args[0], "--persist")
+		if mode == "closed-private" {
+			// Match Rotor's sidecar shape: separate stdin/stdout/stderr pipes.
+			_, _ = child.StdinPipe()
+			_, _ = child.StdoutPipe()
+			_, _ = child.StderrPipe()
+		}
+		if err := child.Start(); err != nil {
+			panic(err)
+		}
+		if mode == "closed-timeout" {
+			time.Sleep(time.Minute)
+		}
+		if mode == "closed-invalid" {
+			fmt.Print("invalid {")
+			return
+		}
+	}
 	switch os.Getenv("ROTOR_BENCH_TEST_MODE") {
 	case "hang", "stream-tail":
 		arg := "--hold-stream"
@@ -68,14 +118,14 @@ func main() {
 		_ = os.WriteFile(filepath.Join(project, "out", "result.luau"), []byte("return 1\n"), 0o600)
 	}
 	if timings != "" {
-		_ = os.WriteFile(timings, []byte(`{"schema":2,"totalMs":1}`), 0o600)
+		_ = os.WriteFile(timings, []byte(`{"schemaVersion":2,"ok":true,"totalMs":1,"stageSemantics":"workMs","stages":{},"counts":{},"metadata":{}}`), 0o600)
 	}
-	if os.Getenv("ROTOR_BENCH_TEST_MODE") == "not-ok" {
+	if mode == "not-ok" || mode == "closed-not-ok" {
 		fmt.Println(`{"ok":false,"diagnostics":[]}`)
 		return
 	}
 	fmt.Println(`{"ok":true,"diagnostics":[]}`)
-	if os.Getenv("ROTOR_BENCH_TEST_MODE") == "nonzero" {
+	if mode == "nonzero" || mode == "closed-nonzero" {
 		os.Exit(9)
 	}
 }
