@@ -82,3 +82,6 @@ documentation/dist/
 documentation/.astro/
 documentation/test-results/
 documentation/playwright-report/
+
+# isentinel-lint
+.eslintcache-*

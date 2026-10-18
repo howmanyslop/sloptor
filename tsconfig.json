@@ -1,0 +1,16 @@
+{
+	"extends": "./tsconfig.base.json",
+	"references": [
+		{
+			"path": "./documentation"
+		},
+		{
+			"path": "./tools/lint-configurations"
+		},
+		{
+			"path": "./tsconfig.node.json"
+		}
+	],
+	"files": [],
+	"include": []
+}

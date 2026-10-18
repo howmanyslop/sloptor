@@ -12,7 +12,6 @@ terminal_progress = false
 // - **/testdata/**: compiler fixtures and byte-parity goldens.
 // - rotor.schema.json / rbxts-tsconfig.schema.json: must stay byte-identical to the
 //   Go constants in internal/config/schema.go and internal/compile/rbxts_schema.go.
-// - oxlint.config.ts: imports packages this repo does not install; inert here.
 exclude =
   List(
     "node_modules",
@@ -35,7 +34,6 @@ exclude =
     ".agents/skills",
     "rotor.schema.json",
     "rbxts-tsconfig.schema.json",
-    "oxlint.config.ts",
   )
 
 local GO_FILES = List("**/*.go", "go.mod", "go.sum")
@@ -112,6 +110,29 @@ local fileChecks = new Mapping<String, Step> {
     }
   }
   ["oxfmt"] = Builtins.oxfmt
+  // One process for the whole file list: each invocation repays ESLint's startup
+  // cost. The script pins both root configs, so nested ones never apply.
+  ["isentinel-lint"] {
+    glob =
+      List(
+        "**/*.{ts,tsx,mts,cts,astro}",
+        "**/*.{json,jsonc,json5,yaml,yml,toml,css}",
+      )
+    depends = List("biome")
+    batch = false
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("node", "--run", "isentinel-lint", "--", "{{files}}")
+      }
+      effect = "write"
+    }
+    fix = new CommandSpec {
+      command = new Command {
+        argv = List("node", "--run", "isentinel-lint", "--", "--fix", "{{files}}")
+      }
+      effect = "write"
+    }
+  }
   ["type-check"] {
     glob = OMP_FILES
     depends = List("biome")

@@ -1,0 +1,23 @@
+{
+	"name": "@rotor-rbx/lint-configurations",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Linter configurations",
+	"license": "UNLICENSED",
+	"type": "module",
+	"exports": {
+		"./get-eslint-async": "./src/get-eslint-async.ts",
+		"./get-oxlint-async": "./src/get-oxlint-async.ts",
+		"./package.json": "./package.json"
+	},
+	"dependencies": {
+		"@isentinel/eslint-config": "catalog:lint",
+		"eslint-plugin-astro": "catalog:lint",
+		"eslint-plugin-regexp": "catalog:lint"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:types",
+		"@typescript/native-preview": "catalog:dev",
+		"oxlint": "catalog:lint"
+	}
+}
