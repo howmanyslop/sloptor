@@ -683,8 +683,8 @@ func (b *resourceBatch) validateResources(v *validation, o *resourceObservation,
 				case "StructureBytes":
 					max = math.MaxInt32
 				}
-				if n, ok := resourceUint(v, values, key, cp+".Values", max); ok && key == "StructureBytes" && n == 0 {
-					v.invalid(cp+".Values."+key, "available native structure size must be positive")
+				if n, ok := resourceUint(v, values, key, cp+".Values", max); ok && key == "StructureBytes" && !resourceNativeStructureSize(name, n) {
+					v.invalid(cp+".Values."+key, "does not match a supported fixed native structure layout")
 				}
 			}
 			if name == "JobAccounting" {
@@ -762,6 +762,18 @@ func (b *resourceBatch) validateResources(v *validation, o *resourceObservation,
 			}
 		}
 	}
+}
+
+// Fixed 49f2 sequential C# definitions, not the child executable's GOARCH:
+// BasicIoAccounting = four int64 + four uint32 + six uint64 = 96 bytes.
+// ExtendedLimits = BasicLimits (48/64) + IoCounters (48) + four UIntPtr
+// (16/32), hence 112/144 with the collector's 32/64-bit default packing.
+// Supporting both layouts does not attest which collector actually ran.
+func resourceNativeStructureSize(component string, size uint64) bool {
+	if component == "JobAccounting" {
+		return size == 96
+	}
+	return component == "JobMemory" && (size == 112 || size == 144)
 }
 
 // The harness retains Windows paths. Normalize them lexically without reading

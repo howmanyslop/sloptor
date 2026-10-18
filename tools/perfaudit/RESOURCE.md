@@ -102,8 +102,12 @@ semantic shorthand aliases from the original synthetic recipes: boundary
 `job committed peak bytes`; I/O `OS I/O, not filesystem-only` or
 `OS counters, not filesystem-only`. Other descriptions reject; descriptors cannot
 redefine tick units or OS I/O as durable filesystem writes. Available native
-structures require positive sizes within the native integer range, without an
-architecture-specific size assumption. A snapshot with any available component
+structures require supported fixed C# sequential layouts: JobAccounting 96 bytes;
+JobMemory 112 or 144 bytes for a 32- or 64-bit collector. These derive from the
+49f2 field definitions: accounting 4*8+4*4+6*8; extended limits BasicLimits
+(48/64)+IoCounters (48)+four UIntPtr (16/32). Child compiler GOARCH does not select
+the collector layout. Matching sizes remain assertions, not collection proof.
+A snapshot with any available component
 requires nonnull nonnegative getter duration. Genuine missing snapshots may have
 null duration. Duration lexemes must be mathematically nonnegative before float
 conversion; explicit mathematical negative zero is allowed, and native fractional
