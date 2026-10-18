@@ -107,8 +107,28 @@ Public results, timings, evaluator verdicts, and fixture JSON metadata use the
 same strict UTF-8 JSON guard: one document, no comments/trailing commas, no
 duplicate object names, and the required shape for the result kind. The candidate
 `--timings` invocation is separately unscored and must succeed.
-JSON string values remain strings during conversion; diagnostic hashing preserves
-their text, including timestamp offsets and fractional-second spellings.
+Every string value/name must decode as Unicode scalars; malformed surrogate
+sequences reject the invocation with raw logs and incomplete validation. Valid
+U+FFFD and proper surrogate pairs remain accepted. The JSON parser admits at most
+64 nested containers, including the public root; deeper input is rejected.
+
+Diagnostic identity is computed directly from that validated JSON tree, without
+PowerShell numeric/object conversion or depth-limited JSON serialization. The
+format is `sha256-diagnostics-v2:<hex>`: SHA-256 receives ASCII
+`rotor-diagnostics-v2` plus NUL, then a recursively framed diagnostic array.
+Tags `o/a/s/n/t/f/z` identify object/array/string/number/true/false/null.
+Objects contain a uint64 property count and ordinal-sorted decoded names, each
+followed by its value; arrays contain a uint64 count and ordered values.
+Names/strings/numeric tokens contain a uint64 UTF-8 byte length and those bytes.
+All integers are little-endian. Strings compare decoded scalar sequences without
+Unicode normalization; equivalent escapes match, composed/decomposed text differs.
+Numbers retain their exact JSON tokens: `1`, `1.0`, and `1e0` deliberately differ,
+as do arbitrary-precision decimals and large exponents. Types remain distinct.
+Every admitted depth is encoded; encoding errors fail validation. Existing flat
+integer diagnostic fields remain supported. `Read-StrictJson` without
+`-PublicIdentity` is a PowerShell convenience projection, not the identity encoder.
+This internal digest encoding is incompatible with previous digests. Compare
+only evidence with matching digest/timing/capture semantics and recorded runtime.
 
 Windows 10/Server 2016 or newer is required. `CreateProcessW` uses creation-time
 `PROC_THREAD_ATTRIBUTE_JOB_LIST` membership and an explicit inherited handle list

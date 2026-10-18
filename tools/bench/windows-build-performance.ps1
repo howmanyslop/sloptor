@@ -332,19 +332,66 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 namespace RotorBench {
+    public sealed class PublicIdentity {
+        public bool Ok { get; }
+        public string DiagnosticsDigest { get; }
+        public PublicIdentity(bool ok, string digest) { Ok = ok; DiagnosticsDigest = digest; }
+    }
     public static class StrictJson {
-        public static void Validate(string json, string kind) {
-            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions {
+        static JsonDocument Parse(string json) => JsonDocument.Parse(json, new JsonDocumentOptions {
                 AllowTrailingCommas = false, CommentHandling = JsonCommentHandling.Disallow, MaxDepth = 64
             });
-            Check(doc.RootElement);
-            var root = doc.RootElement;
+        public static void Validate(string json, string kind) {
+            using var doc = Parse(json);
+            ValidateRoot(doc.RootElement, kind);
+        }
+        public static PublicIdentity ReadPublicIdentity(string json) {
+            using var doc = Parse(json);
+            ValidateRoot(doc.RootElement, "public_result");
+            using var bytes = new MemoryStream();
+            using (var writer = new BinaryWriter(bytes, new UTF8Encoding(false, true), true)) {
+                writer.Write(Encoding.ASCII.GetBytes("rotor-diagnostics-v2\0"));
+                WriteValue(writer, doc.RootElement.GetProperty("diagnostics"));
+            }
+            return new PublicIdentity(doc.RootElement.GetProperty("ok").GetBoolean(),
+                "sha256-diagnostics-v2:" + Convert.ToHexString(SHA256.HashData(bytes.ToArray())).ToLowerInvariant());
+        }
+        static void WriteText(BinaryWriter writer, string text) {
+            byte[] bytes = new UTF8Encoding(false, true).GetBytes(text);
+            writer.Write((ulong)bytes.Length); writer.Write(bytes);
+        }
+        // Type tags and length/count framing avoid scalar coercion, depth
+        // truncation and serialization warnings. Numbers retain exact tokens.
+        static void WriteValue(BinaryWriter writer, JsonElement value) {
+            switch (value.ValueKind) {
+                case JsonValueKind.Object:
+                    writer.Write((byte)'o');
+                    var properties = new List<JsonProperty>(value.EnumerateObject());
+                    properties.Sort((a, b) => StringComparer.Ordinal.Compare(a.Name, b.Name));
+                    writer.Write((ulong)properties.Count);
+                    foreach (var property in properties) { WriteText(writer, property.Name); WriteValue(writer, property.Value); }
+                    break;
+                case JsonValueKind.Array:
+                    writer.Write((byte)'a'); writer.Write((ulong)value.GetArrayLength());
+                    foreach (var element in value.EnumerateArray()) WriteValue(writer, element);
+                    break;
+                case JsonValueKind.String: writer.Write((byte)'s'); WriteText(writer, value.GetString()); break;
+                case JsonValueKind.Number: writer.Write((byte)'n'); WriteText(writer, value.GetRawText()); break;
+                case JsonValueKind.True: writer.Write((byte)'t'); break;
+                case JsonValueKind.False: writer.Write((byte)'f'); break;
+                case JsonValueKind.Null: writer.Write((byte)'z'); break;
+                default: throw new FormatException("unsupported JSON value");
+            }
+        }
+        static void ValidateRoot(JsonElement root, string kind) {
+            Check(root);
             if (root.ValueKind != JsonValueKind.Object) throw new FormatException("JSON result must be one object");
             if (kind == "public_result") {
                 if (!root.TryGetProperty("ok", out var ok) || (ok.ValueKind != JsonValueKind.True && ok.ValueKind != JsonValueKind.False) ||
@@ -388,6 +435,10 @@ namespace RotorBench {
                 }
             } else if (value.ValueKind == JsonValueKind.Array) {
                 foreach (var element in value.EnumerateArray()) Check(element);
+            } else if (value.ValueKind == JsonValueKind.String) {
+                // JsonDocument decodes values lazily; force strict surrogate
+                // validation before any later consumer can replace bad text.
+                value.GetString();
             }
         }
     }
@@ -632,12 +683,16 @@ namespace RotorBench {
 }
 
 function Read-StrictJson {
-    param([string]$Path, [ValidateSet('object', 'public_result', 'timings', 'verdict')][string]$Kind = 'object')
+    param([string]$Path, [ValidateSet('object', 'public_result', 'timings', 'verdict')][string]$Kind = 'object', [switch]$PublicIdentity)
 
     Initialize-ProcessOwnership
     $stream = [IO.File]::OpenRead($Path)
     $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $false)
     try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if ($PublicIdentity) {
+        if ($Kind -ne 'public_result') { throw 'public identity requires the public_result shape' }
+        return [RotorBench.StrictJson]::ReadPublicIdentity($raw)
+    }
     [RotorBench.StrictJson]::Validate($raw, $Kind)
     $value = ConvertFrom-Json -InputObject $raw -AsHashtable -NoEnumerate -DateKind String
     if ($value -isnot [System.Collections.IDictionary]) { throw 'JSON result must be one object' }
@@ -718,6 +773,7 @@ function Invoke-ScoredBuild {
         event = 'started'; invocation = $Invocation; at_utc = [DateTime]::UtcNow.ToString('o')
         status = 'incomplete'; executable = $Executable; working_directory = $WorkCopy
         stdout = "$EvidencePath.stdout.json"; stderr = "$EvidencePath.stderr.txt"
+        diagnostics_digest_format = 'sha256-diagnostics-v2'
     }
     Add-InvocationRecord $JournalPath $entry
     $result = $null
@@ -727,10 +783,10 @@ function Invoke-ScoredBuild {
     try {
         $result = Invoke-ProcessWithTimeout $Executable (@('build', '--project', $WorkCopy, '--json') + $ExtraArguments) $WorkCopy $Timeout $entry.stdout $entry.stderr -Ownership ([ref]$owner)
         if ($result.Status -ne 'completed') { throw $result.Error }
-        try { $publicResult = Read-StrictJson $entry.stdout -Kind public_result }
+        try { $publicResult = Read-StrictJson $entry.stdout -Kind public_result -PublicIdentity }
         catch { throw "invalid public JSON: $($_.Exception.Message)" }
-        if ($result.ExitCode -ne 0 -or -not $publicResult['ok']) { throw "build failed (exit_code=$($result.ExitCode), ok=$($publicResult['ok']))" }
-        $result.DiagnosticsDigest = Get-Sha256Text (ConvertTo-Json -InputObject $publicResult['diagnostics'] -Compress -Depth 32)
+        if ($result.ExitCode -ne 0 -or -not $publicResult.Ok) { throw "build failed (exit_code=$($result.ExitCode), ok=$($publicResult.Ok))" }
+        $result.DiagnosticsDigest = $publicResult.DiagnosticsDigest
         $result.OutputTreeDigest = Get-TreeDigest $WorkCopy -OutputStateOnly
         $validationCompleted = $true
     } catch {
@@ -966,6 +1022,7 @@ function Invoke-RealBenchmark {
         error = $null; before = $null; after = $null; evaluation = $null
         invocation_journal = $journalPath
         tree_digest_format = 'sha256-tree-v2'
+        diagnostics_digest_format = 'sha256-diagnostics-v2'
         measurement_boundary = 'owned-job-quiescence-and-spooled-stream-eof-v2'
         capture_limit_bytes_per_stream = $MaxCaptureBytes
         scope = 'single-project fresh-process; output/state reset; warm OS cache; output digest excludes include, custom outputs and mtimes; canonical digest covers all files except .git'

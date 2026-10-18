@@ -11,6 +11,7 @@ function Invoke-HarnessRegressions {
     $env:ROTOR_BENCH_TEST_MODE = ''
     $journal = Join-Path $root 'invocations.ndjson'
     try {
+        Invoke-DiagnosticAdmissionRegressions $HarnessFile $StubFile $Repository $root
         # No attach operation exists. Immediate roots and child creation are
         # legal schedules inside the creation-time job, including fast exits.
         foreach ($index in 1..25) {
@@ -287,6 +288,93 @@ Write-RunStatus (Join-Path $CaseRoot 'abrupt-run.json') ([ordered]@{ status = 'i
     } finally {
         foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     }
+}
+
+function Invoke-DiagnosticAdmissionRegressions {
+    param([string]$HarnessFile, [string]$StubFile, [string]$Repository, [string]$Artifacts)
+
+    $root = Join-Path $Artifacts 'diagnostic-admission'
+    [void][IO.Directory]::CreateDirectory($root)
+    $failures = [Collections.Generic.List[string]]::new()
+    $rows = [ordered]@{}
+    $savedMode = $env:ROTOR_BENCH_TEST_MODE
+    $savedJson = $env:ROTOR_BENCH_TEST_JSON
+    function Observe-Admission {
+        param([string]$Name, [string]$Members, [bool]$Accepted = $true)
+        $raw = '{"version":"test","files":1,"durationMs":1,"ok":true,"diagnostics":[{"file":"input.ts","line":1,"col":1,"code":"TEST","severity":"warning",' + $Members + '}]}'
+        $env:ROTOR_BENCH_TEST_JSON = $raw
+        $prefix = Join-Path $root $Name
+        $result = $null; $errorText = $null
+        try { $result = Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(4)) $prefix (Join-Path $root 'journal.ndjson') @{ scored = $false; test = $Name } }
+        catch { $errorText = $_.Exception.Message }
+        $entry = Get-Content -LiteralPath (Join-Path $root 'journal.ndjson') -Tail 1 | ConvertFrom-Json -AsHashtable
+        $actual = $null -ne $result
+        if ($actual -ne $Accepted) { $failures.Add("$Name accepted=$actual, expected=$Accepted, error=$errorText") }
+        if ([IO.File]::ReadAllText("$prefix.stdout.json") -cne $raw) { $failures.Add("$Name lost raw evidence") }
+        if (-not $actual -and ($entry.status -ne 'incomplete' -or $entry.validation_completed -or -not $entry.error)) { $failures.Add("$Name lost incomplete validation evidence") }
+        $rows[$Name] = @{ accepted = $actual; result = $result; error = $errorText }
+    }
+    try {
+        $env:ROTOR_BENCH_TEST_MODE = 'raw-json'
+        foreach ($token in @('\ud800','\ud801','\udc00','\udc01','\ud800x','\ud800\ud801','\ude00\ud83d')) {
+            Observe-Admission "invalid-$($rows.Count)" ('"message":"' + $token + '"') $false
+        }
+        Observe-Admission 'invalid-nested' '"message":"outer","extension":{"list":["\ud800"]}' $false
+        Observe-Admission 'invalid-key' '"message":"outer","\ud800":1' $false
+        Observe-Admission 'escaped-duplicate' '"message":"a","\u006dessage":"b"' $false
+        Observe-Admission 'replacement-escaped' '"message":"\ufffd"'
+        Observe-Admission 'replacement-literal' ('"message":"' + [char]0xfffd + '"')
+        Observe-Admission 'emoji-escaped' '"message":"\ud83d\ude00"'
+        Observe-Admission 'emoji-literal' ('"message":"' + [char]::ConvertFromUtf32(0x1f600) + '"')
+        Observe-Admission 'composed' '"message":"\u00e9"'
+        Observe-Admission 'decomposed' '"message":"e\u0301"'
+        foreach ($depth in @(34,59,60,61)) {
+            foreach ($leaf in @('alpha','beta','repeat')) {
+                $extension = '{"message":"' + $(if ($leaf -eq 'repeat') { 'alpha' } else { $leaf }) + '"}'
+                foreach ($index in 1..$depth) { $extension = '{"next":' + $extension + '}' }
+                Observe-Admission "depth-$depth-$leaf" ('"message":"outer","extension":' + $extension) ($depth -le 60)
+            }
+        }
+        $array = '"leaf"'
+        foreach ($index in 1..61) { $array = '[' + $array + ']' }
+        Observe-Admission 'array-at-limit' ('"message":"outer","extension":' + $array)
+        Observe-Admission 'array-over-limit' ('"message":"outer","extension":[' + $array + ']') $false
+        $numbers = @('1.00000000000000001','1.00000000000000002','1e500','1e501','1','1.0','1e0','9007199254740992','9007199254740993')
+        for ($index = 0; $index -lt $numbers.Count; $index++) {
+            Observe-Admission "number-$index" ('"message":"outer","extension":{"list":[null,true,false,{"number":' + $numbers[$index] + '}]}')
+        }
+        Observe-Admission 'object-a' '"message":"outer","extension":{"z":[null,true,false],"a":{"s":"雪","n":1e500}}'
+        Observe-Admission 'object-b' '"message":"outer","extension":{"a":{"n":1e500,"s":"\u96ea"},"z":[null,true,false]}'
+        Observe-Admission 'typed-string' '"message":"outer","extension":"true"'
+        Observe-Admission 'typed-boolean' '"message":"outer","extension":true'
+        $pairs = @(
+            @('replacement-escaped','replacement-literal',$true), @('emoji-escaped','emoji-literal',$true),
+            @('composed','decomposed',$false), @('object-a','object-b',$true), @('typed-string','typed-boolean',$false),
+            @('number-0','number-1',$false), @('number-2','number-3',$false),
+            @('number-4','number-5',$false), @('number-5','number-6',$false), @('number-7','number-8',$false)
+        )
+        foreach ($depth in @(34,59,60)) { $pairs += ,@("depth-$depth-alpha","depth-$depth-beta",$false); $pairs += ,@("depth-$depth-alpha","depth-$depth-repeat",$true) }
+        $evaluations = @()
+        foreach ($pair in $pairs) {
+            $a = $rows[$pair[0]]; $b = $rows[$pair[1]]
+            if (-not $a.accepted -or -not $b.accepted) { $failures.Add("pair not admitted: $($pair[0]), $($pair[1])"); continue }
+            if (($a.result.DiagnosticsDigest -ceq $b.result.DiagnosticsDigest) -ne $pair[2]) { $failures.Add("digest identity: $($pair[0]), $($pair[1])") }
+            $manifest = Read-StrictJson (Join-Path (Split-Path $HarnessFile) '../perfcompare/testdata/pass.json')
+            foreach ($record in $manifest.records) { $record.diagnostics_digest = if ($record.binary -eq 'baseline') { $a.result.DiagnosticsDigest } else { $b.result.DiagnosticsDigest } }
+            $name = $pair[0] + '--' + $pair[1]
+            $path = Join-Path $root "$name.synthetic.json"
+            $verdictPath = Join-Path $root "$name.verdict.json"
+            $manifest | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $path
+            $evaluation = Invoke-PerfCompare $Repository $path $verdictPath
+            $verdict = Read-StrictJson $verdictPath -Kind verdict
+            $codes = @($verdict.reasons | ForEach-Object code)
+            if (($evaluation.Status -eq 'PASS') -ne $pair[2] -or ('diagnostics_digest_mismatch' -in $codes) -ne (-not $pair[2])) { $failures.Add("actual evaluator identity: $name") }
+            $evaluations += @{ pair = $pair; evaluation = $evaluation; reasons = $codes }
+        }
+        @{ cases = $rows; evaluations = $evaluations; failures = @($failures) } | ConvertTo-Json -Depth 16 | Set-Content -LiteralPath (Join-Path $root 'results.json')
+        if ($failures.Count) { throw ($failures -join '; ') }
+        Write-Output 'PASS R4-C8/C9/P06/A01: accepted-depth, Unicode scalars, exact number tokens and JSON types reach real evaluator; rejected inputs preserve incomplete raw evidence'
+    } finally { $env:ROTOR_BENCH_TEST_MODE = $savedMode; $env:ROTOR_BENCH_TEST_JSON = $savedJson }
 }
 
 function Invoke-PublicationRegressions {
