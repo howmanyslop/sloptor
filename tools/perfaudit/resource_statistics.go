@@ -30,13 +30,14 @@ type resourceOrderSummary struct {
 }
 
 type resourceDirection struct {
-	Ratio                *estimate `json:"ratio"`
-	PercentageChange     *estimate `json:"percentage_change"`
-	Difference           estimate  `json:"difference"`
-	PointZeroDenominator bool      `json:"point_zero_denominator"`
-	ZeroDenominatorDraws int       `json:"zero_denominator_draws"`
-	Gate                 decision  `json:"gate"`
-	DecisiveRoute        string    `json:"decisive_route"`
+	Ratio                *estimate          `json:"ratio"`
+	PercentageChange     *estimate          `json:"percentage_change"`
+	Difference           estimate           `json:"difference"`
+	PointZeroDenominator bool               `json:"point_zero_denominator"`
+	ZeroDenominatorDraws int                `json:"zero_denominator_draws"`
+	Gate                 decision           `json:"gate"`
+	DecisiveRoute        string             `json:"decisive_route"`
+	ExactMean            *resourceExactMean `json:"exact_mean,omitempty"`
 }
 
 type resourceStatisticResult struct {
@@ -79,21 +80,26 @@ type noiseSummary struct {
 // pairs of each block and each batch's original count, in chronological order.
 // The hash covers local zero-based block indices as little-endian uint32s,
 // replicate-major then batch-major, matching the independent policy vectors.
-func resourceDraws(batches [][]pair, visit func([]pair)) string {
+func resourceDraws(batches [][]pair, visit func([]pair), indexVisitors ...func([]int)) string {
 	rng := splitMix64{bootstrapSeed}
 	sample := make([]pair, len(joinResourceBatches(batches)))
 	hash := sha256.New()
 	var encoded [4]byte
+	indices := make([]int, len(sample)/2)
 	for range bootstrapReplicates {
 		offset := 0
 		for _, batch := range batches {
 			for i := 0; i < len(batch); i += 2 {
 				index := rng.index(len(batch) / 2)
+				indices[(offset+i)/2] = offset/2 + index
 				binary.LittleEndian.PutUint32(encoded[:], uint32(index))
 				_, _ = hash.Write(encoded[:])
 				copy(sample[offset+i:offset+i+2], batch[2*index:2*index+2])
 			}
 			offset += len(batch)
+		}
+		for _, visitor := range indexVisitors {
+			visitor(indices)
 		}
 		visit(sample)
 	}
@@ -199,10 +205,7 @@ func resourceGate(direction resourceDirection, relative float64, absolute *float
 	if absolute != nil {
 		d.Rule += fmt.Sprintf(" OR marginal difference CI upper <= %.17g; whole-row absolute-only if any denominator is zero", *absolute)
 	}
-	ratioPass := direction.Ratio != nil && direction.Ratio.CI95.Upper <= relative
-	absolutePass := absolute != nil && direction.Difference.CI95.Upper <= *absolute
-	ratioFail := direction.Ratio != nil && direction.Ratio.CI95.Lower > relative
-	absoluteFail := absolute != nil && direction.Difference.CI95.Lower > *absolute
+	ratioPass, absolutePass, ratioFail, absoluteFail := resourceComparisons(direction, relative, absolute)
 	switch {
 	case ratioPass || absolutePass:
 		d.Status, d.Message = criterionMet, "interval is within a declared relative or absolute allowance"
@@ -227,8 +230,7 @@ func resourceRoute(direction resourceDirection, relative float64, absolute *floa
 		}
 		return "undefined-ratio"
 	}
-	ratioPass := direction.Ratio.CI95.Upper <= relative
-	absolutePass := absolute != nil && direction.Difference.CI95.Upper <= *absolute
+	ratioPass, absolutePass, _, _ := resourceComparisons(direction, relative, absolute)
 	switch {
 	case ratioPass && absolutePass:
 		return "both"
@@ -268,7 +270,7 @@ func resourceStatuses(statuses ...string) string {
 
 // elapsed_ms defaults to the cold control/A/A limits. The caller reapplies the
 // no-change p95 ratio-only rule with reconfigureResourceRow before admission.
-func resourcePhaseStatistics(batches [][]pair, metric string, symmetric bool) resourceMetricResult {
+func resourcePhaseStatistics(batches [][]pair, metric string, symmetric bool, counters ...[][]resourceCounterPair) resourceMetricResult {
 	statistics := []string{"mean", "median"}
 	unit, relative, allowance := "operations", 1.10, 16.0
 	additive := true
@@ -316,17 +318,29 @@ func resourcePhaseStatistics(batches [][]pair, metric string, symmetric bool) re
 	for _, name := range statistics {
 		draws[name] = make([]resourceMarginals, 0, bootstrapReplicates)
 	}
+	var exactMean *resourceMeanSamples
+	var indexVisitors []func([]int)
+	if statistics[0] == "mean" {
+		exactMean = newResourceMeanSamples(batches, metric, counters...)
+		indexVisitors = append(indexVisitors, exactMean.record)
+	}
 	result.DrawSHA256 = resourceDraws(batches, func(sample []pair) {
 		baseline, candidate := resourceArms(sample, false)
 		for _, name := range statistics {
 			draws[name] = append(draws[name], resourceMarginals{resourceStatistic(baseline, name), resourceStatistic(candidate, name)})
 		}
-	})
+	}, indexVisitors...)
 	for _, name := range statistics {
 		point := resourceMarginals{resourceStatistic(result.Baseline, name), resourceStatistic(result.Candidate, name)}
 		row := resourceStatisticResult{Statistic: name, Forward: resourceDirectionFor(point, draws[name], false)}
+		if name == "mean" {
+			row.Forward = exactMean.direction(false)
+		}
 		if symmetric {
 			reversed := resourceDirectionFor(point, draws[name], true)
+			if name == "mean" {
+				reversed = exactMean.direction(true)
+			}
 			row.Reverse = &reversed
 		}
 		rowRelative, rowAllowance := relative, allowance

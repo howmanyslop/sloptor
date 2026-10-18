@@ -224,7 +224,7 @@ func summarizeResources(batches []resourceBatch, p resourcePlan, symmetric bool,
 				s.Gates[phase+"/"+metric] = decision{incompleteResource, "required metric on every scored record", "whole metric population unmeasured; observations and component causes retained"}
 				continue
 			}
-			r := resourcePhaseStatistics(values, metric, symmetric)
+			r := resourcePhaseStatistics(values, metric, symmetric, resourceCounterBatches(batches, metric, phase))
 			r.Status = criterionMet
 			for name, row := range r.Rows {
 				if metric == "elapsed_ms" && phase == noChange && name == "p95" {

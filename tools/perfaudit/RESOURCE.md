@@ -116,6 +116,16 @@ upper <= allowance passes, lower > allowance fails, otherwise inconclusive.
 The JSON includes exact limits, route, percentage/absolute changes, both-arm
 mean/median/p95/range, additive totals, raw pairs and block/order/batch counts.
 
+Additive CPU/I/O **mean** decisions use exact counter integers and arbitrary-size
+sums: difference of totals divided by count (and 10000 for CPU milliseconds),
+and ratio of totals. Their bootstrap ratios/differences and type7 interpolation
+remain rational through comparison with the exact decimal policy limits. Each
+mean direction includes `exact_mean` point/interval fraction strings; a null ratio
+retains the whole-row zero-denominator rule. Other numeric fields are rounded
+float64 displays and can coincide for exact values on opposite sides of a limit;
+recompute mean decisions from `exact_mean`, not those display copies. This exact
+path does not change elapsed estimators, resource median/p95 or the noise rule.
+
 A/A applies elapsed guards to every fixture and all resource guards in both
 directions using reversed draw statistics, including ratio-only no-change p95
 <=1.10. Candidate-benefit and legacy cold<=0.60 rules do not gate A/A; their
