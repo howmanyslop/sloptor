@@ -319,7 +319,12 @@ func compatibleResourceBatches(a, b resourceBatch, aa bool) []issue {
 	}
 	for _, arm := range arms {
 		for _, key := range []string{"sha256", "provided_source_sha", "observed_build", "build_setting_hashes", "build_info_sha256"} {
-			compare(arm+"."+key, child(child(a.run["before"], arm), key), child(child(b.run["before"], arm), key))
+			left, right := child(a.run["before"], arm), child(b.run["before"], arm)
+			lv, rv := child(left, key), child(right, key)
+			if key == "build_info_sha256" && len(lv) != 0 && len(rv) != 0 && !resourceJSONEqual(child(left, "path"), child(right, "path")) {
+				continue // go version -m includes the exact executable path.
+			}
+			compare(arm+"."+key, lv, rv)
 		}
 	}
 	if !aa {
@@ -329,15 +334,43 @@ func compatibleResourceBatches(a, b resourceBatch, aa bool) []issue {
 }
 
 func identicalCalibrationArms(b resourceBatch) []issue {
-	var root map[string]json.RawMessage
-	_ = json.Unmarshal(b.RawManifest.Bytes, &root)
-	var baseline, candidate map[string]any
-	_ = json.Unmarshal(root["baseline"], &baseline)
-	_ = json.Unmarshal(root["candidate"], &candidate)
-	if baseline != nil && candidate != nil && baseline["revision"] != candidate["revision"] {
-		return []issue{{invalidEvidence, "calibration.binary", "A/A requires identical baseline and candidate binary identities"}}
+	for _, problem := range b.Issues {
+		if problem.Kind == invalidEvidence {
+			return nil // Preserve the original shape errors; never compare unchecked interfaces.
+		}
 	}
-	return nil
+	v := validation{}
+	var revisions [2]string
+	var identities [2]object
+	var before object
+	_ = json.Unmarshal(b.run["before"], &before)
+	for i, arm := range []string{"baseline", "candidate"} {
+		var manifestArm object
+		_ = json.Unmarshal(b.manifest[arm], &manifestArm)
+		_ = json.Unmarshal(manifestArm["revision"], &revisions[i])
+		_ = json.Unmarshal(before[arm], &identities[i])
+	}
+	if !strings.EqualFold(revisions[0], revisions[1]) {
+		v.invalid("calibration.binary", "A/A requires identical baseline and candidate binary identities")
+	}
+	for _, key := range []string{"provided_source_sha", "observed_build", "build_setting_hashes", "build_info_sha256"} {
+		left, lp := identities[0][key]
+		right, rp := identities[1][key]
+		if lp != rp {
+			v.invalid("calibration.binary."+key, "optional A/A provenance must be declared for both arms or neither")
+			continue
+		}
+		if !lp {
+			continue // Absence is allowed, and remains an unverified assertion.
+		}
+		if key == "build_info_sha256" && !resourceJSONEqual(identities[0]["path"], identities[1]["path"]) {
+			continue // Path-dependent transcript hash; the typed build fields still compare.
+		}
+		if !resourceJSONEqual(left, right) {
+			v.invalid("calibration.binary."+key, "recorded A/A arm provenance contradicts identical binary identity")
+		}
+	}
+	return v.issues
 }
 
 func chronologicalResourceBatches(a, b resourceBatch) []issue {
@@ -459,7 +492,7 @@ func evaluateResourcePlan(data []byte, base string) (resourceReport, error) {
 			{"final_sha_independent_review", unverified, "independent code review must close R3-P01 against frozen policy and verify exact implementation SHA before scoring"},
 		},
 		Limitations: []string{
-			"CPU uses owned-job user+kernel 100ns ticks/10000 ms; exact integers are retained. Float64 statistics can lose precision at extreme counters.",
+			"CPU uses owned-job user+kernel 100ns ticks/10000 ms. Additive mean gates use retained exact rational point/interval values; other statistics and float64 displays can lose precision at extreme counters.",
 			"Job peak is simultaneous committed memory, not RSS or summed peaks. OS I/O is aggregate job accounting, not filesystem writes, application output or durable flush.",
 			"Root/other-owned CPU, individual peak, faults/process counts and query duration are descriptive only; unsupported attribution/RSS/physical I/O remain unmeasured.",
 			"Whole-block percentile bootstrap is descriptive finite-sample uncertainty, not exact or simultaneous family-wide coverage. Noise envelopes do not prove absence of drift.",

@@ -23,8 +23,8 @@ const incompleteResource = "incomplete-unmeasured"
 var resourceMetricNames = []string{"job_cpu_ms", "job_peak_bytes", "read_operations", "write_operations", "other_operations", "read_bytes", "write_bytes", "other_bytes"}
 
 // Raw inputs and every journal event survive admission, including rejected and
-// diagnostic events. Integers below are exact; only the statistical populations
-// are converted to float64 (and CPU ticks to milliseconds).
+// diagnostic events. Integers below are exact. Populations also have float64
+// displays, while additive mean decisions consume the exact counters.
 type resourceObservation struct {
 	Line                int               `json:"line"`
 	Raw                 []byte            `json:"raw_line_base64"`
@@ -75,7 +75,7 @@ func admitResourceBatch(manifest, journal, run []byte, cfg config) resourceBatch
 		resourceExpectText(&v, b.manifest, "measurement_boundary", "$.manifest", resourceBoundary)
 	}
 	if resourceDocument(&v, run, "$.run") {
-		b.run = v.object(run, "$.run", []string{"schema", "status", "started_utc", "finished_utc", "error", "before", "after", "evaluation", "invocation_journal", "tree_digest_format", "diagnostics_digest_format", "project_mode", "project_state", "resource_accounting", "measurement_boundary", "capture_limit_bytes_per_stream", "machine"}, nil)
+		b.run = v.object(run, "$.run", []string{"schema", "status", "started_utc", "finished_utc", "error", "before", "after", "evaluation", "invocation_journal", "tree_digest_format", "diagnostics_digest_format", "project_mode", "project_state", "resource_accounting", "measurement_boundary", "capture_limit_bytes_per_stream", "machine"}, []string{"cleanup_error", "scope", "tools"})
 		b.validateRun(&v)
 	}
 	var records []record
@@ -300,11 +300,33 @@ func (b *resourceBatch) validateRun(v *validation) {
 	resourceExpectText(v, r, "tree_digest_format", "$.run", "sha256-tree-v2")
 	resourceExpectText(v, r, "diagnostics_digest_format", "$.run", "sha256-diagnostics-v2")
 	resourceExpectText(v, r, "measurement_boundary", "$.run", resourceBoundary)
+	if _, ok := r["cleanup_error"]; ok {
+		resourceNull(v, r, "cleanup_error", "$.run")
+	}
+	if _, ok := r["scope"]; ok {
+		v.text(r, "scope", "$.run")
+	}
+	if raw, ok := r["tools"]; ok {
+		resourceStringMap(v, raw, "$.run.tools", false)
+		v.object(raw, "$.run.tools", nil, []string{"powershell", "go", "git", "node"})
+	}
 	v.text(r, "invocation_journal", "$.run")
 	accounting := v.object(r["resource_accounting"], "$.run.resource_accounting", []string{"format", "invocation_journal", "boundary", "cpu_units", "memory", "io"}, nil)
 	resourceExpectText(v, accounting, "format", "$.run.resource_accounting", resourceFormat)
-	for _, key := range []string{"boundary", "cpu_units", "memory", "io"} {
-		v.text(accounting, key, "$.run.resource_accounting")
+	// The final native descriptors and the original evaluator's unambiguous
+	// shorthand are supported. Arbitrary prose cannot redefine this format.
+	for _, descriptor := range []struct {
+		key    string
+		values []string
+	}{
+		{"boundary", []string{"getters after wall endpoint and owned cleanup, before retained handle disposal", "post-wall"}},
+		{"cpu_units", []string{"100ns ticks; observed resolution may be coarse", "100ns ticks"}},
+		{"memory", []string{"Windows job/process peak memory bytes, not RSS", "job peak bytes, not RSS", "job committed peak bytes"}},
+		{"io", []string{"OS-accounted read/write/other operations and bytes; not filesystem-only or durable writes", "OS I/O, not filesystem-only", "OS counters, not filesystem-only"}},
+	} {
+		if !slices.Contains(descriptor.values, v.text(accounting, descriptor.key, "$.run.resource_accounting")) {
+			v.invalid("$.run.resource_accounting."+descriptor.key, "unsupported descriptor for "+resourceFormat)
+		}
 	}
 	if !resourceJSONEqual(r["invocation_journal"], accounting["invocation_journal"]) {
 		v.invalid("$.run.resource_accounting.invocation_journal", "differs from run invocation_journal")
@@ -557,6 +579,16 @@ func resourceNonnegative(v *validation, obj object, key, p string, nullable bool
 	if nullable && bytes.Equal(bytes.TrimSpace(obj[key]), []byte("null")) {
 		return
 	}
+	// Syntax is already checked. Inspect the significand before binary64 can
+	// underflow a mathematically negative value into an accepted negative zero.
+	lexeme := strings.TrimSpace(string(obj[key]))
+	if strings.HasPrefix(lexeme, "-") {
+		significand, _, _ := strings.Cut(strings.ToLower(lexeme), "e")
+		if strings.ContainsAny(significand, "123456789") {
+			v.invalid(p+"."+key, "must be finite and nonnegative")
+			return
+		}
+	}
 	var n float64
 	if v.field(obj, key, p, &n) && (n < 0 || math.IsNaN(n) || math.IsInf(n, 0)) {
 		v.invalid(p+"."+key, "must be finite and nonnegative")
@@ -651,7 +683,9 @@ func (b *resourceBatch) validateResources(v *validation, o *resourceObservation,
 				case "StructureBytes":
 					max = math.MaxInt32
 				}
-				resourceUint(v, values, key, cp+".Values", max)
+				if n, ok := resourceUint(v, values, key, cp+".Values", max); ok && key == "StructureBytes" && n == 0 {
+					v.invalid(cp+".Values."+key, "available native structure size must be positive")
+				}
 			}
 			if name == "JobAccounting" {
 				var active, total uint64
@@ -675,6 +709,9 @@ func (b *resourceBatch) validateResources(v *validation, o *resourceObservation,
 				v.add(incompleteResource, cp, "required component "+status+": "+cause+"; whole affected metric population remains unmeasured")
 			}
 		}
+	}
+	if anyAvailable && bytes.Equal(bytes.TrimSpace(r["QueryElapsedMS"]), []byte("null")) {
+		v.invalid(p+".QueryElapsedMS", "queried available components require a nonnegative getter duration")
 	}
 	wantStatus := "failed"
 	switch {

@@ -20,6 +20,12 @@ Use strict UTF-8 JSON, schema 1, exact field names and no unknown plan fields.
 Paths are absolute or relative to the plan's directory. Each batch supplies all
 three original files from one completed harness evidence directory:
 
+The supplied directory must be the recorded absolute original location. Copying
+unchanged files elsewhere, including on the same OS, is unsupported: the journal
+and stable-state paths must still match their recorded locations. Separator/case
+normalization is supported; portable mount mapping is outside this mode. Do not
+rewrite original paths to make relocated evidence pass.
+
 ```json
 {
   "schema": 1,
@@ -79,6 +85,29 @@ final published manifest filename, final format IDs, matching before/after
 identities, record counts and ordered phase/pair/arm correspondence, complete
 started/finished invocations and matching elapsed/exit/digest records. A legacy
 FAIL is retained as FAIL; it does not mean incomplete collection.
+
+Optional native `cleanup_error`, `scope` and `tools` fields are recognized and
+type checked, including case shadows. An evaluated run permits absent or null
+cleanup error only. True future evidence fields remain retained after strict JSON
+validation. Within A/A, optional supplied source, typed observed build and build
+setting hashes must be present for both arms or neither, and agree when present.
+Absent assertions stay unverified. The raw `go version -m` transcript hash also
+needs matching presence, but equality is required only for identical recorded path
+spellings: the transcript includes that path. This rule applies across batches
+too; comparable typed build fields always compare even for copied executables.
+
+The fixed resource format accepts its final native descriptors and these exact
+semantic shorthand aliases from the original synthetic recipes: boundary
+`post-wall`; CPU `100ns ticks`; memory `job peak bytes, not RSS` or
+`job committed peak bytes`; I/O `OS I/O, not filesystem-only` or
+`OS counters, not filesystem-only`. Other descriptions reject; descriptors cannot
+redefine tick units or OS I/O as durable filesystem writes. Available native
+structures require positive sizes within the native integer range, without an
+architecture-specific size assumption. A snapshot with any available component
+requires nonnull nonnegative getter duration. Genuine missing snapshots may have
+null duration. Duration lexemes must be mathematically nonnegative before float
+conversion; explicit mathematical negative zero is allowed, and native fractional
+values retain ties-even/max-one elapsed rounding.
 
 The separate trailing candidate `--timings` diagnostic is explicitly classified
 and retained. Its observations never enter scored elapsed/resource populations.
