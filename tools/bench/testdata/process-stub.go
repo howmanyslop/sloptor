@@ -4,15 +4,31 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "--persist" {
-		_ = os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_PID"), []byte(fmt.Sprint(os.Getpid())), 0o600)
+	if len(os.Args) > 1 && (os.Args[1] == "--persist" || os.Args[1] == "--persist-ready") {
+		if err := os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_PID"), []byte(fmt.Sprint(os.Getpid())), 0o600); err != nil {
+			panic(err)
+		}
+		if os.Args[1] == "--persist-ready" {
+			// The root retains the control writer until exit, so this child
+			// cannot finish between its readiness signal and deliberate exit 9.
+			fmt.Fprintln(os.Stdout, os.Getpid())
+			released := make(chan struct{})
+			go func() { _, _ = io.Copy(io.Discard, os.Stdin); close(released) }()
+			select {
+			case <-released:
+			case <-time.After(3 * time.Second):
+				panic("negative-child control pipe did not close")
+			}
+		}
 		time.Sleep(350 * time.Millisecond)
 		_ = os.WriteFile(os.Getenv("ROTOR_BENCH_TEST_DONE"), []byte("persistence complete"), 0o600)
 		return
@@ -63,6 +79,42 @@ func main() {
 	}
 	if mode == "closed-success" || mode == "closed-private" || mode == "closed-nonzero" || mode == "closed-invalid" || mode == "closed-not-ok" || mode == "closed-timeout" {
 		child := exec.Command(os.Args[0], "--persist")
+		if mode == "closed-timeout" {
+			// Root succeeds; a private child must still hit the tree deadline.
+			child = exec.Command(os.Args[0], "--hang")
+		}
+		if mode == "closed-nonzero" {
+			child = exec.Command(os.Args[0], "--persist-ready")
+			control, err := child.StdinPipe()
+			if err != nil {
+				panic(err)
+			}
+			readyPipe, err := child.StdoutPipe()
+			if err != nil {
+				panic(err)
+			}
+			if err := child.Start(); err != nil {
+				panic(err)
+			}
+			ready := make(chan bool, 1)
+			go func() {
+				var childID int
+				_, err := fmt.Fscan(readyPipe, &childID)
+				ready <- err == nil && childID == child.Process.Pid
+			}()
+			select {
+			case valid := <-ready:
+				if !valid {
+					panic("negative-child readiness failed")
+				}
+			case <-time.After(2 * time.Second):
+				panic("negative-child readiness timed out")
+			}
+			fmt.Fprintln(os.Stderr, "negative child ready:", child.Process.Pid)
+			fmt.Println(`{"ok":true,"diagnostics":[]}`)
+			runtime.KeepAlive(control)
+			os.Exit(9)
+		}
 		if mode == "closed-private" {
 			// Match Rotor's sidecar shape: separate stdin/stdout/stderr pipes.
 			_, _ = child.StdinPipe()
@@ -71,9 +123,6 @@ func main() {
 		}
 		if err := child.Start(); err != nil {
 			panic(err)
-		}
-		if mode == "closed-timeout" {
-			time.Sleep(time.Minute)
 		}
 		if mode == "closed-invalid" {
 			fmt.Print("invalid {")
@@ -91,7 +140,7 @@ func main() {
 		if err := child.Start(); err != nil {
 			panic(err)
 		}
-		// Keep the parent alive long enough to attach it to the harness job.
+		// Let the inherited-stream helper initialize before timeout probes.
 		time.Sleep(50 * time.Millisecond)
 	case "compiler-persistence":
 		time.Sleep(180 * time.Millisecond)

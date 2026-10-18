@@ -89,12 +89,19 @@ Write-RunStatus (Join-Path $CaseRoot 'abrupt-run.json') ([ordered]@{ status = 'i
                 $result = Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(3)) $prefix $journal @{ finding = 'C2/P01'; scored = $false }
                 Assert-True ((Test-Path -LiteralPath $env:ROTOR_BENCH_TEST_DONE) -and $result.DurationMS -ge 320) 'successful descendant persistence escaped duration/completion'
             } else {
-                $timeout = if ($mode -eq 'closed-timeout') { [TimeSpan]::FromMilliseconds(150) } else { [TimeSpan]::FromSeconds(3) }
-                Assert-Throws { Invoke-ScoredBuild $StubFile $root $timeout $prefix $journal @{ finding = 'C2/P01'; scored = $false } } 'failed|JSON|timed out'
+                Assert-Throws { Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(3)) $prefix $journal @{ finding = 'C2/P01'; scored = $false } } 'failed|JSON|timed out'
             }
             $childId = [int](Get-Content -LiteralPath $env:ROTOR_BENCH_TEST_PID -Raw)
+            if ($mode -eq 'closed-nonzero') {
+                Assert-True ([IO.File]::ReadAllText("$prefix.stderr.txt") -match "negative child ready: $childId\b") 'negative case did not acknowledge its live identifiable child'
+                Assert-True ((Read-Journal $journal)[-1].result.ExitCode -eq 9) 'negative child probe failed before deliberate exit 9'
+                Assert-True (-not (Test-Path -LiteralPath $env:ROTOR_BENCH_TEST_DONE)) 'negative child finished persistence before containment'
+            }
             Assert-True ($null -eq (Get-Process -Id $childId -ErrorAction SilentlyContinue)) "$mode left a descendant alive"
-            if ($mode -eq 'closed-timeout') { Assert-True (-not (Test-Path -LiteralPath $env:ROTOR_BENCH_TEST_DONE)) 'overdue child completed after timeout' }
+            if ($mode -eq 'closed-timeout') {
+                Assert-True (-not (Test-Path -LiteralPath $env:ROTOR_BENCH_TEST_DONE)) 'overdue child completed after timeout'
+                Assert-True ((Read-Journal $journal)[-1].result.ExitCode -eq 0) 'timeout probe did not reach root success with a live private child'
+            }
         }
         Write-Output 'PASS R2-C2/P01: closed/private-pipe descendants complete persistence inside deadline; failures/timeouts leave no live owned member'
 
@@ -133,6 +140,51 @@ Write-RunStatus (Join-Path $CaseRoot 'abrupt-run.json') ([ordered]@{ status = 'i
             Assert-Throws { Read-StrictJson $timingContract -Kind timings } 'JSON|schemaVersion'
         }
         Write-Output 'PASS R2-P02: comments/trailing commas/duplicate fields/wrong shapes/extra documents rejected with incomplete raw evidence; ancillary JSON uses same strict guard'
+
+        # C6/P04: diagnostic messages are JSON strings, even when they look
+        # like equivalent instants. Keep both independent timestamp examples.
+        $messages = @(
+            '2026-10-18T01:00:00+01:00', '2026-10-18T02:00:00+02:00', '2026-10-18T01:00:00+01:00',
+            '2026-10-18T00:00:00Z', '2026-10-18T00:00:00.000Z', '2026-10-18T00:00:00Z',
+            'ordinary first message', 'ordinary second message', 'ordinary first message'
+        )
+        $diagnostics = @()
+        foreach ($message in $messages) {
+            $prefix = Join-Path $root "string-$($diagnostics.Count)"
+            $env:ROTOR_BENCH_TEST_JSON = ConvertTo-Json -Compress -Depth 8 -InputObject ([ordered]@{
+                version = 'test'; files = 1; durationMs = 1; ok = $true
+                diagnostics = @([ordered]@{ file = 'input.ts'; line = 1; col = 1; code = 'TEST'; severity = 'warning'; message = $message })
+            })
+            $result = Invoke-ScoredBuild $StubFile $root ([TimeSpan]::FromSeconds(3)) $prefix $journal @{ finding = 'C6/P04'; scored = $false }
+            $parsed = Read-StrictJson "$prefix.stdout.json" -Kind public_result
+            Assert-True ($parsed.diagnostics[0].message -is [string] -and $parsed.diagnostics[0].message -ceq $message) 'JSON conversion changed diagnostic string type/text'
+            $diagnostics += $result.DiagnosticsDigest
+        }
+        foreach ($case in @(
+            @{ name = 'offset-different'; a = 0; b = 1; equal = $false },
+            @{ name = 'offset-same'; a = 0; b = 2; equal = $true },
+            @{ name = 'fraction-different'; a = 3; b = 4; equal = $false },
+            @{ name = 'fraction-same'; a = 3; b = 5; equal = $true },
+            @{ name = 'ordinary-different'; a = 6; b = 7; equal = $false },
+            @{ name = 'ordinary-same'; a = 6; b = 8; equal = $true }
+        )) {
+            Assert-True (($diagnostics[$case.a] -ceq $diagnostics[$case.b]) -eq $case.equal) "wrong diagnostic identity: $($case.name)"
+            # Only observed digests enter this fabricated threshold fixture;
+            # actual stub durations are never used as compiler scores.
+            $manifest = Read-StrictJson (Join-Path (Split-Path $HarnessFile) '../perfcompare/testdata/pass.json')
+            foreach ($record in $manifest.records) {
+                $record.diagnostics_digest = $diagnostics[$(if ($record.binary -eq 'baseline') { $case.a } else { $case.b })]
+            }
+            $manifestPath = Join-Path $root "string-$($case.name).manifest.json"
+            $verdictPath = Join-Path $root "string-$($case.name).verdict.json"
+            $manifest | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $manifestPath
+            $evaluation = Invoke-PerfCompare $Repository $manifestPath $verdictPath
+            $verdict = Read-StrictJson $verdictPath -Kind verdict
+            Assert-True (($evaluation.ExitCode -eq 0) -eq $case.equal) "real evaluator missed diagnostic identity: $($case.name)"
+            $codes = @($verdict.reasons | ForEach-Object { $_.code })
+            Assert-True (('diagnostics_digest_mismatch' -in $codes) -eq (-not $case.equal)) "wrong evaluator reason: $($case.name)"
+        }
+        Write-Output 'PASS R3-C6/P04: both timestamp spellings and ordinary-message differences reach real evaluator as diagnostic mismatches; same-string controls pass'
 
         $env:ROTOR_BENCH_TEST_MODE = 'overflow'
         $limited = Invoke-ProcessWithTimeout $StubFile @('build') $root ([TimeSpan]::FromSeconds(3)) (Join-Path $root 'overflow.stdout') (Join-Path $root 'overflow.stderr') -CaptureLimit 1024
@@ -231,7 +283,110 @@ Write-RunStatus (Join-Path $CaseRoot 'abrupt-run.json') ([ordered]@{ status = 'i
             }
         }
         Write-Output 'PASS R2-C4: cleanup refusal keeps pending/incomplete evidence for evaluator PASS/FAIL; successful cleanup preserves evaluated legacy FAIL'
+        Invoke-PublicationRegressions $HarnessFile $StubFile $Repository $root
     } finally {
         foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }
     }
+}
+
+function Invoke-PublicationRegressions {
+    param([string]$HarnessFile, [string]$StubFile, [string]$Repository, [string]$Artifacts)
+
+    $binaries = Join-Path $Artifacts 'publication-bin'
+    [void][IO.Directory]::CreateDirectory($binaries)
+    Copy-Item -LiteralPath $StubFile -Destination (Join-Path $binaries 'baseline.exe')
+    Copy-Item -LiteralPath $StubFile -Destination (Join-Path $binaries 'candidate.exe')
+    foreach ($stage in @('sharing-violation', 'sharing-legacy-fail', 'cancel-publication', 'cancel-legacy-fail', 'status-failure', 'rollback-failure', 'secondary-status-failure')) {
+        $caseRoot = Join-Path $Artifacts $stage
+        [void][IO.Directory]::CreateDirectory($caseRoot)
+        $pipeline = [PowerShell]::Create()
+        try {
+            [void]$pipeline.AddScript({
+                param($HarnessPath, $BinaryRoot, $RepositoryRoot, $CaseRoot, $Stage)
+                . $HarnessPath
+                $script:BaselineExe = Join-Path $BinaryRoot 'baseline.exe'
+                $script:CandidateExe = Join-Path $BinaryRoot 'candidate.exe'
+                $script:Fixture = Join-Path $CaseRoot 'fixture'
+                [void][IO.Directory]::CreateDirectory($Fixture)
+                [IO.File]::WriteAllText((Join-Path $Fixture 'input.ts'), 'synthetic')
+                $script:EvidenceDir = Join-Path $CaseRoot 'evidence'
+                $script:ColdPairs = 10; $script:NoChangeRuns = 20; $script:SidecarTimeout = '3s'
+                $script:FixtureIdentity = 'FABRICATED publication probe; no compiler score'
+                function Get-WindowsMachineMetadata {
+                    param($TimeoutValue, $Environment)
+                    return @{ os = 'synthetic'; version = '1'; cpu = 'synthetic'; ram_bytes = 1; storage = 'synthetic'; power = 'synthetic'; run_order = @('AB', 'BA'); sidecar_timeout = $TimeoutValue; environment = $Environment }
+                }
+                function Invoke-ScoredBuild {
+                    param($Executable, $WorkCopy, $Timeout, $EvidencePath, $JournalPath, $Invocation, $ExtraArguments)
+                    if ($Invocation.phase -eq 'diagnostic') { [IO.File]::WriteAllText($ExtraArguments[1], '{"schemaVersion":2,"ok":true,"totalMs":1,"stageSemantics":"workMs","stages":{},"counts":{},"metadata":{}}') }
+                    return @{ DurationMS = $(if ($Invocation.binary -eq 'baseline' -or $Stage -like '*legacy-fail') { 1000 } else { 600 }); ExitCode = 0; DiagnosticsDigest = 'synthetic'; OutputTreeDigest = 'synthetic' }
+                }
+                $originalStatus = (Get-Item Function:Write-RunStatus).ScriptBlock
+                $script:heldFile = $null
+                function Write-RunStatus {
+                    param($Path, $Run)
+                    & $originalStatus $Path $Run
+                    if ($Run.status -eq 'evaluated') {
+                        $final = Join-Path $script:EvidenceDir 'windows-build-performance-manifest.json'
+                        if ($Stage -like 'cancel-*') {
+                            [IO.File]::WriteAllText((Join-Path $CaseRoot 'ready'), 'ready')
+                            Start-Sleep -Seconds 8
+                        } elseif ($Stage -eq 'rollback-failure') {
+                            [IO.File]::Move("$final.pending", $final)
+                            $script:heldFile = [IO.File]::Open($final, 'Open', 'Read', 'Read')
+                            throw 'injected original publication failure before rollback'
+                        } elseif ($Stage -in @('status-failure', 'secondary-status-failure')) {
+                            throw 'injected original publication status failure'
+                        } else {
+                            $script:heldFile = [IO.File]::Open("$final.pending", 'Open', 'Read', 'Read')
+                        }
+                    } elseif ($Stage -eq 'secondary-status-failure' -and $Run.error -like '*manifest publication failed*') {
+                        throw 'injected secondary status failure after retention'
+                    }
+                }
+                try { Invoke-RealBenchmark $RepositoryRoot }
+                catch {
+                    $details = @{ rollback_error = $_.Exception.Data['rollback_error']; status_retention_error = $_.Exception.Data['status_retention_error'] }
+                    @{ message = $_.Exception.Message; data = $details } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $CaseRoot 'caught.json')
+                } finally { if ($null -ne $script:heldFile) { $script:heldFile.Dispose() } }
+            }).AddArgument($HarnessFile).AddArgument($binaries).AddArgument($Repository).AddArgument($caseRoot).AddArgument($stage)
+            $pending = $pipeline.BeginInvoke()
+            if ($stage -like 'cancel-*') {
+                $timer = [Diagnostics.Stopwatch]::StartNew()
+                while (-not (Test-Path -LiteralPath (Join-Path $caseRoot 'ready')) -and -not $pending.IsCompleted -and $timer.Elapsed.TotalSeconds -lt 15) { Start-Sleep -Milliseconds 10 }
+                # Enumerating a live PSDataCollection in the assertion's
+                # message would wait for completion before Stop can run.
+                Assert-True (Test-Path -LiteralPath (Join-Path $caseRoot 'ready')) 'publication cancellation boundary not reached'
+                $pipeline.Stop()
+            } else {
+                Assert-True ($pending.AsyncWaitHandle.WaitOne(15000)) "publication probe timed out: $stage"
+            }
+            Assert-True ($pipeline.Streams.Error.Count -eq 0) "publication probe failed internally: $($pipeline.Streams.Error)"
+            $evidence = Join-Path $caseRoot 'evidence'
+            $run = Read-StrictJson (Join-Path $evidence 'run.json')
+            $final = Join-Path $evidence 'windows-build-performance-manifest.json'
+            $expectedVerdict = if ($stage -like '*legacy-fail') { 'FAIL' } else { 'PASS' }
+            Assert-True ($run.status -eq 'incomplete' -and $run.error -and $run.evaluation.Status -eq $expectedVerdict) "publication lost incomplete error/evaluator evidence: $stage"
+            if ($expectedVerdict -eq 'FAIL') { Assert-True ($run.error -like '*perfcompare rejected benchmark evidence*') 'publication lost legitimate evaluator FAIL context' }
+            if ($stage -eq 'rollback-failure') {
+                Assert-True ((Test-Path -LiteralPath $final) -and $run.error -like '*manifest rollback failed*') 'rollback failure was not retained with incomplete status'
+            } else {
+                Assert-True (-not (Test-Path -LiteralPath $final) -and (Test-Path -LiteralPath "$final.pending")) "publication lost pending gate: $stage"
+            }
+            if ($stage -like 'cancel-*') {
+                Assert-True ($run.error -like '*manifest publication interrupted*') 'publication cancellation lost interruption fallback'
+            } else {
+                $caught = Read-StrictJson (Join-Path $caseRoot 'caught.json')
+                Assert-True ($run.error.Contains($caught.message)) 'retained status lost original publication exception'
+                if ($stage -like 'sharing-*') { Assert-True ($caught.message -match 'Move.*used by another process') 'sharing violation was masked' }
+                if ($stage -like '*status-failure') { Assert-True ($caught.message -eq 'injected original publication status failure') 'secondary status failure masked original' }
+                if ($stage -eq 'secondary-status-failure') { Assert-True ($caught.data.status_retention_error -like '*secondary status failure*') 'secondary retention error context missing' }
+                if ($stage -eq 'rollback-failure') { Assert-True ($caught.data.rollback_error -and $caught.message -eq 'injected original publication failure before rollback') 'rollback masked original failure' }
+            }
+        } finally {
+            if ($pipeline.InvocationStateInfo.State -eq 'Running') { $pipeline.Stop() }
+            $pipeline.Dispose()
+        }
+    }
+    Write-Output 'PASS R3-C7: sharing violation, publication cancellation, status/rollback failures retain original context and incomplete gate; secondary errors do not mask original'
 }

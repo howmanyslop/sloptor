@@ -7,7 +7,9 @@ solution builds, watch sessions, and resident sidecar reuse need separate tools.
 
 ## Preparation checks
 
-Run the portable self-test with Go on PATH:
+PowerShell 7.5 or newer is required; the script checks this before execution.
+JSON conversion uses its `-DateKind String` option so timestamp-shaped strings
+retain their exact text and string type. Run the portable self-test with Go on PATH:
 
 ```powershell
 pwsh -NoProfile -File tools/bench/windows-build-performance.ps1 -ValidateOnly
@@ -26,7 +28,8 @@ pwsh -NoProfile -File tools/bench/windows-build-performance.tests.ps1
 These prebuild a small Go stub, then test compiler persistence versus delayed
 tail writes, immediate exits, private/inherited-stream descendants, atomic job
 ownership on host death, bounded incremental log retention, capture overflow,
-strict JSON/duplicate fields, cancellation during validation, cleanup publication,
+strict JSON/duplicate fields, diagnostic string identity, cancellation during
+validation/publication, publication errors, cleanup publication,
 digest framing, provenance changes, and missing evaluator/wrong-cwd behavior.
 They also check the unchanged evaluator using fabricated threshold fixtures.
 They run no Rotor performance scores. The printed evidence directory retains
@@ -104,6 +107,8 @@ Public results, timings, evaluator verdicts, and fixture JSON metadata use the
 same strict UTF-8 JSON guard: one document, no comments/trailing commas, no
 duplicate object names, and the required shape for the result kind. The candidate
 `--timings` invocation is separately unscored and must succeed.
+JSON string values remain strings during conversion; diagnostic hashing preserves
+their text, including timestamp offsets and fractional-second spellings.
 
 Windows 10/Server 2016 or newer is required. `CreateProcessW` uses creation-time
 `PROC_THREAD_ATTRIBUTE_JOB_LIST` membership and an explicit inherited handle list
@@ -134,6 +139,14 @@ the actual verdict even when it is `FAIL`; the harness then exits nonzero.
 **cold median candidate/baseline <= 0.60**, **no-change p95 <= 1.10**. A smaller
 improvement or A/A comparison can correctly fail this legacy target. `evaluated`
 describes evidence completion, not performance acceptance.
+
+Publication failures retain the concrete exception in `run.error`; cancellation
+uses an explicit publication-interrupted fallback. Rollback errors are appended
+when status can still be written. Secondary rollback/status failures preserve the
+original thrown exception (with secondary details in its exception data). If the
+storage itself refuses status writes, the previous status may remain; the final
+filename plus evaluated-status gate still applies. Status/error retention is best
+effort under storage failure, rather than a durable multi-file transaction.
 
 `-MaxCaptureBytes` bounds retained bytes independently per stream (default
 16 MiB). Extra output invalidates the invocation and retains only its bounded

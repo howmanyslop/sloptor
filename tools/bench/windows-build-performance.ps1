@@ -1,3 +1,4 @@
+#Requires -Version 7.5
 [CmdletBinding()]
 param(
     [string]$BaselineExe,
@@ -638,7 +639,7 @@ function Read-StrictJson {
     $reader = [IO.StreamReader]::new($stream, [Text.UTF8Encoding]::new($false, $true), $false)
     try { $raw = $reader.ReadToEnd() } finally { $reader.Dispose() }
     [RotorBench.StrictJson]::Validate($raw, $Kind)
-    $value = ConvertFrom-Json -InputObject $raw -AsHashtable -NoEnumerate
+    $value = ConvertFrom-Json -InputObject $raw -AsHashtable -NoEnumerate -DateKind String
     if ($value -isnot [System.Collections.IDictionary]) { throw 'JSON result must be one object' }
     return $value
 }
@@ -1071,6 +1072,7 @@ function Invoke-RealBenchmark {
     # Publish only after identity, evaluation, ownership and cleanup have all
     # completed. Roll back the filename if publication itself is interrupted.
     $publicationCompleted = $false
+    $publicationFailure = $null
     if (-not $evaluationReady -or -not $cleanupCompleted) { throw 'evaluation or cleanup did not complete' }
     try {
         $run.status = 'evaluated'
@@ -1078,11 +1080,30 @@ function Invoke-RealBenchmark {
         Write-RunStatus $runPath $run
         [IO.File]::Move($pendingManifest, $manifestPath)
         $publicationCompleted = $true
+    } catch {
+        $publicationFailure = $_
+        $detail = "manifest publication failed: $($_.Exception.Message)"
+        $run.error = if ($run.error) { "$($run.error); $detail" } else { $detail }
+        throw
     } finally {
         if (-not $publicationCompleted) {
             $run.status = 'incomplete'
-            if (Test-Path -LiteralPath $manifestPath) { [IO.File]::Move($manifestPath, $pendingManifest) }
-            Write-RunStatus $runPath $run
+            if ($null -eq $publicationFailure) {
+                $detail = 'manifest publication interrupted or did not complete'
+                $run.error = if ($run.error) { "$($run.error); $detail" } else { $detail }
+            }
+            try {
+                if (Test-Path -LiteralPath $manifestPath) { [IO.File]::Move($manifestPath, $pendingManifest) }
+            } catch {
+                $run.error += "; manifest rollback failed: $($_.Exception.Message)"
+                if ($null -ne $publicationFailure) { $publicationFailure.Exception.Data['rollback_error'] = $_.Exception.Message }
+            }
+            try { Write-RunStatus $runPath $run }
+            catch {
+                # Preserve the original publication exception or cancellation.
+                # A failed status write cannot guarantee on-disk error retention.
+                if ($null -ne $publicationFailure) { $publicationFailure.Exception.Data['status_retention_error'] = $_.Exception.Message }
+            }
         }
     }
     if ($evaluation.ExitCode -ne 0) { throw $run.error }
