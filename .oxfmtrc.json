@@ -16,7 +16,9 @@
 		"**/ses_*.json",
 		".mise/**",
 		".tsbuildinfo*",
-		"tests/fixtures/**/{invalid-*,*-invalid}/**/*.json"
+		"tests/fixtures/**/{invalid-*,*-invalid}/**/*.json",
+		"**/{reference,testdata}/**/src/tests/**",
+		"tsgo/lsp/lsproto/_generate/tsconfig.json"
 	],
 	"insertFinalNewline": true,
 	"jsdoc": false,
