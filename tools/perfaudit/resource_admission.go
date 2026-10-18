@@ -58,6 +58,8 @@ type resourceBatch struct {
 	LegacyVerdict  string                       `json:"legacy_verdict"`
 	run            object
 	manifest       object
+
+	memoryStructureBytes uint64 // First supported available layout in this run, including the diagnostic.
 }
 
 func resourceRaw(input []byte) rawInput {
@@ -673,19 +675,38 @@ func (b *resourceBatch) validateResources(v *validation, o *resourceObservation,
 				keys = []string{"PeakJobMemoryBytes", "PeakProcessMemoryBytes", "StructureBytes"}
 			}
 			values := v.object(component["Values"], cp+".Values", keys, nil)
+			var structureBytes uint64
+			if name == "JobAccounting" || name == "JobMemory" {
+				var ok bool
+				structureBytes, ok = resourceUint(v, values, "StructureBytes", cp+".Values", math.MaxInt32)
+				if ok {
+					if !resourceNativeStructureSize(name, structureBytes) {
+						v.invalid(cp+".Values.StructureBytes", "does not match a supported fixed native structure layout")
+					} else if name == "JobMemory" {
+						if b.memoryStructureBytes == 0 {
+							b.memoryStructureBytes = structureBytes
+						} else if structureBytes != b.memoryStructureBytes {
+							v.invalid(cp+".Values.StructureBytes", "available memory layout must match the first available layout in this declared run")
+						}
+					}
+				}
+			}
 			for _, key := range keys {
+				if key == "StructureBytes" {
+					continue // Validate layout before using its native field widths.
+				}
 				max := uint64(math.MaxUint64)
 				switch key {
 				case "UserTicks100ns", "KernelTicks100ns":
 					max = math.MaxInt64
 				case "TotalProcesses", "ActiveProcesses", "LimitTerminatedProcesses", "TotalPageFaults":
 					max = math.MaxUint32
-				case "StructureBytes":
-					max = math.MaxInt32
+				case "PeakJobMemoryBytes", "PeakProcessMemoryBytes":
+					if structureBytes == 112 { // Validated 32-bit ExtendedLimits UIntPtr fields, widened by ToUInt64.
+						max = math.MaxUint32
+					}
 				}
-				if n, ok := resourceUint(v, values, key, cp+".Values", max); ok && key == "StructureBytes" && !resourceNativeStructureSize(name, n) {
-					v.invalid(cp+".Values."+key, "does not match a supported fixed native structure layout")
-				}
+				resourceUint(v, values, key, cp+".Values", max)
 			}
 			if name == "JobAccounting" {
 				var active, total uint64

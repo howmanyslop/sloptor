@@ -13,6 +13,12 @@ func TestResourceNativeStructureLayoutNeighbors(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%d", component, size), func(t *testing.T) {
 				m, j, r := resourceAdmissionFixture(t, 10, 20)
 				r = resourceAdmissionNativeMetadata(t, r) // Child GOARCH=amd64 does not forbid a 112-byte collector layout.
+				if component == "JobMemory" {
+					// One collector uses one layout throughout the run, including
+					// the diagnostic. A single 112-byte event among 144-byte events
+					// cannot be a valid positive control.
+					j = resourceMemoryLayoutJournal(t, j, size)
+				}
 				changed := changeResourceJournal(t, j, 1, func(event map[string]any) {
 					a := event["result"].(map[string]any)["ResourceAccounting"].(map[string]any)
 					a[component].(map[string]any)["Values"].(map[string]any)["StructureBytes"] = size

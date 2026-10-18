@@ -106,7 +106,13 @@ structures require supported fixed C# sequential layouts: JobAccounting 96 bytes
 JobMemory 112 or 144 bytes for a 32- or 64-bit collector. These derive from the
 49f2 field definitions: accounting 4*8+4*4+6*8; extended limits BasicLimits
 (48/64)+IoCounters (48)+four UIntPtr (16/32). Child compiler GOARCH does not select
-the collector layout. Matching sizes remain assertions, not collection proof.
+the collector layout. Both peak fields must fit the layout's native UIntPtr:
+0..MaxUint32 for 112 bytes, 0..MaxUint64 for 144 bytes. Widening to UInt64 in
+the emitter does not expand the native range. Every available JobMemory snapshot
+in one declared run, including the trailing diagnostic, must use the same layout.
+Failed/unsupported/unavailable snapshots with null Values make no layout claim.
+Separate batches may use different supported layouts. Matching sizes remain
+assertions, not proof of collector architecture or collection.
 A snapshot with any available component
 requires nonnull nonnegative getter duration. Genuine missing snapshots may have
 null duration. Duration lexemes must be mathematically nonnegative before float
