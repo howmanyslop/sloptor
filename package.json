@@ -48,6 +48,9 @@
 	},
 	"scripts": {
 		"biome": "biome",
+		"docs:build": "pnpm --filter @sloptor/documentation run build",
+		"docs:check": "pnpm --filter @sloptor/documentation run check",
+		"docs:dev": "pnpm --filter @sloptor/documentation run dev",
 		"format": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --fix $a && node --run oxfmt -- $a' _",
 		"format:check": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched $a && node --run oxfmt -- --no-error-on-unmatched-pattern --check $a' _",
 		"format:safe": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched --fix $a && node --run oxfmt -- --no-error-on-unmatched-pattern $a' _",

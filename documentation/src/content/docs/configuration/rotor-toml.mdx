@@ -1,0 +1,19 @@
+---
+title: "rotor.toml"
+description: "Every key in rotor.toml, generated from rotor.schema.json."
+---
+
+import SchemaReference from "$components/schema-reference.astro";
+import schema from "../../../../../rotor.schema.json";
+
+`rotor.toml` at the project root configures [assets, deployment](/sloptor/deploy/), and native Flamework. `sloptor init` writes it with a `#:schema` directive that points at the hosted schema, so taplo and Even Better TOML give validation and autocomplete without a local copy:
+
+```toml
+#:schema https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json
+```
+
+Need the schema offline? `sloptor schema > rotor.schema.json`. Upgrading from a 1.x `rotor.config.ts`? Run `sloptor migrate config [path] [--force]`.
+
+This page is generated from `rotor.schema.json` when the site builds. A `<name>` segment is a table you name yourself, such as `[deploy.environments.prod]`.
+
+<SchemaReference schema={schema} />

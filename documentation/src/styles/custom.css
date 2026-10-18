@@ -1,0 +1,1225 @@
+/*
+ * sloptor documentation, in Anna's field-notebook design language.
+ * Paper, ink, and hairline rules. Color appears for data (sloptor and rbxtsc
+ * timings), focus, syntax highlighting, and the one overprinted numeral on
+ * the home page.
+ */
+
+:root {
+	/* Shared tokens. */
+	--paper: #fafaf9;
+	--well: #ffffff;
+	--ink: #1a1c20;
+	--ink-2: #555a63;
+	--ink-3: #6b7079;
+	--rule: #e2e1dc;
+	--marker: #ecebe6;
+	--footnote: #f2f2f0;
+	--overprint-blend: multiply;
+
+	/* sloptor palette ("Slop bucket"). */
+	--brine: #4f6b12;
+	--grape: #7a2e8f;
+	--ts-blue: #1f5f9e;
+	--slime: #c3ec6a;
+	--tangerine: #ffb070;
+	--focus: var(--brine);
+	--data-1: var(--grape);
+	--data-2: var(--ts-blue);
+	--riso-a: var(--slime);
+	--riso-b: var(--tangerine);
+
+	/* Syntax tones for code. Keep in sync with src/utilities/syntax-themes.ts. */
+	--syntax-comment: #6b7079;
+	--syntax-keyword: #0f6b6b;
+	--syntax-flag: #8a5200;
+	--syntax-value: #a12d4c;
+	--syntax-punctuation: #555a63;
+
+	--font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", system-ui, sans-serif;
+	--font-serif: "Newsreader Variable", "Newsreader", Georgia, serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+	--ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+	--press-duration: 120ms;
+	--hover-duration: 150ms;
+
+	--margin-column: 13.75rem;
+	--readout-column: 17.25rem;
+	--row-gap: 2.5rem;
+
+	/* Starlight, mapped onto the notebook. */
+	--sl-font: var(--font-sans);
+	--sl-font-mono: var(--font-mono);
+	--sl-text-body: 0.9375rem;
+	--sl-line-height: 1.6;
+	--sl-line-height-headings: 1.15;
+	--sl-content-width: 48rem;
+	--sl-color-bg: var(--paper);
+	--sl-color-bg-nav: var(--paper);
+	--sl-color-bg-sidebar: var(--paper);
+	--sl-color-bg-inline-code: transparent;
+	--sl-color-hairline-light: var(--rule);
+	--sl-color-hairline: var(--rule);
+	--sl-color-hairline-shade: var(--rule);
+	--sl-color-text: var(--ink);
+	--sl-color-text-accent: var(--focus);
+	--sl-color-text-invert: var(--paper);
+	--sl-color-accent-low: var(--marker);
+	--sl-color-accent: var(--focus);
+	--sl-color-accent-high: var(--focus);
+	--sl-color-white: var(--ink);
+	--sl-color-gray-1: var(--ink);
+	--sl-color-gray-2: var(--ink-2);
+	--sl-color-gray-3: var(--ink-3);
+	--sl-color-gray-4: var(--ink-3);
+	--sl-color-gray-5: var(--rule);
+	--sl-color-gray-6: var(--marker);
+	--sl-color-gray-7: var(--footnote);
+	--sl-color-black: var(--paper);
+	--sl-color-backdrop-overlay: color-mix(in srgb, var(--paper) 80%, transparent);
+	--sl-shadow-sm: none;
+	--sl-shadow-md: none;
+	--sl-shadow-lg: none;
+}
+
+:root[data-theme="dark"] {
+	--paper: #111315;
+	--well: #171a1d;
+	--ink: #eeeeec;
+	--ink-2: #a9adb4;
+	--ink-3: #8c9199;
+	--rule: #2c3035;
+	--marker: #26292d;
+	--footnote: #1a1d20;
+	--overprint-blend: screen;
+
+	--brine: #a3cf4f;
+	--grape: #d59be6;
+	--ts-blue: #7fb4ec;
+	--slime: #5c8a1a;
+	--tangerine: #b8642a;
+
+	--syntax-comment: #8c9199;
+	--syntax-keyword: #6fd0c8;
+	--syntax-flag: #e6b35c;
+	--syntax-value: #f08aa4;
+	--syntax-punctuation: #a9adb4;
+}
+
+/* Page. */
+
+body {
+	font-feature-settings: "kern";
+	-webkit-font-smoothing: antialiased;
+	color: var(--ink);
+	background: var(--paper);
+}
+
+::selection {
+	background-color: color-mix(in srgb, var(--focus) 22%, transparent);
+}
+
+:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+a {
+	color: var(--focus);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+	transition: text-decoration-color var(--hover-duration) ease;
+}
+
+.sl-markdown-content a:not(:where(.not-content *, .hero-cta)) {
+	color: var(--focus);
+	text-decoration: underline;
+}
+
+/* Header band: wordmark, nav, account links. */
+
+header.header {
+	background: var(--paper);
+	border-bottom: 1px solid var(--rule);
+}
+
+header.header .site-title {
+	font-family: var(--font-serif);
+	font-size: 1.5rem;
+	font-weight: 400;
+	color: var(--ink);
+	letter-spacing: -0.01em;
+}
+
+header.header .site-nav {
+	gap: 1.75rem;
+	align-items: center;
+	padding-left: 2.5rem;
+}
+
+header.header .site-nav a {
+	font-size: 0.9375rem;
+	line-height: 1.5rem;
+	color: var(--ink);
+	text-decoration: none;
+	text-underline-offset: 0.35em;
+}
+
+header.header .site-nav a:hover {
+	text-decoration: underline;
+	text-decoration-color: var(--ink-3);
+}
+
+header.header .site-nav a[aria-current="page"] {
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-decoration-color: var(--ink);
+}
+
+site-search button[data-open-modal] {
+	color: var(--ink-2);
+	background: var(--well);
+	border: 1px solid var(--rule);
+	border-radius: 0;
+}
+
+site-search button[data-open-modal]:hover {
+	color: var(--ink);
+	border-color: var(--ink-3);
+}
+
+site-search kbd {
+	font-family: var(--font-mono);
+	background: transparent;
+	border-radius: 0;
+}
+
+/* Sidebar: a margin column, not a menu of pills. */
+
+nav.sidebar,
+#starlight__sidebar {
+	overflow-anchor: none;
+}
+
+nav.sidebar {
+	background: var(--paper);
+	border-right: 1px solid var(--rule);
+}
+
+nav.sidebar summary,
+nav.sidebar .group-label,
+nav.sidebar .large {
+	font-family: var(--font-sans);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	color: var(--ink-2);
+	text-transform: none;
+	letter-spacing: 0;
+}
+
+nav.sidebar a {
+	font-size: 0.875rem;
+	line-height: 1.35;
+	color: var(--ink-2);
+	hyphens: manual;
+	word-break: normal;
+	text-wrap: pretty;
+	overflow-wrap: break-word;
+	border-radius: 0;
+	transition: color var(--hover-duration) ease;
+}
+
+nav.sidebar a:hover {
+	color: var(--ink);
+	background: transparent;
+}
+
+nav.sidebar a[aria-current="page"],
+nav.sidebar a[aria-current="page"]:hover {
+	font-weight: 500;
+	color: var(--ink);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-decoration-color: var(--ink);
+	text-underline-offset: 0.3em;
+	background: transparent;
+}
+
+nav.sidebar .top-level li:not(:has(summary)) > details {
+	padding-left: 0.5rem;
+}
+
+.sidebar-content .sl-badge {
+	padding: 0.1em 0.45em;
+	font-family: var(--font-sans);
+	font-size: 0.75rem;
+	font-weight: 500;
+	line-height: 1.4;
+	color: var(--ink-2);
+	text-transform: none;
+	letter-spacing: 0;
+	background: transparent;
+	border: 1px solid var(--rule);
+	border-radius: 0;
+}
+
+.sidebar-content :not(pre) > code {
+	padding: 0;
+	font-family: var(--font-mono);
+	font-size: 0.92em;
+	color: inherit;
+	background: none;
+	border: none;
+}
+
+/* Table of contents. */
+
+starlight-toc a {
+	color: var(--ink-2);
+}
+
+starlight-toc a:hover {
+	color: var(--ink);
+}
+
+starlight-toc a[aria-current="true"],
+starlight-toc a[aria-current="true"]:hover {
+	font-weight: 500;
+	color: var(--ink);
+	text-decoration: underline;
+	text-underline-offset: 0.3em;
+}
+
+@media (min-width: 72rem) {
+	.right-sidebar-container,
+	.right-sidebar {
+		width: var(--sl-sidebar-width) !important;
+	}
+}
+
+/* Type. Newsreader is the person writing; IBM Plex is the instrument. */
+
+main h1,
+.sl-markdown-content h2:not(:where(.not-content *)),
+.sl-markdown-content h3:not(:where(.not-content *)),
+.sl-markdown-content h4:not(:where(.not-content *)) {
+	font-family: var(--font-serif);
+	font-weight: 400;
+	color: var(--ink);
+	letter-spacing: -0.01em;
+}
+
+main h1 {
+	margin-bottom: 1.5rem;
+	font-size: clamp(2.25rem, 4.5vw, 3.25rem);
+	line-height: 1.1;
+	text-wrap: balance;
+	overflow-wrap: anywhere;
+}
+
+h1#_top > code {
+	font-family: var(--font-mono);
+	font-size: 0.8em;
+	font-weight: 400;
+	color: var(--ink);
+	background: none;
+	border: none;
+}
+
+.sl-markdown-content h2:not(:where(.not-content *)) {
+	padding-top: 1.5rem;
+	margin-top: 2.5rem;
+	font-size: 1.875rem;
+	line-height: 1.2;
+	border-top: 1px solid var(--rule);
+}
+
+.sl-markdown-content h3:not(:where(.not-content *)) {
+	margin-top: 2rem;
+	font-size: 1.5rem;
+	font-style: italic;
+	line-height: 1.25;
+}
+
+.sl-markdown-content h4:not(:where(.not-content *)) {
+	font-size: 1.1875rem;
+	line-height: 1.45;
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+	line-height: 1.6;
+}
+
+.sl-markdown-content :not(pre) > code:not(:where(.not-content *)) {
+	padding: 0;
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+	color: var(--ink);
+	background: none;
+	border: none;
+}
+
+.sl-markdown-content hr {
+	border-color: var(--rule);
+}
+
+/* Tables: hairlines, no boxes. */
+
+.sl-markdown-content table {
+	font-size: 0.875rem;
+	border-collapse: collapse;
+}
+
+.sl-markdown-content :is(th, td) {
+	padding: 0.625rem 1rem 0.625rem 0;
+	text-align: left;
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid var(--rule);
+}
+
+.sl-markdown-content th {
+	font-size: 0.8125rem;
+	font-weight: 500;
+	color: var(--ink-2);
+	border-bottom-color: var(--ink-3);
+}
+
+.table-container,
+.sl-markdown-content > div:has(> table):not(.not-content) {
+	overflow-x: auto;
+	border: 0;
+	border-radius: 0;
+}
+
+/* Asides read as margin notes: an ink rule, an italic head. */
+
+.starlight-aside {
+	--sl-color-asides-text-accent: var(--ink);
+	--sl-color-asides-border: var(--ink);
+
+	padding: 0.25rem 0 0.25rem 1.25rem;
+	margin: 1.75rem 0;
+	color: var(--ink);
+	background: transparent;
+	border: 0;
+	border-left: 2px solid var(--ink);
+	border-radius: 0;
+}
+
+.starlight-aside__title {
+	gap: 0.5rem;
+	font-family: var(--font-serif);
+	font-size: 1.25rem;
+	font-style: italic;
+	font-weight: 400;
+	color: var(--ink);
+}
+
+.starlight-aside__icon {
+	display: none;
+}
+
+.starlight-aside :is(pre),
+.starlight-aside .expressive-code pre {
+	max-width: 100%;
+	overflow-x: auto;
+}
+
+/* Link cards and pagination: hairline rows. */
+
+.card-grid {
+	gap: 0;
+	border-top: 1px solid var(--rule);
+}
+
+.sl-link-card,
+.pagination-links a {
+	padding: 1rem 0;
+	color: var(--ink);
+	background: transparent;
+	border: 0;
+	border-bottom: 1px solid var(--rule);
+	border-radius: 0;
+	box-shadow: none;
+	transition: border-color var(--hover-duration) ease;
+}
+
+.sl-link-card:hover,
+.pagination-links a:hover {
+	background: transparent;
+	border-color: var(--ink);
+}
+
+.sl-link-card .title,
+.pagination-links .link-title {
+	font-family: var(--font-serif);
+	font-size: 1.25rem;
+	font-weight: 400;
+	color: var(--ink);
+}
+
+.sl-link-card .description {
+	font-size: 0.875rem;
+	line-height: 1.5;
+	color: var(--ink-2);
+}
+
+.sl-link-card svg,
+.pagination-links svg {
+	color: var(--ink-3);
+}
+
+.pagination-links a {
+	padding-inline: 0;
+	border-top: 1px solid var(--rule);
+}
+
+/* Tabs: an ink underline on the current one. */
+
+starlight-tabs [role="tablist"] {
+	border-bottom: 1px solid var(--rule);
+}
+
+starlight-tabs [role="tab"] {
+	font-size: 0.875rem;
+	color: var(--ink-2);
+	border-bottom: 1px solid transparent;
+}
+
+starlight-tabs [role="tab"][aria-selected="true"] {
+	font-weight: 500;
+	color: var(--ink);
+	border-bottom-color: var(--ink);
+}
+
+/* Code: ink on the well, framed by a hairline. */
+
+.expressive-code {
+	margin: 1.5rem 0;
+}
+
+.expressive-code .frame {
+	box-shadow: none !important;
+}
+
+.expressive-code .frame.is-terminal .header {
+	justify-content: flex-start;
+	padding-inline: 1rem;
+}
+
+.expressive-code .frame.is-terminal .header .title:empty::after {
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	content: "Terminal";
+}
+
+.expressive-code .copy button {
+	border-radius: 0;
+}
+
+/* Buttons. Primary is filled ink with paper text; everything presses. */
+
+.hero-cta--primary {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.75rem 1.375rem;
+	font-size: 0.875rem;
+	font-weight: 500;
+	line-height: 1;
+	color: var(--paper);
+	text-decoration: none;
+	background: var(--ink);
+	border: 1px solid var(--ink);
+	border-radius: 0;
+	transition:
+		background-color var(--hover-duration) ease,
+		transform var(--press-duration) var(--ease-out);
+}
+
+.hero-cta--primary:hover {
+	color: var(--paper);
+	background: color-mix(in srgb, var(--ink) 86%, var(--paper));
+}
+
+.hero-cta--ghost {
+	font-size: 0.9375rem;
+	color: var(--focus);
+	text-decoration: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+}
+
+.hero-cta--ghost:hover {
+	color: var(--focus);
+	text-decoration-thickness: 2px;
+}
+
+:is(.hero-cta--primary, .contextual-menu__button):active {
+	transform: scale(0.97);
+}
+
+/* Page title row with the contextual menu (copy as Markdown, view source). */
+
+.page-title-row {
+	position: relative;
+	display: block;
+	margin-bottom: 1.5rem;
+}
+
+main .page-title-row > h1 {
+	padding-right: 0.5rem;
+	margin-bottom: 0;
+}
+
+.contextual-menu {
+	position: absolute;
+	top: 0.5rem;
+	right: 0;
+	z-index: 2;
+	display: inline-flex;
+	gap: 0.5rem;
+	align-items: center;
+	margin: 0;
+	white-space: nowrap;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 200ms var(--ease-out);
+}
+
+.page-title-row:hover .contextual-menu,
+.contextual-menu:focus-within {
+	pointer-events: auto;
+	opacity: 1;
+}
+
+.contextual-menu__button {
+	display: inline-flex;
+	flex-shrink: 0;
+	align-items: center;
+	padding: 0.3125rem 0.625rem;
+	font-family: var(--font-sans);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.3;
+	color: var(--ink);
+	white-space: nowrap;
+	text-decoration: none;
+	cursor: pointer;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	border-radius: 0;
+	transition:
+		background-color var(--hover-duration) ease,
+		border-color var(--hover-duration) ease,
+		transform var(--press-duration) var(--ease-out);
+}
+
+.contextual-menu__button:hover {
+	color: var(--ink);
+	background: var(--marker);
+	border-color: var(--ink-3);
+}
+
+.contextual-menu__link {
+	text-decoration: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+	.contextual-menu {
+		position: static;
+		margin-top: 0.75rem;
+		pointer-events: auto;
+		opacity: 1;
+	}
+}
+
+/* Page headers (introduction, quick start) and the home hero. */
+
+main:has(> .content-panel .hero-splash) > .content-panel:first-child {
+	display: none;
+}
+
+.hero-splash {
+	padding: clamp(2.5rem, 6vw, 4rem) 0 2.5rem;
+	margin: 0 0 0.5rem;
+	border-bottom: 1px solid var(--rule);
+}
+
+.hero-splash--compact {
+	padding: 2rem 0 1.75rem;
+	margin-bottom: 1rem;
+}
+
+.hero-kicker {
+	margin: 0 0 0.75rem;
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.2;
+	color: var(--ink-2);
+}
+
+.sl-markdown-content .hero-title,
+.hero-title {
+	margin: 0 0 1rem;
+	font-family: var(--font-serif);
+	font-size: clamp(2.75rem, 6vw, 4rem);
+	font-weight: 400;
+	line-height: 1.05;
+	color: var(--ink);
+	letter-spacing: -0.02em;
+}
+
+.sl-markdown-content .hero-title--compact,
+.hero-title--compact {
+	font-size: clamp(2.25rem, 4.5vw, 3.25rem);
+	line-height: 1.1;
+}
+
+.hero-subtitle {
+	max-width: 36rem;
+	margin: 0 0 1.75rem;
+	font-family: var(--font-serif);
+	font-size: 1.1875rem;
+	line-height: 1.5;
+	color: var(--ink-2);
+}
+
+.hero-subtitle--compact {
+	margin-bottom: 0;
+}
+
+.hero-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 1.5rem;
+	align-items: center;
+}
+
+/* Home: margin-note rows. Margin note, then the figure, then the readouts. */
+
+main:has(.note-row) .sl-container {
+	max-width: 72rem;
+}
+
+.sl-markdown-content:has(.note-row) {
+	container: home / inline-size;
+}
+
+.note-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 1.25rem;
+	padding: var(--row-gap) 0;
+	margin: 0;
+	border-bottom: 1px solid var(--rule);
+}
+
+.note-margin h2 {
+	margin: 0 0 0.5rem;
+	font-family: var(--font-serif);
+	font-size: 1.5rem;
+	font-style: italic;
+	font-weight: 400;
+	line-height: 1.25;
+	color: var(--ink);
+}
+
+.note-margin p {
+	margin: 0;
+	font-size: 0.8125rem;
+	line-height: 1.55;
+	color: var(--ink-2);
+}
+
+.note-body {
+	min-width: 0;
+	padding: 0;
+	margin: 0;
+}
+
+@container home (min-width: 40rem) {
+	.note-row {
+		grid-template-columns: var(--margin-column) minmax(0, 1fr);
+		gap: var(--row-gap);
+	}
+
+	.note-row--readouts .readouts {
+		grid-column: 2;
+	}
+}
+
+@container home (min-width: 62rem) {
+	.note-row--readouts {
+		grid-template-columns: var(--margin-column) minmax(0, 1fr) var(--readout-column);
+	}
+
+	.note-row--readouts .readouts {
+		grid-template-columns: minmax(0, 1fr);
+		grid-column: 3;
+	}
+}
+
+.home-proof-copy {
+	max-width: 34rem;
+	margin: 0;
+	font-family: var(--font-serif);
+	font-size: 1.1875rem;
+	line-height: 1.5;
+	color: var(--ink);
+}
+
+/* Readouts: label over value, split by hairlines. */
+
+.readouts {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	column-gap: 1.5rem;
+	margin: 0;
+}
+
+.readout {
+	padding: 0.875rem 0;
+	border-bottom: 1px solid var(--rule);
+}
+
+.readout:first-child {
+	padding-top: 0;
+}
+
+.readout--lead {
+	grid-column: 1 / -1;
+	padding-bottom: 1rem;
+}
+
+.readout dt {
+	margin-bottom: 0.25rem;
+	font-size: 0.8125rem;
+	font-weight: 500;
+	line-height: 1.2;
+	color: var(--ink-2);
+}
+
+.readout dd {
+	margin: 0;
+	font-family: var(--font-mono);
+	font-size: 1.625rem;
+	font-variant-numeric: tabular-nums;
+	line-height: 1.25;
+	color: var(--ink);
+}
+
+/* The overprint: one numeral, two riso inks, misregistered by 1/32 em. */
+
+.overprint {
+	position: relative;
+	display: inline-block;
+	font-family: var(--font-mono);
+	font-size: 6rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+	color: var(--ink);
+	letter-spacing: -0.02em;
+	isolation: isolate;
+}
+
+.overprint--sans {
+	font-family: var(--font-sans);
+}
+
+.overprint::before,
+.overprint::after {
+	position: absolute;
+	inset: 0;
+	z-index: -1;
+	content: attr(data-value) / "";
+	mix-blend-mode: var(--overprint-blend);
+}
+
+.overprint::before {
+	color: var(--riso-a);
+	translate: -0.03125em 0.03125em;
+}
+
+.overprint::after {
+	color: var(--riso-b);
+	translate: 0.03125em -0.03125em;
+}
+
+@media (max-width: 40rem) {
+	.overprint {
+		font-size: 5rem;
+	}
+}
+
+/* Figures: an inline legend over a well framed by a hairline. */
+
+.figure-legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem 1.5rem;
+	margin: 0 0 1rem;
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	line-height: 1rem;
+	color: var(--ink-3);
+}
+
+.legend-item {
+	display: inline-flex;
+	gap: 0.5rem;
+	align-items: center;
+}
+
+.legend-item::before {
+	inline-size: 1.5rem;
+	content: "";
+	border-top: 2px solid;
+}
+
+.legend-item--sloptor::before {
+	border-top-color: var(--data-1);
+}
+
+.legend-item--rbxtsc::before {
+	border-top-color: var(--data-2);
+	border-top-style: dashed;
+}
+
+.figure-link {
+	display: inline-block;
+	margin-top: 1rem;
+	font-size: 0.875rem;
+}
+
+.readout-note {
+	margin: 0.375rem 0 0;
+	font-size: 0.8125rem;
+	line-height: 1.55;
+	color: var(--ink-2);
+}
+
+/* Benchmarks: one series, so every bar is sloptor's grape. */
+
+.benchmark-chart {
+	margin: 0;
+}
+
+.benchmark-well {
+	padding: 1.5rem 1rem 0.75rem;
+	background: var(--well);
+	border: 1px solid var(--rule);
+}
+
+.benchmark-rows {
+	display: grid;
+	gap: 1.5rem;
+	padding: 0;
+	margin: 0;
+	list-style: none;
+}
+
+.benchmark-row,
+.benchmark-axis {
+	display: grid;
+	grid-template-columns: 12rem minmax(0, 1fr);
+	gap: 1rem;
+	align-items: center;
+}
+
+.benchmark-label {
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	color: var(--ink-3);
+}
+
+.benchmark-track {
+	position: relative;
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	block-size: 1.25rem;
+	padding-inline-end: 4rem;
+}
+
+.benchmark-bar {
+	display: block;
+	block-size: 100%;
+	background: var(--data-1);
+}
+
+.benchmark-value {
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--ink);
+	white-space: nowrap;
+}
+
+.benchmark-axis {
+	margin-top: 0.75rem;
+}
+
+.benchmark-ticks {
+	position: relative;
+	block-size: 1rem;
+	margin-inline-end: 4rem;
+	font-family: var(--font-mono);
+	font-size: 0.75rem;
+	color: var(--ink-3);
+}
+
+.benchmark-ticks span {
+	position: absolute;
+	translate: -50% 0;
+}
+
+@container home (max-width: 36rem) {
+	.benchmark-row,
+	.benchmark-axis {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.375rem;
+	}
+
+	.benchmark-axis > span:first-child {
+		display: none;
+	}
+}
+
+/* Terminal transcript: a 3px rule marks each printed line by tool. */
+
+.terminal-figure {
+	margin: 0;
+}
+
+.terminal {
+	padding: 0.75rem 0;
+	margin: 0;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: 0.8125rem;
+	line-height: 1.6;
+	background: var(--well);
+	border: 1px solid var(--rule);
+}
+
+.terminal {
+	display: grid;
+}
+
+.terminal-line {
+	padding: 0.125rem 1rem;
+	font-family: inherit;
+	color: var(--ink);
+	white-space: pre;
+	background: none;
+	border-left: 3px solid transparent;
+}
+
+.terminal-line--command {
+	color: var(--ink-2);
+}
+
+.terminal-line--sloptor {
+	border-left-color: var(--data-1);
+}
+
+.terminal-line--rbxtsc {
+	border-left-color: var(--data-2);
+	border-left-style: dashed;
+}
+
+/* Hero install line. */
+
+.hero-install {
+	padding: 0.875rem 1rem;
+	margin: 0 0 1.5rem;
+	overflow-x: auto;
+	font-family: var(--font-mono);
+	font-size: 0.875rem;
+	color: var(--ink);
+	background: var(--well);
+	border: 1px solid var(--rule);
+}
+
+.hero-install code {
+	padding: 0;
+	font-family: inherit;
+	background: none;
+	border: none;
+}
+
+.hero-splash.note-row {
+	padding-top: clamp(2.5rem, 6vw, 4rem);
+}
+
+.hero-splash .hero-title {
+	font-size: clamp(2.5rem, 4.5vw, 3.25rem);
+	line-height: 1.12;
+}
+
+.hero-splash .hero-subtitle {
+	margin-bottom: 1.5rem;
+	font-family: var(--font-sans);
+	font-size: 0.9375rem;
+	line-height: 1.6;
+}
+
+/* Where next: hairline link rows, a serif title and a plain note. */
+
+.link-rows {
+	list-style: none;
+}
+
+.link-rows li {
+	margin: 0;
+}
+
+.link-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0.25rem 1.5rem;
+	align-items: baseline;
+	padding: 1rem 0;
+	color: var(--ink);
+	text-decoration: none;
+	border-bottom: 1px solid var(--rule);
+	transition: border-color var(--hover-duration) ease;
+}
+
+.link-row:hover {
+	color: var(--ink);
+	border-bottom-color: var(--ink);
+}
+
+.link-row-title {
+	font-family: var(--font-serif);
+	font-size: 1.375rem;
+	line-height: 1.25;
+}
+
+.link-row-desc {
+	font-size: 0.875rem;
+	line-height: 1.55;
+	color: var(--ink-2);
+}
+
+@container home (min-width: 40rem) {
+	.link-row {
+		grid-template-columns: 12.5rem minmax(0, 1fr);
+	}
+}
+
+/* Footnote band. */
+
+.footnote-band {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 0.5rem var(--row-gap);
+	padding: 1.5rem;
+	margin: var(--row-gap) 0 1rem;
+	background: var(--footnote);
+}
+
+.footnote-label {
+	margin: 0;
+	font-family: var(--font-serif);
+	font-size: 1.1875rem;
+	font-style: italic;
+	color: var(--ink);
+}
+
+.footnote-text {
+	margin: 0;
+	font-size: 0.875rem;
+	line-height: 1.6;
+	color: var(--ink-2);
+}
+
+@container home (min-width: 40rem) {
+	.footnote-band {
+		grid-template-columns: var(--margin-column) minmax(0, 1fr);
+	}
+}
+
+/* Configuration reference: one hairline table per TOML table. */
+
+.schema-table h2 code {
+	font-size: 0.8em;
+}
+
+/* Motion. Short, ease-out, and only where it explains something. */
+
+@media (prefers-reduced-motion: no-preference) {
+	/* The home hero settles in once, top to bottom. */
+	.hero-splash :is(.hero-title, .hero-subtitle, .hero-install, .hero-actions) {
+		animation: settle-in 420ms var(--ease-out) both;
+	}
+
+	.hero-splash .hero-subtitle {
+		animation-delay: 40ms;
+	}
+
+	.hero-splash .hero-install {
+		animation-delay: 80ms;
+	}
+
+	.hero-splash .hero-actions {
+		animation-delay: 120ms;
+	}
+
+	/* The riso inks start in register and drift apart, like a second pass through the press. */
+	.overprint::before,
+	.overprint::after {
+		animation: misregister 900ms var(--ease-out) 300ms both;
+	}
+
+	/* Home rows fade up as they enter the viewport, where scroll-driven animation is supported. */
+	@supports (animation-timeline: view()) {
+		.reveal {
+			animation: settle-in linear both;
+			animation-timeline: view();
+			animation-range: entry 0% entry 35%;
+		}
+	}
+}
+
+@keyframes settle-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes misregister {
+	from {
+		translate: 0 0;
+	}
+}
+
+/* Hover feedback only where a pointer can actually hover. */
+@media (hover: none) {
+	.link-row:hover {
+		border-bottom-color: var(--rule);
+	}
+}
+
+@media (forced-colors: active) {
+	.overprint::before,
+	.overprint::after {
+		display: none;
+	}
+
+	:focus-visible {
+		outline: 2px solid Highlight;
+		outline-offset: 2px;
+	}
+}

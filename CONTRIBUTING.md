@@ -1,11 +1,9 @@
-# Contributing to rotor
-
 ## Building
 
 Requires **Go 1.25+**:
 
 ```powershell
-git clone https://github.com/uproot/rotor && cd rotor
+git clone https://github.com/howmanyslop/sloptor && cd sloptor
 go build ./cmd/rotor
 ```
 
@@ -33,11 +31,21 @@ Adding a fixture:
 
 Existing goldens must stay byte-unchanged when regenerating — `git diff testdata/diff/golden/` should only show your new files.
 
+## Working on the documentation
+
+The site is an Astro Starlight package in [`documentation/`](https://github.com/howmanyslop/sloptor/blob/main/documentation/). The command reference is generated from the CLI by `sloptor gen-docs`, which the docs `dev`, `check`, and `build` scripts run first:
+
+```sh
+node --run docs:dev
+```
+
+`mise run documentation` runs the type check, build, and unit and browser tests.
+
 ## Releasing a new version
 
-rotor's version is defined in code: [`internal/version/version.go`](internal/version/version.go). Maintainer flow:
+rotor's version is defined in code: [`internal/version/version.go`](https://github.com/howmanyslop/sloptor/blob/main/internal/version/version.go). Maintainer flow:
 
-1. From a clean working tree, run `pnpm release` ([bumpp](https://github.com/antfu-collective/bumpp), configured in [`bump.config.ts`](bump.config.ts)). It lists the commits since the last tag and prompts for the next version.
+1. From a clean working tree, run `pnpm release` ([bumpp](https://github.com/antfu-collective/bumpp), configured in [`bump.config.ts`](https://github.com/howmanyslop/sloptor/blob/main/bump.config.ts)). It lists the commits since the last tag and prompts for the next version.
 2. bumpp bumps the `Version` constant, main package, exact optional dependencies, all six platform manifests, and the emitted header comments in lockstep. It then commits, creates the `vX.Y.Z` tag, and pushes both.
 
 Pass a version or release type to skip the prompt (`pnpm release patch`, `pnpm release 2.8.0`), or use `--no-push` to keep everything local. `pnpm release --help` lists every flag.
@@ -46,10 +54,11 @@ The tag triggers the `release` GitHub Actions workflow, which verifies the tag, 
 
 ## Project docs
 
-- User documentation: [`docs.md`](docs.md)
-- Design doc: [`docs/superpowers/specs/2026-06-05-rotor-design.md`](docs/superpowers/specs/2026-06-05-rotor-design.md)
-- Luau toolchain design: [`docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md`](docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md)
-- Full roadmap with every phase and task: [`roadmap.md`](roadmap.md)
+- User documentation: [docs.howmanysmall.com/sloptor](https://docs.howmanysmall.com/sloptor/), built from [`documentation/`](https://github.com/howmanyslop/sloptor/blob/main/documentation/)
+- Transformer sidecar protocol: [`docs/sidecar-protocol.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/sidecar-protocol.md)
+- Design doc: [`docs/superpowers/specs/2026-06-05-rotor-design.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/superpowers/specs/2026-06-05-rotor-design.md)
+- Luau toolchain design: [`docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md)
+- Full roadmap with every phase and task: [Roadmap](https://docs.howmanysmall.com/sloptor/roadmap/)
 - Phase plans: `docs/superpowers/plans/` · porting digests (the transformer's source of truth): `docs/superpowers/research/`
 
 ## Ground rules

@@ -104,7 +104,7 @@ func TestWizardFullFlow(t *testing.T) {
 	// rotor.toml: real (uncommented) assets + deploy sections.
 	cfg := mustReadFile(t, filepath.Join(dir, "rotor.toml"))
 	for _, want := range []string{
-		"#:schema https://raw.githubusercontent.com/uproot/rotor",
+		"#:schema https://raw.githubusercontent.com/howmanyslop/sloptor",
 		"[assets]",
 		`paths = ["assets/**/*.png", "assets/**/*.ogg"]`,
 		"[assets.creator]",

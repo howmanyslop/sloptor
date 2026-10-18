@@ -1,0 +1,83 @@
+---
+import Search from "@astrojs/starlight/components/Search.astro";
+import SiteTitle from "@astrojs/starlight/components/SiteTitle.astro";
+import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+import ThemeSelect from "@astrojs/starlight/components/ThemeSelect.astro";
+
+import { siteBasePath } from "$utilities/site-base-path";
+
+interface NavigationItem {
+	readonly label: string;
+	readonly path: string;
+	readonly section: string;
+}
+
+const NAVIGATION: ReadonlyArray<NavigationItem> = [
+	{ label: "Guide", path: "guide/introduction/", section: "guide/" },
+	{ label: "Commands", path: "commands/", section: "commands/" },
+	{ label: "Configuration", path: "configuration/rotor-toml/", section: "configuration/" },
+	{ label: "Deploy", path: "deploy/", section: "deploy/" },
+	{ label: "Changelog", path: "changelog/", section: "changelog/" },
+];
+
+const basePath = siteBasePath;
+const currentPath = Astro.url.pathname.slice(basePath.length);
+---
+
+<div class="header">
+	<div class="title-wrapper sl-flex">
+		<SiteTitle />
+	</div>
+	<nav aria-label="Sections" class="site-nav sl-hidden md:sl-flex print:hidden">
+		{NAVIGATION.map(({ label, path, section }) => (
+				<a
+					aria-current={currentPath.startsWith(section) ? "page" : undefined}
+					href={`${basePath}${path}`}
+				>
+					{label}
+				</a>
+			))}
+	</nav>
+	<div class="sl-flex print:hidden">
+		<Search />
+	</div>
+	<div class="sl-hidden md:sl-flex print:hidden right-group">
+		<div class="sl-flex social-icons">
+			<SocialIcons />
+		</div>
+		<ThemeSelect />
+	</div>
+</div>
+
+<style>
+	@layer starlight.core {
+		.header {
+			display: flex;
+			gap: var(--sl-nav-gap);
+			align-items: center;
+			justify-content: space-between;
+			height: 100%;
+		}
+
+		.title-wrapper {
+			min-width: 0;
+			padding: 0.25rem;
+			margin: -0.25rem;
+			overflow: clip;
+		}
+
+		.right-group,
+		.social-icons {
+			gap: 1rem;
+			align-items: center;
+		}
+
+		@media (min-width: 50rem) {
+			.header {
+				display: grid;
+				grid-template-columns: auto 1fr auto auto;
+				align-content: center;
+			}
+		}
+	}
+</style>

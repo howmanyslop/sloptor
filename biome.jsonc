@@ -428,6 +428,35 @@
 				}
 			},
 			"includes": [".omp/mcp.json"]
+		},
+
+		// Astro components are not React: keys, literals, and attributes follow Astro's rules.
+		{
+			"includes": ["documentation/src/**/*.astro"],
+			"linter": {
+				"domains": {
+					"react": "none"
+				},
+				"rules": {
+					"style": {
+						"noJsxLiterals": "off"
+					}
+				}
+			}
+		},
+
+		{
+			// Theme stylesheet uses component-scoped selectors across disjoint
+			// subtrees (header, code, figures); specificity ordering between
+			// unrelated components is intentional and has no cascade effect.
+			"includes": ["documentation/src/styles/custom.css"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noDescendingSpecificity": "off"
+					}
+				}
+			}
 		}
 
 		// package.json exception

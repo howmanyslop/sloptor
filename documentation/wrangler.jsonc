@@ -1,0 +1,24 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	// A static site: Astro writes into dist/sloptor/ because Workers static
+	// assets look files up by their full path, and the site lives under
+	// docs.howmanysmall.com/sloptor/.
+	"assets": {
+		"directory": "./dist",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "404-page",
+	},
+	"compatibility_date": "2026-10-01",
+	"name": "sloptor-docs",
+	"preview_urls": false,
+	// The voice repo's proxy owns docs.howmanysmall.com as a Custom Domain.
+	// A route takes precedence over a Custom Domain on the same hostname, so
+	// this Worker answers /sloptor without the proxy changing.
+	"routes": [
+		{
+			"pattern": "docs.howmanysmall.com/sloptor*",
+			"zone_name": "howmanysmall.com",
+		},
+	],
+	"workers_dev": false,
+}

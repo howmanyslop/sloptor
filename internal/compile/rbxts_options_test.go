@@ -84,7 +84,7 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	if err := json.Unmarshal([]byte(RbxtsTsConfigSchema), &schema); err != nil {
 		t.Fatalf("rbxts schema is invalid JSON: %v", err)
 	}
-	if schema["$id"] != "https://raw.githubusercontent.com/uproot/rotor/master/rbxts-tsconfig.schema.json" {
+	if schema["$id"] != "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rbxts-tsconfig.schema.json" {
 		t.Errorf("schema $id = %v", schema["$id"])
 	}
 	rbxts := schema["properties"].(map[string]any)["rbxts"].(map[string]any)

@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"jsxImportSource": "react",
+		"paths": {
+			"$components/*": ["./src/components/*"],
+			"$utilities/*": ["./src/utilities/*"]
+		},
+		"tsBuildInfoFile": "node_modules/.tsbuildinfo",
+		"types": ["node"]
+	},
+	"exclude": ["dist", "node_modules"],
+	"extends": ["../tsconfig.base.json", "astro/tsconfigs/strictest"],
+	"include": [
+		".astro/types.d.ts",
+		"astro.config.ts",
+		"playwright.config.ts",
+		"reset.d.ts",
+		"src/**/*",
+		"tests/**/*",
+		"vitest.config.ts"
+	]
+}

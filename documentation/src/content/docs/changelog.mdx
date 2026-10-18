@@ -1,0 +1,28 @@
+---
+title: "Changelog"
+description: "Release history for sloptor."
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+import { Content as RootChangelog } from "../../../../CHANGELOG.md";
+
+<RootChangelog />
+
+## How releases work
+
+sloptor uses [bumpp](https://github.com/antfu-collective/bumpp) for versioning. Pushing a `vX.Y.Z` tag triggers a release, which cross-builds the binaries, smoke-tests them on every platform, and publishes the archives as a GitHub release.
+
+`communique` writes the release notes. The release workflow then adds them to `CHANGELOG.md` and to this page.
+
+<CardGrid>
+	<LinkCard
+		title="GitHub releases"
+		href="https://github.com/howmanyslop/sloptor/releases"
+		description="Every release, with archives and checksums."
+	/>
+	<LinkCard
+		title="npm package"
+		href="https://www.npmjs.com/package/@rotor-rbx/rotor"
+		description="The package and its platform binaries."
+	/>
+</CardGrid>

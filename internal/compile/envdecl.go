@@ -32,7 +32,7 @@ import (
 //     mentions `$env` did not compile under rbxtsc (undeclared identifier),
 //     so inlining it is a strict superset.
 //
-// Known limitation (documented in docs.md): a project that itself declares
+// Known limitation (documented at docs.howmanysmall.com/sloptor/macros/): a project that itself declares
 // a GLOBAL `$env` (e.g. very old rbxts-transform-env typings) now gets a
 // duplicate-declaration error — remove the plugin's global typings when
 // using rotor's built-in macro. The current rbxts-transform-env exports

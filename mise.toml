@@ -248,6 +248,19 @@ hyperfine \
     "$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers $c4"
 '''
 
+[tasks."docs:generate"]
+description = "Write the CLI reference pages for the documentation site from the live command tree."
+run = "go run ./cmd/rotor gen-docs documentation/src/content/docs/commands"
+
+[tasks.documentation]
+description = "Run the documentation type check, build, and unit and Chromium browser tests."
+run = "pnpm --filter @sloptor/documentation exec playwright install chromium && pnpm --filter @sloptor/documentation run check && pnpm --filter @sloptor/documentation run build && pnpm --filter @sloptor/documentation run test:unit && pnpm --filter @sloptor/documentation run test:browser"
+
+[tasks.deploy-docs]
+alias = "dd"
+description = "Trigger the Deploy Documentation workflow. Rebuilds and deploys the docs site without a release."
+run = "gh workflow run 'Deploy Documentation' --ref main"
+
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
 run = "git commit --amend --reuse-message=HEAD --signoff --no-verify"

@@ -1,0 +1,26 @@
+---
+type Stream = "command" | "rbxtsc" | "sloptor";
+
+interface Line {
+	readonly stream: Stream;
+	readonly text: string;
+}
+
+const LINES: ReadonlyArray<Line> = [
+	{ stream: "command", text: "$ sloptor build -p default.project.json -w" },
+	{ stream: "rbxtsc", text: "-p, -w, --type, --rojo, --verbose" },
+	{ stream: "sloptor", text: "out/server/main.server.luau" },
+	{ stream: "sloptor", text: "out/shared/module.luau" },
+	{ stream: "sloptor", text: "✔ 95 files · 355 ms · watching for changes" },
+];
+---
+
+<figure class="terminal-figure">
+	<figcaption class="figure-legend">
+		<span class="legend-item legend-item--sloptor">sloptor · files it writes</span>
+		<span class="legend-item legend-item--rbxtsc">rbxtsc · flags it accepts</span>
+	</figcaption>
+	<div class="terminal">
+		{LINES.map(({ stream, text }) => <code class={`terminal-line terminal-line--${stream}`}>{text}</code>)}
+	</div>
+</figure>

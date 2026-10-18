@@ -11,7 +11,7 @@ const SchemaFileName = "rotor.schema.json"
 // there is no per-project rotor.schema.json to generate, refresh, or check in.
 // `rotor schema` prints this same schema for publishing the committed file or
 // keeping a local/offline copy.
-const SchemaURL = "https://raw.githubusercontent.com/uproot/rotor/master/" + SchemaFileName
+const SchemaURL = "https://raw.githubusercontent.com/howmanyslop/sloptor/main/" + SchemaFileName
 
 // SchemaDirective is the taplo schema comment prepended to rotor.toml so editors
 // resolve the hosted schema.
@@ -29,7 +29,7 @@ const SchemaDirective = "#:schema " + SchemaURL
 // top-level assets + deploy properties exist.
 const Schema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/uproot/rotor/master/rotor.schema.json",
+  "$id": "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json",
   "title": "rotor.toml",
   "description": "Configuration for rotor asset sync and rotor deploy.",
   "type": "object",

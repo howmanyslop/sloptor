@@ -346,3 +346,56 @@ jobs:
           if-no-files-found: ignore
 
     timeout-minutes: 15
+
+  changelog:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: release-notes
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install_args: node
+          experimental: true
+
+      - name: Write release notes to CHANGELOG.md and the documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/sync-release-notes.ts --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+
+      - name: Commit release notes to main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RELEASE_ARTIFACT="documentation/src/content/releases/$GITHUB_REF_NAME.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RELEASE_ARTIFACT" CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Release notes and changelog already match main"
+            exit 0
+          fi
+          git commit -m "chore(docs): add $GITHUB_REF_NAME release notes"
+          gh auth setup-git
+          git push origin HEAD:main
+
+  deploy-documentation:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: changelog
+    permissions:
+      contents: read
+    uses: ./.github/workflows/docs.yml
+    with:
+      ref: main
+    secrets: inherit

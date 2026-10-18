@@ -287,6 +287,52 @@ jobs:
         # Same package set as vet; the vendored tsgo mirror is excluded.
         run: golangci-lint run ./internal/... ./cmd/... ./tools/...
 
+  # The docs site: type check, build (which regenerates the command
+  # reference from the CLI), and the unit and Chromium browser tests.
+  documentation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install_args: go node pnpm
+          experimental: true
+
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-docs-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-docs-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+        working-directory: documentation
+
+      - name: Type check
+        run: node --run check
+        working-directory: documentation
+
+      - name: Unit tests
+        run: node --run test:unit
+        working-directory: documentation
+
+      # Playwright builds the site and serves the preview itself.
+      - name: Browser tests
+        run: node --run test:browser
+        working-directory: documentation
+
   vuln:
     runs-on: ubuntu-24.04
 

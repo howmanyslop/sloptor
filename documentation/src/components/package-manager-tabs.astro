@@ -1,0 +1,26 @@
+---
+import { Code, TabItem, Tabs } from "@astrojs/starlight/components";
+
+type Preset = "install" | "run";
+
+interface Props {
+	readonly preset?: Preset | undefined;
+}
+
+const { preset = "install" } = Astro.props;
+
+const managers = [
+	{ install: "pnpm add --save-dev @rotor-rbx/rotor", label: "pnpm", run: "pnpm exec rotor build" },
+	{ install: "npm install --save-dev @rotor-rbx/rotor", label: "npm", run: "npx rotor build" },
+	{ install: "bun add --dev @rotor-rbx/rotor", label: "bun", run: "bunx rotor build" },
+	{ install: "yarn add --dev @rotor-rbx/rotor", label: "yarn", run: "yarn rotor build" },
+];
+---
+
+<Tabs syncKey="package-manager">
+	{managers.map(({ install, label, run }) => (
+		<TabItem label={label}>
+			<Code code={preset === "install" ? install : run} lang="bash" />
+		</TabItem>
+	))}
+</Tabs>

@@ -2,7 +2,7 @@ package compile
 
 const RbxtsTsConfigSchema = `{
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/uproot/rotor/master/rbxts-tsconfig.schema.json",
+  "$id": "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rbxts-tsconfig.schema.json",
   "title": "roblox-ts tsconfig.json",
   "description": "JSON schema for roblox-ts-specific options in tsconfig.json. Reference via \"$schema\" at the top of your tsconfig.json to get IDE autocomplete and validation for both standard TypeScript options and the \"rbxts\" field.",
   "type": "object",

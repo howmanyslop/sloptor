@@ -1,0 +1,11 @@
+<svg fill="none" height="64" viewBox="0 0 64 64" width="64" xmlns="http://www.w3.org/2000/svg">
+	<title>small-rules</title>
+	<rect fill="#FAFAF9" height="62" width="62" x="1" y="1" />
+	<rect height="62" stroke="#E2E1DC" stroke-width="2" width="62" x="1" y="1" />
+	<rect fill="#1A1C20" height="6" width="40" x="12" y="18" />
+	<rect fill="#B3361B" height="6" width="28" x="12" y="30" />
+	<rect fill="#5B3FA0" height="6" width="7" x="12" y="42" />
+	<rect fill="#5B3FA0" height="6" width="7" x="24" y="42" />
+	<rect fill="#5B3FA0" height="6" width="7" x="36" y="42" />
+	<rect fill="#5B3FA0" height="6" width="4" x="48" y="42" />
+</svg>
