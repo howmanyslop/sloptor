@@ -62,7 +62,12 @@ The input is the existing `tools/perfcompare/schema.go` schema1 shape. Required
 fields use exact spelling and types. The entire document must be strict UTF-8
 JSON with one value, no comments, no trailing content, no duplicate object names
 (including escaped names) and no case shadows of recognized fields. Nested JSON
-is checked to depth 128. Unknown extension fields are retained, not interpreted.
+is checked to depth 128. Before JSON decoding, every raw string key and value,
+including unknown extensions, is checked for well-formed Unicode escapes. A high
+surrogate must immediately precede a low surrogate escape; lone or malformed
+surrogates are invalid evidence. Issues identify zero-based input byte offsets.
+Valid surrogate pairs, literal Unicode, legitimate U+FFFD, escaped backslashes
+and quotes remain accepted. Unknown extensions are retained, not interpreted.
 
 Machine metadata, environment and both binary revision/command labels must be
 present. `machine.run_order` must contain exactly AB and BA. Available `sha256:`

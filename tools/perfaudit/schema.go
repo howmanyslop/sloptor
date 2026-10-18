@@ -53,10 +53,13 @@ func (v *validation) invalid(path, message string) {
 }
 
 // Walk the entire document before decoding fields: encoding/json alone accepts
-// duplicate keys, case-insensitive struct fields and invalid UTF-8 replacement.
+// duplicate keys, case-insensitive fields and replacement of invalid Unicode.
 func (v *validation) strictJSON(input []byte) bool {
 	if !utf8.Valid(input) {
 		v.invalid("$", "JSON must be UTF-8")
+		return false
+	}
+	if !v.unicodeEscapes(input) {
 		return false
 	}
 	d := json.NewDecoder(bytes.NewReader(input))
