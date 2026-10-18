@@ -14,12 +14,14 @@ export type SloptorClientErrorCode =
 	| "UNSUPPORTED_PLATFORM"
 	| "VERSION_MISMATCH";
 
+// oxlint-disable-next-line unicorn/custom-error-definition -- no.
 export declare class SloptorClientError extends Error {
-	readonly code: SloptorClientErrorCode | (string & {});
+	// oxlint-disable-next-line typescript/ban-types -- no.
+	public readonly code: SloptorClientErrorCode | (string & {});
 }
 
 export interface BuildDiagnostic {
-	readonly code?: string;
+	readonly code?: string | undefined;
 	readonly col: number;
 	readonly file: string;
 	readonly line: number;
@@ -28,12 +30,12 @@ export interface BuildDiagnostic {
 }
 
 export interface BuildResult {
-	readonly diagnostics: readonly BuildDiagnostic[];
+	readonly diagnostics: ReadonlyArray<BuildDiagnostic>;
 	readonly durationMs: number;
 	readonly files: number;
 	readonly ok: boolean;
-	readonly outputs: readonly string[];
-	readonly projects: readonly ProjectBuildResult[];
+	readonly outputs: ReadonlyArray<string>;
+	readonly projects: ReadonlyArray<ProjectBuildResult>;
 	readonly telemetry: BuildTelemetry;
 }
 
@@ -45,14 +47,14 @@ export interface BuildTelemetry {
 	readonly transformedProjects: number;
 }
 
-export type ProjectBuildStatus = "success" | "no-change" | "satisfied" | "blocked" | "failed";
+export type ProjectBuildStatus = "blocked" | "failed" | "no-change" | "satisfied" | "success";
 
 export interface ProjectBuildResult {
-	readonly blockers: readonly string[];
+	readonly blockers: ReadonlyArray<string>;
 	readonly config: string;
-	readonly diagnostics: readonly BuildDiagnostic[];
+	readonly diagnostics: ReadonlyArray<BuildDiagnostic>;
 	readonly outputCount: number;
-	readonly outputs: readonly string[];
+	readonly outputs: ReadonlyArray<string>;
 	readonly status: ProjectBuildStatus;
 	readonly timings: ProjectBuildTimings;
 }
@@ -90,24 +92,24 @@ export interface BuildTimingCounts {
 	readonly emittedEntries: number;
 	readonly emittedProjects: number;
 	readonly hashSkips: number;
-	readonly nodeCpuSystemUs?: number;
-	readonly nodeCpuUserUs?: number;
-	readonly nodeWallMs?: number;
-	readonly parseCacheHits?: number;
-	readonly parseCacheMisses?: number;
+	readonly nodeCpuSystemUs?: number | undefined;
+	readonly nodeCpuUserUs?: number | undefined;
+	readonly nodeWallMs?: number | undefined;
+	readonly parseCacheHits?: number | undefined;
+	readonly parseCacheMisses?: number | undefined;
 	readonly satisfiedProjects: number;
 	readonly scheduledDeclarationWrites: number;
 	readonly scheduledProjects: number;
 	readonly scheduledSourceMapWrites: number;
 	readonly selectedProjects: number;
 	readonly selectedSources: number;
-	readonly sidecarChangedFiles?: number;
-	readonly sidecarRequestBytes?: number;
-	readonly sidecarResponseBytes?: number;
-	readonly sidecarRestarts?: number;
-	readonly sidecarSourceReads?: number;
-	readonly sidecarSpawns?: number;
-	readonly sidecarStats?: number;
+	readonly sidecarChangedFiles?: number | undefined;
+	readonly sidecarRequestBytes?: number | undefined;
+	readonly sidecarResponseBytes?: number | undefined;
+	readonly sidecarRestarts?: number | undefined;
+	readonly sidecarSourceReads?: number | undefined;
+	readonly sidecarSpawns?: number | undefined;
+	readonly sidecarStats?: number | undefined;
 	readonly totalSources: number;
 	readonly transformedProjects: number;
 	readonly uniquePreparedDirectories: number;
@@ -118,15 +120,15 @@ interface BuildRequestOptions {
 }
 
 type BuildOwnership =
-	| { readonly selected?: never; readonly satisfied?: never }
-	| { readonly selected: readonly string[]; readonly satisfied: readonly string[] };
+	| { readonly satisfied: ReadonlyArray<string>; readonly selected: ReadonlyArray<string> }
+	| { readonly satisfied?: never; readonly selected?: never };
 
-export type BuildRequest = BuildRequestOptions &
+export type BuildRequest = BuildOwnership &
+	BuildRequestOptions &
 	(
 		| { readonly project: string; readonly roots?: never }
-		| { readonly project?: never; readonly roots: readonly string[] }
-	) &
-	BuildOwnership;
+		| { readonly project?: never; readonly roots: ReadonlyArray<string> }
+	);
 
 export interface BuildSession extends AsyncDisposable {
 	build(request: BuildRequest): Promise<BuildResult>;
@@ -134,9 +136,12 @@ export interface BuildSession extends AsyncDisposable {
 }
 
 export interface BuildSessionOptions {
-	readonly executable?: string;
-	/** Arguments inserted before the private api-server command. Primarily useful for process wrappers. */
-	readonly executableArgs?: readonly string[];
+	readonly executable?: string | undefined;
+	/**
+	 * Arguments inserted before the private api-server command. Primarily useful
+	 * for process wrappers.
+	 */
+	readonly executableArgs?: ReadonlyArray<string> | undefined;
 }
 
 export declare function createBuildSession(options?: BuildSessionOptions): BuildSession;
