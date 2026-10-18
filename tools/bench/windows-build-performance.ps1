@@ -11,6 +11,7 @@ param(
     [string]$BaselineSourceSha,
     [string]$CandidateSourceSha,
     [string]$FixtureIdentity,
+    [switch]$StableProjectPath,
     [ValidateRange(1, 1073741824)]
     [long]$MaxCaptureBytes = 16777216,
     [switch]$ValidateOnly
@@ -1096,6 +1097,178 @@ function Write-RunStatus {
     [IO.File]::Move($temporary, $Path, $true)
 }
 
+function Get-ProjectMetadata {
+    param([string]$Root)
+
+    Assert-NoReparseAncestors $Root
+    $paths = [string[]](@([IO.Path]::GetFullPath($Root)) + @(Get-ChildItem -LiteralPath $Root -Recurse -Force | ForEach-Object FullName))
+    [Array]::Sort($paths, [StringComparer]::Ordinal)
+    foreach ($path in $paths) {
+        $item = Get-Item -LiteralPath $path -Force
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "project metadata contains a reparse point: $path" }
+        $relative = [IO.Path]::GetRelativePath($Root, $path).Replace('\', '/')
+        [void][Text.UTF8Encoding]::new($false, $true).GetBytes($relative)
+        [ordered]@{
+            path = $relative; kind = $(if ($item.PSIsContainer) { 'directory' } else { 'file' })
+            last_write_utc_ticks = $item.LastWriteTimeUtc.Ticks
+            bytes = $(if ($item.PSIsContainer) { $null } else { $item.Length })
+            sha256 = $(if ($item.PSIsContainer) { $null } else { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash })
+        }
+    }
+}
+
+function Get-ProjectMetadataDigest {
+    param([object[]]$Metadata)
+    return 'sha256-project-state-v1:' + (Get-Sha256Text (ConvertTo-Json -InputObject @($Metadata) -Depth 8 -Compress -WarningAction Stop))
+}
+
+function Get-ProtectedProjectMetadata {
+    param([object[]]$Metadata, [string[]]$MutableDirectories = @(), [string[]]$ExpectedPaths)
+
+    $expected = if ($PSBoundParameters.ContainsKey('ExpectedPaths')) { [Collections.Generic.HashSet[string]]::new($ExpectedPaths, [StringComparer]::Ordinal) } else { $null }
+    foreach ($record in $Metadata) {
+        if ($null -ne $expected -and -not $expected.Contains($record.path)) { continue }
+        if ($record.path -eq '.' -or $record.path -match '^(out|out-test|out-tsc|\.rotor|\.git)(/|$)') { continue }
+        if ($record.path -match '\.rbxtsc\.tsbuildinfo$' -and $record.path -notmatch '(^|/)node_modules/') { continue }
+        if ($record.kind -eq 'directory' -and $record.path -in $MutableDirectories) { continue }
+        $record
+    }
+}
+
+function Assert-StableLayout {
+    param([System.Collections.IDictionary]$State, [switch]$InspectTree)
+
+    $root = [IO.Path]::GetFullPath($State.work_root)
+    if (-not (Test-PathInside $root $State.evidence_root) -or [IO.Path]::GetFileName($root) -notmatch '^work-[0-9a-f]{32}$') { throw 'stable work root is outside its exact owned evidence boundary' }
+    foreach ($arm in @('baseline','candidate')) {
+        if ($State.arms[$arm] -cne (Join-Path $root $arm)) { throw 'stable arm path is outside its exact owned slot' }
+    }
+    if ($State.active_path -cne (Join-Path $root 'active') -or $State.state_file -cne (Join-Path $State.evidence_root 'project-state.json') -or $State.journal -cne (Join-Path $State.evidence_root 'project-state.ndjson') -or $State.input_metadata_file -cne (Join-Path $State.evidence_root 'project-input-metadata.json')) { throw 'stable active/evidence path is outside its exact owned slot' }
+    Assert-NoReparseAncestors $State.evidence_root
+    foreach ($path in @($State.state_file, "$($State.state_file).tmp", $State.journal, $State.input_metadata_file, "$($State.input_metadata_file).tmp")) { Assert-NoReparseAncestors $path }
+    Assert-NoReparseAncestors $root
+    if ($InspectTree) { Assert-SafeCleanupTarget $root $State.evidence_root }
+}
+
+function Save-StableProjectState {
+    param([System.Collections.IDictionary]$State)
+
+    Assert-StableLayout $State
+    $State.locations = [ordered]@{
+        active_exists = [IO.Directory]::Exists($State.active_path)
+        baseline_exists = [IO.Directory]::Exists($State.arms.baseline)
+        candidate_exists = [IO.Directory]::Exists($State.arms.candidate)
+    }
+    Write-RunStatus $State.state_file $State
+    Add-InvocationRecord $State.journal ([ordered]@{ event = 'project_state'; at_utc = [DateTime]::UtcNow.ToString('o'); transition = $State.transition; active_owner = $State.active_owner; pending_arm = $State.pending_arm; preserve_work = $State.preserve_work; locations = $State.locations; error = $State.error })
+}
+
+function Set-StableProjectFailure {
+    param([System.Collections.IDictionary]$State, [string]$Failure)
+
+    $State.preserve_work = $true; $State.transition = 'incomplete'
+    $State.error = if ($Failure) { $Failure } else { 'project activation/deactivation interrupted or did not complete' }
+    if (-not [IO.Directory]::Exists($State.active_path)) { $State.active_owner = $null }
+    elseif (-not $State.active_owner) {
+        $State.active_owner = if ($State.pending_arm -and -not [IO.Directory]::Exists($State.arms[$State.pending_arm])) { $State.pending_arm } else { 'unknown' }
+    }
+    # State retention must not replace the original process/move exception or
+    # cancellation. The run snapshot also retains this in-memory state.
+    try { Save-StableProjectState $State } catch { $State.error += "; project state retention failed: $($_.Exception.Message)" }
+}
+
+function New-StableProjectState {
+    param([string]$FixturePath, [string]$WorkRoot, [string]$EvidencePath, [ref]$Ownership)
+
+    $state = [ordered]@{
+        mode = 'stable-project-path-v1'; evidence_root = [IO.Path]::GetFullPath($EvidencePath); work_root = [IO.Path]::GetFullPath($WorkRoot)
+        active_path = Join-Path $WorkRoot 'active'; arms = [ordered]@{ baseline = Join-Path $WorkRoot 'baseline'; candidate = Join-Path $WorkRoot 'candidate' }
+        active_owner = $null; pending_arm = $null; transition = 'preparing'; preserve_work = $false; cleanup_completed = $false; locations = $null; error = $null
+        state_file = Join-Path $EvidencePath 'project-state.json'; journal = Join-Path $EvidencePath 'project-state.ndjson'
+        canonical_root = [IO.Path]::GetFullPath($FixturePath); input_metadata_file = Join-Path $EvidencePath 'project-input-metadata.json'; input_metadata_sha256 = $null
+    }
+    if ($null -ne $Ownership) { $Ownership.Value = $state }
+    Assert-StableLayout $state
+    foreach ($path in @($state.active_path, $state.arms.baseline, $state.arms.candidate, $state.state_file, $state.input_metadata_file, $state.journal)) {
+        if (Test-Path -LiteralPath $path) { throw "stable preparation destination is occupied: $path" }
+    }
+    Save-StableProjectState $state
+    $metadata = @(Get-ProjectMetadata $FixturePath)
+    $state.input_metadata_sha256 = Get-ProjectMetadataDigest $metadata
+    $mutableDirectories = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($record in $metadata) {
+        if ($record.kind -eq 'file' -and (Test-AllowedColdStateTarget $FixturePath (Join-Path $FixturePath $record.path))) {
+            for ($parent = [IO.Path]::GetDirectoryName($record.path); $parent; $parent = [IO.Path]::GetDirectoryName($parent)) { [void]$mutableDirectories.Add($parent.Replace('\', '/')) }
+        }
+    }
+    $protected = @(Get-ProtectedProjectMetadata $metadata @($mutableDirectories))
+    Write-RunStatus $state.input_metadata_file ([ordered]@{ format = 'sha256-project-state-v1'; canonical_root = $state.canonical_root; metadata = $metadata; protected_metadata = $protected; mutable_directories = @($mutableDirectories) })
+    try {
+        foreach ($arm in @('baseline','candidate')) {
+            Copy-Item -LiteralPath $FixturePath -Destination $state.arms[$arm] -Recurse
+            foreach ($record in $metadata | Where-Object kind -eq 'file') { [IO.File]::SetLastWriteTimeUtc((Join-Path $state.arms[$arm] $record.path), [DateTime]::new([long]$record.last_write_utc_ticks, [DateTimeKind]::Utc)) }
+            foreach ($record in $metadata | Where-Object kind -eq 'directory' | Sort-Object { $_.path.Length } -Descending) { [IO.Directory]::SetLastWriteTimeUtc((Join-Path $state.arms[$arm] $record.path), [DateTime]::new([long]$record.last_write_utc_ticks, [DateTimeKind]::Utc)) }
+            if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $state.arms[$arm])) -cne $state.input_metadata_sha256) { throw 'stable copy file/directory topology, bytes or timestamps differ from canonical provenance' }
+        }
+        $state.transition = 'inactive'; Save-StableProjectState $state
+    } catch { Set-StableProjectFailure $state $_.Exception.Message; throw }
+    return $state
+}
+
+function Move-StableProjectArm {
+    param([System.Collections.IDictionary]$State, [ValidateSet('baseline','candidate')][string]$Arm, [switch]$Deactivate)
+
+    $completed = $false; $failure = $null
+    try {
+        Assert-StableLayout $State -InspectTree
+        if ($State.preserve_work) { throw 'stable project state is incomplete; preserve both arms without another activation' }
+        if ($Deactivate) {
+            Initialize-ProcessOwnership
+            if (-not [RotorBench.Invocation]::CleanupSafe) { throw 'stable deactivation requires quiescent owned processes' }
+            if ($State.active_owner -ne $Arm -or $State.transition -ne 'active') { throw 'stable deactivation does not own the expected active arm' }
+            $source = $State.active_path; $destination = $State.arms[$Arm]
+        } else {
+            if ($State.active_owner -or $State.transition -ne 'inactive') { throw 'stable activation already has an active or incomplete owner' }
+            $source = $State.arms[$Arm]; $destination = $State.active_path
+        }
+        if (-not [IO.Directory]::Exists($source) -or (Test-Path -LiteralPath $destination)) { throw 'stable move requires its expected source and an absent destination' }
+        $before = Get-ProjectMetadataDigest @(Get-ProjectMetadata $source)
+        $State.pending_arm = $Arm; $State.transition = if ($Deactivate) { 'deactivating' } else { 'activating' }
+        Save-StableProjectState $State
+        [IO.Directory]::Move($source, $destination)
+        $State.active_owner = if ($Deactivate) { $null } else { $Arm }
+        if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $destination)) -cne $before) { throw 'stable directory move changed state bytes, topology or timestamps' }
+        $State.pending_arm = $null; $State.transition = if ($Deactivate) { 'inactive' } else { 'active' }
+        Save-StableProjectState $State; $completed = $true
+    } catch { $failure = $_.Exception.Message; throw }
+    finally { if (-not $completed) { Set-StableProjectFailure $State $failure } }
+}
+
+function Invoke-StableProjectBuild {
+    param([System.Collections.IDictionary]$State, [ValidateSet('baseline','candidate')][string]$Arm, [string]$Executable, [TimeSpan]$Timeout, [string]$EvidencePath, [string]$JournalPath, [System.Collections.IDictionary]$Invocation, [switch]$Cold, [string[]]$ExtraArguments = @())
+
+    $completed = $false; $failure = $null
+    try {
+        Assert-StableLayout $State -InspectTree
+        $other = if ($Arm -eq 'baseline') { 'candidate' } else { 'baseline' }
+        $otherBefore = Get-ProjectMetadataDigest @(Get-ProjectMetadata $State.arms[$other])
+        $reference = Read-StrictJson $State.input_metadata_file
+        if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $State.canonical_root)) -cne $State.input_metadata_sha256) { throw 'stable canonical input metadata changed' }
+        Move-StableProjectArm $State $Arm
+        if ($Cold) { Reset-ColdState $State.active_path }
+        $result = Invoke-ScoredBuild $Executable $State.active_path $Timeout $EvidencePath $JournalPath $Invocation $ExtraArguments
+        if (-not [RotorBench.Invocation]::CleanupSafe -or $result.Status -ne 'completed') { throw 'stable process ownership or validation did not complete; preserve active work' }
+        if ((Get-ProjectMetadataDigest @(Get-ProtectedProjectMetadata @(Get-ProjectMetadata $State.active_path) @($reference.mutable_directories) -ExpectedPaths @($reference.protected_metadata | ForEach-Object path))) -cne (Get-ProjectMetadataDigest @($reference.protected_metadata))) { throw 'stable protected input bytes, topology or timestamps changed during invocation' }
+        if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $State.arms[$other])) -cne $otherBefore) { throw 'stable other arm state changed during invocation' }
+        if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $State.canonical_root)) -cne $State.input_metadata_sha256) { throw 'stable canonical input metadata changed during invocation' }
+        Move-StableProjectArm $State $Arm -Deactivate
+        if ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $State.arms[$other])) -cne $otherBefore) { throw 'stable other arm state changed during deactivation' }
+        $completed = $true
+        return $result
+    } catch { $failure = $_.Exception.Message; throw }
+    finally { if (-not $completed) { Set-StableProjectFailure $State $failure } }
+}
+
 function Invoke-RealBenchmark {
     param([string]$RepositoryRoot)
 
@@ -1133,12 +1306,17 @@ function Invoke-RealBenchmark {
     $records = [Collections.Generic.List[object]]::new()
     $evaluationReady = $false
     $cleanupCompleted = $false
+    $stableState = $null
+    $primaryFailure = $null
+    $cleanupFailure = $null
     $run = [ordered]@{
         schema = 1; status = 'incomplete'; started_utc = [DateTime]::UtcNow.ToString('o'); finished_utc = $null
         error = $null; before = $null; after = $null; evaluation = $null
         invocation_journal = $journalPath
         tree_digest_format = 'sha256-tree-v2'
         diagnostics_digest_format = 'sha256-diagnostics-v2'
+        project_mode = $(if ($StableProjectPath) { 'stable-project-path-v1' } else { 'separate-work-copies' })
+        project_state = $null
         resource_accounting = [ordered]@{
             format = 'windows-job-post-wall-v1'; invocation_journal = $journalPath
             boundary = 'getters after wall endpoint and owned cleanup, before retained handle disposal'
@@ -1161,15 +1339,20 @@ function Invoke-RealBenchmark {
         $run.machine = Get-WindowsMachineMetadata $SidecarTimeout $environment
         Write-RunStatus $runPath $run
         [IO.Directory]::CreateDirectory($workRoot) | Out-Null
-        Copy-Item -LiteralPath $fixturePath -Destination $baselineWork -Recurse -Force
-        Copy-Item -LiteralPath $fixturePath -Destination $candidateWork -Recurse -Force
+        if ($StableProjectPath) {
+            $stableState = New-StableProjectState $fixturePath $workRoot $evidencePath -Ownership ([ref]$stableState)
+            $run.project_state = $stableState
+        } else {
+            Copy-Item -LiteralPath $fixturePath -Destination $baselineWork -Recurse -Force
+            Copy-Item -LiteralPath $fixturePath -Destination $candidateWork -Recurse -Force
+        }
         if ((Get-TreeDigest $baselineWork) -cne $run.before.fixture.sha256 -or (Get-TreeDigest $candidateWork) -cne $run.before.fixture.sha256) {
             throw 'work copy does not match the canonical fixture'
         }
         foreach ($phaseInfo in @(@{ Name = 'cold'; Count = $ColdPairs }, @{ Name = 'no_change'; Count = $NoChangeRuns })) {
             for ($pair = 1; $pair -le $phaseInfo.Count; $pair++) {
                 $order = Get-OrderForPair $pair
-                if ($phaseInfo.Name -eq 'cold') {
+                if ($phaseInfo.Name -eq 'cold' -and -not $StableProjectPath) {
                     Reset-ColdState $baselineWork
                     Reset-ColdState $candidateWork
                 }
@@ -1179,25 +1362,35 @@ function Invoke-RealBenchmark {
                     $executable = if ($binary -eq 'baseline') { $BaselineExe } else { $CandidateExe }
                     $prefix = Join-Path $evidencePath ("$($phaseInfo.Name)-$pair-$binary")
                     $invocation = [ordered]@{ pair = $pair; phase = $phaseInfo.Name; order = $order; binary = $binary; scored = $true }
-                    $result = Invoke-ScoredBuild $executable $workCopy $timeout $prefix $journalPath $invocation
+                    if ($StableProjectPath) {
+                        $result = Invoke-StableProjectBuild $stableState $binary $executable $timeout $prefix $journalPath $invocation -Cold:($phaseInfo.Name -eq 'cold')
+                    } else {
+                        $result = Invoke-ScoredBuild $executable $workCopy $timeout $prefix $journalPath $invocation
+                    }
                     $records.Add((New-ManifestRecord $pair $phaseInfo.Name $order $binary $result))
                 }
             }
         }
         $timingPath = Join-Path $evidencePath 'candidate-timings.json'
-        [void](Invoke-ScoredBuild $CandidateExe $candidateWork $timeout (Join-Path $evidencePath 'candidate-timings') $journalPath ([ordered]@{ phase = 'diagnostic'; binary = 'candidate'; scored = $false }) @('--timings', $timingPath))
+        $diagnostic = [ordered]@{ phase = 'diagnostic'; binary = 'candidate'; scored = $false }
+        if ($StableProjectPath) {
+            [void](Invoke-StableProjectBuild $stableState 'candidate' $CandidateExe $timeout (Join-Path $evidencePath 'candidate-timings') $journalPath $diagnostic -ExtraArguments @('--timings', $timingPath))
+        } else {
+            [void](Invoke-ScoredBuild $CandidateExe $candidateWork $timeout (Join-Path $evidencePath 'candidate-timings') $journalPath $diagnostic @('--timings', $timingPath))
+        }
         if (-not (Test-Path -LiteralPath $timingPath -PathType Leaf)) { throw 'candidate diagnostic did not write the requested timing file' }
         [void](Read-StrictJson $timingPath -Kind timings)
         $run.after = Get-InputIdentity $trackedWorktrees $go
         Assert-InputIdentityEqual $run.before $run.after
         Assert-EnvironmentEqual $environment (Get-EnvironmentSnapshot)
+        $commandProject = if ($StableProjectPath) { $stableState.active_path } else { '<work-copy>' }
         $manifest = [ordered]@{
             schema = 1
             tree_digest_format = 'sha256-tree-v2'
             measurement_boundary = 'owned-job-quiescence-and-spooled-stream-eof-v2'
             machine = $run.machine
-            baseline = [ordered]@{ revision = "sha256:$($run.before.baseline.sha256)"; command = "$BaselineExe build --project <work-copy> --json" }
-            candidate = [ordered]@{ revision = "sha256:$($run.before.candidate.sha256)"; command = "$CandidateExe build --project <work-copy> --json" }
+            baseline = [ordered]@{ revision = "sha256:$($run.before.baseline.sha256)"; command = "$BaselineExe build --project $commandProject --json" }
+            candidate = [ordered]@{ revision = "sha256:$($run.before.candidate.sha256)"; command = "$CandidateExe build --project $commandProject --json" }
             records = @($records)
         }
         $manifest | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $pendingManifest -Encoding utf8NoBOM
@@ -1214,6 +1407,7 @@ function Invoke-RealBenchmark {
         }
         $evaluationReady = $true
     } catch {
+        $primaryFailure = $_
         $run.error = $_.Exception.Message
         throw
     } finally {
@@ -1230,13 +1424,23 @@ function Invoke-RealBenchmark {
             }
             try {
                 if (-not [RotorBench.Invocation]::CleanupSafe) { throw 'owned process cleanup did not quiesce; preserve work copies' }
+                if ($null -ne $stableState) {
+                    $run.project_state = $stableState
+                    if (-not $evaluationReady -or $stableState.preserve_work -or $stableState.active_owner -or $stableState.transition -ne 'inactive') {
+                        Set-StableProjectFailure $stableState $run.error
+                        throw 'stable project operation incomplete; preserve active and inactive arm states'
+                    }
+                }
                 Remove-TestOwnedWorkCopies $evidencePath $workRoot
+                if ($null -ne $stableState) { $stableState.cleanup_completed = $true; $stableState.transition = 'cleaned'; Save-StableProjectState $stableState }
                 $cleanupCompleted = $true
             }
             catch {
+                $cleanupFailure = $_
                 $run.cleanup_error = $_.Exception.Message
                 $run.error = if ($run.error) { $run.error + "; ownership-safe cleanup failed: $($_.Exception.Message)" } else { "ownership-safe cleanup failed: $($_.Exception.Message)" }
-                throw
+                if ($null -ne $primaryFailure) { $primaryFailure.Exception.Data['cleanup_error'] = $_.Exception.Message }
+                elseif ($evaluationReady) { throw }
             } finally {
                 # Cancellation can bypass catch; keep both completion gates false
                 # until their entire operations have returned successfully.
@@ -1244,7 +1448,14 @@ function Invoke-RealBenchmark {
                 if (-not $cleanupCompleted -and -not $run.error) { $run.error = 'cleanup interrupted or did not complete' }
                 $run.status = 'incomplete'
                 $run.finished_utc = [DateTime]::UtcNow.ToString('o')
-                Write-RunStatus $runPath $run
+                try { Write-RunStatus $runPath $run }
+                catch {
+                    if ($null -ne $primaryFailure) { $primaryFailure.Exception.Data['status_retention_error'] = $_.Exception.Message }
+                    elseif ($null -ne $cleanupFailure) { $cleanupFailure.Exception.Data['status_retention_error'] = $_.Exception.Message }
+                    elseif ($evaluationReady -and $cleanupCompleted) { throw }
+                    # Cancellation can bypass catch. A secondary status failure
+                    # must preserve that interruption rather than replace it.
+                }
             }
         }
     }

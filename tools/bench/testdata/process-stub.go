@@ -83,6 +83,9 @@ func main() {
 	}
 	fmt.Fprintln(os.Stderr, "stub stderr before completion")
 	mode := os.Getenv("ROTOR_BENCH_TEST_MODE")
+	if mode == "stable-state" {
+		stableState(project)
+	}
 	if len(mode) > len("resource-") && mode[:len("resource-")] == "resource-" {
 		resourceControl(mode[len("resource-"):], os.Getenv("ROTOR_BENCH_TEST_RESOURCE_ROOT"))
 		fmt.Println(`{"ok":true,"diagnostics":[]}`)
@@ -191,7 +194,7 @@ func main() {
 		fmt.Print("incomplete JSON {")
 		return
 	}
-	if project != "" {
+	if project != "" && mode != "stable-state" {
 		_ = os.MkdirAll(filepath.Join(project, "out"), 0o755)
 		_ = os.WriteFile(filepath.Join(project, "out", "result.luau"), []byte("return 1\n"), 0o600)
 	}
@@ -206,6 +209,49 @@ func main() {
 	if mode == "nonzero" || mode == "closed-nonzero" {
 		os.Exit(9)
 	}
+}
+
+// Include literal cwd/source-directory time, as real copy manifests/maps do.
+// Cache identity deliberately differs between arms; emitted bytes do not.
+func stableState(project string) {
+	writeChanged := func(path string, bytes []byte) {
+		old, err := os.ReadFile(path)
+		if err == nil && string(old) == string(bytes) {
+			return
+		}
+		if err := os.WriteFile(path, bytes, 0o600); err != nil {
+			panic(err)
+		}
+	}
+	cache := filepath.Join(project, ".rotor")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		panic(err)
+	}
+	arm := filepath.Base(os.Args[0])
+	identity := filepath.Join(cache, "arm")
+	if old, err := os.ReadFile(identity); err == nil && string(old) != arm {
+		panic("used the other arm's warm state")
+	}
+	writeChanged(identity, []byte(arm))
+	countPath := filepath.Join(cache, "count")
+	previous, _ := os.ReadFile(countPath)
+	count, _ := strconv.Atoi(string(previous))
+	writeChanged(countPath, []byte(strconv.Itoa(count+1)))
+	source, err := os.Stat(filepath.Join(project, "src"))
+	if err != nil {
+		panic(err)
+	}
+	output := filepath.Join(project, "out")
+	if err := os.MkdirAll(output, 0o755); err != nil {
+		panic(err)
+	}
+	bytes, err := json.Marshal(map[string]any{"project": project, "source": filepath.Join(project, "src", "input.ts"), "source_directory_mtime": source.ModTime().UTC().Format(time.RFC3339Nano)})
+	if err != nil {
+		panic(err)
+	}
+	writeChanged(filepath.Join(output, "rbxts.copyfiles.json"), bytes)
+	writeChanged(filepath.Join(output, "result.luau.map"), bytes)
+	writeChanged(filepath.Join(output, "result.luau"), []byte("return 1\n"))
 }
 
 func resourceWorker(kind, directory, tag string) {

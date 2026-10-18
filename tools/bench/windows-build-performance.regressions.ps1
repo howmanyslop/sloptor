@@ -13,6 +13,7 @@ function Invoke-HarnessRegressions {
     try {
         Invoke-DiagnosticAdmissionRegressions $HarnessFile $StubFile $Repository $root
         Invoke-ResourceRegressions $StubFile $root
+        Invoke-StablePathRegressions $HarnessFile $StubFile $Repository $root
         # No attach operation exists. Immediate roots and child creation are
         # legal schedules inside the creation-time job, including fast exits.
         foreach ($index in 1..25) {
@@ -493,6 +494,190 @@ function Invoke-ResourceRegressions {
         } finally { Set-Item Function:Read-InvocationResources $originalReader }
         Write-Output 'PASS resources: unavailable/native-failed/unsupported states retain null values and causes; inconsistent CPU fails; collector failure preserves original outcome; getter delay excluded from wall endpoint'
     } finally { $env:ROTOR_BENCH_TEST_MODE = $savedMode; $env:ROTOR_BENCH_TEST_RESOURCE_ROOT = $savedRoot }
+}
+
+function Invoke-StablePathRegressions {
+    param([string]$HarnessFile, [string]$StubFile, [string]$Repository, [string]$Artifacts)
+
+    $root = Join-Path $Artifacts 'stable-path'
+    [void][IO.Directory]::CreateDirectory($root)
+    $fixture = Join-Path $root 'fixture'
+    [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'src/empty/nested'))
+    [IO.File]::WriteAllText((Join-Path $fixture 'src/input.ts'), 'synthetic stable path input')
+    foreach ($record in @(Get-ProjectMetadata $fixture) | Sort-Object { $_.path.Length } -Descending) {
+        $path = Join-Path $fixture $record.path
+        $time = [DateTime]::new(638500000000000000L + $record.path.Length, [DateTimeKind]::Utc)
+        if ($record.kind -eq 'directory') { [IO.Directory]::SetLastWriteTimeUtc($path, $time) } else { [IO.File]::SetLastWriteTimeUtc($path, $time) }
+    }
+    $canonical = Get-ProjectMetadataDigest @(Get-ProjectMetadata $fixture)
+    $bin = Join-Path $root 'bin'
+    [void][IO.Directory]::CreateDirectory($bin)
+    foreach ($arm in @('baseline','candidate')) { Copy-Item -LiteralPath $StubFile -Destination (Join-Path $bin "$arm.exe") }
+    function New-Case([string]$Name) {
+        $case = Join-Path $root $Name
+        [void][IO.Directory]::CreateDirectory($case)
+        $work = Join-Path $case ('work-' + [Guid]::NewGuid().ToString('N'))
+        [void][IO.Directory]::CreateDirectory($work)
+        return New-StableProjectState $fixture $work $case
+    }
+    function Output-Metadata([string]$Path) { return Get-ProjectMetadataDigest @(Get-ProjectMetadata (Join-Path $Path 'out')) }
+    $savedMode = $env:ROTOR_BENCH_TEST_MODE
+    try {
+        $env:ROTOR_BENCH_TEST_MODE = 'stable-state'
+        $default = Join-Path $root 'default'
+        [void][IO.Directory]::CreateDirectory($default)
+        $digests = @()
+        foreach ($arm in @('baseline','candidate')) {
+            $copy = Join-Path $default $arm
+            Copy-Item -LiteralPath $fixture -Destination $copy -Recurse
+            $result = Invoke-ScoredBuild (Join-Path $bin "$arm.exe") $copy ([TimeSpan]::FromSeconds(3)) (Join-Path $default $arm) (Join-Path $default 'journal') @{ scored = $false }
+            $digests += $result.OutputTreeDigest
+        }
+        Assert-True ($digests[0] -cne $digests[1]) 'default different-path control unexpectedly normalized emitted paths'
+        $state = New-Case 'alternating'
+        $reference = $null; $prior = @{}
+        foreach ($phase in @('cold','no_change','no_change_2')) {
+            $order = if ($phase -eq 'no_change') { @('candidate','baseline') } else { @('baseline','candidate') }
+            foreach ($arm in $order) {
+                $result = Invoke-StableProjectBuild $state $arm (Join-Path $bin "$arm.exe") ([TimeSpan]::FromSeconds(3)) (Join-Path $state.evidence_root "$phase-$arm") (Join-Path $state.evidence_root 'journal') @{ scored = $false; phase = $phase } -Cold:($phase -eq 'cold')
+                if ($null -eq $reference) { $reference = $result.OutputTreeDigest }
+                Assert-True ($result.OutputTreeDigest -ceq $reference) 'stable path failed exact literal output parity'
+                $current = Output-Metadata $state.arms[$arm]
+                if ($prior.ContainsKey($arm)) { Assert-True ($current -ceq $prior[$arm]) 'no-change output bytes/mtimes changed' }
+                $prior[$arm] = $current
+                Assert-True (-not (Test-Path -LiteralPath $state.active_path) -and $state.transition -eq 'inactive') 'successful arm did not return to its own inactive slot'
+                Assert-True ([IO.Directory]::GetLastWriteTimeUtc((Join-Path $state.arms[$arm] 'src/empty/nested')).Ticks -eq 638500000000000016L) 'empty-directory input timestamp changed'
+            }
+        }
+        foreach ($arm in @('baseline','candidate')) {
+            Assert-True ([IO.File]::ReadAllText((Join-Path $state.arms[$arm] '.rotor/count')) -eq '3') 'arm cache was not independently retained'
+            Assert-True ([IO.File]::ReadAllText((Join-Path $state.arms[$arm] '.rotor/arm')) -eq "$arm.exe") 'arm cache identity changed'
+        }
+        Assert-True (@(Read-Journal (Join-Path $state.evidence_root 'journal') | Where-Object event -eq 'started' | Where-Object working_directory -ne $state.active_path).Count -eq 0) 'compiler launched in an inactive path'
+        Assert-True ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $fixture)) -ceq $canonical) 'canonical file/directory metadata changed'
+        Write-Output 'PASS stable path: default path mismatch retained; literal maps/manifests match at active path; AB/BA independent caches, no-change mtimes and input topology/times preserved'
+
+        foreach ($fault in @('occupied-active','missing-source','occupied-inactive','source-reparse','destination-reparse','boundary','second-owner')) {
+            $state = New-Case $fault
+            $candidateBefore = Get-ProjectMetadataDigest @(Get-ProjectMetadata $state.arms.candidate)
+            switch ($fault) {
+                'occupied-active' { [void][IO.Directory]::CreateDirectory($state.active_path) }
+                'missing-source' { [IO.Directory]::Move($state.arms.baseline, (Join-Path $state.work_root 'retained-missing-source')) }
+                'occupied-inactive' { Move-StableProjectArm $state baseline; [void][IO.Directory]::CreateDirectory($state.arms.baseline) }
+                'source-reparse' { [void](New-Item -ItemType Junction -Path (Join-Path $state.arms.baseline 'link') -Target $fixture) }
+                'destination-reparse' { [void](New-Item -ItemType Junction -Path $state.active_path -Target $fixture) }
+                'boundary' { $state.arms.baseline = Join-Path $root 'outside-slot' }
+                'second-owner' { Move-StableProjectArm $state candidate }
+            }
+            Assert-Throws { Move-StableProjectArm $state baseline -Deactivate:($fault -eq 'occupied-inactive') } 'stable|reparse'
+            Assert-True ($state.preserve_work -and $state.error -and $state.transition -eq 'incomplete') "move refusal lost pending state: $fault"
+            if ($fault -ne 'boundary') { Assert-True ((Read-StrictJson $state.state_file).transition -eq 'incomplete') "move refusal was not retained on disk: $fault" }
+            if ($fault -ne 'second-owner') { Assert-True ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $state.arms.candidate)) -ceq $candidateBefore) "move refusal changed other arm: $fault" }
+            if ($fault -eq 'occupied-inactive') { Assert-True ((Test-Path -LiteralPath $state.active_path) -and (Test-Path -LiteralPath $state.arms.baseline)) 'deactivation overwrote an occupied inactive slot' }
+        }
+        Assert-True ((Get-ProjectMetadataDigest @(Get-ProjectMetadata $fixture)) -ceq $canonical) 'path refusal damaged canonical reparse target'
+        Write-Output 'PASS stable path: missing/occupied source/destination, reparses, exact-slot boundary and second owner rejected without overwriting other state'
+
+        foreach ($mode in @('closed-private','nonzero','invalid','closed-timeout','mutate-fixture','mutate-other-arm','mutate-canonical')) {
+            $state = New-Case $mode
+            $env:ROTOR_BENCH_TEST_MODE = if ($mode -in @('mutate-other-arm','mutate-canonical')) { 'mutate-fixture' } else { $mode }
+            $env:ROTOR_BENCH_TEST_PID = Join-Path $state.evidence_root 'child.pid'
+            $env:ROTOR_BENCH_TEST_DONE = Join-Path $state.active_path 'out/child.done'
+            $env:ROTOR_BENCH_TEST_MUTATE = Join-Path $state.active_path 'src/input.ts'
+            if ($mode -eq 'mutate-other-arm') { $env:ROTOR_BENCH_TEST_MUTATE = Join-Path $state.arms.candidate 'src/input.ts' }
+            if ($mode -eq 'mutate-canonical') { $env:ROTOR_BENCH_TEST_MUTATE = Join-Path $fixture 'src/input.ts' }
+            $inputBytes = [IO.File]::ReadAllBytes((Join-Path $fixture 'src/input.ts')); $inputTime = [IO.File]::GetLastWriteTimeUtc((Join-Path $fixture 'src/input.ts'))
+            $prefix = Join-Path $state.evidence_root 'invocation'
+            $action = { Invoke-StableProjectBuild $state baseline (Join-Path $bin 'baseline.exe') ([TimeSpan]::FromMilliseconds(800)) $prefix (Join-Path $state.evidence_root 'journal') @{ scored = $false } }
+            if ($mode -eq 'closed-private') {
+                $result = & $action
+                Assert-True ($result.DurationMS -ge 320 -and (Test-Path -LiteralPath (Join-Path $state.arms.baseline 'out/child.done'))) 'private child persistence was truncated or moved before quiescence'
+            } else {
+                $pattern = switch ($mode) { 'nonzero' { 'exit_code=9' }; 'invalid' { 'JSON' }; 'closed-timeout' { 'timed out' }; 'mutate-other-arm' { 'other arm' }; 'mutate-canonical' { 'canonical input' }; default { 'protected input' } }
+                Assert-Throws $action $pattern
+                $snapshot = Read-StrictJson $state.state_file
+                Assert-True ($snapshot.active_owner -eq 'baseline' -and $snapshot.preserve_work -and $snapshot.error -match $pattern -and $snapshot.locations.active_exists) "failure lost original error/active ownership: $mode"
+                Assert-True (-not (Test-Path -LiteralPath $state.arms.baseline) -and (Test-Path -LiteralPath $state.arms.candidate)) 'failure moved or replaced an arm'
+                if ($mode -eq 'closed-timeout') { Assert-True ($null -eq (Get-Process -Id ([int][IO.File]::ReadAllText($env:ROTOR_BENCH_TEST_PID)) -ErrorAction SilentlyContinue)) 'overdue private child survived' }
+                if ($mode -eq 'mutate-canonical') { [IO.File]::WriteAllBytes((Join-Path $fixture 'src/input.ts'), $inputBytes); [IO.File]::SetLastWriteTimeUtc((Join-Path $fixture 'src/input.ts'), $inputTime) }
+            }
+        }
+        Write-Output 'PASS stable path: successful private child finishes persistence before deactivation; nonzero/invalid/timeout/input mutation retain original errors and truthful active state'
+
+        foreach ($stage in @('activating','deactivating','compiler','main-failure','main-retention-failure','main-invalid-count','main-legacy-fail')) {
+            $case = Join-Path $root "host-$stage"
+            [void][IO.Directory]::CreateDirectory($case)
+            $pipeline = [PowerShell]::Create()
+            try {
+                [void]$pipeline.AddScript({
+                    param($HarnessPath, $BinaryRoot, $FixturePath, $RepositoryRoot, $CaseRoot, $Stage)
+                    . $HarnessPath
+                    $env:ROTOR_BENCH_TEST_MODE = if ($Stage -eq 'compiler') { 'hang' } elseif ($Stage -in @('main-failure','main-retention-failure')) { 'nonzero' } else { 'stable-state' }
+                    $env:ROTOR_BENCH_TEST_PID = Join-Path $CaseRoot 'child.pid'
+                    if ($Stage -like 'main-*') {
+                        $script:StableProjectPath = $true; $script:BaselineExe = Join-Path $BinaryRoot 'baseline.exe'; $script:CandidateExe = Join-Path $BinaryRoot 'candidate.exe'
+                        $script:Fixture = $FixturePath; $script:EvidenceDir = Join-Path $CaseRoot 'evidence'; $script:SidecarTimeout = '3s'
+                        $script:ColdPairs = if ($Stage -eq 'main-legacy-fail') { 10 } else { 1 }; $script:NoChangeRuns = if ($Stage -eq 'main-legacy-fail') { 20 } else { 1 }
+                        if ($Stage -eq 'main-retention-failure') {
+                            $originalStatus = (Get-Item Function:Write-RunStatus).ScriptBlock
+                            function Write-RunStatus {
+                                param($Path, $Run)
+                                & $originalStatus $Path $Run
+                                if ($Run.Contains('status') -and $Run.status -eq 'incomplete' -and $Run.error -like '*exit_code=9*') { throw 'injected secondary run status failure' }
+                            }
+                        }
+                        if ($Stage -eq 'main-legacy-fail') {
+                            $originalScorer = (Get-Item Function:Invoke-ScoredBuild).ScriptBlock
+                            function Invoke-ScoredBuild { param($Executable, $WorkCopy, $Timeout, $EvidencePath, $JournalPath, $Invocation, $ExtraArguments); $result = & $originalScorer $Executable $WorkCopy $Timeout $EvidencePath $JournalPath $Invocation $ExtraArguments; $result.DurationMS = 1000; return $result }
+                        }
+                        try { Invoke-RealBenchmark $RepositoryRoot } catch { [IO.File]::WriteAllText((Join-Path $CaseRoot 'caught'), $_.Exception.Message); [IO.File]::WriteAllText((Join-Path $CaseRoot 'status-retention-error'), [string]$_.Exception.Data['status_retention_error']) }
+                    } else {
+                        $work = Join-Path $CaseRoot ('work-' + [Guid]::NewGuid().ToString('N'))
+                        [void][IO.Directory]::CreateDirectory($work)
+                        $state = New-StableProjectState $FixturePath $work $CaseRoot
+                        $originalSave = (Get-Item Function:Save-StableProjectState).ScriptBlock
+                        function Save-StableProjectState {
+                            param($State)
+                            & $originalSave $State
+                            if ($State.transition -eq $Stage) { [IO.File]::WriteAllText((Join-Path $CaseRoot 'ready'), 'ready'); Start-Sleep -Seconds 8 }
+                        }
+                        [void](Invoke-StableProjectBuild $state baseline (Join-Path $BinaryRoot 'baseline.exe') ([TimeSpan]::FromSeconds(10)) (Join-Path $CaseRoot 'invocation') (Join-Path $CaseRoot 'journal') @{ scored = $false })
+                    }
+                }).AddArgument($HarnessFile).AddArgument($bin).AddArgument($fixture).AddArgument($Repository).AddArgument($case).AddArgument($stage)
+                $pending = $pipeline.BeginInvoke()
+                if ($stage -like 'main-*') { Assert-True ($pending.AsyncWaitHandle.WaitOne(30000)) "main stable probe timed out: $stage" }
+                else {
+                    $signal = Join-Path $case $(if ($stage -eq 'compiler') { 'child.pid' } else { 'ready' })
+                    $timer = [Diagnostics.Stopwatch]::StartNew()
+                    while (-not (Test-Path -LiteralPath $signal) -and -not $pending.IsCompleted -and $timer.Elapsed.TotalSeconds -lt 8) { Start-Sleep -Milliseconds 10 }
+                    Assert-True (Test-Path -LiteralPath $signal) "stable cancellation boundary not reached: $stage"
+                    $pipeline.Stop()
+                }
+                if ($stage -like 'main-*') {
+                    Assert-True ($pipeline.Streams.Error.Count -eq 0) "main stable host failed internally: $($pipeline.Streams.Error)"
+                    $run = Read-StrictJson (Join-Path $case 'evidence/run.json')
+                    if ($stage -eq 'main-legacy-fail') {
+                        Assert-True ($run.status -eq 'evaluated' -and $run.evaluation.Status -eq 'FAIL' -and $run.project_state.cleanup_completed -and (Test-Path -LiteralPath (Join-Path $case 'evidence/windows-build-performance-manifest.json'))) 'stable mode lost legitimate legacy FAIL or cleanup/publication'
+                    } else {
+                        Assert-True ($run.status -eq 'incomplete' -and $run.error -and $run.project_state.preserve_work -and (Test-Path -LiteralPath $run.project_state.work_root) -and -not (Test-Path -LiteralPath (Join-Path $case 'evidence/windows-build-performance-manifest.json'))) 'stable main failure lost incomplete work/error'
+                        if ($stage -in @('main-failure','main-retention-failure')) {
+                            Assert-True ([IO.File]::ReadAllText((Join-Path $case 'caught')) -like '*exit_code=9*') 'stable cleanup/status retention masked original process failure'
+                            if ($stage -eq 'main-retention-failure') { Assert-True ([IO.File]::ReadAllText((Join-Path $case 'status-retention-error')) -like '*secondary run status failure*') 'secondary status failure context was dropped' }
+                        }
+                        else { Assert-True ($run.evaluation.Status -eq 'FAIL' -and (Test-Path -LiteralPath (Join-Path $case 'evidence/windows-build-performance-manifest.json.pending'))) 'insufficient sample rejection lost pending/evaluator evidence' }
+                    }
+                } else {
+                    $state = Read-StrictJson (Join-Path $case 'project-state.json')
+                    Assert-True ($state.preserve_work -and $state.transition -eq 'incomplete' -and $state.error -like '*interrupt*') 'cancellation lost explicit pending/error state'
+                    Assert-True (Test-Path -LiteralPath $state.arms.candidate) 'cancellation changed other arm'
+                    if ($stage -eq 'activating') { Assert-True (-not $state.active_owner -and (Test-Path -LiteralPath $state.arms.baseline)) 'pre-move cancellation lost inactive owner' }
+                    else { Assert-True ($state.active_owner -eq 'baseline' -and (Test-Path -LiteralPath $state.active_path)) 'cancellation moved active arm' }
+                    if ($stage -eq 'compiler') { Assert-True ($null -eq (Get-Process -Id ([int][IO.File]::ReadAllText((Join-Path $case 'child.pid'))) -ErrorAction SilentlyContinue)) 'cancelled owned child survived' }
+                }
+            } finally { if ($pipeline.InvocationStateInfo.State -eq 'Running') { $pipeline.Stop() }; $pipeline.Dispose() }
+        }
+        Write-Output 'PASS stable path: activation/deactivation/compiler cancellation preserve ownership; main failures retain original errors; invalid samples stay pending; actual legacy FAIL remains evaluated with fabricated equal durations'
+    } finally { $env:ROTOR_BENCH_TEST_MODE = $savedMode }
 }
 
 function Invoke-PublicationRegressions {

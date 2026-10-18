@@ -31,6 +31,9 @@ ownership on host death, bounded incremental log retention, capture overflow,
 strict JSON/duplicate fields, diagnostic string identity, cancellation during
 validation/publication, publication errors, cleanup publication,
 digest framing, provenance changes, and missing evaluator/wrong-cwd behavior.
+Resource controls verify retained job counters and private-child work. Stable-path
+controls verify literal path-dependent outputs, arm state, metadata and failed or
+cancelled moves without running the compiler.
 They also check the unchanged evaluator using fabricated threshold fixtures.
 They run no Rotor performance scores. The printed evidence directory retains
 the synthetic logs and identities; optional `-EvidenceRoot` must name a new path.
@@ -180,6 +183,59 @@ loss of the owner and unflushed kernel data remain outside the guarantee. There
 is no resume/retry that silently drops failed samples.
 
 ## Scope limits
+
+### Optional stable project path
+
+`-StableProjectPath` moves each complete arm state through one absolute
+`<evidence>/work-<unique-id>/active` project directory. The default remains two
+different work-copy paths. Path-dependent maps/copy manifests can therefore
+compare byte-for-byte in stable mode without normalizing any emitted bytes.
+Both modes retain the same output/diagnostic digest scopes and legacy evaluator.
+The mode, active path and independent inactive slots appear in `run.json`;
+`project-state.json` and append-only `project-state.ndjson` retain transitions.
+
+Preparation copies the canonical file/empty-directory topology and restores
+every file and directory LastWriteTimeUtc. `project-input-metadata.json` records
+relative paths, kinds, file sizes/hashes and exact UTC ticks, including root and
+empty directories, with `sha256-project-state-v1` identity. That identity hashes
+the compact flat JSON record array in ordinal path order; it is a harness-internal
+provenance fingerprint, separate from output identity. Preparation verifies both
+copies against it. Each invocation verifies canonical metadata and the other
+arm's complete bytes/topology/times. Input metadata inside the active arm is
+also checked, excluding output/state scopes, `.git`, the root directory time and
+ancestor directory times of eligible pre-existing cold build-info files. Those
+directories can legitimately change when cold cleanup removes their state.
+Existing canonical source files and other input/empty-directory timestamps
+remain protected. The active-input check projects onto recorded canonical paths;
+new generated paths such as `include` are not treated as input mutations. This
+does not extend the output digest to those paths or prove full output ownership.
+
+Only the selected inactive arm moves into an absent active slot. Cold allowlist
+cleanup runs after activation. The compiler always runs at the active path.
+After the entire owned process tree is quiescent and output validation succeeds,
+native directory rename returns the arm to its own absent inactive slot. Each
+arm retains its own `.rotor`, output times and warm build state across AB/BA.
+Path checks require exact owned slots inside the unique work root, reject
+reparses and occupied destinations, and permit only one active owner. Moves,
+metadata checks and hashing are outside the unchanged authoritative wall timer.
+They still affect host caches and later samples; root A/A calibration is required.
+
+Failed/interrupted preparation, activation, invocation or deactivation preserves
+the active/inactive states with an incomplete transition, observed locations and
+the original error (or an interruption fallback). It blocks cleanup/publication;
+another arm is never activated to recover implicitly. Ordinary abrupt host death
+can leave an intent transition whose paths must be inspected; no live rename
+transaction or power-loss durability is promised. Failure to retain state/error
+metadata is best effort under storage failure. Successful runs remove the owned
+work root only after evaluation and retain the external provenance/journals.
+
+Stable mode addresses absolute project paths and original source-directory
+timestamps. It does not automatically admit copy-heavy assets, copied
+declarations or newly created Rojo-cache directory timestamps. Such populations
+can still produce a real raw mismatch, which remains failure. The small real
+compiler controls use empty copy manifests (`files=[]`) and no declarations;
+they do not establish those broader populations. Full source/dependency/output
+ownership and mtime gates remain fixture-specific external requirements.
 
 Cold cleanup removes only `out`, `out-test`, `out-tsc`, and eligible
 `*.rbxtsc.tsbuildinfo` outside `node_modules`, `.rotor`, and `.git`. Dependencies,
