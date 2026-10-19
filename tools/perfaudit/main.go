@@ -22,6 +22,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	limit := flags.Float64("max-primary-ratio", 0.95, "preregistered practical paired ratio threshold (must be explicit)")
 	coldCount := flags.Int("cold-pairs", 30, "exact preregistered cold pair count; even, at least 10")
 	noChangeCount := flags.Int("no-change-pairs", 100, "exact preregistered no_change pair count; even, at least 20")
+	resourcePlanPath := flags.String("resource-plan", "", "optional resource/control campaign plan; separate policy mode")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -34,6 +35,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			explicitLimit = true
 		}
 	})
+	if *resourcePlanPath != "" {
+		legacyFlags := false
+		flags.Visit(func(f *flag.Flag) {
+			if f.Name != "resource-plan" && f.Name != "output" {
+				legacyFlags = true
+			}
+		})
+		if legacyFlags || *output == "" || flags.NArg() != 0 {
+			fmt.Fprintln(stderr, "usage: perfaudit --resource-plan plan.json --output new-resource-audit.json; do not mix manifest-mode flags")
+			return 2
+		}
+		return runResourcePlan(*resourcePlanPath, *output, stdout, stderr)
+	}
 	if *input == "" || *output == "" || flags.NArg() != 0 || !explicitLimit || (*primary != cold && *primary != noChange) ||
 		math.IsNaN(*limit) || math.IsInf(*limit, 0) || *limit <= 0 || *limit >= 1 ||
 		*coldCount < 10 || *coldCount%2 != 0 || *noChangeCount < 20 || *noChangeCount%2 != 0 {

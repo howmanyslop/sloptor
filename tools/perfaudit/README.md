@@ -6,6 +6,11 @@ uncertainty. `criterion-met` means the manifest's statistical criterion was met;
 it does not mean a candidate is ready for promotion. Every report marks external
 gates `unverified` and `promotion_ready` false.
 
+An optional `--resource-plan` mode evaluates supplied Windows resource journals,
+calibration and the fixed follow-up decision table. See [resource/control mode](RESOURCE.md)
+for its separate input schema, exact coverage and recipes. The manifest-only
+workflow below retains its original decisions and output contract.
+
 ## Workflow
 
 1. Before collecting data, record the primary workload, primary phase, practical
