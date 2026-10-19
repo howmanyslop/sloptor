@@ -64,12 +64,7 @@ func discoverClass(state *TransformState, node *ast.Node) (discoveredClassState,
 		return discoveredClassState{}, false, err
 	}
 	containsLegacyDecorator := len(decorators) > 0 || hasMemberFlameworkDecorator(state, node)
-	buildSnapshot := state.project.BuildInfoSnapshot()
-	buildClassID := internalID
-	if persistedID, ok := buildSnapshot.Identifiers[internalID]; ok {
-		buildClassID = persistedID
-	}
-	buildClass, buildFallback := buildClassByInternalID(buildSnapshot, buildClassID)
+	buildClass, buildFallback := rootBuildClassByInternalID(state.project, internalID)
 	if !containsLegacyDecorator && !metadata.Requested("reflect") && !buildFallback {
 		return discoveredClassState{}, false, nil
 	}

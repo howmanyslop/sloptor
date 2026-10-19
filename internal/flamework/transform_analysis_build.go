@@ -59,3 +59,21 @@ func buildClassByInternalID(snapshot BuildInfoSnapshot, internalID string) (Buil
 	}
 	return BuildClass{}, false
 }
+
+// rootBuildClassByInternalID preserves discovery's root-only persisted lookup.
+// The selected class is detached; the full public snapshot contract is unchanged.
+func rootBuildClassByInternalID(project *Project, internalID string) (BuildClass, bool) {
+	info := project.buildInfo
+	if persistedID, ok := info.identifiers.values[internalID]; ok {
+		internalID = persistedID
+	}
+	var classes []BuildClass
+	if info.classes != nil {
+		classes = *info.classes
+	}
+	class, found := buildClassByInternalID(BuildInfoSnapshot{Classes: classes}, internalID)
+	if !found {
+		return BuildClass{}, false
+	}
+	return cloneBuildClass(class), true
+}
