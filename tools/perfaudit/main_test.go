@@ -9,6 +9,26 @@ import (
 	"testing"
 )
 
+func TestCLIResidentModeRejectsMixedFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"--resident-plan", "x", "--resource-plan", "y", "--output", "z"},
+		{"--resource-plan", "x", "--resident-plan=", "--output", "z"},
+		{"--resident-plan", "x", "--input", "y", "--output", "z"},
+		{"--resident-plan", "x", "--primary", cold, "--output", "z"},
+		{"--resident-plan", "x", "--max-primary-ratio", ".95", "--output", "z"},
+		{"--resident-plan", "x", "--cold-pairs", "30", "--output", "z"},
+		{"--resident-plan", "x", "--no-change-pairs", "100", "--output", "z"},
+		{"--resident-plan=", "--output", "z"},
+		{"--resident-plan", "x"},
+		{"--resident-plan", "x", "--output", "z", "extra"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "usage:") {
+			t.Fatalf("mixed resident mode accepted: %v exit=%d %s", args, code, &stderr)
+		}
+	}
+}
+
 func TestCLIContractPreservesEvidence(t *testing.T) {
 	dir := t.TempDir()
 	input, output := filepath.Join(dir, "manifest.json"), filepath.Join(dir, "audit.json")
