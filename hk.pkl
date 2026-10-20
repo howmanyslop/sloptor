@@ -48,7 +48,7 @@ local BINARY_FILES =
 
 // Windows runs these hooks under cmd.exe, which shapes two choices below:
 // - Builtins whose commands are `sh` snippets (gitleaks, typos, shfmt) run through
-//   scripts/check-hook-tools.mjs instead, which also keeps gitleaks scans parallel.
+//   scripts/check-hook-tools.ts instead, which also keeps gitleaks scans parallel.
 // - `Command { argv }` execs directly and finds only `.exe` files, never pnpm's
 //   `node_modules/.bin/biome.CMD` shim. A string command goes through the shell,
 //   which resolves the shim, so `package.json` stays the one biome pin.
@@ -68,7 +68,7 @@ local fileChecks = new Mapping<String, Step> {
   ["gitleaks"] = (Builtins.gitleaks) {
     check = new CommandSpec {
       command = new Command {
-        argv = List("node", "scripts/check-hook-tools.mjs", "gitleaks", "{{files}}")
+        argv = List("bun", "run", "scripts/check-hook-tools.ts", "gitleaks", "{{files}}")
       }
       effect = "read"
     }
@@ -77,7 +77,7 @@ local fileChecks = new Mapping<String, Step> {
     exclude = BINARY_FILES
     check = new CommandSpec {
       command = new Command {
-        argv = List("node", "scripts/check-hook-tools.mjs", "typos", "{{files}}")
+        argv = List("bun", "run", "scripts/check-hook-tools.ts", "typos", "{{files}}")
       }
       effect = "read"
     }
@@ -155,7 +155,7 @@ local fileChecks = new Mapping<String, Step> {
     }
     check_list_files = (Builtins.shfmt.check_list_files) {
       command = new Command {
-        argv = List("node", "scripts/check-hook-tools.mjs", "shfmt", "{{files}}")
+        argv = List("bun", "run", "scripts/check-hook-tools.ts", "shfmt", "{{files}}")
       }
     }
     fix = (Builtins.shfmt.fix) {
