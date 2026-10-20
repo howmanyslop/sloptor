@@ -48,7 +48,9 @@
 			"!scripts/clis/**/*.ts",
 			"!**/.opencode/goals",
 			"!src/generated/dictionary-verbs.ts",
-			"!.mise"
+			"!.mise",
+			"!**/testdata",
+			"!{tsgo,reference}"
 		]
 	},
 
