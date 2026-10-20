@@ -1,13 +1,13 @@
 import { Predicate } from "effect";
 
 export interface JsonSchema {
-	readonly additionalProperties?: boolean | JsonSchema;
+	readonly additionalProperties?: boolean | JsonSchema | undefined;
 	readonly default?: unknown;
-	readonly description?: string;
-	readonly enum?: ReadonlyArray<unknown>;
-	readonly items?: JsonSchema;
-	readonly properties?: Readonly<Record<string, JsonSchema>>;
-	readonly type?: string;
+	readonly description?: string | undefined;
+	readonly enum?: ReadonlyArray<unknown> | undefined;
+	readonly items?: JsonSchema | undefined;
+	readonly properties?: Readonly<Record<string, JsonSchema>> | undefined;
+	readonly type?: string | undefined;
 }
 
 export interface SchemaKey {
@@ -32,7 +32,9 @@ function isSingular(name: string): string {
 }
 
 function describeType(schema: JsonSchema): string {
-	if (schema.enum !== undefined) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+	if (schema.enum !== undefined) {
+		return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+	}
 	if (schema.type === "array") {
 		const item = schema.items?.type;
 		return item === undefined ? "array" : `${item}[]`;
@@ -40,11 +42,12 @@ function describeType(schema: JsonSchema): string {
 	return schema.type ?? "any";
 }
 
-function collect(schema: JsonSchema, path: string, tables: Array<SchemaTable>): void {
-	const keys = new Array<SchemaKey>();
-	const children = new Array<[string, JsonSchema]>();
-	const entries = Object.entries(schema.properties ?? {});
-
+function collectFromEntries(
+	keys: Array<SchemaKey>,
+	children: Array<[string, JsonSchema]>,
+	entries: ReadonlyArray<readonly [string, JsonSchema]>,
+	path: string,
+): void {
 	for (const [name, property] of entries) {
 		if (isTable(property)) {
 			children.push([path.length === 0 ? name : `${path}.${name}`, property]);
@@ -57,6 +60,14 @@ function collect(schema: JsonSchema, path: string, tables: Array<SchemaTable>): 
 			type: describeType(property),
 		});
 	}
+}
+
+function collect(schema: JsonSchema, path: string, tables: Array<SchemaTable>): void {
+	const keys = new Array<SchemaKey>();
+	const children = new Array<[string, JsonSchema]>();
+	const entries = Object.entries(schema.properties ?? {});
+
+	collectFromEntries(keys, children, entries, path);
 
 	if (path.length > 0 && (keys.length > 0 || schema.description !== undefined)) {
 		tables.push({ description: schema.description ?? "", keys, path });

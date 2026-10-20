@@ -12,7 +12,8 @@ function isMarkdownRouteProperties(value: unknown): value is MarkdownRouteProper
 	return typeof value === "object" && value !== null && "body" in value && typeof value.body === "string";
 }
 
-export const getStaticPaths = (async (): Promise<GetStaticPathsResult> => {
+// oxlint-disable-next-line small-rules/require-async-suffix -- Astro owns this I think?
+export const getStaticPaths: GetStaticPaths = async function getStaticPaths(): Promise<GetStaticPathsResult> {
 	const entries = await getCollection("docs");
 	const staticPaths: GetStaticPathsResult = [];
 	let size = 0;
@@ -27,7 +28,7 @@ export const getStaticPaths = (async (): Promise<GetStaticPathsResult> => {
 	}
 
 	return staticPaths;
-}) satisfies GetStaticPaths;
+};
 
 // oxlint-disable-next-line small-rules/require-async-suffix typescript/require-await -- Astro route handlers must be named GET.
 export const GET: APIRoute = async (context): Promise<Response> => {

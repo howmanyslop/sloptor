@@ -10,20 +10,22 @@ function toPercent(milliseconds: number): string {
 ---
 
 <figure class="benchmark-chart">
-	<figcaption class="figure-legend">Milliseconds · production games</figcaption>
+	<figcaption class="figure-legend">{"Milliseconds · production games"}</figcaption>
 	<div class="benchmark-well">
 		<ol class="benchmark-rows">
 			{BENCHMARKS.map(({ files, label, milliseconds }) => (
-					<li class="benchmark-row">
-						<span class="benchmark-label">
-							{label} · {files} files
+				<li class="benchmark-row">
+					<span class="benchmark-label">
+						{label} {"·"} {files} {"files"}
+					</span>
+					<span class="benchmark-track">
+						<span class="benchmark-bar" style={`inline-size: ${toPercent(milliseconds)}`} />
+						<span class="benchmark-value">
+							{milliseconds} {"ms"}
 						</span>
-						<span class="benchmark-track">
-							<span class="benchmark-bar" style={`inline-size: ${toPercent(milliseconds)}`} />
-							<span class="benchmark-value">{milliseconds} ms</span>
-						</span>
-					</li>
-				))}
+					</span>
+				</li>
+			))}
 		</ol>
 		<div aria-hidden="true" class="benchmark-axis">
 			<span />

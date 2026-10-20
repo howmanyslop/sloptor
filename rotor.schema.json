@@ -1,325 +1,333 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json",
-  "title": "rotor.toml",
-  "description": "Configuration for rotor asset sync and rotor deploy.",
-  "type": "object",
-  "additionalProperties": false,
-  "properties": {
-    "assets": {
-      "type": "object",
-      "description": "Configures rotor asset sync and the $asset macro.",
-      "additionalProperties": false,
-      "properties": {
-        "mode": {
-          "type": "string",
-          "description": "How assets reach Luau: \"module\" generates assets.luau + assets.d.ts (default); \"macro\" uses the $asset transformer + rotor-asset.d.ts.",
-          "enum": ["module", "macro"]
-        },
-        "base": {
-          "type": "string",
-          "description": "Project-relative directory prepended to non-relative $asset paths, e.g. \"assets/images\" lets you write $asset(\"ui/icon.png\") for assets/images/ui/icon.png. Does not affect paths globs, ./-relative references, or lockfile keys."
-        },
-        "paths": {
-          "type": "array",
-          "description": "Glob patterns of asset files relative to the project root.",
-          "items": { "type": "string" }
-        },
-        "output": {
-          "type": "object",
-          "description": "Where generated asset modules are written (module mode only).",
-          "additionalProperties": false,
-          "properties": {
-            "luau": {
-              "type": "string",
-              "description": "Output path of the generated Luau module, e.g. \"src/shared/assets.luau\"."
-            },
-            "types": {
-              "type": "string",
-              "description": "Output path of the matching .d.ts, e.g. \"src/shared/assets.d.ts\"."
-            }
-          }
-        },
-        "creator": {
-          "type": "object",
-          "description": "The Roblox creator that owns uploaded assets.",
-          "additionalProperties": false,
-          "properties": {
-            "type": {
-              "type": "string",
-              "description": "Whether the owning creator is a user or a group.",
-              "enum": ["user", "group"]
-            },
-            "id": {
-              "type": "integer",
-              "description": "The user or group id that owns uploaded assets."
-            }
-          }
-        }
-      }
-    },
-    "flamework": {
-      "type": "object",
-      "description": "Enables Rotor's native Flamework transformer.",
-      "additionalProperties": false,
-      "properties": {
-        "profiles": {
-          "type": "object",
-          "description": "Per-tsconfig native Flamework settings, keyed by normalized path relative to rotor.toml.",
-          "propertyNames": {
-            "type": "string",
-            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$"
-          },
-          "additionalProperties": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "after": { "type": "string" },
-              "noSemanticDiagnostics": { "type": "boolean" },
-              "obfuscation": { "type": "boolean" },
-              "idGenerationMode": {
-                "type": "string",
-                "enum": ["full", "obfuscated", "short", "tiny"],
-                "default": "full"
-              },
-              "hashPrefix": { "type": "string", "pattern": "^(?:[^$]|$)" },
-              "salt": { "type": "string" },
-              "preloadIds": { "type": "boolean" },
-              "skipUnchangedFiles": {
-                "type": "boolean",
-                "description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity)."
-              },
-              "optimizations": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "guardGenerationDedupLimit": { "type": "integer", "minimum": 0 }
-                }
-              }
-            }
-          }
-        },
-        "after": {
-          "type": "string",
-          "description": "Run native Flamework after this remaining TypeScript transformer."
-        },
-        "noSemanticDiagnostics": {
-          "type": "boolean",
-          "description": "Disable TypeScript semantic diagnostics during Flamework transformation."
-        },
-        "obfuscation": {
-          "type": "boolean",
-          "description": "Enable Flamework identifier and event-name obfuscation."
-        },
-        "idGenerationMode": {
-          "type": "string",
-          "description": "Identifier generation mode. Defaults to full, or obfuscated when obfuscation is enabled.",
-          "enum": ["full", "obfuscated", "short", "tiny"],
-          "default": "full"
-        },
-        "hashPrefix": {
-          "type": "string",
-          "pattern": "^(?:[^$]|$)",
-          "description": "Optional identifier hash prefix; values beginning with $ are reserved."
-        },
-        "salt": {
-          "type": "string",
-          "description": "Salt used for Flamework hashes."
-        },
-        "preloadIds": {
-          "type": "boolean",
-          "description": "Generate identifiers for exports."
-        },
-        "skipUnchangedFiles": {
-          "type": "boolean",
-          "description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity)."
-        },
-        "optimizations": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "guardGenerationDedupLimit": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Maximum guard-generation deduplication work."
-            }
-          }
-        }
-      }
-    },
-    "deploy": {
-      "type": "object",
-      "description": "Configures rotor deploy.",
-      "additionalProperties": false,
-      "properties": {
-        "environments": {
-          "type": "object",
-          "description": "Named deploy targets (e.g. \"dev\", \"prod\").",
-          "additionalProperties": {
-            "type": "object",
-            "description": "One named deploy target.",
-            "additionalProperties": false,
-            "properties": {
-              "universeId": {
-                "type": "integer",
-                "description": "The universe id this environment publishes to."
-              },
-              "places": {
-                "type": "object",
-                "description": "Places to publish in this environment, keyed by a logical name.",
-                "additionalProperties": {
-                  "type": "object",
-                  "description": "Publishes a built place file to a place id (and optionally manages place metadata).",
-                  "additionalProperties": false,
-                  "properties": {
-                    "file": {
-                      "type": "string",
-                      "description": "Path to the built place file (.rbxl / .rbxlx)."
-                    },
-                    "placeId": {
-                      "type": "integer",
-                      "description": "The place id to publish to."
-                    },
-                    "name": {
-                      "type": "string",
-                      "description": "Place display name."
-                    },
-                    "description": {
-                      "type": "string",
-                      "description": "Place description."
-                    },
-                    "maxPlayers": {
-                      "type": "integer",
-                      "description": "Maximum players per server.",
-                      "minimum": 0
-                    },
-                    "versionType": {
-                      "type": "string",
-                      "description": "Whether to save or publish the place version (default \"published\").",
-                      "enum": ["saved", "published"]
-                    }
-                  }
-                }
-              },
-              "experience": {
-                "type": "object",
-                "description": "Universe-level experience settings.",
-                "additionalProperties": false,
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "description": "Experience display name."
-                  },
-                  "description": {
-                    "type": "string",
-                    "description": "Experience description."
-                  },
-                  "playability": {
-                    "type": "string",
-                    "description": "Who can play the experience.",
-                    "enum": ["public", "private", "friends"]
-                  },
-                  "privateServers": {
-                    "type": "object",
-                    "description": "Paid private servers; omit price for free private servers.",
-                    "additionalProperties": false,
-                    "properties": {
-                      "price": {
-                        "type": "integer",
-                        "description": "Private server price in Robux (0 = free).",
-                        "minimum": 0
-                      }
-                    }
-                  }
-                }
-              },
-              "payments": {
-                "type": "string",
-                "description": "Payments configuration tag for the environment."
-              },
-              "badges": {
-                "type": "object",
-                "description": "Badges to create or update, keyed by a logical name.",
-                "additionalProperties": {
-                  "type": "object",
-                  "description": "A badge to create or update.",
-                  "additionalProperties": false,
-                  "properties": {
-                    "name": { "type": "string", "description": "Badge name." },
-                    "description": { "type": "string", "description": "Badge description." },
-                    "icon": { "type": "string", "description": "Badge icon image path." }
-                  }
-                }
-              },
-              "gamepasses": {
-                "type": "object",
-                "description": "Game passes to create or update, keyed by a logical name.",
-                "additionalProperties": {
-                  "type": "object",
-                  "description": "A game pass to create or update; omit price to leave it off sale.",
-                  "additionalProperties": false,
-                  "properties": {
-                    "name": { "type": "string", "description": "Game pass name." },
-                    "description": { "type": "string", "description": "Game pass description." },
-                    "price": {
-                      "type": "integer",
-                      "description": "Game pass price in Robux; omit to keep it off sale.",
-                      "minimum": 0
-                    },
-                    "icon": { "type": "string", "description": "Game pass icon image path." }
-                  }
-                }
-              },
-              "icon": {
-                "type": "string",
-                "description": "Experience icon image path."
-              },
-              "thumbnails": {
-                "type": "array",
-                "description": "Ordered thumbnail image paths (max 10).",
-                "items": { "type": "string" },
-                "maxItems": 10
-              },
-              "products": {
-                "type": "object",
-                "description": "Developer products to create or update, keyed by a logical name.",
-                "additionalProperties": {
-                  "type": "object",
-                  "description": "A developer product to create or update.",
-                  "additionalProperties": false,
-                  "properties": {
-                    "name": { "type": "string", "description": "Product name." },
-                    "description": { "type": "string", "description": "Product description." },
-                    "price": {
-                      "type": "integer",
-                      "description": "Product price in Robux.",
-                      "minimum": 0
-                    }
-                  }
-                }
-              },
-              "socials": {
-                "type": "object",
-                "description": "Universe social links, keyed by a logical name.",
-                "additionalProperties": {
-                  "type": "object",
-                  "description": "A universe social link.",
-                  "additionalProperties": false,
-                  "properties": {
-                    "title": { "type": "string", "description": "Social link title." },
-                    "url": { "type": "string", "description": "Social link URL." },
-                    "type": {
-                      "type": "string",
-                      "description": "Social platform.",
-                      "enum": ["facebook", "twitter", "youtube", "twitch", "discord", "github", "guilded"]
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
+	"$id": "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json",
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"additionalProperties": false,
+	"description": "Configuration for rotor asset sync and rotor deploy.",
+	"properties": {
+		"assets": {
+			"additionalProperties": false,
+			"description": "Configures rotor asset sync and the $asset macro.",
+			"properties": {
+				"base": {
+					"description": "Project-relative directory prepended to non-relative $asset paths, e.g. \"assets/images\" lets you write $asset(\"ui/icon.png\") for assets/images/ui/icon.png. Does not affect paths globs, ./-relative references, or lockfile keys.",
+					"type": "string"
+				},
+				"creator": {
+					"additionalProperties": false,
+					"description": "The Roblox creator that owns uploaded assets.",
+					"properties": {
+						"id": {
+							"description": "The user or group id that owns uploaded assets.",
+							"type": "integer"
+						},
+						"type": {
+							"description": "Whether the owning creator is a user or a group.",
+							"enum": ["user", "group"],
+							"type": "string"
+						}
+					},
+					"type": "object"
+				},
+				"mode": {
+					"description": "How assets reach Luau: \"module\" generates assets.luau + assets.d.ts (default); \"macro\" uses the $asset transformer + rotor-asset.d.ts.",
+					"enum": ["module", "macro"],
+					"type": "string"
+				},
+				"output": {
+					"additionalProperties": false,
+					"description": "Where generated asset modules are written (module mode only).",
+					"properties": {
+						"luau": {
+							"description": "Output path of the generated Luau module, e.g. \"src/shared/assets.luau\".",
+							"type": "string"
+						},
+						"types": {
+							"description": "Output path of the matching .d.ts, e.g. \"src/shared/assets.d.ts\".",
+							"type": "string"
+						}
+					},
+					"type": "object"
+				},
+				"paths": {
+					"description": "Glob patterns of asset files relative to the project root.",
+					"items": { "type": "string" },
+					"type": "array"
+				}
+			},
+			"type": "object"
+		},
+		"deploy": {
+			"additionalProperties": false,
+			"description": "Configures rotor deploy.",
+			"properties": {
+				"environments": {
+					"additionalProperties": {
+						"additionalProperties": false,
+						"description": "One named deploy target.",
+						"properties": {
+							"badges": {
+								"additionalProperties": {
+									"additionalProperties": false,
+									"description": "A badge to create or update.",
+									"properties": {
+										"description": { "description": "Badge description.", "type": "string" },
+										"icon": { "description": "Badge icon image path.", "type": "string" },
+										"name": { "description": "Badge name.", "type": "string" }
+									},
+									"type": "object"
+								},
+								"description": "Badges to create or update, keyed by a logical name.",
+								"type": "object"
+							},
+							"experience": {
+								"additionalProperties": false,
+								"description": "Universe-level experience settings.",
+								"properties": {
+									"description": {
+										"description": "Experience description.",
+										"type": "string"
+									},
+									"name": {
+										"description": "Experience display name.",
+										"type": "string"
+									},
+									"playability": {
+										"description": "Who can play the experience.",
+										"enum": ["public", "private", "friends"],
+										"type": "string"
+									},
+									"privateServers": {
+										"additionalProperties": false,
+										"description": "Paid private servers; omit price for free private servers.",
+										"properties": {
+											"price": {
+												"description": "Private server price in Robux (0 = free).",
+												"minimum": 0,
+												"type": "integer"
+											}
+										},
+										"type": "object"
+									}
+								},
+								"type": "object"
+							},
+							"gamepasses": {
+								"additionalProperties": {
+									"additionalProperties": false,
+									"description": "A game pass to create or update; omit price to leave it off sale.",
+									"properties": {
+										"description": { "description": "Game pass description.", "type": "string" },
+										"icon": { "description": "Game pass icon image path.", "type": "string" },
+										"name": { "description": "Game pass name.", "type": "string" },
+										"price": {
+											"description": "Game pass price in Robux; omit to keep it off sale.",
+											"minimum": 0,
+											"type": "integer"
+										}
+									},
+									"type": "object"
+								},
+								"description": "Game passes to create or update, keyed by a logical name.",
+								"type": "object"
+							},
+							"icon": {
+								"description": "Experience icon image path.",
+								"type": "string"
+							},
+							"payments": {
+								"description": "Payments configuration tag for the environment.",
+								"type": "string"
+							},
+							"places": {
+								"additionalProperties": {
+									"additionalProperties": false,
+									"description": "Publishes a built place file to a place id (and optionally manages place metadata).",
+									"properties": {
+										"description": {
+											"description": "Place description.",
+											"type": "string"
+										},
+										"file": {
+											"description": "Path to the built place file (.rbxl / .rbxlx).",
+											"type": "string"
+										},
+										"maxPlayers": {
+											"description": "Maximum players per server.",
+											"minimum": 0,
+											"type": "integer"
+										},
+										"name": {
+											"description": "Place display name.",
+											"type": "string"
+										},
+										"placeId": {
+											"description": "The place id to publish to.",
+											"type": "integer"
+										},
+										"versionType": {
+											"description": "Whether to save or publish the place version (default \"published\").",
+											"enum": ["saved", "published"],
+											"type": "string"
+										}
+									},
+									"type": "object"
+								},
+								"description": "Places to publish in this environment, keyed by a logical name.",
+								"type": "object"
+							},
+							"products": {
+								"additionalProperties": {
+									"additionalProperties": false,
+									"description": "A developer product to create or update.",
+									"properties": {
+										"description": { "description": "Product description.", "type": "string" },
+										"name": { "description": "Product name.", "type": "string" },
+										"price": {
+											"description": "Product price in Robux.",
+											"minimum": 0,
+											"type": "integer"
+										}
+									},
+									"type": "object"
+								},
+								"description": "Developer products to create or update, keyed by a logical name.",
+								"type": "object"
+							},
+							"socials": {
+								"additionalProperties": {
+									"additionalProperties": false,
+									"description": "A universe social link.",
+									"properties": {
+										"title": { "description": "Social link title.", "type": "string" },
+										"type": {
+											"description": "Social platform.",
+											"enum": [
+												"facebook",
+												"twitter",
+												"youtube",
+												"twitch",
+												"discord",
+												"github",
+												"guilded"
+											],
+											"type": "string"
+										},
+										"url": { "description": "Social link URL.", "type": "string" }
+									},
+									"type": "object"
+								},
+								"description": "Universe social links, keyed by a logical name.",
+								"type": "object"
+							},
+							"thumbnails": {
+								"description": "Ordered thumbnail image paths (max 10).",
+								"items": { "type": "string" },
+								"maxItems": 10,
+								"type": "array"
+							},
+							"universeId": {
+								"description": "The universe id this environment publishes to.",
+								"type": "integer"
+							}
+						},
+						"type": "object"
+					},
+					"description": "Named deploy targets (e.g. \"dev\", \"prod\").",
+					"type": "object"
+				}
+			},
+			"type": "object"
+		},
+		"flamework": {
+			"additionalProperties": false,
+			"description": "Enables Rotor's native Flamework transformer.",
+			"properties": {
+				"after": {
+					"description": "Run native Flamework after this remaining TypeScript transformer.",
+					"type": "string"
+				},
+				"hashPrefix": {
+					"description": "Optional identifier hash prefix; values beginning with $ are reserved.",
+					"pattern": "^(?:[^$]|$)",
+					"type": "string"
+				},
+				"idGenerationMode": {
+					"default": "full",
+					"description": "Identifier generation mode. Defaults to full, or obfuscated when obfuscation is enabled.",
+					"enum": ["full", "obfuscated", "short", "tiny"],
+					"type": "string"
+				},
+				"noSemanticDiagnostics": {
+					"description": "Disable TypeScript semantic diagnostics during Flamework transformation.",
+					"type": "boolean"
+				},
+				"obfuscation": {
+					"description": "Enable Flamework identifier and event-name obfuscation.",
+					"type": "boolean"
+				},
+				"optimizations": {
+					"additionalProperties": false,
+					"properties": {
+						"guardGenerationDedupLimit": {
+							"description": "Maximum guard-generation deduplication work.",
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"type": "object"
+				},
+				"preloadIds": {
+					"description": "Generate identifiers for exports.",
+					"type": "boolean"
+				},
+				"profiles": {
+					"additionalProperties": {
+						"additionalProperties": false,
+						"properties": {
+							"after": { "type": "string" },
+							"hashPrefix": { "pattern": "^(?:[^$]|$)", "type": "string" },
+							"idGenerationMode": {
+								"default": "full",
+								"enum": ["full", "obfuscated", "short", "tiny"],
+								"type": "string"
+							},
+							"noSemanticDiagnostics": { "type": "boolean" },
+							"obfuscation": { "type": "boolean" },
+							"optimizations": {
+								"additionalProperties": false,
+								"properties": {
+									"guardGenerationDedupLimit": { "minimum": 0, "type": "integer" }
+								},
+								"type": "object"
+							},
+							"preloadIds": { "type": "boolean" },
+							"salt": { "type": "string" },
+							"skipUnchangedFiles": {
+								"description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity).",
+								"type": "boolean"
+							}
+						},
+						"type": "object"
+					},
+					"description": "Per-tsconfig native Flamework settings, keyed by normalized path relative to rotor.toml.",
+					"propertyNames": {
+						"pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+\\.json$",
+						"type": "string"
+					},
+					"type": "object"
+				},
+				"salt": {
+					"description": "Salt used for Flamework hashes.",
+					"type": "string"
+				},
+				"skipUnchangedFiles": {
+					"description": "Reuse the original parse tree for sources Flamework leaves unchanged instead of reprinting them (opts out of upstream source-print parity).",
+					"type": "boolean"
+				}
+			},
+			"type": "object"
+		}
+	},
+	"title": "rotor.toml",
+	"type": "object"
 }

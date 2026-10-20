@@ -30,13 +30,10 @@ const currentPath = Astro.url.pathname.slice(basePath.length);
 	</div>
 	<nav aria-label="Sections" class="site-nav sl-hidden md:sl-flex print:hidden">
 		{NAVIGATION.map(({ label, path, section }) => (
-				<a
-					aria-current={currentPath.startsWith(section) ? "page" : undefined}
-					href={`${basePath}${path}`}
-				>
-					{label}
-				</a>
-			))}
+			<a aria-current={currentPath.startsWith(section) ? "page" : undefined} href={`${basePath}${path}`}>
+				{label}
+			</a>
+		))}
 	</nav>
 	<div class="sl-flex print:hidden">
 		<Search />
