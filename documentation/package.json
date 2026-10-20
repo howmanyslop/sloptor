@@ -29,7 +29,7 @@
 		"react-dom": "catalog:frontend",
 		"sharp": "catalog:frontend",
 		"shiki": "catalog:frontend",
-		"type-fest": "catalog:dev"
+		"type-fest": "catalog:types"
 	},
 	"devDependencies": {
 		"@astrojs/check": "catalog:frontend",
@@ -42,7 +42,7 @@
 		"get-tsconfig": "catalog:frontend",
 		"jsdom": "catalog:test",
 		"oxc-transform-react": "catalog:frontend",
-		"typescript": "catalog:dev",
+		"typescript": "catalog:tooling",
 		"vitest": "catalog:test",
 		"wrangler": "catalog:frontend"
 	}

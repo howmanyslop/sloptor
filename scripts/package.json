@@ -1,12 +1,13 @@
 {
-	"name": "scripts",
+	"name": "@sloptor/scripts",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
 	"dependencies": {
-		"@cliffy/command": "catalog:dev",
-		"arktype": "catalog:dev",
-		"tinyexec": "catalog:dev"
+		"@cliffy/command": "catalog:scripts",
+		"arktype": "catalog:scripts",
+		"consola": "catalog:scripts",
+		"tinyexec": "catalog:scripts"
 	},
 	"devDependencies": {
 		"@total-typescript/ts-reset": "catalog:types",

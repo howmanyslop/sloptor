@@ -163,10 +163,7 @@ settings:
   excludeLinksFromLockfile: false
 
 catalogs:
-  dev:
-    '@cliffy/command':
-      specifier: jsr:@cliffy/command@1.3.1
-      version: 1.3.1
+  commitlint:
     '@commitlint/cli':
       specifier: 21.2.4
       version: 21.2.4
@@ -176,33 +173,6 @@ catalogs:
     '@commitlint/types':
       specifier: 21.2.3
       version: 21.2.3
-    arktype:
-      specifier: 2.2.3
-      version: 2.2.3
-    bumpp:
-      specifier: 12.3.0
-      version: 12.3.0
-    pncat:
-      specifier: 0.13.0
-      version: 0.13.0
-    skills:
-      specifier: 1.7.4
-      version: 1.7.4
-    tinyexec:
-      specifier: 1.3.1
-      version: 1.3.1
-    tsrs:
-      specifier: 0.18.0-ts7.1.0-dev.20260929
-      version: 0.18.0-ts7.1.0-dev.20260929
-    type-fest:
-      specifier: 5.8.0
-      version: 5.8.0
-    typescript:
-      specifier: 5.9.3
-      version: 5.9.3
-    zx:
-      specifier: 8.8.5
-      version: 8.8.5
   frontend:
     '@astrojs/check':
       specifier: 0.9.10
@@ -298,9 +268,6 @@ catalogs:
     eslint-plugin-unused-imports:
       specifier: 4.4.1
       version: 4.4.1
-    jiti:
-      specifier: 2.7.0
-      version: 2.7.0
     knip:
       specifier: 6.31.0
       version: 6.31.0
@@ -317,6 +284,19 @@ catalogs:
     effect:
       specifier: 4.0.1
       version: 4.0.1
+  scripts:
+    '@cliffy/command':
+      specifier: jsr:@cliffy/command@1.3.1
+      version: 1.3.1
+    arktype:
+      specifier: 2.2.8
+      version: 2.2.8
+    consola:
+      specifier: 3.4.2
+      version: 3.4.2
+    tinyexec:
+      specifier: 1.3.1
+      version: 1.3.1
   test:
     '@playwright/test':
       specifier: 1.64.1
@@ -330,6 +310,25 @@ catalogs:
     vitest:
       specifier: 5.0.5
       version: 5.0.5
+  tooling:
+    bumpp:
+      specifier: 12.3.0
+      version: 12.3.0
+    jiti:
+      specifier: 2.7.0
+      version: 2.7.0
+    pncat:
+      specifier: 0.13.0
+      version: 0.13.0
+    skills:
+      specifier: 1.7.4
+      version: 1.7.4
+    tsrs:
+      specifier: 0.18.0-ts7.1.0-dev.20260929
+      version: 0.18.0-ts7.1.0-dev.20260929
+    typescript:
+      specifier: 5.9.3
+      version: 5.9.3
   types:
     '@total-typescript/ts-reset':
       specifier: 0.6.1
@@ -346,6 +345,9 @@ catalogs:
     '@types/react-dom':
       specifier: 19.3.0
       version: 19.3.0
+    type-fest:
+      specifier: 5.8.0
+      version: 5.8.0
 
 overrides:
   '@isentinel/eslint-config>@pobammer-ts/small-rules': 3.6.0
@@ -363,17 +365,14 @@ importers:
       '@biomejs/biome':
         specifier: catalog:lint
         version: 2.5.15
-      '@cliffy/command':
-        specifier: catalog:dev
-        version: '@jsr/cliffy__command@1.3.1'
       '@commitlint/cli':
-        specifier: catalog:dev
+        specifier: catalog:commitlint
         version: 21.2.4(conventional-commits-parser@7.1.2)(typescript@5.9.3)
       '@commitlint/config-conventional':
-        specifier: catalog:dev
+        specifier: catalog:commitlint
         version: 21.2.4
       '@commitlint/types':
-        specifier: catalog:dev
+        specifier: catalog:commitlint
         version: 21.2.3
       '@isentinel/eslint-config':
         specifier: catalog:lint
@@ -396,11 +395,8 @@ importers:
       '@vitest/eslint-plugin':
         specifier: catalog:lint
         version: 1.6.27(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)(vitest@5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
-      arktype:
-        specifier: catalog:dev
-        version: 2.2.3
       bumpp:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 12.3.0
       eslint:
         specifier: catalog:lint
@@ -430,7 +426,7 @@ importers:
         specifier: catalog:lint
         version: 4.4.1(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3))(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))
       jiti:
-        specifier: catalog:lint
+        specifier: catalog:tooling
         version: 2.7.0
       knip:
         specifier: catalog:lint
@@ -445,26 +441,17 @@ importers:
         specifier: catalog:lint
         version: 7.0.2004
       pncat:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 0.13.0
       skills:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 1.7.4
-      tinyexec:
-        specifier: catalog:dev
-        version: 1.3.1
       tsrs:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 0.18.0-ts7.1.0-dev.20260929(patch_hash=121461fc777324fb451cdde8f7082c3b93c1285acac51caa2b5da39f8e36dfca)
-      type-fest:
-        specifier: catalog:dev
-        version: 5.8.0
       typescript:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 5.9.3
-      zx:
-        specifier: catalog:dev
-        version: 8.8.5
     optionalDependencies:
       '@rotor-rbx/rotor-darwin-arm64':
         specifier: 2.8.3
@@ -527,7 +514,7 @@ importers:
         specifier: catalog:frontend
         version: 4.5.0
       type-fest:
-        specifier: catalog:dev
+        specifier: catalog:types
         version: 5.8.0
     devDependencies:
       '@astrojs/check':
@@ -561,7 +548,7 @@ importers:
         specifier: catalog:frontend
         version: 0.154.0
       typescript:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 5.9.3
       vitest:
         specifier: catalog:test
@@ -585,13 +572,16 @@ importers:
   scripts:
     dependencies:
       '@cliffy/command':
-        specifier: catalog:dev
+        specifier: catalog:scripts
         version: '@jsr/cliffy__command@1.3.1'
       arktype:
-        specifier: catalog:dev
-        version: 2.2.3
+        specifier: catalog:scripts
+        version: 2.2.8
+      consola:
+        specifier: catalog:scripts
+        version: 3.4.2
       tinyexec:
-        specifier: catalog:dev
+        specifier: catalog:scripts
         version: 1.3.1
     devDependencies:
       '@total-typescript/ts-reset':
@@ -620,7 +610,7 @@ importers:
         specifier: catalog:lint
         version: 1.89.0(oxlint-tsgolint@7.0.2004)
       tsrs:
-        specifier: catalog:dev
+        specifier: catalog:tooling
         version: 0.18.0-ts7.1.0-dev.20260929(patch_hash=121461fc777324fb451cdde8f7082c3b93c1285acac51caa2b5da39f8e36dfca)
 
 packages:
@@ -631,14 +621,8 @@ packages:
   '@antfu/install-pkg@2.0.1':
     resolution: {integrity: sha512-iCKVQcIC0e3oDxEfs3SHQGW+ovhBMZmS1TE+bTk50rVyMCBmCfClv7Qi3HQKlumYwvjb/iIMeWCW2i67q6kFfQ==}
 
-  '@ark/schema@0.56.2':
-    resolution: {integrity: sha512-Qx4D2JFbBWpntiHZaTv7bGG4H/M2rigiknezKg/WVyDSaLdE4YCcWAOoFB7pjjDqHbbV2OqRfntm1nnXvwMexg==}
-
   '@ark/schema@0.56.7':
     resolution: {integrity: sha512-jmoOJlYIc4k1uv8oYBDNOFnAsKk2a2D9t/D6npF2JUfW4ecPB0v6ce6lruKg7lkBxIBA8Z7UtxfmvephYbhUGQ==}
-
-  '@ark/util@0.56.2':
-    resolution: {integrity: sha512-9kU2sUE38FZEGG7l3hamYMBieLYEJh2L1mrYD2eXpT+78EnQSV1bhjxJhnxGBMSTbtwpBSDNSK+K60WvaI/DTQ==}
 
   '@ark/util@0.56.7':
     resolution: {integrity: sha512-z8pVnrPk/x9GC18yOp5wCe8rR2+Z6us4CTSg7dvxdsDLuA2xXYq+QETD1fO6f3fMuXe+PCjpvtCnhTW9RHLgEw==}
@@ -3672,12 +3656,6 @@ packages:
   arkregex@0.0.13:
     resolution: {integrity: sha512-c17sqCqiiZauxyoU1KZ2zbzCgeghGmc8dR2CrdQnlEtpq3bLhRLoLrxTL52M/8yQD8e/i1/IBRpRCNAuqJa7xQ==}
 
-  arkregex@0.0.8:
-    resolution: {integrity: sha512-PJcx6G1kQTgLKPUbeYlYecDRaKq15AMSGVajlKFYWlPeJRQL+j3dKE6tyMs40HZ99djS1l9Vhl3ezAHy9JBIqQ==}
-
-  arktype@2.2.3:
-    resolution: {integrity: sha512-7W+0RLTUNJiBFIIZXwOQxSR8Z273IAd6IvqBeG9+gHnQKFsIx2C0iOtGTmMrPnlX4qLXyc5+ll7A0BIj9WrbTg==}
-
   arktype@2.2.8:
     resolution: {integrity: sha512-tZyLza7kO2vN8BXBKcj4t43IVMe8/ZyqlITH0chZv7FfEw+edLovpY922tqcK4mCjTpf4oNo2xV6np7tquP1ww==}
 
@@ -3883,6 +3861,10 @@ packages:
 
   confbox@0.3.1:
     resolution: {integrity: sha512-cKUSoKa8YxFZZSmraVi7onONx3amu77ngK3kGpsYHDH7drPwCRkQE1RYMPlLRrMtnciRj274XNRxcHxnKmDSnA==}
+
+  consola@3.4.2:
+    resolution: {integrity: sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA==}
+    engines: {node: ^14.18.0 || >=16.10.0}
 
   conventional-changelog-angular@9.3.0:
     resolution: {integrity: sha512-0MWQLVUT1oVCsUGs9aAWteBVxPlLwJTn5VbQH7B0B3fDizZgrJ9QGnKl/2mp1+5P7153GCBCjO/v1aKJ6eysCg==}
@@ -6468,11 +6450,6 @@ packages:
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
-  zx@8.8.5:
-    resolution: {integrity: sha512-SNgDF5L0gfN7FwVOdEFguY3orU5AkfFZm9B5YSHog/UDHv+lvmd82ZAsOenOkQixigwH2+yyH198AwNdKhj+RA==}
-    engines: {node: '>= 12.17.0'}
-    hasBin: true
-
 snapshots:
 
   '@altano/repository-tools@2.1.2': {}
@@ -6482,15 +6459,9 @@ snapshots:
       package-manager-detector: 1.9.0
       tinyexec: 1.3.1
 
-  '@ark/schema@0.56.2':
-    dependencies:
-      '@ark/util': 0.56.2
-
   '@ark/schema@0.56.7':
     dependencies:
       '@ark/util': 0.56.7
-
-  '@ark/util@0.56.2': {}
 
   '@ark/util@0.56.7': {}
 
@@ -9095,16 +9066,6 @@ snapshots:
     dependencies:
       '@ark/util': 0.56.7
 
-  arkregex@0.0.8:
-    dependencies:
-      '@ark/util': 0.56.2
-
-  arktype@2.2.3:
-    dependencies:
-      '@ark/schema': 0.56.2
-      '@ark/util': 0.56.2
-      arkregex: 0.0.8
-
   arktype@2.2.8:
     dependencies:
       '@ark/schema': 0.56.7
@@ -9372,6 +9333,8 @@ snapshots:
   confbox@0.1.8: {}
 
   confbox@0.3.1: {}
+
+  consola@3.4.2: {}
 
   conventional-changelog-angular@9.3.0:
     dependencies:
@@ -12385,8 +12348,6 @@ snapshots:
 
   zwitch@2.0.4: {}
 
-  zx@8.8.5: {}
-
 time:
   '@astrojs/check@0.9.10': '2026-07-27T13:10:17.800Z'
   '@astrojs/markdown-satteri@0.4.4': '2026-10-15T14:46:05.999Z'
@@ -12411,9 +12372,10 @@ time:
   '@types/react-dom@19.3.0': '2026-09-09T18:07:51.886Z'
   '@types/react@19.3.0': '2026-09-09T18:08:49.750Z'
   '@vitest/eslint-plugin@1.6.27': '2026-08-10T02:34:20.099Z'
-  arktype@2.2.3: '2026-07-07T20:07:39.065Z'
+  arktype@2.2.8: '2026-10-07T22:53:53.585Z'
   astro@7.4.0: '2026-10-15T14:49:24.327Z'
   bumpp@12.3.0: '2026-09-03T07:21:10.442Z'
+  consola@3.4.2: '2025-03-18T10:17:43.596Z'
   effect@4.0.1: '2026-10-05T01:15:35.824Z'
   eslint-plugin-antfu@3.2.3: '2026-05-11T02:24:38.348Z'
   eslint-plugin-astro@3.2.1: '2026-09-17T02:54:46.351Z'
@@ -12446,4 +12408,3 @@ time:
   typescript@5.9.3: '2025-09-30T21:19:38.784Z'
   vitest@5.0.5: '2026-10-15T14:29:01.396Z'
   wrangler@4.151.1: '2026-10-16T09:55:24.246Z'
-  zx@8.8.5: '2025-10-19T13:48:42.492Z'
