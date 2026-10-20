@@ -23,6 +23,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	coldCount := flags.Int("cold-pairs", 30, "exact preregistered cold pair count; even, at least 10")
 	noChangeCount := flags.Int("no-change-pairs", 100, "exact preregistered no_change pair count; even, at least 20")
 	resourcePlanPath := flags.String("resource-plan", "", "optional resource/control campaign plan; separate policy mode")
+	residentPlanPath := flags.String("resident-plan", "", "resident schema2 raw campaign plan; recorded declarations remain assertions")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return 0
@@ -35,6 +36,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 			explicitLimit = true
 		}
 	})
+	residentSeen, residentMixed := false, false
+	flags.Visit(func(f *flag.Flag) {
+		if f.Name == "resident-plan" {
+			residentSeen = true
+		}
+		if f.Name != "resident-plan" && f.Name != "output" {
+			residentMixed = true
+		}
+	})
+	if residentSeen {
+		if residentMixed || *residentPlanPath == "" || *output == "" || flags.NArg() != 0 {
+			fmt.Fprintln(stderr, "usage: perfaudit --resident-plan plan.json --output new-resident-audit.json; do not mix original/resource flags")
+			return 2
+		}
+		return runResidentPlan(*residentPlanPath, *output, stdout, stderr)
+	}
 	if *resourcePlanPath != "" {
 		legacyFlags := false
 		flags.Visit(func(f *flag.Flag) {
