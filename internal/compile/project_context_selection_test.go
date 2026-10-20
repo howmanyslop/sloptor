@@ -47,8 +47,12 @@ func TestProjectContextSelectionOmitsOnlyTransformImports(t *testing.T) {
 			if err != nil || len(diags) != 0 {
 				t.Fatalf("empty-selection context: %v (%v)", err, diags)
 			}
-			if len(full.rojoContext.PkgRojoResolvers) != len(program.Options().TypeRoots) {
-				t.Fatal("full wrapper omitted type-root resolvers")
+			wantPackageResolvers := 0
+			if kind == transformer.ProjectTypePackage {
+				wantPackageResolvers = len(program.Options().TypeRoots)
+			}
+			if got := len(full.rojoContext.PkgRojoResolvers); got != wantPackageResolvers {
+				t.Fatalf("full wrapper constructed %d package resolvers, want %d", got, wantPackageResolvers)
 			}
 			if len(full.rojoContext.NodeModulesPathMapping.Exact) == 0 {
 				t.Fatal("full wrapper omitted node_modules entry mappings")

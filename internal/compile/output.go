@@ -114,6 +114,11 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	if !opts.EmitDeclarationOnly {
 		rojoCache = loadRojoCachesPreBuild(dir, opts)
 		opts.rojoCache = rojoCache
+		opts.packageLayout, err = preparePackageLayout(dir, program.Options(), opts)
+		if err != nil {
+			stopManifest()
+			return nil, nil, err
+		}
 	}
 	salt, err := incrementalSaltWithFlamework(dir, program, opts, manifestPath, flameworkInputs)
 	if err != nil {

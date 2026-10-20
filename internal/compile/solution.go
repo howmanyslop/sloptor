@@ -334,6 +334,7 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	right.TsConfigPath = ""
 	left.SolutionArgv, right.SolutionArgv = nil, nil
 	left.rojoCache, right.rojoCache = nil, nil
+	left.packageLayout, right.packageLayout = nil, nil
 	left.projectReferencePaths, right.projectReferencePaths = nil, nil
 	left.pendingSolutionPersists, right.pendingSolutionPersists = nil, nil
 	left.pendingSolutionDependencyPersists, right.pendingSolutionDependencyPersists = nil, nil

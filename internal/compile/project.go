@@ -331,10 +331,20 @@ func newProjectContextWithImportContext(dir string, program *compiler.Program, o
 	// compilerOptions.typeRoots to absolute slash paths during config parse.
 	useCaseSensitiveFileNames := osvfs.FS().UseCaseSensitiveFileNames()
 	typeRoots := options.TypeRoots
-	pkgRojoResolvers := make([]*rojo.RojoResolver, 0, len(typeRoots))
+	var pkgRojoResolvers []*rojo.RojoResolver
+	var nodeModulesMapping transformer.NodeModulesPathMapping
 	if needsTransformImportContext {
-		for _, typeRoot := range typeRoots {
-			pkgRojoResolvers = append(pkgRojoResolvers, rojo.Synthetic(filepath.FromSlash(typeRoot)))
+		layout := opts.packageLayout
+		if layout == nil {
+			layout, err = preparePackageLayout(dir, options, opts)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		if layout != nil {
+			pkgRojoResolvers, nodeModulesMapping = layout.resolvers, layout.mapping
+		} else {
+			nodeModulesMapping = createNodeModulesPathMapping(typeRoots, useCaseSensitiveFileNames, options.CustomConditions)
 		}
 	}
 
@@ -359,14 +369,12 @@ func newProjectContextWithImportContext(dir string, program *compiler.Program, o
 			ProjectPath:       filepath.FromSlash(dir),
 
 			PkgRojoResolvers:          pkgRojoResolvers,
+			NodeModulesPathMapping:    nodeModulesMapping,
 			NodeModulesPath:           nodeModulesPath,
 			TypeRoots:                 typeRoots,
 			UseCaseSensitiveFileNames: useCaseSensitiveFileNames,
 			ProjectReferencePaths:     importPathMap,
 		},
-	}
-	if needsTransformImportContext {
-		pctx.rojoContext.NodeModulesPathMapping = createNodeModulesPathMapping(typeRoots, useCaseSensitiveFileNames, options.CustomConditions)
 	}
 	return pctx, nil, nil
 }
@@ -509,8 +517,9 @@ func resolveAgainst(base, p string) string {
 // without any include emission, preserving the original CompileProject
 // behavior (pure: nothing but the returned map is produced).
 type ProjectOptions struct {
-	rojoCache *rojo.RojoResolverCache
-	Timings   *BuildTimings
+	packageLayout *packageLayout
+	rojoCache     *rojo.RojoResolverCache
+	Timings       *BuildTimings
 	// Context cancels build work and carries the API session's transformer
 	// callback. Nil preserves the CLI's process-owned lifecycle.
 	Context context.Context
