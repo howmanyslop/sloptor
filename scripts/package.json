@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"dependencies": {
+		"@cliffy/command": "catalog:dev",
 		"arktype": "catalog:dev",
 		"tinyexec": "catalog:dev"
 	},

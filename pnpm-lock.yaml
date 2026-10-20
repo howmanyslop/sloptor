@@ -165,7 +165,7 @@ settings:
 catalogs:
   dev:
     '@cliffy/command':
-      specifier: npm:@jsr/cliffy__command@1.3.1
+      specifier: jsr:@cliffy/command@1.3.1
       version: 1.3.1
     '@commitlint/cli':
       specifier: 21.2.4
@@ -589,6 +589,9 @@ importers:
 
   scripts:
     dependencies:
+      '@cliffy/command':
+        specifier: catalog:dev
+        version: '@jsr/cliffy__command@1.3.1'
       arktype:
         specifier: catalog:dev
         version: 2.2.3
