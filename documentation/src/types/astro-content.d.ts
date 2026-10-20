@@ -3,10 +3,10 @@ import type { UnknownRecord } from "type-fest";
 
 declare module "astro:content" {
 	interface CollectionEntry<TCollection extends string = string> {
+		id: string;
 		body: string;
 		collection: TCollection;
 		data: UnknownRecord;
-		id: string;
 		render: () => Promise<{
 			Content: ComponentRenderer;
 			headings: Array<MarkdownHeading>;

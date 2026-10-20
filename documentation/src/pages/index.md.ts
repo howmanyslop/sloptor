@@ -1,5 +1,6 @@
-import { createMarkdownResponse } from "$utilities/create-markdown-response";
 import { getCollection } from "astro:content";
+
+import { createMarkdownResponse } from "$utilities/create-markdown-response";
 
 import type { APIRoute } from "astro";
 
