@@ -84,6 +84,8 @@ type TransformState struct {
 	// reaches a direct Flamework expression surface declarer. Built once from
 	// program.GetSourceFiles() before source transforms begin.
 	flameworkExpressionSurfaces map[string]bool
+
+	expressionChildren *flameworkExpressionChildVisitor
 }
 
 func newTransformState(input TransformInput, plans []FilePlan) (*TransformState, error) {

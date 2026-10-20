@@ -59,30 +59,66 @@ func transformFlameworkExpressionChildrenWithRuntime(state *TransformState, node
 	if !node.ForEachChild(func(*ast.Node) bool { return true }) {
 		return expressionTransformResult{expression: node, prerequisites: []*ast.Node{}, imports: []MacroImport{}}, nil
 	}
-	var transformErr error
-	prerequisites := make([]*ast.Node, 0)
-	imports := make([]MacroImport, 0)
-	visitor := ast.NewNodeVisitor(func(child *ast.Node) *ast.Node {
-		if transformErr != nil {
-			return child
-		}
-		transformed, err := transformFlameworkExpressionWithRuntime(state, child, runtime)
-		if err != nil {
-			if captureFlameworkDiagnostic(state, err) {
-				return child
-			}
-			transformErr = err
-			return child
-		}
-		prerequisites = append(prerequisites, transformed.prerequisites...)
-		imports = append(imports, transformed.imports...)
-		return transformed.expression
-	}, state.factory, ast.NodeVisitorHooks{})
-	transformed := visitor.VisitEachChild(node)
-	if transformErr != nil {
-		return expressionTransformResult{}, transformErr
+	if state.expressionChildren == nil {
+		children := &flameworkExpressionChildVisitor{state: state}
+		children.visitor = ast.NewNodeVisitor(children.visit, state.factory, ast.NodeVisitorHooks{})
+		state.expressionChildren = children
 	}
-	return expressionTransformResult{expression: transformed, prerequisites: prerequisites, imports: imports}, nil
+	return state.expressionChildren.transform(node, runtime)
+}
+
+type flameworkExpressionChildFrame struct {
+	runtime       MacroRuntime
+	err           error
+	prerequisites []*ast.Node
+	imports       []MacroImport
+}
+
+type flameworkExpressionChildVisitor struct {
+	state   *TransformState
+	visitor *ast.NodeVisitor
+	frames  []flameworkExpressionChildFrame
+}
+
+func (v *flameworkExpressionChildVisitor) transform(node *ast.Node, runtime MacroRuntime) (expressionTransformResult, error) {
+	index := len(v.frames)
+	v.frames = append(v.frames, flameworkExpressionChildFrame{
+		runtime: runtime, prerequisites: []*ast.Node{}, imports: []MacroImport{},
+	})
+	defer func() {
+		// Drop invocation references on success, error, and panic. Result backing
+		// arrays belong to the caller and must never be reused with the frame.
+		v.frames[index] = flameworkExpressionChildFrame{}
+		v.frames = v.frames[:index]
+	}()
+	transformed := v.visitor.VisitEachChild(node)
+	frame := v.frames[index]
+	if frame.err != nil {
+		return expressionTransformResult{}, frame.err
+	}
+	return expressionTransformResult{expression: transformed, prerequisites: frame.prerequisites, imports: frame.imports}, nil
+}
+
+func (v *flameworkExpressionChildVisitor) visit(child *ast.Node) *ast.Node {
+	index := len(v.frames) - 1
+	if v.frames[index].err != nil {
+		return child
+	}
+	runtime := v.frames[index].runtime
+	transformed, err := transformFlameworkExpressionWithRuntime(v.state, child, runtime)
+	if err != nil {
+		if captureFlameworkDiagnostic(v.state, err) {
+			return child
+		}
+		v.frames[index].err = err
+		return child
+	}
+	// Recursion (including a custom runtime's reentry) can grow the stack and
+	// replace its backing array. Reacquire the suspended frame by index.
+	frame := &v.frames[index]
+	frame.prerequisites = append(frame.prerequisites, transformed.prerequisites...)
+	frame.imports = append(frame.imports, transformed.imports...)
+	return transformed.expression
 }
 
 func transformFlameworkExpressionsInSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*ast.SourceFile, error) {
