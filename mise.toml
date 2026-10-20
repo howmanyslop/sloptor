@@ -52,17 +52,17 @@ readonly project=$usage_project_dir
 readonly tsconfig=$usage_tsconfig_path
 
 [ -d "$project" ] || {
-    echo "error: project directory not found: $project" >&2
-    exit 1
+	echo "error: project directory not found: $project" >&2
+	exit 1
 }
 [ -f "$project/$tsconfig" ] || {
-    echo "error: tsconfig not found: $project/$tsconfig" >&2
-    exit 1
+	echo "error: tsconfig not found: $project/$tsconfig" >&2
+	exit 1
 }
 
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null | tr -cd '0-9' || true)"
 if [ -z "$cores" ]; then
-    cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
+	cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
 fi
 cores="${cores:-1}"
 readonly cores
@@ -73,7 +73,7 @@ export CORES="$cores"
 
 c4="$cores"
 if [ "$c4" -gt 4 ]; then
-    c4=4
+	c4=4
 fi
 readonly c4
 
@@ -85,13 +85,13 @@ export SLOPTOR_BIN="$bin"
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
-    --warmup 1 \
-    --prepare "$prepareCommand" \
-    --export-json "${PROJECT_DIR}/sloptor-benchmark-one-shot.json" \
-    --command-name "checkers=1" \
-    --command-name "checkers=$c4" \
-    "$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers 1" \
-    "$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers $c4"
+	--warmup 1 \
+	--prepare "$prepareCommand" \
+	--export-json "${PROJECT_DIR}/sloptor-benchmark-one-shot.json" \
+	--command-name "checkers=1" \
+	--command-name "checkers=$c4" \
+	"$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers 1" \
+	"$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers $c4"
 '''
 
 [tasks."benchmark:solution"]
@@ -108,17 +108,17 @@ readonly project=$usage_project_dir
 readonly tsconfig=$usage_tsconfig_path
 
 [ -d "$project" ] || {
-    echo "error: project directory not found: $project" >&2
-    exit 1
+	echo "error: project directory not found: $project" >&2
+	exit 1
 }
 [ -f "$project/$tsconfig" ] || {
-    echo "error: tsconfig not found: $project/$tsconfig" >&2
-    exit 1
+	echo "error: tsconfig not found: $project/$tsconfig" >&2
+	exit 1
 }
 
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null | tr -cd '0-9' || true)"
 if [ -z "$cores" ]; then
-    cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
+	cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
 fi
 cores="${cores:-1}"
 readonly cores
@@ -128,12 +128,12 @@ export TSCONFIG_PATH="$tsconfig"
 export CORES="$cores"
 
 cap() {
-    n=$1
-    if [ "$n" -gt "$cores" ]; then
-        echo "$cores"
-    else
-        echo "$n"
-    fi
+	n=$1
+	if [ "$n" -gt "$cores" ]; then
+		echo "$cores"
+	else
+		echo "$n"
+		fi
 }
 c4="$(cap 4)"
 c2="$(cap 2)"
@@ -147,19 +147,19 @@ export SLOPTOR_BIN="$bin"
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
-    --warmup 1 \
-    --prepare "$prepareCommand" \
-    --export-json "${PROJECT_DIR}/sloptor-benchmark-solution.json" \
-    --command-name "defaults" \
-    --command-name "builders=1 checkers=1" \
-    --command-name "builders=1 checkers=$c4" \
-    --command-name "builders=$c4 checkers=1" \
-    --command-name "builders=$c2 checkers=$c2" \
-    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json" \
-    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers 1" \
-    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers $c4" \
-    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c4 --checkers 1" \
-    "$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c2 --checkers $c2"
+	--warmup 1 \
+	--prepare "$prepareCommand" \
+	--export-json "${PROJECT_DIR}/sloptor-benchmark-solution.json" \
+	--command-name "defaults" \
+	--command-name "builders=1 checkers=1" \
+	--command-name "builders=1 checkers=$c4" \
+	--command-name "builders=$c4 checkers=1" \
+	--command-name "builders=$c2 checkers=$c2" \
+	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json" \
+	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers 1" \
+	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers $c4" \
+	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c4 --checkers 1" \
+	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c2 --checkers $c2"
 '''
 
 [tasks."build:one-shot"]
@@ -176,28 +176,28 @@ readonly project=$usage_project_dir
 readonly tsconfig=$usage_tsconfig_path
 
 [ -d "$project" ] || {
-    echo "error: project directory not found: $project" >&2
-    exit 1
+	echo "error: project directory not found: $project" >&2
+	exit 1
 }
 [ -f "$project/$tsconfig" ] || {
-    echo "error: tsconfig not found: $project/$tsconfig" >&2
-    exit 1
+	echo "error: tsconfig not found: $project/$tsconfig" >&2
+	exit 1
 }
 
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null | tr -cd '0-9' || true)"
 if [ -z "$cores" ]; then
-    cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
+	cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
 fi
 cores="${cores:-1}"
 readonly cores
 
 reset_state() {
-    rm -rf "$project/out" "$project/out-test" "$project/out-tsc"
-    find "$project" -type f -name '*.rbxtsc.tsbuildinfo' \
-        -not -path '*/node_modules/*' \
-        -not -path '*/.git/*' \
-        -not -path '*/.rotor/*' \
-        -delete
+	rm -rf "$project/out" "$project/out-test" "$project/out-tsc"
+	find "$project" -type f -name '*.rbxtsc.tsbuildinfo' \
+		-not -path '*/node_modules/*' \
+		-not -path '*/.git/*' \
+		-not -path '*/.rotor/*' \
+		-delete
 }
 
 reset_state
@@ -221,28 +221,28 @@ readonly project=$usage_project_dir
 readonly tsconfig=$usage_tsconfig_path
 
 [ -d "$project" ] || {
-    echo "error: project directory not found: $project" >&2
-    exit 1
+	echo "error: project directory not found: $project" >&2
+	exit 1
 }
 [ -f "$project/$tsconfig" ] || {
-    echo "error: tsconfig not found: $project/$tsconfig" >&2
-    exit 1
+	echo "error: tsconfig not found: $project/$tsconfig" >&2
+	exit 1
 }
 
 cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null | tr -cd '0-9' || true)"
 if [ -z "$cores" ]; then
-    cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
+	cores="$(sysctl -n hw.ncpu 2>/dev/null | tr -cd '0-9' || true)"
 fi
 cores="${cores:-1}"
 readonly cores
 
 reset_state() {
-    rm -rf "$project/out" "$project/out-test" "$project/out-tsc"
-    find "$project" -type f -name '*.rbxtsc.tsbuildinfo' \
-        -not -path '*/node_modules/*' \
-        -not -path '*/.git/*' \
-        -not -path '*/.rotor/*' \
-        -delete
+	rm -rf "$project/out" "$project/out-test" "$project/out-tsc"
+	find "$project" -type f -name '*.rbxtsc.tsbuildinfo' \
+		-not -path '*/node_modules/*' \
+		-not -path '*/.git/*' \
+		-not -path '*/.rotor/*' \
+		-delete
 }
 
 reset_state
@@ -256,7 +256,7 @@ go run ./cmd/rotor build --build "$project/$tsconfig" --builders "$cores" --chec
 description = "Commits the staged changes without running Git hooks."
 usage = """
 arg <message> {
-    help "Git commit message"
+	help "Git commit message"
 }
 """
 shell = "sh -o errexit -c"
@@ -276,7 +276,7 @@ run = "git commit --amend --reuse-message=HEAD --signoff"
 description = "Commits the staged changes."
 usage = """
 arg <message> {
-    help "Git commit message"
+	help "Git commit message"
 }
 """
 shell = "sh -o errexit -c"
@@ -296,3 +296,26 @@ run = "pnpm --filter @sloptor/documentation exec playwright install chromium && 
 [tasks.hooks]
 description = "Install hk git hooks into this clone (safe to re-run)."
 run = "hk install"
+
+[tasks.lint-configuration]
+description = "View the lint configuration."
+usage = '''
+arg "<type>" {
+	help "What linting configuration do you want to run the inspector for?"
+	choices "eslint" "oxlint"
+}
+'''
+run = '''
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+case "${usage_type?}" in
+	eslint)
+		nlx @eslint/config-inspector
+		;;
+	oxlint)
+		nlx oxlint-config-inspector
+		;;
+esac
+'''
