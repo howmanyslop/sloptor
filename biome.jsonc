@@ -50,7 +50,8 @@
 			"!src/generated/dictionary-verbs.ts",
 			"!.mise",
 			"!**/testdata",
-			"!{tsgo,reference}"
+			"!{tsgo,reference}",
+			"!rbxts-tsconfig.schema.json"
 		]
 	},
 
