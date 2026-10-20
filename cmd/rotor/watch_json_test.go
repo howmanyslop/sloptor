@@ -265,7 +265,13 @@ func TestBuildSolutionWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
 		t.Errorf("watching = %v, want the watched file count", watching)
 	}
 
-	mustWrite(t, filepath.Join(root, "left", "src", "main.ts"), "export const s: string = 5;\n")
+	// Publish a complete edit: truncation can notify the OS watcher before
+	// os.WriteFile writes the new contents, producing an intermediate build.
+	updated := filepath.Join(t.TempDir(), "main.ts")
+	mustWrite(t, updated, "export const s: string = 5;\n")
+	if err := os.Rename(updated, filepath.Join(root, "left", "src", "main.ts")); err != nil {
+		t.Fatal(err)
+	}
 	start = nextWatchEvent(t, events, "buildStart")
 	if changed, _ := start["changed"].([]any); !slices.Contains(changed, any("left/src/main.ts")) {
 		t.Errorf("changed = %v, want left/src/main.ts", start["changed"])
