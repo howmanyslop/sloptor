@@ -1,0 +1,133 @@
+---
+title: "Building"
+description: "Build options, project references, source maps, incremental rebuilds, and concurrency."
+---
+
+`sloptor build` compiles every file in the project, writes the `.luau` outputs to your tsconfig's `outDir` exactly where `rbxtsc` would put them, runs the cleanup/copy pipeline, emits `.d.ts` files when `compilerOptions.declaration` is enabled, and copies `include/` (RuntimeLib.lua, Promise.lua — verbatim from roblox-ts). Try it on the test fixture project in the sloptor repository:
+
+```powershell
+bun install --cwd testdata/diff/project --no-save
+sloptor build testdata/diff/project
+# out/01_literals.luau
+# ...
+# compiled 43 files in 189 ms
+```
+
+A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`). The fixture project above is a minimal working example of that setup.
+
+`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--minify`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+
+TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
+
+Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
+
+**sloptor DX extensions** (not in rbxtsc; safe to ignore for parity):
+
+- **`--minify`** — pass every emitted `.luau`/`.lua` source through the Luau minifier (comment/whitespace stripping + `t["x"]` → `t.x`) before writing. It is opt-in; declaration and `include/` files are never minified.
+- **Code-frame diagnostics** — TypeScript, transformer, and macro errors render as grouped code frames (source line + caret/underline, keyword highlighting, OSC 8 file links, an `✗ N errors in M files` footer). `--max-errors <n>` caps the rendered frames (default 50; `0` = all). In watch mode the screen clears before each rebuild (opt out with `--no-clear`), a `✗ N errors` banner persists on the idle line until the next green build, and `--bell` rings the terminal on a fail↔pass transition.
+- **`--json`** — emit one machine-readable result object (version, ok, files, durationMs, diagnostics with `file`/`line`/`col`/`code`/`severity`/`message`) instead of styled output. `file` is relative to the project directory (the solution tsconfig directory with `--build`). `code` is `TS####` for a TypeScript diagnostic and the upstream factory name for a transformer one, and is omitted when the diagnostic has none. Also available on `sloptor check`.
+  With `-w/--watch`, stdout is an NDJSON stream (one object per line, no styled output) for tools that supervise the watcher. Each build (the initial one too) prints a `buildStart` event (`at`, `changed` paths relative to the project) and then exactly one `buildEnd` event (`at` plus the one-shot result fields). Pairs never nest, so "build in progress" is a toggle. The first event carries `version`, and one `watching` event (`at`, `files`: the watched file count) follows the initial `buildEnd`. Compiler warnings go to stderr. Works with `--build --watch` too.
+
+    ```jsonc
+    {"event":"buildStart","at":"2026-09-25T17:59:59.000Z","version":"2.7.1","changed":[]}
+    {"event":"buildEnd","at":"2026-09-25T17:59:59.300Z","version":"2.7.1","ok":true,"files":222,"durationMs":300,"diagnostics":[]}
+    {"event":"watching","at":"2026-09-25T17:59:59.310Z","files":240}
+    {"event":"buildStart","at":"2026-09-25T18:00:00.000Z","changed":["src/a.ts"]}
+    {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.7.1","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
+    ```
+
+- **One-shot diagnostics** — `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, and `--timings` can be combined on one build. sloptor finalizes requested profiles even when the build fails, which keeps failed-build traces usable. `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence, excluding profile serialization); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. Go CPU/block/mutex/heap profiles cover the parent process only — they do not include Node transformer-sidecar CPU or heap. Profile flush can add CLI wall time after the timing JSON is closed; `--verbose` prints a `finalize profiles` stage for that tail.
+
+## Shell completion
+
+`sloptor completion <bash|zsh|fish|powershell>` writes a native completion
+script to stdout — no installation side effects, so redirection works
+unchanged:
+
+```sh
+sloptor completion bash > /etc/bash_completion.d/sloptor
+sloptor completion zsh > "${fpath[1]}/_sloptor"
+sloptor completion fish > ~/.config/fish/completions/sloptor.fish
+sloptor completion powershell | Out-String | Invoke-Expression
+```
+
+The scripts are generated from the live command tree, so they stay in sync
+with the flags and subcommands above.
+
+## Tsconfig schema publication
+
+The `rotor.toml` schema and the tsconfig `rbxts` schema are separate documents. `sloptor schema` prints the hosted `rotor.toml` schema; `sloptor schema --rbxts` prints the eight-key tsconfig extension schema. Publish the latter where your project editors can read it:
+
+```sh
+sloptor schema --rbxts > rbxts-tsconfig.schema.json
+```
+
+Use `"$schema": "./rbxts-tsconfig.schema.json"` in `tsconfig.json`. The `rbxts` values merge through the `extends` chain from parent to child, path values resolve relative to the file that declares them, and command-line values win over tsconfig values. CLI-only values such as `watch`, `verbose`, and `usePolling` are warned about and ignored when placed under `rbxts`.
+
+## Project references, source maps, plugins, and build state
+
+`sloptor build --build` drains project references in dependency order. A coordinator tsconfig with only `references` is not compiled as a project of its own. Each referenced project gets the options its own direct build would: defaults, then its `rbxts` key, then the command line. The entry project's `rbxts` key does not reach its references. A coordinator's `rbxts` key applies to every project, below each project's own key. `type` and `rojo` are the exception: `--type`, `--rojo` and the coordinator's values reach only projects that have no `rbxts` key, and only under a coordinator. `--emitDeclarationOnly` applies to the solution build and cannot be watched. `--build --watch` watches the solution's tsconfig extends chain and Rojo topology, invalidating dependent projects when a referenced project changes.
+
+With `compilerOptions.sourceMap: true`, sloptor writes an adjacent `.luau.map` for each Luau output. The map's `sourcesContent` is the original pre-transformer TypeScript, and source-map files are not counted as emitted Luau files. Declaration maps are kept while their corresponding source exists.
+
+External transformer plugins remain compatible with the fork's `compilerOptions.plugins` shape and run through sloptor's Node sidecar. `before` transformers run before `after` transformers; `afterDeclarations` runs only during declaration emit. A plugin's `shouldTransformSourceFile` hook can skip a file, and plugin loading failures are build diagnostics. Builds that resolve external plugins require Node.js and the project's own `typescript` package.
+
+Native `[flamework]` builds do not require Node.js.
+
+On an incremental rebuild sloptor narrows the sidecar's `LanguageService` root set to the files it is recompiling plus every file that can reach them without being imported — declaration files, global scripts, and modules that open `declare global` — instead of handing the worker the whole project. TypeScript pulls each root's import closure into the program, so a transformer that asks the checker about a file it was handed gets the same answers. **A transformer that instead enumerates `program.getSourceFiles()` to build program-wide state sees only the narrowed program on an incremental rebuild, and can go stale.** `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React-compiler applier and native Flamework are all per-file and unaffected. A full build is never narrowed, so deleting the project's `*.rbxtsc.tsbuildinfo` is the escape hatch for a transformer that needs the whole program.
+
+Successful builds may leave these generated or cached files. They are build state, not source files:
+
+| File or directory      | Purpose                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `rbxts.copyfiles.json` | `outDir` copy-files gate manifest; lets an unchanged build skip cleanup and copy work                               |
+| `rbxts.rojocache.json` | Fork-compatible Rojo cache name protected from cleanup; sloptor's active hashed cache is under `.rotor/cache/rojo/` |
+| `.rotor/cache/rojo/`   | sloptor's hashed Rojo resolver cache directory                                                                      |
+| `.luau.map`            | Adjacent Luau source map when `sourceMap` is enabled                                                                |
+| `*.rbxtsc.tsbuildinfo` | sloptor incremental build state; sloptor inserts `.rbxtsc` before `.tsbuildinfo` to avoid collisions                |
+
+## Incremental rebuild selection
+
+sloptor records a manifest of every source file's content hash, its resolved references, and the content hash of every output it wrote. An incremental build starts from the files whose own text moved and walks the importer graph outwards.
+
+It does not walk the whole importer closure. A file's importers can only observe that file through its declaration output, so sloptor emits the `.d.ts` for each wave of the walk with its own emitter — the same one that writes them, off the untransformed program — compares it against the hash the previous build recorded for that same file, and pulls in the importers **only** of the files whose declaration moved. A comment edit, a renamed local, a changed function body — anything that leaves the declaration byte-identical — recompiles that one file and stops.
+
+**This is TypeScript's rule, not rbxtsc's.** It is the shape-signature reasoning `tsc --incremental` and the `BuilderProgram` behind it use to decide what an edit invalidates. rbxtsc has no equivalent and always rebuilds the whole importer closure, so sloptor selects strictly fewer files than rbxtsc for the same edit and writes the same bytes. Anything the rule cannot establish — a file that emits no declaration, a declaration with no recorded hash, a deleted file — propagates to the importers as before, so an incomplete manifest costs a wider rebuild and never a stale one.
+
+A resolved `.json` module is hashed into the manifest as an input even though nothing compiles it: its value never reaches an importer's Luau (that becomes a runtime require of the copied file), but its inferred type does reach the importer's `.d.ts`, so a change to it rebuilds whoever imported it.
+
+The manifest is invalidated wholesale by a salt over the compiler options, the Rojo and include topology, the native Flamework inputs, and each effective transformer plugin's tsconfig entry, resolved package version, and entry-file hash. **Upgrading or editing a transformer therefore forces one full rebuild**, which is the point: a transformer rewrites the output of every file it sees, and nothing else in the manifest would notice.
+
+Package imports discover `default.project.json` layouts, including nested defaults, but ignore other `*.project.json` files unless a selected layout explicitly references them. This deliberately differs from rbxtsc's package resolver: a generated test project in a dependency's cache or examples folder must not redirect ordinary package imports. Normal project resolvers keep their existing discovery rules. Nested defaults retain their existing behavior, including mounts outside their containing directory; such a default can still redirect an import.
+
+Package builds fingerprint their effective package layouts and declaration-to-runtime mappings, including `main` and `exports` targets, and reuse those inputs for emission. `--build --watch` watches package layout inputs through a separate route that invalidates the owning package project without copying dependency assets. The new route ignores unrelated named projects; a main Rojo config that independently mounts those directories can still trigger its existing reload behavior. Single-project `build --watch` still prunes `node_modules`, so dependency-metadata-only edits require another build trigger or a restart. Game/model `main` and `exports` invalidation and the package's own output resolver are unchanged.
+
+**Hazard.** The rule assumes a transformer's output for a file is a function of that file and the types it can reach. A transformer that carries program-wide state — one that scans every source file to build a registry, and emits different code depending on what else it saw — can go stale, because the files it is handed on an incremental rebuild are only the selected ones. `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React-compiler applier and native Flamework are all per-file and unaffected. Delete the project's `*.rbxtsc.tsbuildinfo` to force a full rebuild for a transformer that is not.
+
+## Concurrency controls
+
+`--checkers <n>` sets the number of type-checker workers per project. The default is 4, matching TypeScript 7. It applies to `sloptor build`, `sloptor check`, and both watch modes. A CLI value overrides each project's `compilerOptions.checkers`; omitting the flag leaves the project's own config in place. If a project sets `compilerOptions.singleThreaded: true`, it still forces one effective checker regardless of the CLI.
+
+`--builders <n>` sets the number of project-reference builders that run concurrently during solution builds (`--build`). The default is 4; `--builders 1` makes the solution build serial. It is only valid with `--build` — passing it without `--build` is a usage error (exit 1). `sloptor check` does not accept `--builders`.
+
+Both flags accept positive integers only. Missing, zero, negative, or non-integer values are usage errors.
+
+The two flags multiply: `--builders 4 --checkers 4` can run up to 16 checker workers at once, plus parsing, emit, and write work. CPU and memory use grow with the product. Find the right balance for the machine — CI runners with limited cores or memory may want smaller values. For large watch builds, `--build --builders 1 --checkers 1` reduces concurrent compiler state at the cost of potential rebuild latency. The default checker and builder counts remain 4 in watch mode.
+
+**Result guarantees.** Varying `--builders` never changes build results: dependencies always build first, and output, diagnostics, and caching stay deterministic. TypeScript 7 notes that in rare cases varying `--checkers` can surface order-dependent results. Teams that need perfectly stable diagnostics across environments may want to pin `--checkers` to a fixed value.
+
+**Real-world limits.** Even with high concurrency, some work stays serialized. External transformer-plugin sidecars run through Node and may bottleneck a project. Projects whose output or include directories overlap are serialized for safety. And the dependency graph itself bounds how many projects can build in parallel — leaf projects run first, and dependents wait.
+
+These flags control checker and builder parallelism. They are separate from the write-worker environment variables below, which only tune disk-write parallelism.
+
+The write-worker controls are:
+
+- `RBXTSC_WRITE_CONCURRENCY` directly overrides output-write workers and takes precedence over sloptor's setting; values are capped at 256.
+- `ROTOR_WRITE_WORKERS` is sloptor's own output-write override.
+- Without either override, sloptor uses 8 Go output-write workers. Positive fractional overrides are rounded down; invalid values fall through to the next setting or this default.
+
+`UV_THREADPOOL_SIZE` may still affect the Node sidecar's libuv thread pool, but it does not select sloptor's Go output-write worker count.
+
+When `GOGC` is unset, one-shot CLI commands use `GOGC=400`; `build --watch` (including solution builds), `check --watch`, and `dev` use `GOGC=100` before the initial compilation. The lower watch target collects temporary compiler allocations sooner, with a possible throughput cost. When `GOMEMLIMIT` is unset, sloptor uses 75% of effective memory, clamped from 512 MiB to 16 GiB for one-shot commands and to 6 GiB for watch commands. Linux accounts for finite cgroup v1/v2 limits, while macOS and Windows use the host memory reported by the OS. API watch sessions keep the API process's runtime policy.
+
+Explicit `GOGC` and `GOMEMLIMIT` environment values always take precedence, so they can tune the memory/throughput tradeoff for a particular project. `GOMEMLIMIT` is a soft Go runtime budget, not a hard process-memory cap: it can be exceeded, and it excludes Node transformer children and some OS allocations. Lower checker/builder counts can reduce the live compiler state when a tighter budget causes frequent collection. Watch mode does not force periodic garbage collections or OS memory release.

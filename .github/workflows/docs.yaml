@@ -1,0 +1,58 @@
+name: Deploy Documentation
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy.
+        required: true
+        default: main
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: deploy-documentation
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    environment:
+      name: documentation
+      url: https://docs.howmanysmall.com/sloptor/
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          install_args: go node pnpm
+          experimental: true
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # build runs gen-docs first, so the command reference matches this ref.
+      - name: Build documentation
+        run: node --run build
+        working-directory: documentation
+
+      - name: Deploy to Cloudflare
+        run: pnpm exec wrangler deploy
+        working-directory: documentation
+    timeout-minutes: 15

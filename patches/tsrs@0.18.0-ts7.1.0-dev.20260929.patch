@@ -1,0 +1,31 @@
+diff --git a/lib/getExePath.js b/lib/getExePath.js
+index 1306f7f2bab0075878ae29b218566f60d40545f1..b4741ffd36112bed6c22e0fbf01bfedd344a7052 100644
+--- a/lib/getExePath.js
++++ b/lib/getExePath.js
+@@ -21,11 +21,25 @@ export default function getExePath() {
+     const exeName = process.platform === "win32" ? "tsrs.exe" : "tsrs";
+ 
+     let packageDir;
++    const require = module.createRequire(import.meta.url);
+     try {
+-        const require = module.createRequire(import.meta.url);
+         packageDir = path.dirname(require.resolve(`${platformPackageName}/package.json`));
+     }
+     catch {
++        if (process.platform === "win32") {
++            try {
++                const fallbackPackage = `@typescript/typescript-win32-${process.arch}`;
++                const fallbackDir = path.dirname(require.resolve(`${fallbackPackage}/package.json`));
++                let fallbackExe = path.join(fallbackDir, "lib", "tsc.exe");
++                if (fallbackExe.length >= 248) {
++                    fallbackExe = "\\\\?\\" + fallbackExe;
++                }
++                if (fs.existsSync(fallbackExe)) {
++                    return fallbackExe;
++                }
++            }
++            catch {}
++        }
+         const supported = Object.keys(pkg.optionalDependencies ?? {});
+         const isSupported = supported.includes(platformPackageName);
+         throw new Error(

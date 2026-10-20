@@ -1,16 +1,16 @@
 {
-	"$schema": "https://biomejs.dev/schemas/latest/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"assist": {
 		"actions": {
 			"source": {
 				"noDuplicateClasses": "on",
 				"organizeImports": "off",
 				"preset": "recommended",
-				"useSortedAttributes": "on",
+				"useSortedAttributes": "off",
 				"useSortedEnumMembers": "on",
-				"useSortedInterfaceMembers": "on",
+				"useSortedInterfaceMembers": "off",
 				"useSortedKeys": {
-					"level": "on",
+					"level": "off",
 					"options": {
 						"groupByNesting": false,
 						"sortOrder": "lexicographic"
@@ -45,8 +45,14 @@
 			"!**/package.json",
 			"!**/*.js",
 			"!**/*-lock.{json,yaml}",
-			"!scripts/dupes-viewer.html",
-			"!scripts/clis/**/*.ts"
+			"!scripts/clis/**/*.ts",
+			"!**/.opencode/goals",
+			"!src/generated/dictionary-verbs.ts",
+			"!.mise",
+			"!**/testdata",
+			"!{tsgo,reference}",
+			"!rbxts-tsconfig.schema.json",
+			"!rotor.schema.json"
 		]
 	},
 
@@ -57,7 +63,13 @@
 		"enabled": true,
 		"expand": "auto",
 		"formatWithErrors": true,
-		"includes": ["**", "!**/*.js", "!**/{dist,do-not-sync-ever,garbage,node_modules}/**"],
+		"includes": [
+			"**",
+			"!**/*.js",
+			"!**/{dist,do-not-sync-ever,garbage,node_modules}/**",
+			"!documentation/src/components/rule-index-data.ts",
+			"!tests/fixtures/tsgolint-version/**/*.yaml"
+		],
 		"indentStyle": "tab",
 		"indentWidth": 4,
 		"lineEnding": "lf",
@@ -161,6 +173,12 @@
 
 			"complexity": {
 				"noDivRegex": "error",
+				"noExcessiveCognitiveComplexity": {
+					"level": "error",
+					"options": {
+						"maxAllowedComplexity": 15
+					}
+				},
 				"noExcessiveNestedTestSuites": "error",
 				"noForEach": "error",
 				"noImplicitCoercions": "error",
@@ -176,12 +194,12 @@
 				"useFlatMap": "error",
 				"useLiteralKeys": "error",
 				"useMaxParams": {
-					"level": "error",
+					"level": "off",
 					"options": { "max": 7 }
 				},
 				"useOptionalChain": "error",
 				"useSimpleNumberKeys": "error",
-				"useSimplifiedLogicExpression": "error",
+				"useSimplifiedLogicExpression": "off",
 				"useWhile": "error"
 			},
 
@@ -209,46 +227,128 @@
 			},
 
 			"nursery": {
-				"noBaseToString": "error",
-				"noConditionalExpect": "error",
+				"noAstroSetHtmlDirective": "error",
+				"noBaseToString": "off",
+				"noBunModules": "error",
+				"noComponentHookFactories": "error",
+				"noConditionalExpect": "off",
+				"noDrizzleDeleteWithoutWhere": "error",
+				"noDrizzleUpdateWithoutWhere": "error",
+				"noDuplicateFieldDefinitionNames": "error",
+				"noDuplicateSelectors": "error",
+				"noEmptyObjectKeys": "error",
 				"noExcessiveNestedCallbacks": {
 					// temporarily disabled
 					"level": "off",
 					"options": { "max": 5 }
 				},
+				"noExcessiveSelectorClasses": "error",
+				"noExtendNative": "error",
 				"noFloatingPromises": "error",
 				"noIdenticalTestTitle": "error",
 				"noImpliedEval": "error",
+				"noInlineStyles": "error",
+				"noInvalidFileInputAccept": "error",
+				"noInvalidPropertyInitValue": "error",
+				"noJsRestrictedProperties": "error",
+				"noJsonUnsafeValues": "error",
+				"noJsxLeakedDollar": "error",
+				"noJsxNamespace": "error",
 				"noLoopFunc": "error",
 				"noMisleadingReturnType": "off",
 				"noMisusedPromises": "error",
+				"noNegationInEqualityCheck": "error",
+				"noNonScalableViewport": "error",
+				"noObsoleteTags": "error",
+
+				"noReactStringRefs": "error",
+				"noRestrictedDependencies": "error",
+				"noReturnInFinally": "error",
+				"noSvelteAtDebugTags": "error",
+				"noSvelteAtHtmlTags": "error",
+				"noSvelteLegacyConst": "error",
+				"noSvelteUnnecessaryStateWrap": "error",
+				"noTailwindArbitraryValue": "error",
+				"noThisOutsideOfClass": "error",
+				"noTopLevelLiterals": "error",
+				// does not play nicely with Astro
+				"noUndeclaredClasses": "off",
+				// what is this lol
+				"noUndeclaredCustomProperties": "off",
+				"noUnmodifiedLoopCondition": "error",
+				"noUnnecessaryTemplateExpression": "error",
+				"noUnsafeIframeSandbox": "error",
 				"noUnsafePlusOperands": "error",
+				"noUnsafeTypeAssertion": "off",
+				"noUntrustedLicenses": "error",
+				// does NOT work with mdx
+				"noUnusedClasses": "off",
 				"noUselessTypeConversion": "off",
+				"noVueDeprecatedScopedSlots": "error",
+				"noVueImportCompilerMacros": "error",
+				"noVueRefAsOperand": "error",
+				"noVueUndeclaredDirectives": "error",
+				"noVueVOnNumberValues": "error",
+				"noXorAsExponentiation": "error",
 				"preset": "recommended",
 				"useArraySome": "error",
+				"useAstroClientOnlyDirectiveValue": "error",
 				"useAwaitThenable": "error",
+				"useBaseline": {
+					"level": "error",
+					"options": {
+						"allowSelectors": ["selection", "marker"],
+						"available": "newly"
+					}
+				},
+				"useBetterDomTraversing": "error",
+				"useConsistentFunctionStyle": {
+					"level": "error",
+					"options": {
+						"allowArrowFunctions": false,
+						"style": "declaration"
+					}
+				},
+				"useConsistentObjectKeys": "error",
 				"useConsistentTestIt": "error",
+				"useControlLabel": "error",
 				"useDisposables": "error",
 				"useDomNodeTextContent": "error",
 				"useDomQuerySelector": "error",
 				"useExhaustiveSwitchCases": "error",
-				"useExpect": "error",
+				"useExpect": "off",
 				"useExplicitReturnType": "error",
 				"useExplicitType": "off",
+				"useFlatMathMinMax": "error",
 				"useIframeSandbox": "error",
-				"useImportsFirst": "error",
+				"useImportsFirst": "off",
+				"useIncludes": "error",
+				// i do not know what this is
+				"useLayeredStyles": "off",
 				"useMathMinMax": "error",
+				"useModernMathApis": "error",
 				"useNamedCaptureGroup": "error",
+				"useNamedLayer": "error",
 				"useNullishCoalescing": "error",
+				"useReactCompiler": {
+					"level": "error",
+					"options": {
+						"compilationMode": "infer"
+					}
+				},
+				"useReactNamingConvention": "error",
 				"useReduceTypeParameter": "error",
 				"useRegexpExec": "error",
 				"useRegexpTest": "error",
+				"useScopedStyles": "error",
 				"useSortedClasses": "error",
 				"useStringStartsEndsWith": "error",
+				"useTailwindShorthandClasses": "error",
 				"useTestHooksInOrder": "error",
 				"useTestHooksOnTop": "error",
 				"useThisInClassMethods": "error",
 				"useUnicodeRegex": "error",
+				"useValidTestTitle": "error",
 				"useVarsOnTop": "error"
 			},
 
@@ -409,6 +509,34 @@
 		},
 
 		{
+			"includes": ["**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"useTopLevelRegex": "off"
+					},
+					"style": {
+						"noExcessiveLinesPerFile": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["tests/fixtures/**/*"],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noUndeclaredDependencies": "off"
+					},
+					"style": {
+						"useImportType": "off"
+					}
+				}
+			}
+		},
+
+		{
 			"includes": ["*.config.{ts,mjs}"],
 			"linter": {
 				"rules": {
@@ -423,11 +551,170 @@
 			"assist": {
 				"actions": {
 					"source": {
-						"useSortedKeys": "off"
+						"useSortedAttributes": "off"
 					}
 				}
 			},
-			"includes": [".omp/mcp.json"]
+			"includes": [
+				"documentation/src/components/badge.astro",
+				"documentation/src/components/icon.astro",
+				"documentation/src/components/rule-example.astro"
+			]
+		},
+
+		{
+			"includes": [
+				"documentation/src/components/related-rules.astro",
+				"documentation/src/components/release-history.astro",
+				"documentation/src/components/rule-diagnostics.astro",
+				"documentation/src/components/rule-examples.astro",
+				"documentation/src/components/rule-options.astro",
+				"documentation/src/components/rule-options-table.tsx"
+			],
+			"linter": {
+				"rules": {
+					"performance": {
+						"useSolidForComponent": "off"
+					},
+					"style": {
+						"noJsxLiterals": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"assist": {
+				"actions": {
+					"source": {
+						"useSortedAttributes": "off"
+					}
+				}
+			},
+			"includes": ["documentation/src/components/rule-page.astro"]
+		},
+
+		{
+			"includes": ["documentation/src/**/*.astro", "tests/fixtures/**/*.tsx"],
+			"linter": {
+				"domains": {
+					"react": "none"
+				}
+			}
+		},
+
+		{
+			// Theme stylesheet uses component-scoped selectors across disjoint
+			// subtrees (code resets, badges, cards); specificity ordering between
+			// unrelated components is intentional and has no cascade effect.
+			"includes": ["documentation/src/styles/custom.css"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noDescendingSpecificity": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["**/*.test.ts", "scripts/**/*.{ts,tsx}", "tests/**/*.{ts,tsx}"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noExcessiveCognitiveComplexity": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["scripts/**/*.{ts,tsx}"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noBunModules": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["documentation/src/components/**/*.tsx"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"useReactFunctionComponentDefinition": {
+							"level": "error",
+							"options": {
+								"namedComponents": "functionDeclaration"
+							}
+						}
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["documentation/tests/browser/**/*.test.ts"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noPlaywrightElementHandle": "error",
+						"noPlaywrightEval": "error",
+						"noPlaywrightForceOption": "error",
+						"noPlaywrightMissingAwait": "error",
+						"noPlaywrightNetworkidle": "error",
+						"noPlaywrightPagePause": "error",
+						"noPlaywrightUselessAwait": "error",
+						"noPlaywrightWaitForNavigation": "error",
+						"noPlaywrightWaitForSelector": "error",
+						"noPlaywrightWaitForTimeout": "error",
+						"usePlaywrightValidDescribeCallback": "error"
+					}
+				}
+			}
+		},
+
+		{
+			"assist": {
+				"actions": {
+					"source": {
+						"useSortedKeys": {
+							"level": "on",
+							"options": {
+								"groupByNesting": false,
+								"sortOrder": "lexicographic"
+							}
+						}
+					}
+				},
+				"enabled": true
+			},
+			"includes": ["**/*.{jsonc,json}", "!**/package.json", "!**/tsconfig*.json", "!src/default-properties.json"]
+		},
+
+		{
+			"includes": ["**/*.svg"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noUnusedClasses": "off",
+						"useLayeredStyles": "off"
+					}
+				}
+			}
+		},
+
+		{
+			"includes": ["documentation/src/components/**/*.astro"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noInlineStyles": "off"
+					}
+				}
+			}
 		}
 
 		// package.json exception

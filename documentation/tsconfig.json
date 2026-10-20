@@ -1,0 +1,22 @@
+{
+	"extends": ["../tsconfig.base.json", "astro/tsconfigs/strictest"],
+	"compilerOptions": {
+		"tsBuildInfoFile": "node_modules/.tsbuildinfo",
+		"jsx": "react-jsx",
+		"jsxImportSource": "react",
+		"paths": {
+			"$components/*": ["./src/components/*"],
+			"$utilities/*": ["./src/utilities/*"]
+		}
+	},
+	"include": [
+		".astro/types.d.ts",
+		"astro.config.ts",
+		"playwright.config.ts",
+		"reset.d.ts",
+		"src/**/*",
+		"tests/**/*",
+		"vitest.config.ts"
+	],
+	"exclude": ["dist", "node_modules"]
+}

@@ -145,6 +145,7 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 
 	root.AddCommand(
 		newAPIServerCommand(streams),
+		newGenDocsCommand(),
 		newAddCommand(streams),
 		newAssetCommand(streams),
 		newBuildCommand(streams),
@@ -390,12 +391,7 @@ func helpRenderer(cmd *cobra.Command, _ []string) {
 		}
 	}
 
-	// Cobra auto-adds the -h/--help flag with the stock "help for <cmd>"
-	// description; rewrite it to the house wording so no stock text leaks
-	// into the rendered surface.
-	if f := cmd.Flags().Lookup("help"); f != nil && f.Usage == "help for "+name {
-		f.Usage = "show this help"
-	}
+	useHouseHelpFlagUsage(cmd)
 
 	if flags := visibleFlags(cmd); len(flags) > 0 {
 		fmt.Fprintf(&b, "  %s\n", s.Green("Options:"))
@@ -431,6 +427,15 @@ func helpRenderer(cmd *cobra.Command, _ []string) {
 	}
 
 	_, _ = io.WriteString(w, b.String())
+}
+
+// useHouseHelpFlagUsage rewrites the stock "help for <cmd>" description Cobra
+// gives its auto-added -h/--help flag to the house wording, so no stock text
+// leaks into help or the generated docs.
+func useHouseHelpFlagUsage(cmd *cobra.Command) {
+	if f := cmd.Flags().Lookup("help"); f != nil && f.Usage == "help for "+cmd.Name() {
+		f.Usage = "show this help"
+	}
 }
 
 // rootCommandGroups lists the root help's command sections in display order.

@@ -1,58 +1,57 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
-
 project_name: sloptor
 
 builds:
   - id: rotor
-    main: ./cmd/rotor
     binary: sloptor
     env:
       - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    goarch:
+      - amd64
+      - arm64
     goos:
       - windows
       - linux
       - darwin
-    goarch:
-      - amd64
-      - arm64
-    flags:
-      - -trimpath
     # sloptor's version is defined in code (internal/version/version.go); the
     # release workflow verifies the tag matches it, so no -X injection here.
     ldflags:
       - -s -w
+    main: ./cmd/rotor
 
 archives:
   - id: rotor
-    ids:
-      - rotor
-    name_template: "sloptor-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
-    formats:
-      - tar.gz
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
     files:
       - README.md
       - LICENSE
+    format_overrides:
+      - formats:
+          - zip
+        goos: windows
+    formats:
+      - tar.gz
+    ids:
+      - rotor
+    name_template: "sloptor-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
   # Bare executables are staged into exact-version npm platform packages by
   # scripts/stage-npm-release.cjs; windows gets .exe appended automatically.
   - id: rotor-bin
+    formats:
+      - binary
     ids:
       - rotor
     name_template: "sloptor-v{{ .Version }}-{{ .Os }}-{{ .Arch }}-bin"
-    formats:
-      - binary
 
 checksum:
   name_template: "sloptor-v{{ .Version }}-checksums.txt"
 
 release:
   github:
-    owner: howmanyslop
     name: sloptor
+    owner: howmanyslop
   prerelease: auto
 
 changelog:

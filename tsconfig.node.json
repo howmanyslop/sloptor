@@ -1,17 +1,16 @@
 {
+	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
-		"noEmit": true,
+		"tsBuildInfoFile": "./node_modules/.tsbuildinfo-scripts",
+		"rootDir": ".",
 		"paths": {
 			"$script-commands/*": ["./scripts/commands/*"],
 			"$script-constants/*": ["./scripts/constants/*"],
 			"$script-types/*": ["./scripts/types/*"],
 			"$script-utilities/*": ["./scripts/utilities/*"]
 		},
-		"rootDir": ".",
-		"sourceMap": false,
-		"tsBuildInfoFile": "./node_modules/.tsbuildinfo-scripts",
-		"types": ["bun", "node"]
+		"types": ["bun", "node"],
+		"sourceMap": false
 	},
-	"extends": "./tsconfig.base.json",
-	"include": ["api.d.ts", "bump.config.ts", "scripts/**/*.ts"]
+	"include": ["api.d.ts", "*.config.ts", "scripts/**/*.ts"]
 }

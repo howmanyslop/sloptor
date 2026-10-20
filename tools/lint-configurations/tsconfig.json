@@ -1,0 +1,7 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": "./node_modules/.tmp/lint-configurations.tsbuildinfo"
+	},
+	"include": ["src/**/*.ts"]
+}

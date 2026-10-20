@@ -1,0 +1,94 @@
+---
+title: "Deploy and assets"
+description: "Upload assets and deploy places, settings, and monetization from rotor.toml with Open Cloud."
+---
+
+sloptor's cloud tools read one typed config, [`rotor.toml`](/sloptor/configuration/rotor-toml/), at the project root. They authenticate with an Open Cloud key in `ROBLOX_API_KEY`.
+
+## The Open Cloud key
+
+Create an Open Cloud API key with these scopes and export it as `ROBLOX_API_KEY`:
+
+| Scope                   | Used for                                   |
+| ----------------------- | ------------------------------------------ |
+| Assets read and write   | Uploading assets                           |
+| Legacy assets manage    | Unwrapping image uploads to their Image id |
+| Universe places write   | Publishing place files                     |
+| Universe read and write | Experience settings                        |
+
+`sloptor doctor` checks your config and key setup.
+
+## Assets
+
+```sh
+sloptor asset sync          # upload new and changed assets, update the lockfile
+sloptor asset list          # show what the lockfile tracks
+sloptor asset sync --dry-run
+```
+
+`sloptor asset sync` scans the `[assets] paths` globs and uploads new or changed files through Open Cloud. The SHA-256 lockfile `rotor-lock.json` means unchanged files never upload again, and updates keep asset ids stable. Image uploads are unwrapped to the underlying **Image** asset id, because an upload creates a Decal whose id doesn't render in `ImageLabel.Image` and similar properties.
+
+A project picks one way assets reach Luau with `[assets] mode`. Both modes share the same scan, hash, and upload pipeline and the same lockfile.
+
+- **`"module"`** (default): `sync` regenerates a typed accessor module, `assets.luau` and `assets.d.ts`, from the lockfile. The `$asset` macro still works.
+- **`"macro"`**: `sync` maintains the lockfile and the `rotor.d.ts` editor companion, with no `assets.luau`. You reference assets inline with [`$asset("assets/logo.png")`](/sloptor/macros/), and a build fills any cache miss by uploading when `ROBLOX_API_KEY` is set.
+
+An optional `[assets] base` directory is prepended to non-relative `$asset` paths, so files can live under `assets/images/` while references stay short.
+
+```toml
+#:schema https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json
+
+[assets]
+mode = "macro"
+base = "assets"
+paths = ["assets/**/*.png", "assets/**/*.ogg"]
+
+[assets.creator]
+type = "group"
+id = 12345
+```
+
+## Deploy
+
+```sh
+sloptor deploy plan -e prod     # diff config against live state, no writes
+sloptor deploy apply -e prod    # apply only what drifted
+```
+
+`sloptor deploy` is infrastructure as code. It diffs the config against per-environment state in `.rotor/deploy/<env>.json`, shows a plan, and applies only the drift:
+
+- place files and place settings
+- experience settings
+- badges and game passes, whose icons upload first and dedupe when shared
+- the experience icon and thumbnails
+- developer products
+- social links
+
+Deletes need `--allow-deletes`, and `--yes` skips the confirmation prompt.
+
+```toml
+[deploy.environments.prod]
+universeId = 333
+
+[deploy.environments.prod.places.start]
+file = "build/game.rbxl"
+placeId = 444
+maxPlayers = 30
+versionType = "published"
+
+[deploy.environments.prod.experience]
+name = "My Game"
+playability = "public"
+
+[deploy.environments.prod.gamepasses.vip]
+name = "VIP"
+price = 250
+icon = "assets/vip.png"
+
+[deploy.environments.prod.socials.discord]
+title = "Join us"
+url = "https://discord.gg/x"
+type = "discord"
+```
+
+Every key is listed in the [`rotor.toml` reference](/sloptor/configuration/rotor-toml/).

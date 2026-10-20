@@ -1,13 +1,11 @@
-"use strict";
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import readline from "node:readline";
 
-const fs = require("node:fs");
-const path = require("node:path");
-const readline = require("node:readline");
-const { spawn } = require("node:child_process");
-const { resolveTypeScript, SidecarServer } = require("./tools/sidecar");
-
-const pkg = require("./package.json");
-const { resolvePlatformBinary } = require("./platform.js");
+import pkg from "./package.json" with { type: "json" };
+import { resolvePlatformBinary } from "./platform.js";
+import { resolveTypeScript, SidecarServer } from "./tools/sidecar/index.js";
 
 const PROTOCOL_VERSION = 1;
 const REQUIRED_CAPABILITIES = [
@@ -533,4 +531,4 @@ function createBuildSession(options = {}) {
 	return new BuildSession(options.executable, [...executableArgs], options.executable === undefined);
 }
 
-module.exports = { createBuildSession, SloptorClientError };
+export { createBuildSession, SloptorClientError };

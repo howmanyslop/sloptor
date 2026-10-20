@@ -1,0 +1,35 @@
+---
+title: "tsconfig rbxts"
+description: "The rbxts key in tsconfig.json, generated from rbxts-tsconfig.schema.json."
+---
+
+import SchemaReference from "$components/schema-reference.astro";
+import schema from "../../../../../rbxts-tsconfig.schema.json";
+
+Build options can live under the top-level `"rbxts"` key of `tsconfig.json` instead of the command line. The merge order is defaults, then `rbxts`, then command-line flags.
+
+The `rbxts` values merge through the `extends` chain from parent to child, path values resolve relative to the file that declares them, and command-line values win over tsconfig values. CLI-only values such as `watch`, `verbose`, and `usePolling` are warned about and ignored when placed under `rbxts`.
+
+## Editor schema
+
+The `rotor.toml` schema and the tsconfig `rbxts` schema are separate documents. Publish the `rbxts` one where your editors can read it:
+
+```sh
+sloptor schema --rbxts > rbxts-tsconfig.schema.json
+```
+
+Then point `tsconfig.json` at it:
+
+```json
+{
+	"$schema": "./rbxts-tsconfig.schema.json",
+	"rbxts": {
+		"type": "game",
+		"optimizedLoops": true
+	}
+}
+```
+
+This page is generated from `rbxts-tsconfig.schema.json` when the site builds.
+
+<SchemaReference schema={schema} bracketed={false} />

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // npm/bun shim for the sloptor CLI. The executable comes from the same exact-
 // version optional platform package used by the JavaScript API.
-"use strict";
 
-const { spawnSync } = require("child_process");
-const { resolvePlatformBinary } = require("../platform.js");
+import { spawnSync } from "node:child_process";
+
+import { resolvePlatformBinary } from "../platform.js";
 
 function main() {
 	const result = spawnSync(resolvePlatformBinary(), process.argv.slice(2), { stdio: "inherit" });

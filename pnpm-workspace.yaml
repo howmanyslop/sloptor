@@ -1,16 +1,138 @@
-# Equivalent to pnpm-workspace.yaml `packages:`
-packages:
-  - scripts
-  - .omp
-  - packages/*
-
 # Block exotic sub-dependencies (e.g. git, file: deps)
 blockExoticSubdeps: true
-strictSsl: true
-trustPolicy: no-downgrade
-trustPolicyIgnoreAfter: 10080
-trustPolicyExclude:
+catalogMode: prefer
+cleanupUnusedCatalogs: true
+
+# Global virtual store (pnpm's node_modules/.pnpm equivalent)
+enableGlobalVirtualStore: true
+linkWorkspacePackages: true
+minimumReleaseAge: 1440
+
+minimumReleaseAgeExclude:
+  - "@astrojs/markdown-satteri"
+  - "@astrojs/starlight"
+  - "@biomejs/*"
+  - "@oxfmt/*"
+  - "@oxlint/*"
+  - "@tsrs/*"
+  - astro
+  - oxfmt
+  - oxlint
+  - oxlint-plugin-utilities
   - skills
+  - tsrs
+
+minimumReleaseAgeExcludePrune: true
+minimumReleaseAgeStrict: true
+# Use time-based resolution for reproducible installs
+resolutionMode: time-based
+shellEmulator: true
+strictDepBuilds: true
+strictPeerDependencies: true
+# Keep every release target in the lockfile even when installing on one host.
+supportedArchitectures:
+  cpu:
+    - arm64
+    - x64
+  os:
+    - darwin
+    - linux
+    - win32
+
+trustPolicy: no-downgrade
+
+trustPolicyExclude:
+  - "@tsrs/*"
+  - skills
+  - tsrs
+
+trustPolicyIgnoreAfter: 10080
+
+# Equivalent to pnpm-workspace.yaml `packages:`
+packages:
+  - documentation
+  - packages/*
+  - scripts
+  - tools/lint-configurations
+
+overrides:
+  "@isentinel/eslint-config>@pobammer-ts/small-rules": catalog:lint
+
+# Applies `componentExts` (.astro) to the options rules instead of oxfmt's file
+# list; same patch as small-rules.
+patchedDependencies:
+  "@isentinel/eslint-config@6.1.0": patches/@isentinel__eslint-config@6.1.0.patch
+  # Falls back to TypeScript's win32 compiler, since tsrs ships no Windows binary.
+  tsrs@0.18.0-ts7.1.0-dev.20260929: patches/tsrs@0.18.0-ts7.1.0-dev.20260929.patch
+
+catalogs:
+  commitlint:
+    "@commitlint/cli": 21.2.4
+    "@commitlint/config-conventional": 21.2.4
+    "@commitlint/types": 21.2.3
+  frontend:
+    "@astrojs/check": 0.9.10
+    "@astrojs/markdown-satteri": 0.4.4
+    "@astrojs/mdx": 8.1.0
+    "@astrojs/react": 7.1.0
+    "@astrojs/starlight": 0.42.6
+    "@fontsource-variable/ibm-plex-sans": 5.3.0
+    "@fontsource-variable/newsreader": 5.3.0
+    "@fontsource/ibm-plex-mono": 5.3.0
+    astro: 7.4.0
+    get-tsconfig: 4.14.3
+    oxc-transform-react: 0.154.0
+    react: 19.3.1
+    react-dom: 19.3.1
+    sharp: 0.35.5
+    shiki: 4.5.0
+    wrangler: 4.151.1
+  lint:
+    "@biomejs/biome": 2.5.15
+    "@isentinel/eslint-config": 6.1.0
+    "@pobammer-ts/small-rules": 3.6.0
+    "@vitest/eslint-plugin": 1.6.27
+    eslint: 10.12.0
+    eslint-plugin-antfu: 3.2.3
+    eslint-plugin-astro: 3.2.1
+    eslint-plugin-n: 18.4.1
+    eslint-plugin-pnpm: 1.9.1
+    eslint-plugin-react-jsx: 5.27.2
+    eslint-plugin-react-naming-convention: 5.27.2
+    eslint-plugin-react-x: 5.27.2
+    eslint-plugin-regexp: 3.1.1
+    eslint-plugin-sonarjs: 4.2.2
+    eslint-plugin-unused-imports: 4.4.1
+    knip: 6.31.0
+    oxfmt: 0.74.0
+    oxlint: 1.89.0
+    oxlint-tsgolint: 7.0.2004
+  runtime:
+    effect: 4.0.1
+  scripts:
+    "@cliffy/command": jsr:@cliffy/command@1.3.1
+    arktype: 2.2.8
+    consola: 3.4.2
+    tinyexec: 1.3.1
+  test:
+    "@playwright/test": 1.64.1
+    "@testing-library/react": 16.3.3
+    jsdom: 29.1.1
+    vitest: 5.0.5
+  tooling:
+    bumpp: 12.3.0
+    jiti: 2.7.0
+    pncat: 0.13.0
+    skills: 1.7.4
+    tsrs: 0.18.0-ts7.1.0-dev.20260929
+    typescript: 5.9.3
+  types:
+    "@total-typescript/ts-reset": 0.6.1
+    "@types/bun": 1.4.3
+    "@types/node": ^26.1.2
+    "@types/react": 19.3.0
+    "@types/react-dom": 19.3.0
+    type-fest: 5.8.0
 
 # Only allow specific packages to run install scripts
 allowBuilds:
@@ -21,133 +143,34 @@ allowBuilds:
   onnxruntime-node: true
   protobufjs: true
   sharp: true
+  workerd: true
 
-strictDepBuilds: true
-strictPeerDependencies: true
-linkWorkspacePackages: true
-
-# Keep every release target in the lockfile even when installing on one host.
-supportedArchitectures:
-  os:
-    - darwin
-    - linux
-    - win32
-  cpu:
-    - arm64
-    - x64
+packageExtensions:
+  astro@7.4.0:
+    peerDependencies:
+      "@astrojs/check": "*"
+      typescript: "*"
+    peerDependenciesMeta:
+      "@astrojs/check":
+        optional: true
+      typescript:
+        optional: true
+  tsrs:
+    optionalDependencies:
+      "@typescript/typescript-win32-arm64": 7.1.0-dev.20260930.4
+      "@typescript/typescript-win32-x64": 7.1.0-dev.20260930.4
 
 peerDependencyRules:
   allowedVersions:
+    "@astrojs/react>oxc-transform-react": 0.154.0
     "@emnapi/core": ">=1.0.0"
     "@emnapi/runtime": ">=1.0.0"
-
-# Global virtual store (pnpm's node_modules/.pnpm equivalent)
-enableGlobalVirtualStore: true
-
-minimumReleaseAge: 1440
-minimumReleaseAgeExclude:
-  - "@biomejs/biome"
-  - "@biomejs/cli-darwin-arm64"
-  - "@biomejs/cli-darwin-x64"
-  - "@biomejs/cli-linux-arm"
-  - "@biomejs/cli-linux-arm64"
-  - "@biomejs/cli-linux-arm64-musl"
-  - "@biomejs/cli-linux-x64"
-  - "@biomejs/cli-linux-x64-musl"
-  - "@biomejs/cli-win32-arm64"
-  - "@biomejs/cli-win32-x64"
-  - "@oxfmt/binding-android-arm-eabi"
-  - "@oxfmt/binding-android-arm64"
-  - "@oxfmt/binding-darwin-arm64"
-  - "@oxfmt/binding-darwin-x64"
-  - "@oxfmt/binding-freebsd-x64"
-  - "@oxfmt/binding-linux-arm-gnueabihf"
-  - "@oxfmt/binding-linux-arm-musleabihf"
-  - "@oxfmt/binding-linux-arm64-gnu"
-  - "@oxfmt/binding-linux-arm64-musl"
-  - "@oxfmt/binding-linux-ppc64-gnu"
-  - "@oxfmt/binding-linux-riscv64-gnu"
-  - "@oxfmt/binding-linux-riscv64-musl"
-  - "@oxfmt/binding-linux-s390x-gnu"
-  - "@oxfmt/binding-linux-x64-gnu"
-  - "@oxfmt/binding-linux-x64-musl"
-  - "@oxfmt/binding-openharmony-arm64"
-  - "@oxfmt/binding-win32-arm64-msvc"
-  - "@oxfmt/binding-win32-ia32-msvc"
-  - "@oxfmt/binding-win32-x64-msvc"
-  - "@oxlint/binding-android-arm-eabi"
-  - "@oxlint/binding-android-arm64"
-  - "@oxlint/binding-darwin-arm64"
-  - "@oxlint/binding-darwin-x64"
-  - "@oxlint/binding-freebsd-x64"
-  - "@oxlint/binding-linux-arm-gnueabihf"
-  - "@oxlint/binding-linux-arm-musleabihf"
-  - "@oxlint/binding-linux-arm64-gnu"
-  - "@oxlint/binding-linux-arm64-musl"
-  - "@oxlint/binding-linux-ppc64-gnu"
-  - "@oxlint/binding-linux-riscv64-gnu"
-  - "@oxlint/binding-linux-riscv64-musl"
-  - "@oxlint/binding-linux-s390x-gnu"
-  - "@oxlint/binding-linux-x64-gnu"
-  - "@oxlint/binding-linux-x64-musl"
-  - "@oxlint/binding-openharmony-arm64"
-  - "@oxlint/binding-win32-arm64-msvc"
-  - "@oxlint/binding-win32-ia32-msvc"
-  - "@oxlint/binding-win32-x64-msvc"
-  - "@typescript/native-preview"
-  - "@typescript/native-preview-darwin-arm64"
-  - "@typescript/native-preview-darwin-x64"
-  - "@typescript/native-preview-linux-arm"
-  - "@typescript/native-preview-linux-arm64"
-  - "@typescript/native-preview-linux-x64"
-  - "@typescript/native-preview-win32-arm64"
-  - "@typescript/native-preview-win32-x64"
-  - oxfmt
-  - oxlint
-  - oxlint-plugin-utilities
-  - skills
-
-minimumReleaseAgeStrict: true
-
-# Use time-based resolution for reproducible installs
-resolutionMode: time-based
+    "@vitejs/plugin-react>oxc-transform-react": 0.154.0
 
 fetchRetries: 5
-fetchRetryMintimeout: 1000
 fetchRetryMaxtimeout: 30000
+fetchRetryMintimeout: 1000
 fetchTimeout: 60000
-
+strictSsl: true
 strictStorePkgContentCheck: true
 verifyStoreIntegrity: true
-catalogs:
-  dev:
-    "@cliffy/command": npm:@jsr/cliffy__command@1.2.1
-    "@commitlint/cli": 21.2.2
-    "@commitlint/config-conventional": 21.2.2
-    "@commitlint/types": 21.2.0
-    "@oh-my-pi/pi-coding-agent": 17.3.2
-    "@typescript/native-preview": 7.0.0-dev.20260707.2
-    "arktype": 2.2.3
-    "bumpp": 12.3.0
-    "picocolors": 1.1.1
-    "pncat": 0.13.0
-    "skills": 1.5.21
-    tinyexec: 1.3.1
-    "type-fest": 5.8.0
-    "typescript": 5.9.3
-    "zx": 8.8.5
-  lint:
-    "@biomejs/biome": 2.5.7
-    "@pobammer-ts/small-rules": 2.15.0
-    "eslint-plugin-antfu": 3.2.3
-    "eslint-plugin-regexp": 3.1.1
-    "eslint-plugin-sonarjs": 4.2.0
-    "eslint-plugin-unused-imports": 4.4.1
-    "knip": 6.31.0
-    "oxfmt": 0.62.0
-    "oxlint": 1.77.0
-    "oxlint-tsgolint": 7.0.2001
-  types:
-    "@total-typescript/ts-reset": 0.6.1
-    "@types/bun": 1.3.14
-    "@types/node": ^26.1.2

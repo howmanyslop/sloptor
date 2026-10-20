@@ -1,0 +1,36 @@
+---
+title: "Environment"
+description: "Environment files and variables sloptor reads: .env, ROBLOX_API_KEY, write workers, and Go memory tuning."
+---
+
+## `.env` files
+
+The [`$env` macro](/sloptor/macros/) reads values at compile time with this priority:
+
+1. the process environment
+2. `.env.<NODE_ENV>`
+3. `.env`
+
+The files live next to your `tsconfig.json`. `NODE_ENV` itself resolves from the process environment, then `.env`. The format is `KEY=VALUE` lines with `#` comments and optional single or double quotes.
+
+## Variables
+
+| Variable                   | Effect                                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `ROBLOX_API_KEY`           | Open Cloud key for `sloptor asset`, `sloptor deploy`, and `$asset` uploads on a cache miss |
+| `NODE_ENV`                 | Picks the `.env.<NODE_ENV>` file for `$env`                                                |
+| `RBXTSC_WRITE_CONCURRENCY` | Output-write workers. Takes precedence over `ROTOR_WRITE_WORKERS`, capped at 256           |
+| `ROTOR_WRITE_WORKERS`      | sloptor's own output-write override                                                        |
+| `ROTOR_SIDECAR_PATH`       | Overrides the transformer sidecar location (repository development and tests)              |
+| `GOGC`                     | Go garbage collection target                                                               |
+| `GOMEMLIMIT`               | Soft Go memory limit                                                                       |
+
+Without a write override, sloptor uses 8 output-write workers. Positive fractional overrides round down; invalid values fall through to the next setting or the default. `UV_THREADPOOL_SIZE` can still affect the Node sidecar's libuv pool, but not sloptor's write workers.
+
+## Memory defaults
+
+When `GOGC` is unset, one-shot commands use `GOGC=400`. `build --watch` (including solution builds), `check --watch`, and `dev` use `GOGC=100` before the first compile, which collects temporary compiler allocations sooner at a possible throughput cost.
+
+When `GOMEMLIMIT` is unset, sloptor uses 75% of effective memory, clamped from 512 MiB to 16 GiB for one-shot commands and to 6 GiB for watch commands. Linux accounts for finite cgroup v1 and v2 limits; macOS and Windows use the host memory the OS reports.
+
+Explicit `GOGC` and `GOMEMLIMIT` values always win. `GOMEMLIMIT` is a soft budget, not a hard cap: it can be exceeded, and it excludes Node transformer children and some OS allocations. Lower `--checkers` and `--builders` counts reduce live compiler state when a tight budget causes frequent collection.

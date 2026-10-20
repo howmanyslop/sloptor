@@ -1,0 +1,59 @@
+---
+import { toSchemaTables } from "$utilities/schema-reference";
+
+import type { JsonSchema } from "$utilities/schema-reference";
+
+interface Props {
+	readonly bracketed?: boolean | undefined;
+	readonly schema: JsonSchema;
+}
+
+const { bracketed = true, schema } = Astro.props;
+const tables = toSchemaTables(schema);
+
+function toSlug(path: string): string {
+	return path.replaceAll(/[^\w]+/gu, "-").replaceAll(/^-|-$/gu, "");
+}
+---
+
+{tables.map((table) => (
+	<section class="schema-table">
+		<h2 id={toSlug(table.path)}>
+			<code>{bracketed ? `[${table.path}]` : table.path}</code>
+		</h2>
+		{table.description.length > 0 && <p>{table.description}</p>}
+		{table.keys.length > 0 && (
+			<table>
+				<thead>
+					<tr>
+						<th>{"Key"}</th>
+						<th>{"Type"}</th>
+						<th>{"Description"}</th>
+					</tr>
+				</thead>
+				<tbody>
+					{table.keys.map((key) => (
+						<tr>
+							<td>
+								<code>{key.name}</code>
+							</td>
+							<td>
+								<code>{key.type}</code>
+							</td>
+							<td>
+								{key.description}
+								{key.defaultValue !== undefined && (
+									<>
+										{" "}
+										{"Default:"} <code>{key.defaultValue}</code>
+										{"."}
+									</>
+								)}
+							</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
+		)}
+	</section>
+))}

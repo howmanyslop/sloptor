@@ -1,0 +1,114 @@
+---
+title: "Diagnostics census"
+description: "Report every file's outcome with sloptor diagnostics, with overlays and solution censuses."
+---
+
+`sloptor build` is four sequential gates — program-option diagnostics, the
+per-file precheck, the global checker diagnostics, the transform drain — and
+each returns at the first failure. The precheck gate returns _before_ the
+transform stage is queued, so **one type error anywhere hides every transformer
+diagnostic in the project**. `sloptor check` is complete but typecheck-only: it
+never runs the transformer, so it surfaces no `noAny`-class diagnostic at all.
+
+`sloptor diagnostics` runs every file and reports each one's outcome:
+
+| Outcome                 | Meaning                                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ok`                    | transformed with no diagnostics. Not a claim that the Luau is _correct_ — sloptor uses types for truthiness, coercion and loop lowering, so output for a type-broken file can be silently wrong |
+| `typeError`             | TypeScript rejected it. It is transformed anyway                                                                                                                                                |
+| `transformerDiagnostic` | sloptor's transformer rejected it (or it uses comment directives)                                                                                                                               |
+| `internalCompilerError` | a ported upstream assert fired; the panic value and stack are reported                                                                                                                          |
+
+```powershell
+sloptor diagnostics --project tsconfig.json --json
+'{"overlays":{"C:/proj/src/main.ts":"export const x = 1;\n"}}' | sloptor diagnostics --json
+```
+
+- `--project <path>` selects the config; `--checkers <n>` sets checker count.
+  `-b/--build [path]` censuses a whole solution of project references, with
+  `--builders <n>` — the same flags, values and `--builders requires --build`
+  rule `sloptor build` uses.
+- `--json` extends the `sloptor build --json` result shape with a `transformed`
+  count, an `overlayMatches` count and a `fileDiagnostics` array. Diagnostic
+  positions are resolved against the text that was compiled, so they stay
+  correct under overlays.
+- Every diagnostic carries a `code`: `TS####` for a TypeScript one, the upstream
+  factory name (`noAny`, `rotorLabeledStatementFlowControl`) for a transformer
+  one. Classify on it rather than on the file's `outcome` — a file can carry
+  both families at once, and `outcome` reports only the most severe. The key is
+  omitted where there was never a code to carry, such as a run that failed as a
+  whole rather than at a diagnostic.
+- Note that `files` means something different here than it does for `build`:
+  for `build` it counts files **written**, for `diagnostics` it counts files
+  **censused** (nothing is written).
+- It is **read-only**: no `outDir`, no `include/`, no `rotor.d.ts`, and `$asset`
+  resolution runs offline so a census can never upload.
+- The tsconfig `rbxts` key still sets the project's shape (`type`, `rojo`,
+  `includePath`), but `allowCommentDirectives` is forced off. That does **not**
+  stop `@ts-ignore` from hiding type errors — a directive suppresses them
+  inside the checker, and no compiler flag sloptor sets undoes that. What forcing
+  it off does is add sloptor's own "comment directives are not supported"
+  diagnostic, so a file that leans on them is at least visible as
+  `transformerDiagnostic` rather than passing as `ok`. The cost is a
+  divergence: a project that legitimately sets `allowCommentDirectives: true`
+  gets a diagnostic here that `sloptor build` does not report.
+- **Exit code, unlike `build` and `check`: 0 whenever a census was produced**,
+  even one full of diagnostics; 1 only when none could be. This command reports,
+  it does not gate. Read `ok` and the per-file outcomes to judge the contents.
+
+### Overlays
+
+Optional **overlays** arrive as JSON on **stdin** (`{"overlays":{"<absolute
+path>":"<source>"}}`) and replace those files' text for the run only. argv
+cannot carry a project's worth of source, which is why this is stdin.
+
+- **stdin must be closed**, or the reader blocks. An interactive terminal is
+  detected and treated as "no overlays"; a pipe left open is not.
+- Overlays **replace** files, they cannot **add** them. The overlay filesystem
+  overrides `FileExists` and `ReadFile` only, not directory enumeration, so a
+  key naming a path the tsconfig `include` never walks to reaches nothing.
+- A key that matches **no file in the program is an error**, not a silent
+  no-op. Compare `overlayMatches` against the number you sent: a green census
+  of the unmodified tree is exactly the failure this prevents. Keys may use
+  either separator, and match case-insensitively where the filesystem does.
+  Under `--build` the check is against the **union of every project**, since a
+  solution's files are split between them; `overlayMatches` counts distinct
+  overlays, not per-project matches.
+- Unknown top-level fields in the request are rejected, so a typo'd wrapper key
+  fails instead of parsing to an empty overlay set.
+- Overlays work on projects with **transformer plugins**, so you can census
+  your real build tsconfig rather than authoring a plugin-free copy of it. For
+  external plugins, the text ships to the Node sidecar as a changed file, the
+  worker's plugins run against it, and the program sloptor rebuilds from the
+  worker's output keeps your overlay on every file the worker was not asked to
+  transform. Native `[flamework]` projects use the native pipeline instead.
+  Declaration emit through `baseUrl`/`paths` resolves module names against the
+  same view.
+
+### Solutions (`--build`)
+
+`sloptor diagnostics --build [path]` censuses every project the entry tsconfig
+references, transitively, in dependency order.
+
+- A project that cannot be censused at all does **not** stop the others. A
+  solution _build_ blocks the dependents of a failed project, because they
+  consume its missing output; a census reads no project's output (TypeScript
+  redirects a project reference to source), so blocking would only mean
+  projects going unreported. The failure is reported against its own project
+  and the run exits 1.
+- `--json` adds a `projects` array: `projectDir`, `configPath`, `ok`, `files`,
+  `transformed`, `overlayMatches`, and the diagnostics that belong to the
+  project rather than to one of its files. Each `fileDiagnostics` entry gains a
+  `project` key naming the same `configPath`, so the files stay in one flat
+  array instead of being repeated per project.
+- Every top-level number is a **solution-wide aggregate**: `files`,
+  `transformed`, `overlayMatches` and `diagnostics` are the totals, and
+  `fileDiagnostics` holds every project's files. A project's `diagnostics` are
+  the attributed subset of the top-level array, not an addition to it;
+  solution-level failures belong to no project and appear only at the top.
+- **Without `--build` the output is byte-identical to a solution-unaware
+  sloptor**: `projects` and the per-file `project` are the only new keys and both
+  are omitted.
+- `allowCommentDirectives` is forced off for every project of the solution, not
+  only the entry, so one referenced project's `rbxts` key cannot change how its
+  files are classified.

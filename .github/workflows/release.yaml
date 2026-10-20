@@ -14,46 +14,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
-    runs-on: ubuntu-24.04
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
-        with:
-          install_args: node
-          experimental: true
-
-      - name: Validate version
-        id: version
-        run: |
-          code_version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/version/version.go)
-          if [ -z "$code_version" ]; then
-            echo "could not read Version from internal/version/version.go"
-            exit 1
-          fi
-          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match internal/version/version.go (v$code_version)"
-            echo "bump the Version constant before tagging a release"
-            exit 1
-          fi
-          validation_args=()
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            validation_args+=(--tag "$GITHUB_REF_NAME")
-          fi
-          node scripts/validate-release.cjs "${validation_args[@]}"
-          echo "version=$code_version" >> "$GITHUB_OUTPUT"
-
   build:
     needs: validate
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -74,9 +37,6 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
 
       - name: Build release binaries
-        env:
-          VERSION: ${{ needs.validate.outputs.version }}
-          CGO_ENABLED: "0"
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -122,10 +82,11 @@ jobs:
             fi
           done
           exit "$status"
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.validate.outputs.version }}
 
       - name: Package and verify release assets
-        env:
-          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -188,6 +149,8 @@ jobs:
           file "dist/sloptor-v$VERSION-linux-arm64-bin" | grep -q "ELF 64-bit.*ARM aarch64"
           file "dist/sloptor-v$VERSION-windows-amd64-bin.exe" | grep -q "PE32+.*x86-64"
           file "dist/sloptor-v$VERSION-windows-arm64-bin.exe" | grep -q "PE32+.*Aarch64"
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
 
       - name: Stage npm release packages
         run: |
@@ -204,54 +167,70 @@ jobs:
           compression-level: 0
           retention-days: 1
 
-  smoke-npm:
-    needs:
-      - validate
-      - build
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: linux-x64
-            runner: ubuntu-24.04
-          - target: linux-arm64
-            runner: ubuntu-24.04-arm
-          - target: darwin-x64
-            runner: macos-15-intel
-          - target: darwin-arm64
-            runner: macos-15
-          - target: win32-x64
-            runner: windows-2025
-          - target: win32-arm64
-            runner: windows-11-arm
-    name: Smoke npm (${{ matrix.target }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 10
+    timeout-minutes: 45
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - name: Download release bundle
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: release-bundle
-          path: dist
-
-      - name: Smoke-test installed API and CLI
-        run: node scripts/smoke-npm-release.cjs --bundle dist/npm --fixture test/fixtures/single-project
-
-  publish:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs:
-      - validate
-      - build
-      - smoke-npm
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+  changelog:
     permissions:
       contents: write
+    needs: release-notes
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
 
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install_args: node
+          experimental: true
+
+      - name: Write release notes to CHANGELOG.md and the documentation
+        run: node scripts/sync-release-notes.ts --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Commit release notes to main
+        run: |
+          set -euo pipefail
+          RELEASE_ARTIFACT="documentation/src/content/releases/$GITHUB_REF_NAME.md"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RELEASE_ARTIFACT" CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "Release notes and changelog already match main"
+            exit 0
+          fi
+          git commit -m "chore(docs): add $GITHUB_REF_NAME release notes"
+          gh auth setup-git
+          git push origin HEAD:main
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+    timeout-minutes: 10
+
+  deploy-documentation:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: changelog
+    permissions:
+      contents: read
+    secrets: inherit
+    uses: ./.github/workflows/docs.yml
+    with:
+      ref: main
+
+  publish:
+    permissions:
+      contents: write
+    needs:
+      - build
+      - smoke-npm
+      - validate
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
     steps:
       - name: Download release bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -260,9 +239,6 @@ jobs:
           path: dist
 
       - name: Publish verified release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -313,6 +289,11 @@ jobs:
           done < "dist/sloptor-v$VERSION-checksums.txt"
 
           gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+
+    timeout-minutes: 10
 
   release-notes:
     if: github.event_name == 'push' && github.ref_type == 'tag'
@@ -337,12 +318,84 @@ jobs:
         name: Generate and publish release notes
         run: communique generate "${{ github.ref_name }}" --github-release --review-report release-notes-review.md
 
-      - name: Upload release notes coverage report
-        if: always()
+      - if: always()
+        name: Upload release notes coverage report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
+          if-no-files-found: ignore
           name: release-notes-review
           path: release-notes-review.md
-          if-no-files-found: ignore
 
     timeout-minutes: 15
+
+  smoke-npm:
+    name: Smoke npm (${{ matrix.target }})
+    needs:
+      - validate
+      - build
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Download release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-bundle
+          path: dist
+
+      - name: Smoke-test installed API and CLI
+        run: node scripts/smoke-npm-release.cjs --bundle dist/npm --fixture test/fixtures/single-project
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: windows-2025
+            target: win32-x64
+          - runner: windows-11-arm
+            target: win32-arm64
+
+    timeout-minutes: 10
+
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@v2
+        with:
+          install_args: node
+          experimental: true
+
+      - id: version
+        name: Validate version
+        run: |
+          code_version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/version/version.go)
+          if [ -z "$code_version" ]; then
+            echo "could not read Version from internal/version/version.go"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
+            echo "tag $GITHUB_REF_NAME does not match internal/version/version.go (v$code_version)"
+            echo "bump the Version constant before tagging a release"
+            exit 1
+          fi
+          validation_args=()
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            validation_args+=(--tag "$GITHUB_REF_NAME")
+          fi
+          node scripts/validate-release.cjs "${validation_args[@]}"
+          echo "version=$code_version" >> "$GITHUB_OUTPUT"

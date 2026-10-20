@@ -7,43 +7,30 @@
 	"endOfLine": "lf",
 	"htmlWhitespaceSensitivity": "css",
 	"ignorePatterns": [
-		"**/*.{md,toml,js}",
+		"**/*-lock.json",
+		"**/*.js",
+		"**/*.{md,toml,js,yaml,yml,toml}",
+		"**/.opencode/goals",
 		"**/do-not-sync-ever/**",
-		".tsbuildinfo*",
-		"**/*-lock.{json,yaml}",
+		"**/generated/**",
 		"**/ses_*.json",
-		".mise/**"
+		".mise/**",
+		".tsbuildinfo*",
+		"tests/fixtures/**/{invalid-*,*-invalid}/**/*.json",
+		"**/{reference,testdata}/**/src/tests/**",
+		"tsgo/lsp/lsproto/_generate/tsconfig.json"
 	],
 	"insertFinalNewline": true,
-	"jsdoc": {
-		"addDefaultToDescription": true,
-		"bracketSpacing": false,
-		"capitalizeDescriptions": true,
-		"commentLineStrategy": "singleLine",
-		"descriptionTag": false,
-		"descriptionWithDot": true,
-		"keepUnparsableExampleIndent": false,
-		"lineWrappingStyle": "greedy",
-		"preferCodeFences": true,
-		"separateReturnsFromParam": false,
-		"separateTagGroups": false
-	},
+	"jsdoc": false,
 	"jsxSingleQuote": false,
 	"objectWrap": "preserve",
 	"overrides": [
-		{
-			"files": ["**/*.{yaml,yml}"],
-			"options": {
-				"tabWidth": 2,
-				"useTabs": false
-			}
-		},
 		{
 			"files": ["**/*.jsonc"],
 			"options": { "trailingComma": "all" }
 		},
 		{
-			"files": ["biome.jsonc", ".oxlintrc.json", "knip.jsonc"],
+			"files": ["biome.jsonc", ".oxlintrc.json"],
 			"options": { "trailingComma": "none" }
 		},
 		{
@@ -131,14 +118,14 @@
 			"unknown"
 		],
 		"ignoreCase": true,
-		"internalPattern": ["@/", "~/"],
+		"internalPattern": ["$", "~/"],
 		"newlinesBetween": false,
 		"order": "asc",
 		"partitionByComment": false,
 		"partitionByNewline": false,
 		"sortSideEffects": false
 	},
-	"sortPackageJson": { "sortScripts": true },
+	"sortPackageJson": false,
 	"sortTailwindcss": true,
 	"tabWidth": 4,
 	"trailingComma": "all",

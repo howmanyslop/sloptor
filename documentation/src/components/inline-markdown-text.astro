@@ -1,0 +1,15 @@
+---
+import { parseInlineMarkdown } from "$utilities/inline-markdown";
+
+interface Props {
+	readonly text: string;
+}
+
+const { text } = Astro.props;
+const segments = parseInlineMarkdown(text);
+---
+
+{segments.map((segment) => {
+	const content = segment.code ? <code>{segment.text}</code> : segment.text;
+	return segment.bold ? <strong>{content}</strong> : content;
+})}

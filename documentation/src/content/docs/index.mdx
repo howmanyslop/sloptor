@@ -1,0 +1,133 @@
+---
+title: "sloptor"
+description: "TypeScript in, Roblox out, at native speed. A native roblox-ts toolchain, written in Go."
+template: splash
+tableOfContents: false
+editUrl: false
+---
+
+import BenchmarkChart from "$components/benchmark-chart.astro";
+import TerminalFigure from "$components/terminal-figure.astro";
+import { Overprint } from "$components/overprint";
+import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
+
+<section class="hero-splash note-row note-row--readouts not-content">
+	<div class="note-margin">
+		<h2>sloptor</h2>
+		<p>A native roblox-ts toolchain, written in Go. Version 2.8.3.</p>
+	</div>
+	<div class="note-body">
+		<h1 class="hero-title">TypeScript in, Roblox out, at native speed.</h1>
+		<p class="hero-subtitle">
+			sloptor compiles roblox-ts projects with the native TypeScript compiler and writes the same Luau as rbxtsc.
+			It also bundles Luau, syncs assets, and deploys places.
+		</p>
+		<pre class="hero-install">
+			<code>mise use github:howmanyslop/sloptor</code>
+		</pre>
+		<div class="hero-actions">
+			<a class="hero-cta hero-cta--primary" href="/sloptor/guide/introduction/">
+				Read the guide
+			</a>
+			<a class="hero-cta hero-cta--ghost" href="/sloptor/commands/">
+				or see every command
+			</a>
+		</div>
+	</div>
+	<dl class="readouts">
+		<div class="readout readout--lead">
+			<dt>Full build, 95-file production game</dt>
+			<dd>
+				<Overprint value={FULL_BUILD_MILLISECONDS} />
+			</dd>
+			<p class="readout-note">Milliseconds from cold, with output identical to rbxtsc 3.0.0.</p>
+		</div>
+	</dl>
+</section>
+
+<section class="note-row note-row--readouts reveal not-content">
+	<div class="note-margin">
+		<h2>Three workloads</h2>
+		<p>fig. 1 — three workloads on real production games, timed with sloptor. A shorter bar is a faster run.</p>
+	</div>
+	<div class="note-body">
+		<BenchmarkChart />
+		<a class="figure-link" href="/sloptor/guide/building/">
+			See how builds work
+		</a>
+	</div>
+	<dl class="readouts">
+		<div class="readout readout--lead">
+			<dt>Speedup over rbxtsc</dt>
+			<dd>About 10×</dd>
+			<p class="readout-note">
+				It comes from running the native, parallel TypeScript compiler instead of the single-threaded JS one.
+			</p>
+		</div>
+	</dl>
+</section>
+
+<section class="note-row note-row--readouts reveal not-content">
+	<div class="note-margin">
+		<h2>Drop-in</h2>
+		<p>
+			fig. 2 — one run of sloptor build. It takes the flags rbxtsc takes, and writes the files rbxtsc would write.
+		</p>
+	</div>
+	<div class="note-body">
+		<TerminalFigure />
+	</div>
+	<dl class="readouts">
+		<div class="readout readout--lead">
+			<dt>Luau lines that differ</dt>
+			<dd>0</dd>
+			<p class="readout-note">Byte-identical to rbxtsc 3.0.0 on the benchmark projects.</p>
+		</div>
+		<div class="readout readout--lead">
+			<dt>Node at build time</dt>
+			<dd>None</dd>
+			<p class="readout-note">Only external transformer plugins start a Node sidecar.</p>
+		</div>
+	</dl>
+</section>
+
+<section class="note-row reveal not-content">
+	<div class="note-margin">
+		<h2>Where next</h2>
+	</div>
+	<ul class="note-body link-rows">
+		<li>
+			<a class="link-row" href="/sloptor/guide/install/">
+				<span class="link-row-title">Guide</span>
+				<span class="link-row-desc">
+					Install sloptor, move a project over from rbxtsc, and run a first build.
+				</span>
+			</a>
+		</li>
+		<li>
+			<a class="link-row" href="/sloptor/commands/">
+				<span class="link-row-title">Commands</span>
+				<span class="link-row-desc">build, check, dev, bundle, pack, deploy, and the rest.</span>
+			</a>
+		</li>
+		<li>
+			<a class="link-row" href="/sloptor/configuration/rotor-toml/">
+				<span class="link-row-title">Configuration</span>
+				<span class="link-row-desc">rotor.toml, the rbxts key in tsconfig, and environment files.</span>
+			</a>
+		</li>
+		<li>
+			<a class="link-row" href="/sloptor/deploy/">
+				<span class="link-row-title">Deploy</span>
+				<span class="link-row-desc">Sync assets and ship places with Open Cloud.</span>
+			</a>
+		</li>
+	</ul>
+</section>
+
+<section class="footnote-band not-content">
+	<p class="footnote-label">Parity</p>
+	<p class="footnote-text">
+		sloptor's contract is rbxtsc 3.0.0: the same project in, the same Luau out. Anything else is a bug.
+	</p>
+</section>

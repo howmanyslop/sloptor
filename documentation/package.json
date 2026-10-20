@@ -1,0 +1,49 @@
+{
+	"name": "@sloptor/documentation",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"astro": "astro",
+		"build": "node --run generate && astro build",
+		"check": "node --run generate && astro check",
+		"dev": "node --run generate && astro dev",
+		"generate": "echo 'Generating command pages (compiles sloptor; the first run can take a minute)...' && go run ../cmd/rotor gen-docs src/content/docs/commands",
+		"postinstall": "astro sync",
+		"preview": "astro preview",
+		"start": "node --run dev",
+		"test:browser": "playwright test",
+		"test:unit": "vitest run --config vitest.config.ts"
+	},
+	"dependencies": {
+		"@astrojs/markdown-satteri": "catalog:frontend",
+		"@astrojs/mdx": "catalog:frontend",
+		"@astrojs/react": "catalog:frontend",
+		"@astrojs/starlight": "catalog:frontend",
+		"@fontsource-variable/ibm-plex-sans": "catalog:frontend",
+		"@fontsource-variable/newsreader": "catalog:frontend",
+		"@fontsource/ibm-plex-mono": "catalog:frontend",
+		"astro": "catalog:frontend",
+		"effect": "catalog:runtime",
+		"react": "catalog:frontend",
+		"react-dom": "catalog:frontend",
+		"sharp": "catalog:frontend",
+		"shiki": "catalog:frontend",
+		"type-fest": "catalog:types"
+	},
+	"devDependencies": {
+		"@astrojs/check": "catalog:frontend",
+		"@playwright/test": "catalog:test",
+		"@testing-library/react": "catalog:test",
+		"@total-typescript/ts-reset": "catalog:types",
+		"@types/node": "catalog:types",
+		"@types/react": "catalog:types",
+		"@types/react-dom": "catalog:types",
+		"get-tsconfig": "catalog:frontend",
+		"jsdom": "catalog:test",
+		"oxc-transform-react": "catalog:frontend",
+		"typescript": "catalog:tooling",
+		"vitest": "catalog:test",
+		"wrangler": "catalog:frontend"
+	}
+}

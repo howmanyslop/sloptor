@@ -14,81 +14,88 @@
 	"bugs": {
 		"url": "https://github.com/howmanyslop/sloptor/issues"
 	},
-	"license": "MIT",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/howmanyslop/sloptor.git"
 	},
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./api.d.ts",
+			"default": "./api.js"
+		},
+		"./package.json": "./package.json",
+		"./scripts/install.js": "./scripts/install.js"
+	},
+	"main": "api.js",
+	"types": "api.d.ts",
 	"bin": {
 		"rotor": "bin/rotor.js"
 	},
 	"files": [
-		"api.js",
 		"api.d.ts",
 		"platform.js",
 		"bin/",
 		"scripts/install.js",
 		"tools/sidecar/index.js",
-		"tools/sidecar/lib/"
+		"tools/sidecar/lib/",
+		"tools/sidecar/package.json"
 	],
-	"main": "api.js",
-	"types": "api.d.ts",
-	"exports": {
-		".": {
-			"types": "./api.d.ts",
-			"require": "./api.js",
-			"default": "./api.js"
-		},
-		"./scripts/install.js": "./scripts/install.js",
-		"./package.json": "./package.json"
-	},
-	"publishConfig": {
-		"access": "public",
-		"provenance": true
-	},
 	"scripts": {
 		"biome": "biome",
+		"docs:build": "pnpm --filter @sloptor/documentation run build",
+		"docs:check": "pnpm --filter @sloptor/documentation run check",
+		"docs:dev": "pnpm --filter @sloptor/documentation run dev",
+		"eslint": "eslint",
 		"format": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --fix $a && node --run oxfmt -- $a' _",
 		"format:check": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched $a && node --run oxfmt -- --no-error-on-unmatched-pattern --check $a' _",
 		"format:safe": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched --fix $a && node --run oxfmt -- --no-error-on-unmatched-pattern $a' _",
-		"lint": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run oxlint -- --no-error-on-unmatched-pattern $a && node --run biome -- check --no-errors-on-unmatched $a' _",
-		"lint:agent": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run oxlint -- --no-error-on-unmatched-pattern --format agent $a && node --run biome -- check --no-errors-on-unmatched --reporter concise $a' _",
+		"isentinel-lint": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --max-old-space-size=6144\" isentinel-lint --concurrency=off --eslint-args=\"--config eslint.config.ts\" --oxlint-args=\"--config oxlint.config.ts --disable-nested-config\"",
+		"jiti": "jiti",
+		"lint": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run isentinel-lint -- $a && node --run biome -- check --no-errors-on-unmatched $a' _",
+		"lint:agent": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run isentinel-lint -- --agents $a && node --run biome -- check --no-errors-on-unmatched --reporter concise $a' _",
 		"oxfmt": "oxfmt",
 		"oxlint": "oxlint",
 		"release": "bumpp",
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
-		"tsgo": "tsgo",
-		"type-check": "tsgo --noEmit",
-		"type-check:agent": "tsgo --noEmit --pretty false"
+		"tsrs": "tsrs",
+		"type-check": "tsrs --noEmit",
+		"type-check:agent": "tsrs --noEmit --pretty false"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:lint",
-		"@cliffy/command": "catalog:dev",
-		"@commitlint/cli": "catalog:dev",
-		"@commitlint/config-conventional": "catalog:dev",
-		"@commitlint/types": "catalog:dev",
+		"@commitlint/cli": "catalog:commitlint",
+		"@commitlint/config-conventional": "catalog:commitlint",
+		"@commitlint/types": "catalog:commitlint",
+		"@isentinel/eslint-config": "catalog:lint",
 		"@pobammer-ts/small-rules": "catalog:lint",
+		"@rotor-rbx/lint-configurations": "workspace:*",
 		"@total-typescript/ts-reset": "catalog:types",
+		"@types/bun": "catalog:types",
 		"@types/node": "catalog:types",
-		"@typescript/native-preview": "catalog:dev",
-		"arktype": "catalog:dev",
-		"bumpp": "catalog:dev",
+		"@vitest/eslint-plugin": "catalog:lint",
+		"bumpp": "catalog:tooling",
+		"eslint": "catalog:lint",
 		"eslint-plugin-antfu": "catalog:lint",
-		"eslint-plugin-regexp": "catalog:lint",
+		"eslint-plugin-n": "catalog:lint",
+		"eslint-plugin-pnpm": "catalog:lint",
+		"eslint-plugin-react-jsx": "catalog:lint",
+		"eslint-plugin-react-naming-convention": "catalog:lint",
+		"eslint-plugin-react-x": "catalog:lint",
 		"eslint-plugin-sonarjs": "catalog:lint",
 		"eslint-plugin-unused-imports": "catalog:lint",
+		"jiti": "catalog:tooling",
 		"knip": "catalog:lint",
 		"oxfmt": "catalog:lint",
 		"oxlint": "catalog:lint",
 		"oxlint-tsgolint": "catalog:lint",
-		"picocolors": "catalog:dev",
-		"pncat": "catalog:dev",
-		"skills": "catalog:dev",
-		"tinyexec": "catalog:dev",
-		"type-fest": "catalog:dev",
-		"typescript": "catalog:dev",
-		"zx": "catalog:dev"
+		"pncat": "catalog:tooling",
+		"skills": "catalog:tooling",
+		"tinyexec": "catalog:scripts",
+		"tsrs": "catalog:tooling",
+		"typescript": "catalog:tooling"
 	},
 	"optionalDependencies": {
 		"@rotor-rbx/rotor-darwin-arm64": "2.8.3",
@@ -98,8 +105,12 @@
 		"@rotor-rbx/rotor-win32-arm64": "2.8.3",
 		"@rotor-rbx/rotor-win32-x64": "2.8.3"
 	},
+	"packageManager": "pnpm@12.14.0",
 	"engines": {
-		"node": ">=18"
+		"node": "^20.19.0 || >=22.12.0"
 	},
-	"packageManager": "pnpm@12.14.0"
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	}
 }

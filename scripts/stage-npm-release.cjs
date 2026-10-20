@@ -96,6 +96,7 @@ function stageNpmRelease({ dist, output, root = path.resolve(__dirname, "..") })
 			"tools/sidecar/lib/diagnostics.js",
 			"tools/sidecar/lib/plugins.js",
 			"tools/sidecar/lib/session.js",
+			"tools/sidecar/package.json",
 		]) {
 			if (!main.files.some((entry) => entry.path === file)) {
 				throw new Error(`main package tarball does not contain ${file}`);

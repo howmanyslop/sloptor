@@ -9,43 +9,43 @@ description: >-
 
 inputs:
   go-cache-suffix:
+    default: ""
     description: >-
       Appended verbatim to the Go cache key (include any separator, for
       example "-race"). actions/cache never overwrites an existing key, so a
       job whose build products differ from the default ones (race
       instrumentation does) needs a distinct suffix or it restores the wrong
       builds and never saves its own.
-    default: ""
     required: false
 
 runs:
   using: composite
   steps:
-    - name: Disable Windows Defender real-time scanning
-      # Hosted Windows runners real-time-scan every file the toolchain
-      # installs and the build-heavy suites touch, which is a large share of
-      # Windows wall time. Runners are throwaway admin VMs, so switching it
-      # off costs nothing.
-      if: runner.os == 'Windows'
+    # Hosted Windows runners real-time-scan every file the toolchain
+    # installs and the build-heavy suites touch, which is a large share of
+    # Windows wall time. Runners are throwaway admin VMs, so switching it
+    # off costs nothing.
+    - if: runner.os == 'Windows'
+      name: Disable Windows Defender real-time scanning
+      run: Set-MpPreference -DisableRealtimeMonitoring $true
       shell: pwsh
       # Pure optimization: never fail a job over it.
       continue-on-error: true
-      run: Set-MpPreference -DisableRealtimeMonitoring $true
 
     - name: Set up Mise toolchain
       uses: jdx/mise-action@v2
       with:
-        install_args: go bun node github:rojo-rbx/rojo github:lune-org/lune
         experimental: true
+        install_args: go bun node github:rojo-rbx/rojo github:lune-org/lune
 
     - name: Restore Go module and build caches
       uses: actions/cache@v4
       with:
+        key: ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
         path: |
           ~/go/pkg/mod
           ~/.cache/go-build
           ~/AppData/Local/go-build
-        key: ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
         # When the key inputs bump, restore the most recent prior cache
         # instead of rebuilding from nothing.
         restore-keys: |
@@ -54,18 +54,17 @@ runs:
     - name: Restore fixture dependencies
       uses: actions/cache@v4
       with:
+        key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('mise.toml', 'mise.lock', 'tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
         path: |
           ~/.bun/install/cache
           tools/sidecar/node_modules
           testdata/diff/project/node_modules
           testdata/conformance/project/node_modules
           testdata/transformers/project/node_modules
-        key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('mise.toml', 'mise.lock', 'tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
         restore-keys: |
           ${{ runner.os }}-bun-fixtures-
 
     - name: Install fixture dependencies (bun)
-      shell: bash
       run: |
         set -euo pipefail
         for dir in tools/sidecar testdata/diff/project testdata/conformance/project testdata/transformers/project; do
@@ -73,3 +72,4 @@ runs:
           (cd "$dir" && bun install --no-save)
           echo "::endgroup::"
         done
+      shell: bash

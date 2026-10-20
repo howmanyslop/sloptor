@@ -1,0 +1,68 @@
+---
+title: "Migrate from rbxtsc"
+description: "Swap rbxtsc for sloptor, move Flamework to the native pipeline, and drop plugins sloptor replaces."
+---
+
+sloptor is a drop-in replacement for `rbxtsc`. Your `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins stay as they are.
+
+## Swap the compiler
+
+Install sloptor (see [Install](/sloptor/guide/install/)), then replace `rbxtsc` in your scripts:
+
+```sh
+# before
+rbxtsc -p default.project.json -w
+
+# after
+sloptor build -p default.project.json -w
+```
+
+`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--minify`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+
+TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
+
+Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
+
+## What to expect
+
+- `path` is a project directory containing a `tsconfig.json` (defaults to the current directory).
+- Your project needs `node_modules` installed (sloptor reads the same `@rbxts` types).
+- Exit codes: `0` = success, `1` = any failure (diagnostics, config, or usage) — matching upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports rather than gates: see [Diagnostics census](/sloptor/guide/diagnostics/).
+- Builds with external tsconfig transformer plugins need Node.js at runtime for the transformer sidecar.
+
+A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`).
+
+## Compatibility boundary
+
+The verified `@isentinel/roblox-ts@4.0.11` fork archive in `roblox-ts.zip` is authoritative for fork-changed surfaces: varargs optimization, object-rest direct access, the `rbxts` option cascade, `.luau.map` source maps, the copy-files gate, the Rojo resolver cache, solution builds, and solution watch. sloptor keeps upstream parity for unaffected compiler behavior.
+
+## Move Flamework to the native pipeline
+
+`sloptor migrate flamework [tsconfig-file] [--remove-package]` opts a project into native Flamework from the sidecar-backed `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
+
+Native Flamework reprints and re-parses every source by default, matching the upstream transformer's fresh source-file update per file. `[flamework] skipUnchangedFiles = true` (or the same key under a `[flamework.profiles.<tsconfig>]` entry) opts back into reusing sources the transform leaves unchanged, skipping the print/overlay/reparse pass for them.
+
+Without an effective `[flamework]` configuration, sloptor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive; configuring both is a hard error. Keep `flamework.json` in either mode: it remains the runtime configuration and the migration does not remove it.
+
+Package cleanup is optional. With `--remove-package`, sloptor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Native-Flamework-only builds and `sloptor doctor` do not require Node.js.
+
+External tsconfig transformer plugins still require Node.js, the bundled sidecar, and the project's `typescript` package.
+
+## Drop plugins sloptor replaces
+
+sloptor has built-in macros for several popular transformer plugins, so you can remove them from `compilerOptions.plugins`:
+
+| Plugin                   | Built-in replacement |
+| ------------------------ | -------------------- |
+| `rbxts-transform-env`    | `$env`               |
+| `rbxts-transformer-keys` | `$keys`              |
+
+See [Macros and extensions](/sloptor/macros/) for the details, including how the modern `import { $env } from "rbxts-transform-env"` form keeps working through the sidecar.
+
+## Legacy sloptor config
+
+Upgrading from a 1.x `rotor.config.ts`? Convert it with:
+
+```sh
+sloptor migrate config [path] [--force]
+```

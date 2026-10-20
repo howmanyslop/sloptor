@@ -28,8 +28,9 @@ import (
 // transformer that enumerates program.getSourceFiles() to build program-wide
 // state sees fewer files than it would in a full build.
 // rbxts-transformer-jecs, rbxts-transformer-jest, the React-compiler applier
-// and native Flamework are all per-file. See docs.md, "External transformer
-// plugins".
+// and native Flamework are all per-file. See the "Project references, source
+// maps, plugins, and build state" section of
+// docs.howmanysmall.com/sloptor/guide/building/.
 //
 // A full build compiles every file, so the narrowed set would name the whole
 // project anyway; returning nil leaves the request unnarrowed and lets the

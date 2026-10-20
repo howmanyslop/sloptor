@@ -3,9 +3,23 @@
 	"auto_indent": "syntax_aware",
 	"code_actions_on_format": {
 		"source.fixAll": true,
-		"source.organizeImports": false
+		"source.organizeImports": true
 	},
 	"colorize_brackets": true,
+	"context_servers": {
+		"hk": {
+			"args": ["x", "--", "hk", "mcp", "--root", "."],
+			"command": "mise",
+			"enabled": true,
+			"remote": false
+		},
+		"npm": {
+			"args": ["x", "--", "npm-registry-mcp"],
+			"command": "mise",
+			"enabled": true,
+			"remote": false
+		}
+	},
 	"edit_predictions": {
 		"codestral": {},
 		"copilot": { "enable_next_edit_suggestions": true },
@@ -13,7 +27,22 @@
 	},
 	"ensure_final_newline_on_save": true,
 	"extend_comment_on_newline": false,
+	"file_scan_exclusions": [
+		"**/.git",
+		"**/.svn",
+		"**/.hg",
+		"**/.jj",
+		"**/.sl",
+		"**/.repo",
+		"**/CVS",
+		"**/.DS_Store",
+		"**/Thumbs.db",
+		"**/.classpath",
+		"**/.settings",
+		"**/node_modules"
+	],
 	"file_types": {
+		"HTML": ["svg"],
 		"JSONC": [
 			"tsconfig.json",
 			"jsconfig.json",
@@ -28,6 +57,7 @@
 	},
 	"format_on_save": "on",
 	"hard_tabs": true,
+	"hidden_files": [".eslintcache*", ".rumdl_cache", "oc1.jsonc"],
 	"indent_guides": {
 		"active_line_width": 1,
 		"background_coloring": "disabled",
@@ -45,6 +75,19 @@
 	},
 	"jsx_tag_auto_close": { "enabled": true },
 	"languages": {
+		"Astro": {
+			"format_on_save": "on",
+			"formatter": [
+				{
+					"external": {
+						"arguments": ["--run", "biome", "--", "check", "--fix", "--stdin-file-path", "{buffer_path}"],
+						"command": "node"
+					}
+				}
+			],
+			"hard_tabs": true,
+			"language_servers": ["!knip", "astro-language-server", "biome", "..."]
+		},
 		"CSS": {
 			"code_actions_on_format": {
 				"source.fixAll.biome": true,
@@ -60,136 +103,77 @@
 				}
 			],
 			"hard_tabs": true,
-			"language_servers": ["!eslint", "biome", "oxfmt", "..."],
-			"prettier": { "allowed": false },
-			"tab_size": 4
-		},
-		"Go": {
-			"language_servers": ["codebook", "harper-ls", "wakatime", "golangci-lint", "..."]
-		},
-		"Go Mod": {
-			"language_servers": ["codebook", "harper-ls", "wakatime", "..."]
-		},
-		"GraphQL": {
-			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
-			"hard_tabs": true,
-			"language_servers": ["!eslint", "!biome", "oxfmt", "..."],
+			"language_servers": ["!knip", "eslint", "biome", "oxfmt", "..."],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
 		"JSON": {
 			"code_actions_on_format": {
 				"source.fixAll.biome": true,
-				"source.organizeImports.biome": false
+				"source.organizeImports.biome": true
 			},
 			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
 			"hard_tabs": true,
 			"language_servers": [
+				"!knip",
 				"biome",
-				"codebook",
 				"dependi",
 				"deputy",
-				"oxfmt",
-				"oxlint",
-				"harper-ls",
+				"eslint",
 				"json-language-server",
 				"package-version-server",
-				"wakatime"
+				"wakatime",
+				"codebook",
+				"harper-ls",
+				"discord_presence"
 			],
-			"prettier": { "allowed": false },
-			"tab_size": 4
-		},
-		"JSON5": {
-			"code_actions_on_format": {
-				"source.fixAll.biome": true,
-				"source.organizeImports.biome": false
-			},
-			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
-			"hard_tabs": true,
-			"language_servers": ["oxfmt", "codebook", "harper-ls", "wakatime", "json-language-server"],
-			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
 		"JSONC": {
 			"code_actions_on_format": {
 				"source.fixAll.biome": true,
-				"source.organizeImports.biome": false
+				"source.organizeImports.biome": true
 			},
 			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
 			"hard_tabs": true,
 			"language_servers": [
+				"!knip",
 				"biome",
 				"dependi",
 				"deputy",
+				"eslint",
 				"json-language-server",
 				"package-version-server",
 				"wakatime",
+				"codebook",
 				"harper-ls",
-				"codebook"
+				"discord_presence"
 			],
-			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
 		"JavaScript": {
-			"code_actions_on_format": {
-				"source.fixAll.biome": true,
-				"source.fixAll.oxc": true,
-				"source.organizeImports.biome": false
-			},
-			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
-			"hard_tabs": true,
-			"language_servers": ["biome", "oxfmt", "oxlint", "!tsgo", "vtsls", "harper-ls", "codebook", "wakatime"],
-			"prettier": { "allowed": false },
-			"tab_size": 4
-		},
-		"LESS": {
-			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
-			"prettier": { "allowed": false }
+			"language_servers": [
+				"!deno",
+				"!knip",
+				"!vtsls",
+				"!effect-tsgo",
+				"!graphql",
+				"!typescript-language-server",
+				"..."
+			]
 		},
 		"MDX": {
 			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
-			"language_servers": ["codebook", "harper-ls", "oxfmt", "rumdl", "wakatime"],
+			"language_servers": [
+				"oxfmt",
+				"rumdl",
+				"wakatime",
+				"codebook",
+				"harper-ls",
+				"discord_presence",
+				"vale",
+				"..."
+			],
 			"prettier": { "allowed": false }
 		},
 		"Markdown": {
@@ -198,7 +182,7 @@
 				"language_server": { "name": "rumdl" }
 			},
 			"hard_tabs": true,
-			"language_servers": ["codebook", "harper-ls", "rumdl", "wakatime"],
+			"language_servers": ["!knip", "codebook", "harper-ls", "rumdl", "wakatime", "vale"],
 			"prettier": { "allowed": false },
 			"show_whitespaces": "none",
 			"soft_wrap": "editor_width",
@@ -216,16 +200,8 @@
 				}
 			},
 			"hard_tabs": true,
-			"language_servers": ["pkl", "wakatime"],
+			"language_servers": ["!knip", "pkl", "wakatime", "codebook", "harper-ls", "discord_presence"],
 			"tab_size": 4
-		},
-		"SCSS": {
-			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
-			"language_servers": ["!graphql", "oxfmt", "..."],
-			"prettier": { "allowed": false }
 		},
 		"Shell Script": {
 			"format_on_save": "on",
@@ -236,86 +212,89 @@
 				}
 			},
 			"hard_tabs": true,
-			"language_servers": ["bash-language-server", "wakatime", "harper-ls", "codebook"],
+			"language_servers": [
+				"!knip",
+				"bash-language-server",
+				"wakatime",
+				"codebook",
+				"harper-ls",
+				"discord_presence",
+				"..."
+			],
 			"tab_size": 4
 		},
 		"TOML": {
 			"format_on_save": "on",
-			"formatter": "language_server",
 			"hard_tabs": true,
 			"language_servers": [
+				"!knip",
 				"dependi",
 				"deputy",
+				"eslint",
+				"json-language-server",
 				"tombi",
 				"wakatime",
-				"harper-ls",
 				"codebook",
-				"json-language-server"
+				"harper-ls",
+				"discord_presence"
 			],
 			"tab_size": 4
 		},
 		"TSX": {
 			"code_actions_on_format": {
-				"source.fixAll.biome": true,
+				"source.addMissingImports": false,
+				"source.fixAll.eslint": true,
 				"source.fixAll.oxc": true,
-				"source.organizeImports.biome": false
+				"source.organizeImports": false
 			},
 			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
 			"hard_tabs": true,
-			"language_servers": ["biome", "oxfmt", "oxlint", "vtsls", "harper-ls", "codebook", "wakatime"],
+			"language_servers": [
+				"!deno",
+				"!knip",
+				"!vtsls",
+				"!effect-tsgo",
+				"!graphql",
+				"!typescript-language-server",
+				"..."
+			],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
 		"TypeScript": {
 			"code_actions_on_format": {
-				"source.fixAll.biome": true,
+				"source.addMissingImports": false,
+				"source.fixAll.eslint": true,
 				"source.fixAll.oxc": true,
-				"source.organizeImports.biome": false
+				"source.organizeImports": false
 			},
 			"format_on_save": "on",
-			"formatter": [
-				{
-					"language_server": { "name": "biome" }
-				},
-				{
-					"language_server": { "name": "oxfmt" }
-				}
-			],
 			"hard_tabs": true,
-			"language_servers": ["biome", "oxfmt", "oxlint", "vtsls", "harper-ls", "codebook", "wakatime"],
+			"language_servers": [
+				"!deno",
+				"!knip",
+				"!vtsls",
+				"!effect-tsgo",
+				"!graphql",
+				"!typescript-language-server",
+				"..."
+			],
 			"prettier": { "allowed": false },
 			"tab_size": 4
 		},
-		"Vue.js": {
-			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
-			"prettier": { "allowed": false }
-		},
 		"YAML": {
 			"format_on_save": "on",
-			"formatter": {
-				"language_server": { "name": "oxfmt" }
-			},
 			"hard_tabs": false,
 			"language_servers": [
-				"oxlint",
-				"oxfmt",
+				"!knip",
 				"dependi",
+				"eslint",
+				"json-language-server",
 				"yaml-language-server",
 				"wakatime",
-				"harper-ls",
 				"codebook",
-				"json-language-server"
+				"harper-ls",
+				"discord_presence"
 			],
 			"prettier": { "allowed": false },
 			"tab_size": 2
@@ -332,6 +311,10 @@
 			}
 		},
 		"biome": {
+			"binary": {
+				"arguments": ["--run", "biome", "--", "lsp-proxy"],
+				"path": "node"
+			},
 			"settings": {
 				"biome": {
 					"configurationPath": "./biome.jsonc",
@@ -340,21 +323,20 @@
 				}
 			}
 		},
-		"dependi": {
-			"initialization_options": {
-				"cache": { "ttl_secs": 3600 },
-				"diagnostics": { "enabled": true },
-				"ignore": ["internal-*", "test-pkg"],
-				"inlay_hints": {
-					"enabled": true,
-					"show_up_to_date": true
-				},
-				"security": {
-					"enabled": true,
-					"min_severity": "low",
-					"show_diagnostics": true,
-					"show_in_hints": true
+		"eslint": {
+			"binary": {
+				"env": {
+					"ESLINT_IN_EDITOR": "true"
 				}
+			},
+			"settings": {
+				"codeActionOnSave": { "mode": "problems" },
+				"execArgv": ["--import=jiti/register"],
+				"onIgnoredFiles": "off",
+				"quiet": true,
+				"run": "onType",
+				"runtime": "node",
+				"workingDirectories": [{ "directory": "." }]
 			}
 		},
 		"golangci-lint": {
@@ -388,6 +370,12 @@
 				}
 			}
 		},
+		"mdx-analyzer": {
+			"binary": {
+				"arguments": ["--run", "mdx-language-server", "--", "--stdio"],
+				"path": "node"
+			}
+		},
 		"oxfmt": {
 			"initialization_options": {
 				"settings": {
@@ -399,15 +387,18 @@
 		"oxlint": {
 			"initialization_options": {
 				"settings": {
+					"configPath": "oxlint.config.ts",
 					"disableNestedConfig": false,
 					"fixKind": "safe_fix",
-					"run": "onType",
-					"typeAware": true,
-					"unusedDisableDirectives": "deny"
+					"typeAware": true
 				}
 			}
 		},
-		"vtsls": {
+		"typescript-ls": {
+			"binary": {
+				"arguments": ["--run", "tsrs", "--", "--lsp", "--stdio"],
+				"path": "node"
+			},
 			"settings": {
 				"javascript": {
 					"inlayHints": {
@@ -424,25 +415,27 @@
 				},
 				"typescript": {
 					"inlayHints": {
-						"enumMemberValues": { "enabled": true },
-						"functionLikeReturnTypes": { "enabled": true },
+						"enumMemberValues": { "enabled": false },
+						"functionLikeReturnTypes": { "enabled": false },
 						"parameterNames": {
 							"enabled": "none",
-							"suppressWhenArgumentMatchesName": true
+							"suppressWhenArgumentMatchesName": false
 						},
 						"parameterTypes": { "enabled": false },
 						"propertyDeclarationTypes": { "enabled": false },
 						"variableTypes": { "enabled": false }
 					},
-					"preferences": { "includePackageJsonAutoImports": "on" },
-					"updateImportsOnFileMove": { "enabled": "always" }
+					"preferences": {
+						"autoImportFileExcludePatterns": ["**/node_modules/typescript"],
+						"autoImportSpecifierExcludeRegexes": ["^typescript(/.*)?$"]
+					}
 				}
 			}
 		},
 		"yaml-language-server": {
 			"settings": {
 				"yaml": {
-					"format": { "singleQuote": true },
+					"format": { "singleQuote": false },
 					"keyOrdering": false,
 					"schemas": {
 						"./schemas/kubernetes.yaml": "k8s/**/*.yaml",
@@ -457,6 +450,10 @@
 							".lefthook.yaml",
 							"lefthook.json",
 							".lefthook.json"
+						],
+						"https://raw.githubusercontent.com/jdx/jactionlint/main/schema/jactionlint-config.json": [
+							".github/jactionlint.yaml",
+							".github/jactionlint.yml"
 						]
 					}
 				}

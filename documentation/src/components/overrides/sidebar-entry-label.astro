@@ -1,0 +1,21 @@
+---
+import InlineMarkdownText from "$components/inline-markdown-text.astro";
+import { Badge } from "@astrojs/starlight/components";
+
+import type { StarlightRouteData } from "@astrojs/starlight/route-data";
+
+type SidebarEntry = StarlightRouteData["sidebar"][number];
+
+interface Props {
+	readonly badge: SidebarEntry["badge"];
+	readonly label: SidebarEntry["label"];
+	readonly large?: boolean | undefined;
+}
+
+const { badge, label, large } = Astro.props;
+---
+
+<span class:list={{ large }}>
+	<InlineMarkdownText text={label} />
+</span>
+{badge && <Badge class={badge.class} text={badge.text} variant={badge.variant} />}

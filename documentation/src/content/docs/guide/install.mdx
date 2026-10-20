@@ -1,0 +1,75 @@
+---
+title: "Install"
+description: "Install sloptor from npm, a toolchain manager, a release archive, or source."
+---
+
+import PackageManagerTabs from "$components/package-manager-tabs.astro";
+
+sloptor ships as one native binary for macOS, Linux, and Windows on x64 and ARM64. Pick whichever way your project already installs tools.
+
+## From npm
+
+For rbxts projects that already live in the JavaScript ecosystem, add [`@rotor-rbx/rotor`](https://www.npmjs.com/package/@rotor-rbx/rotor) as a dev dependency. Its exact-version optional dependency supplies the native executable for your platform, so installing and running it never downloads from a release URL.
+
+<PackageManagerTabs />
+
+Then run it through your package manager. The npm package names its binary `rotor`; release archives and toolchain managers name it `sloptor`. They are the same program, and the rest of these docs write `sloptor`.
+
+<PackageManagerTabs preset="run" />
+
+Optional dependencies must stay enabled. A lockfile or install created with `--no-optional` gives an actionable missing-package error; reinstall without that flag, or install the error's `@rotor-rbx/rotor-<platform>-<architecture>` package at exactly the same version as `@rotor-rbx/rotor`.
+
+Coming from the old download-based package? Remove any `trustedDependencies` entry or pnpm build-script approval that was only there for sloptor, then reinstall normally. The `@rotor-rbx/rotor/scripts/install.js` subpath still resolves the installed binary, but it no longer downloads anything.
+
+### The JavaScript client
+
+The package also exports an asynchronous client for tools that drive builds:
+
+```ts
+import { createBuildSession } from "@rotor-rbx/rotor";
+
+await using session = createBuildSession();
+const result = await session.build({ project: "." });
+```
+
+## With a toolchain manager
+
+```sh
+# mise
+mise use -g github:howmanyslop/sloptor@2.8.3
+
+# rokit
+rokit add howmanyslop/sloptor@2.8.3
+```
+
+```toml
+# aftman.toml
+[tools]
+sloptor = "howmanyslop/sloptor@2.8.3"
+
+# foreman.toml
+[tools]
+sloptor = { github = "howmanyslop/sloptor", version = "2.8.3" }
+```
+
+## From a release archive
+
+Every [GitHub release](https://github.com/howmanyslop/sloptor/releases) has archives named `sloptor-v<version>-<os>-<arch>` (`.tar.gz`, or `.zip` on Windows) plus bare binaries and checksums. Download the one for your platform and put `sloptor` on your `PATH`.
+
+## From source
+
+Building from source needs the Go version in `go.mod`:
+
+```sh
+git clone https://github.com/howmanyslop/sloptor && cd sloptor
+go build ./cmd/rotor
+```
+
+## Check the setup
+
+```sh
+sloptor --version
+sloptor doctor
+```
+
+`sloptor doctor` checks your tsconfig, `@rbxts` packages, native Flamework or external plugins, Rojo wiring, and cloud setup. Native-Flamework-only builds and `sloptor doctor` don't need Node.js; external tsconfig transformer plugins do.

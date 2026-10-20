@@ -1,9 +1,12 @@
-"use strict";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const fs = require("node:fs");
-const path = require("node:path");
+import mainPackage from "./package.json" with { type: "json" };
 
-const mainPackage = require("./package.json");
+const require = createRequire(import.meta.url);
+const packageDirectory = path.dirname(fileURLToPath(import.meta.url));
 
 const PLATFORM_TARGETS = Object.freeze({
 	"darwin-arm64": Object.freeze({
@@ -67,7 +70,7 @@ function releaseBinaryName(version, target) {
 function resolvePlatformBinary(options = {}) {
 	const platform = options.platform ?? process.platform;
 	const architecture = options.arch ?? process.arch;
-	const packageRoot = options.packageRoot ?? __dirname;
+	const packageRoot = options.packageRoot ?? packageDirectory;
 	const expectedVersion = options.expectedVersion ?? mainPackage.version;
 	const target = PLATFORM_TARGETS[`${platform}-${architecture}`];
 	if (!target) {
@@ -122,10 +125,4 @@ function resolvePlatformBinary(options = {}) {
 	return executable;
 }
 
-module.exports = {
-	PLATFORM_TARGETS,
-	PlatformBinaryError,
-	platformExecutableName,
-	releaseBinaryName,
-	resolvePlatformBinary,
-};
+export { PLATFORM_TARGETS, PlatformBinaryError, platformExecutableName, releaseBinaryName, resolvePlatformBinary };

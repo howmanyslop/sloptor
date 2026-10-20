@@ -11,6 +11,13 @@ run:
 
 linters:
   default: standard
+  exclusions:
+    generated: lax
+    paths:
+      - tsgo
+      - reference
+      - include
+      - testdata
   settings:
     errcheck:
       # Console and HTTP-response writes; a failed write to a terminal or a
@@ -19,26 +26,19 @@ linters:
         - fmt.Fprint
         - fmt.Fprintf
         - fmt.Fprintln
-  exclusions:
-    generated: lax
-    paths:
-      - tsgo
-      - reference
-      - include
-      - testdata
 
 formatters:
   enable:
     - gofmt
-  settings:
-    gofmt:
-      simplify: true
   exclusions:
     paths:
       - tsgo
       - reference
       - include
       - testdata
+  settings:
+    gofmt:
+      simplify: true
 
 issues:
   max-issues-per-linter: 0

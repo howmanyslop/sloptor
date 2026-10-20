@@ -1,8 +1,9 @@
-"use strict";
+import fs from "node:fs";
+import readline from "node:readline";
 
-const fs = require("node:fs");
-const readline = require("node:readline");
-const { version: packageVersion } = require("../../package.json");
+import packageJson from "../../package.json" with { type: "json" };
+
+const { version: packageVersion } = packageJson;
 
 const mode = process.argv[2];
 const marker = process.argv[3];
