@@ -14,16 +14,27 @@
 	"bugs": {
 		"url": "https://github.com/howmanyslop/sloptor/issues"
 	},
-	"license": "MIT",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/howmanyslop/sloptor.git"
 	},
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./api.d.ts",
+			"require": "./api.js",
+			"default": "./api.js"
+		},
+		"./package.json": "./package.json",
+		"./scripts/install.js": "./scripts/install.js"
+	},
+	"main": "api.js",
+	"types": "api.d.ts",
 	"bin": {
 		"rotor": "bin/rotor.js"
 	},
 	"files": [
-		"api.js",
 		"api.d.ts",
 		"platform.js",
 		"bin/",
@@ -31,22 +42,6 @@
 		"tools/sidecar/index.js",
 		"tools/sidecar/lib/"
 	],
-	"type": "module",
-	"main": "api.js",
-	"types": "api.d.ts",
-	"exports": {
-		".": {
-			"types": "./api.d.ts",
-			"require": "./api.js",
-			"default": "./api.js"
-		},
-		"./scripts/install.js": "./scripts/install.js",
-		"./package.json": "./package.json"
-	},
-	"publishConfig": {
-		"access": "public",
-		"provenance": true
-	},
 	"scripts": {
 		"biome": "biome",
 		"docs:build": "pnpm --filter @sloptor/documentation run build",
@@ -88,6 +83,7 @@
 		"eslint": "catalog:lint",
 		"eslint-plugin-antfu": "catalog:lint",
 		"eslint-plugin-n": "catalog:lint",
+		"eslint-plugin-pnpm": "catalog:lint",
 		"eslint-plugin-react-jsx": "catalog:lint",
 		"eslint-plugin-react-naming-convention": "catalog:lint",
 		"eslint-plugin-react-x": "catalog:lint",
@@ -114,8 +110,12 @@
 		"@rotor-rbx/rotor-win32-arm64": "2.8.3",
 		"@rotor-rbx/rotor-win32-x64": "2.8.3"
 	},
+	"packageManager": "pnpm@12.14.0",
 	"engines": {
 		"node": ">=18"
 	},
-	"packageManager": "pnpm@12.14.0"
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	}
 }

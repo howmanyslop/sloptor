@@ -2,10 +2,14 @@
 	"name": "@rotor-rbx/rotor-darwin-x64",
 	"version": "2.8.3",
 	"description": "Sloptor native executable for macOS x64",
-	"license": "MIT",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/howmanyslop/sloptor.git"
+	},
+	"license": "MIT",
+	"type": "commonjs",
+	"exports": {
+		"./package.json": "./package.json"
 	},
 	"files": [
 		"bin/"
@@ -16,9 +20,6 @@
 	"cpu": [
 		"x64"
 	],
-	"exports": {
-		"./package.json": "./package.json"
-	},
 	"publishConfig": {
 		"access": "public",
 		"provenance": true

@@ -106,5 +106,12 @@ export async function getEslintAsync(tsconfigPath: string): Promise<LintConfigur
 				"e18e/ban-dependencies": ["error", BANNED_DEPENDENCIES],
 			},
 		},
+		{
+			name: "rotor/golang-coal",
+			files: [".golangci.yml", ".goreleaser.yml"],
+			rules: {
+				"yaml/file-extension": "off",
+			},
+		},
 	);
 }

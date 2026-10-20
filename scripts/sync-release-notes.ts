@@ -1,37 +1,40 @@
 #!/usr/bin/env node
-// Writes GitHub release notes into CHANGELOG.md and documentation/src/content/releases/.
+// Writes GitHub release notes into CHANGELOG.md and
+// documentation/src/content/releases/.
 //
 // Usage:
-//   node scripts/sync-release-notes.ts             Rebuild CHANGELOG.md and every release file.
-//   node scripts/sync-release-notes.ts --tag vX.Y.Z
-//                                                  Write one release file and insert or replace
-//                                                  that release in CHANGELOG.md.
+// node scripts/sync-release-notes.ts             Rebuild CHANGELOG.md and every
+// release file. node scripts/sync-release-notes.ts --tag vX.Y.Z Write one release
+// file and insert or replace that release in CHANGELOG.md.
 //
 // Options:
-//   --repo owner/name   Repository to read releases from (default: howmanyslop/sloptor).
+// --repo owner/name   Repository to read releases from (default:
+// howmanyslop/sloptor).
 //
 // Requires an authenticated `gh` CLI (GH_TOKEN works in CI).
 
-import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import nodePath from "node:path";
 import { parseArgs } from "node:util";
+import { type } from "arktype";
+import { exec } from "tinyexec";
 
-interface ReleaseSummary {
-	readonly isDraft: boolean;
-	readonly name: string;
-	readonly publishedAt: string;
-	readonly tagName: string;
-}
+const isReleaseSummary = type({
+	name: "string",
+	isDraft: "boolean",
+	publishedAt: "string",
+	tagName: "string",
+}).readonly();
+type ReleaseSummary = typeof isReleaseSummary.infer;
 
-interface Release {
-	readonly body: string;
-	readonly name: string;
-	readonly publishedAt: string;
-	readonly tagName: string;
-	readonly url: string;
-}
+const isRelease = type({
+	name: "string",
+	body: "string",
+	publishedAt: "string",
+	tagName: "string",
+	url: "string",
+}).readonly();
+type Release = typeof isRelease.infer;
 
 interface ChangelogSection {
 	readonly tag: string;
@@ -43,9 +46,9 @@ interface ParsedChangelog {
 	readonly sections: Array<ChangelogSection>;
 }
 
-const ROOT_DIRECTORY = join(dirname(fileURLToPath(import.meta.url)), "..");
-const CHANGELOG_PATH = join(ROOT_DIRECTORY, "CHANGELOG.md");
-const RELEASES_DIRECTORY = join(ROOT_DIRECTORY, "documentation/src/content/releases");
+const ROOT_DIRECTORY = nodePath.join(import.meta.dirname, "..");
+const CHANGELOG_PATH = nodePath.join(ROOT_DIRECTORY, "CHANGELOG.md");
+const RELEASES_DIRECTORY = nodePath.join(ROOT_DIRECTORY, "documentation/src/content/releases");
 const CHANGELOG_HEADER = "All notable changes to sloptor are documented here.\n";
 const FULL_CHANGELOG_PATTERN = /^\*\*Full Changelog\*\*:.*$/gmu;
 const BARE_FULL_CHANGELOG_PATTERN = /^(?<label>\*\*Full Changelog\*\*:) (?<url>https:\/\/\S+)$/gmu;
@@ -62,23 +65,51 @@ const { values } = parseArgs({
 
 const repository = values.repo;
 
-function gh(...parameters: ReadonlyArray<string>): string {
-	return execFileSync("gh", parameters, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+async function runGhCliAsync(...parameters: ReadonlyArray<string>): Promise<string> {
+	const output = await exec("gh", parameters, { throwOnError: true });
+	return output.stdout;
 }
 
-function listReleases(): Array<ReleaseSummary> {
-	const releases = JSON.parse(
-		gh("release", "list", "-R", repository, "--limit", "100", "--json", "tagName,name,publishedAt,isDraft"),
-	) as Array<ReleaseSummary>;
+const isReleaseSummaries = isReleaseSummary.array().readonly();
+
+async function listReleasesAsync(): Promise<ReadonlyArray<ReleaseSummary>> {
+	const releasesString = await runGhCliAsync(
+		"release",
+		"list",
+		"-R",
+		repository,
+		"--limit",
+		"100",
+		"--json",
+		"tagName,name,publishedAt,isDraft",
+	);
+
+	const releases = isReleaseSummaries(JSON.parse(releasesString));
+	if (releases instanceof type.errors) {
+		throw new TypeError(`Failed to parse releases: ${releases.summary}`);
+	}
+
 	return releases
 		.filter((release) => !release.isDraft && release.publishedAt.length > 0)
 		.toSorted((left, right) => right.publishedAt.localeCompare(left.publishedAt));
 }
 
-function viewRelease(tag: string): Release {
-	return JSON.parse(
-		gh("release", "view", tag, "-R", repository, "--json", "body,name,publishedAt,url,tagName"),
-	) as Release;
+async function viewReleaseAsync(tag: string): Promise<Release> {
+	const releaseString = await runGhCliAsync(
+		"release",
+		"view",
+		tag,
+		"-R",
+		repository,
+		"--json",
+		"body,name,publishedAt,url,tagName",
+	);
+	const release = isRelease(JSON.parse(releaseString));
+	if (release instanceof type.errors) {
+		throw new TypeError(`Failed to parse release ${tag}: ${release.summary}`);
+	}
+
+	return release;
 }
 
 function normalize(markdown: string): string {
@@ -118,9 +149,9 @@ function linkReference(tag: string, previousTag: string | undefined): string {
 	return `[${tag}]: ${url}`;
 }
 
-function writeReleaseFile(release: Release): void {
-	mkdirSync(RELEASES_DIRECTORY, { recursive: true });
-	writeFileSync(join(RELEASES_DIRECTORY, `${release.tagName}.md`), renderReleaseFile(release));
+async function writeReleaseFileAsync(release: Release): Promise<void> {
+	await mkdir(RELEASES_DIRECTORY, { recursive: true });
+	await writeFile(nodePath.join(RELEASES_DIRECTORY, `${release.tagName}.md`), renderReleaseFile(release));
 }
 
 function renderChangelog(sections: ReadonlyArray<string>, references: ReadonlyArray<string>): string {
@@ -131,7 +162,7 @@ function renderChangelog(sections: ReadonlyArray<string>, references: ReadonlyAr
 function parseChangelog(text: string): ParsedChangelog {
 	const sections = new Array<{ readonly lines: Array<string>; readonly tag: string }>();
 	const references = new Array<string>();
-	let current: { readonly lines: Array<string>; readonly tag: string } | undefined;
+	let current: undefined | { readonly lines: Array<string>; readonly tag: string };
 	for (const line of text.split("\n")) {
 		const tag = SECTION_PATTERN.exec(line)?.groups?.tag;
 		if (tag !== undefined) {
@@ -150,36 +181,41 @@ function parseChangelog(text: string): ParsedChangelog {
 	};
 }
 
-function readChangelog(): string {
+async function readChangelogAsync(): Promise<string> {
 	try {
-		return readFileSync(CHANGELOG_PATH, "utf8");
+		return await readFile(CHANGELOG_PATH, "utf8");
 	} catch {
 		return CHANGELOG_HEADER;
 	}
 }
 
-function syncAll(): void {
-	const releases = listReleases().map((release) => viewRelease(release.tagName));
+async function syncAllAsync(): Promise<void> {
+	const githubReleases = await listReleasesAsync();
+	const releases = await Promise.all(githubReleases.map(async (release) => viewReleaseAsync(release.tagName)));
+
 	const sections = new Array<string>();
 	const references = new Array<string>();
-	for (const [index, release] of releases.entries()) {
-		writeReleaseFile(release);
-		sections.push(renderChangelogSection(release));
-		references.push(linkReference(release.tagName, releases[index + 1]?.tagName));
-	}
-	writeFileSync(CHANGELOG_PATH, renderChangelog(sections, references));
+
+	await Promise.all(
+		releases.map(async (release, index) => {
+			await writeReleaseFileAsync(release);
+			sections.push(renderChangelogSection(release));
+			references.push(linkReference(release.tagName, releases[index + 1]?.tagName));
+		}),
+	);
+
+	await writeFile(CHANGELOG_PATH, renderChangelog(sections, references));
 	console.log(`Wrote CHANGELOG.md and ${releases.length} release files.`);
 }
 
-function syncTag(tag: string): void {
-	const release = viewRelease(tag);
-	writeReleaseFile(release);
+async function syncTagAsync(tag: string): Promise<void> {
+	const release = await viewReleaseAsync(tag);
+	await writeReleaseFileAsync(release);
 
-	const ordered = listReleases();
+	const ordered = await listReleasesAsync();
 	const index = ordered.findIndex((entry) => entry.tagName === tag);
 	const previousTag = index === -1 ? undefined : ordered[index + 1]?.tagName;
-
-	const { references, sections } = parseChangelog(readChangelog());
+	const { references, sections } = parseChangelog(await readChangelogAsync());
 	const section = { tag, text: renderChangelogSection(release).trim() };
 	const reference = linkReference(tag, previousTag);
 
@@ -191,7 +227,7 @@ function syncTag(tag: string): void {
 	if (referenceIndex === -1) references.unshift(reference);
 	else references[referenceIndex] = reference;
 
-	writeFileSync(
+	await writeFile(
 		CHANGELOG_PATH,
 		renderChangelog(
 			sections.map((entry) => entry.text),
@@ -201,5 +237,6 @@ function syncTag(tag: string): void {
 	console.log(`Wrote ${tag} to CHANGELOG.md and documentation/src/content/releases/${tag}.md.`);
 }
 
-if (values.tag === undefined) syncAll();
-else syncTag(values.tag);
+// oxlint-disable-next-line unicorn/prefer-ternary -- no.
+if (values.tag === undefined) await syncAllAsync();
+else await syncTagAsync(values.tag);

@@ -3,6 +3,10 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
+	"dependencies": {
+		"arktype": "catalog:dev",
+		"tinyexec": "catalog:dev"
+	},
 	"devDependencies": {
 		"@types/node": "catalog:types"
 	}

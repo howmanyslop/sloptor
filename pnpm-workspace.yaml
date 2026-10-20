@@ -1,64 +1,16 @@
-# Equivalent to pnpm-workspace.yaml `packages:`
-packages:
-  - documentation
-  - scripts
-  - packages/*
-  - tools/lint-configurations
-
 # Block exotic sub-dependencies (e.g. git, file: deps)
 blockExoticSubdeps: true
-strictSsl: true
-trustPolicy: no-downgrade
-trustPolicyIgnoreAfter: 10080
-trustPolicyExclude:
-  - skills
-
-# Only allow specific packages to run install scripts
-allowBuilds:
-  "@openrouter/sdk": true
-  "@swc/core": true
-  esbuild: true
-  msgpackr-extract: true
-  onnxruntime-node: true
-  protobufjs: true
-  sharp: true
-  workerd: true
-
-strictDepBuilds: true
-strictPeerDependencies: true
-linkWorkspacePackages: true
-
-# Keep every release target in the lockfile even when installing on one host.
-supportedArchitectures:
-  os:
-    - darwin
-    - linux
-    - win32
-  cpu:
-    - arm64
-    - x64
-
-overrides:
-  "@isentinel/eslint-config>@pobammer-ts/small-rules": catalog:lint
-
-# Applies `componentExts` (.astro) to the options rules instead of oxfmt's file
-# list; same patch as small-rules.
-patchedDependencies:
-  "@isentinel/eslint-config@6.1.0": patches/@isentinel__eslint-config@6.1.0.patch
-
-peerDependencyRules:
-  allowedVersions:
-    "@emnapi/core": ">=1.0.0"
-    "@emnapi/runtime": ">=1.0.0"
+catalogMode: prefer
+cleanupUnusedCatalogs: true
 
 # Global virtual store (pnpm's node_modules/.pnpm equivalent)
 enableGlobalVirtualStore: true
-
+linkWorkspacePackages: true
 minimumReleaseAge: 1440
+
 minimumReleaseAgeExclude:
   - "@astrojs/markdown-satteri"
   - "@astrojs/starlight"
-  - astro
   - "@biomejs/biome"
   - "@biomejs/cli-darwin-arm64"
   - "@biomejs/cli-darwin-x64"
@@ -115,24 +67,67 @@ minimumReleaseAgeExclude:
   - "@typescript/native-preview-linux-x64"
   - "@typescript/native-preview-win32-arm64"
   - "@typescript/native-preview-win32-x64"
+  - astro
   - oxfmt
   - oxlint
   - oxlint-plugin-utilities
   - skills
 
+minimumReleaseAgeExcludePrune: true
 minimumReleaseAgeStrict: true
-
 # Use time-based resolution for reproducible installs
 resolutionMode: time-based
+shellEmulator: true
+strictDepBuilds: true
+strictPeerDependencies: true
+# Keep every release target in the lockfile even when installing on one host.
+supportedArchitectures:
+  cpu:
+    - arm64
+    - x64
+  os:
+    - darwin
+    - linux
+    - win32
 
-fetchRetries: 5
-fetchRetryMintimeout: 1000
-fetchRetryMaxtimeout: 30000
-fetchTimeout: 60000
+trustPolicy: no-downgrade
 
-strictStorePkgContentCheck: true
-verifyStoreIntegrity: true
+trustPolicyExclude:
+  - skills
+
+trustPolicyIgnoreAfter: 10080
+
+# Equivalent to pnpm-workspace.yaml `packages:`
+packages:
+  - documentation
+  - packages/*
+  - scripts
+  - tools/lint-configurations
+
+overrides:
+  "@isentinel/eslint-config>@pobammer-ts/small-rules": catalog:lint
+
+# Applies `componentExts` (.astro) to the options rules instead of oxfmt's file
+# list; same patch as small-rules.
+patchedDependencies:
+  "@isentinel/eslint-config@6.1.0": patches/@isentinel__eslint-config@6.1.0.patch
+
 catalogs:
+  dev:
+    "@cliffy/command": npm:@jsr/cliffy__command@1.3.1
+    "@commitlint/cli": 21.2.2
+    "@commitlint/config-conventional": 21.2.2
+    "@commitlint/types": 21.2.0
+    "@typescript/native-preview": 7.0.0-dev.20260707.2
+    arktype: 2.2.3
+    bumpp: 12.3.0
+    picocolors: 1.1.1
+    pncat: 0.13.0
+    skills: 1.5.21
+    tinyexec: 1.3.1
+    type-fest: 5.8.0
+    typescript: 5.9.3
+    zx: 8.8.5
   frontend:
     "@astrojs/check": 0.9.10
     "@astrojs/markdown-satteri": 0.4.4
@@ -150,6 +145,27 @@ catalogs:
     sharp: 0.35.5
     shiki: 4.5.0
     wrangler: 4.151.1
+  lint:
+    "@biomejs/biome": 2.5.7
+    "@isentinel/eslint-config": 6.1.0
+    "@pobammer-ts/small-rules": 3.4.0
+    "@vitest/eslint-plugin": 1.6.27
+    eslint: 10.12.0
+    eslint-plugin-antfu: 3.2.3
+    eslint-plugin-astro: 3.2.1
+    eslint-plugin-n: 18.4.1
+    eslint-plugin-pnpm: 1.9.1
+    eslint-plugin-react-jsx: 5.27.2
+    eslint-plugin-react-naming-convention: 5.27.2
+    eslint-plugin-react-x: 5.27.2
+    eslint-plugin-regexp: 3.1.1
+    eslint-plugin-sonarjs: 4.2.2
+    eslint-plugin-unused-imports: 4.4.1
+    jiti: 2.7.0
+    knip: 6.31.0
+    oxfmt: 0.73.0
+    oxlint: 1.88.0
+    oxlint-tsgolint: 7.0.2004
   runtime:
     effect: 4.0.1
   test:
@@ -157,48 +173,23 @@ catalogs:
     "@testing-library/react": 16.3.3
     jsdom: 29.1.1
     vitest: 5.0.5
-  dev:
-    "@cliffy/command": npm:@jsr/cliffy__command@1.2.1
-    "@commitlint/cli": 21.2.2
-    "@commitlint/config-conventional": 21.2.2
-    "@commitlint/types": 21.2.0
-    "@oh-my-pi/pi-coding-agent": 17.3.2
-    "@typescript/native-preview": 7.0.0-dev.20260707.2
-    "arktype": 2.2.3
-    "bumpp": 12.3.0
-    "picocolors": 1.1.1
-    "pncat": 0.13.0
-    "skills": 1.5.21
-    tinyexec: 1.3.1
-    "type-fest": 5.8.0
-    "typescript": 5.9.3
-    "zx": 8.8.5
-  lint:
-    "@biomejs/biome": 2.5.7
-    "@isentinel/eslint-config": 6.1.0
-    "@pobammer-ts/small-rules": 3.4.0
-    "@vitest/eslint-plugin": 1.6.27
-    "eslint": 10.12.0
-    "eslint-plugin-antfu": 3.2.3
-    "eslint-plugin-astro": 3.2.1
-    "eslint-plugin-n": 18.4.1
-    "eslint-plugin-react-jsx": 5.27.2
-    "eslint-plugin-react-naming-convention": 5.27.2
-    "eslint-plugin-react-x": 5.27.2
-    "eslint-plugin-regexp": 3.1.1
-    "eslint-plugin-sonarjs": 4.2.2
-    "eslint-plugin-unused-imports": 4.4.1
-    "jiti": 2.7.0
-    "knip": 6.31.0
-    "oxfmt": 0.73.0
-    "oxlint": 1.88.0
-    "oxlint-tsgolint": 7.0.2004
   types:
     "@total-typescript/ts-reset": 0.6.1
     "@types/bun": 1.3.14
     "@types/node": ^26.1.2
     "@types/react": 19.3.0
     "@types/react-dom": 19.3.0
+
+# Only allow specific packages to run install scripts
+allowBuilds:
+  "@openrouter/sdk": true
+  "@swc/core": true
+  esbuild: true
+  msgpackr-extract: true
+  onnxruntime-node: true
+  protobufjs: true
+  sharp: true
+  workerd: true
 
 packageExtensions:
   astro@7.4.0:
@@ -210,3 +201,16 @@ packageExtensions:
         optional: true
       typescript:
         optional: true
+
+peerDependencyRules:
+  allowedVersions:
+    "@emnapi/core": ">=1.0.0"
+    "@emnapi/runtime": ">=1.0.0"
+
+fetchRetries: 5
+fetchRetryMaxtimeout: 30000
+fetchRetryMintimeout: 1000
+fetchTimeout: 60000
+strictSsl: true
+strictStorePkgContentCheck: true
+verifyStoreIntegrity: true
