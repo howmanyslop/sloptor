@@ -51,7 +51,8 @@
 			"!.mise",
 			"!**/testdata",
 			"!{tsgo,reference}",
-			"!rbxts-tsconfig.schema.json"
+			"!rbxts-tsconfig.schema.json",
+			"!rotor.schema.json"
 		]
 	},
 
