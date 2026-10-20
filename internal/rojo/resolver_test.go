@@ -293,6 +293,39 @@ func TestSynthetic(t *testing.T) {
 
 // --- partition LIFO + exact file mappings ---
 
+func TestPackageImportsProjectComposition(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		files map[string]string
+		path  string
+		want  RbxPath
+	}{
+		{"nested default", map[string]string{
+			"lib/out/Foo/default.project.json": `{"name":"FooRenamed","tree":{"$path":"src"}}`,
+			"lib/out/Foo/src/init.luau":        "return {}",
+		}, "lib/out/Foo/src/init.luau", RbxPath{"lib", "out", "FooRenamed"}},
+		{"explicit named project", map[string]string{
+			"lib/default.project.json": `{"name":"runtime","tree":{"Child":{"$path":"layout.project.json"}}}`,
+			"lib/layout.project.json":  `{"name":"ignored","tree":{"$path":"out"}}`,
+			"lib/out/init.lua":         "return {}",
+		}, "lib/out/init.lua", RbxPath{"runtime", "Child"}},
+		// Preserved behavior: defaults can mount a sibling output tree. Only
+		// implicitly discovered named projects are excluded by this fix.
+		{"nested default duplicate", map[string]string{
+			"lib/.cache/place/default.project.json": `{"name":"testing","tree":{"$path":"../../out"}}`,
+			"lib/out/init.luau":                     "return {}",
+		}, "lib/out/init.luau", RbxPath{"lib", ".cache", "testing"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := writeProject(t, test.files)
+			r := PackageImports(dir, NewProjectFiles())
+			if got := mustRbxPath(t, r, filepath.Join(dir, filepath.FromSlash(test.path))); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("package path = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestPartitionsLIFO(t *testing.T) {
 	dir := writeProject(t, map[string]string{
 		"default.project.json": `{"name":"p","tree":{"all":{"$path":"src"},"sub":{"$path":"src/special"}}}`,

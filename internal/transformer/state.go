@@ -60,9 +60,9 @@ type RojoContext struct {
 
 	// Import-resolution members (createImportExpression pipeline, digest §3):
 
-	// PkgRojoResolvers holds one RojoResolver.synthetic per typeRoot
-	// (compileFiles.ts:77) — Package projects resolve node_modules imports
-	// through these instead of the project resolver.
+	// PkgRojoResolvers holds one package import resolver per typeRoot.
+	// Package projects use these instead of the project resolver, retaining
+	// default projects while ignoring implicitly discovered named projects.
 	PkgRojoResolvers []*rojo.RojoResolver
 	// NodeModulesPathMapping maps the types-entry path (.d.ts) of each
 	// typeRoot package to its shipped main (.lua) path

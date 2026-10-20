@@ -69,6 +69,7 @@ type solutionWatchEvents struct {
 	configs  map[string]struct{}
 	assets   map[string]map[string]bool
 	paths    map[string]struct{}
+	packages map[string]struct{}
 	// dead holds the watches that stopped delivering events: their watched
 	// path was deleted or the watch terminated.
 	dead map[solutionWatchKey]struct{}
@@ -80,6 +81,8 @@ const (
 	solutionWatchRoot solutionWatchKind = iota
 	solutionWatchRojo
 	solutionWatchConfig
+	solutionWatchPackageFile
+	solutionWatchPackageDirectory
 )
 
 // solutionWatchKey names one watch: a project's root or Rojo directory, or
@@ -93,10 +96,14 @@ type solutionWatchKey struct {
 // directory is the directory fswatch watches for key. Watches of one
 // directory share one OS watch, so they die together.
 func (key solutionWatchKey) directory() (string, bool) {
-	if key.kind == solutionWatchConfig {
+	if key.fileWatch() {
 		return filepath.Dir(filepath.Clean(key.path)), false
 	}
-	return filepath.Clean(key.path), true
+	return filepath.Clean(key.path), key.kind != solutionWatchPackageDirectory
+}
+
+func (key solutionWatchKey) fileWatch() bool {
+	return key.kind == solutionWatchConfig || key.kind == solutionWatchPackageFile
 }
 
 // addWatchError records paths and watch errors, and reports whether the
@@ -154,6 +161,22 @@ func (s *solutionWatchEvents) addConfig(key solutionWatchKey, events []fswatch.E
 	s.configs[key.path] = struct{}{}
 }
 
+func (s *solutionWatchEvents) addPackageInputs(key solutionWatchKey, events []fswatch.Event, watchErr error) {
+	s.addWatchError(key, events, watchErr)
+	if watchErr != nil {
+		s.projects[key.project] = struct{}{}
+	}
+	for _, event := range events {
+		if key.fileWatch() || event.Kind == fswatch.EventDelete {
+			s.packages[key.project] = struct{}{}
+			continue
+		}
+		if info, err := os.Lstat(event.Path); err == nil && (info.IsDir() || info.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0) {
+			s.packages[key.project] = struct{}{}
+		}
+	}
+}
+
 func (s *solutionWatchEvents) addAsset(project string, event fswatch.Event) {
 	if s.assets[project] == nil {
 		s.assets[project] = map[string]bool{}
@@ -202,7 +225,7 @@ func runBuildSolutionWatch(tsConfigPath string, opts projectOptions, reload func
 }
 
 func newSolutionWatchEvents() *solutionWatchEvents {
-	return &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}, dead: map[solutionWatchKey]struct{}{}}
+	return &solutionWatchEvents{projects: map[string]struct{}{}, configs: map[string]struct{}{}, assets: map[string]map[string]bool{}, paths: map[string]struct{}{}, packages: map[string]struct{}{}, dead: map[solutionWatchKey]struct{}{}}
 }
 
 // newSolutionWatcher is the file watcher; tests replace it.
@@ -235,6 +258,14 @@ func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 	keys := []solutionWatchKey{}
 	artifacts := solutionArtifactDirectories(sets)
 	for _, set := range sets {
+		if set.PackageInputs != nil {
+			for _, path := range set.PackageInputs.Files {
+				keys = append(keys, solutionWatchKey{kind: solutionWatchPackageFile, project: set.ProjectPath, path: path})
+			}
+			for _, path := range set.PackageInputs.Directories {
+				keys = append(keys, solutionWatchKey{kind: solutionWatchPackageDirectory, project: set.ProjectPath, path: path})
+			}
+		}
 		for _, directory := range set.RootDirs {
 			keys = append(keys, solutionWatchKey{kind: solutionWatchRoot, project: set.ProjectPath, path: directory})
 		}
@@ -328,6 +359,14 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 		events := *s
 		s = newSolutionWatchEvents()
 		mu.Unlock()
+		for project := range events.packages {
+			if coordinator.RefreshPackageWatchInputs(project) {
+				events.projects[project] = struct{}{}
+			}
+		}
+		if len(events.packages) > 0 {
+			refresh(events.dead)
+		}
 		if len(events.projects) > 0 || len(events.configs) > 0 {
 			var changed []string
 			if !initial {
@@ -382,6 +421,8 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 				s.add(key, events, watchErr)
 			case solutionWatchRojo:
 				s.addRojo(key, events, watchErr)
+			case solutionWatchPackageFile, solutionWatchPackageDirectory:
+				s.addPackageInputs(key, events, watchErr)
 			default:
 				s.addConfig(key, events, watchErr)
 			}
@@ -410,8 +451,13 @@ func solutionWatchedFileCount(sets []compile.SolutionWatchSet) int {
 	seen := map[string]struct{}{}
 	artifacts := solutionArtifactDirectories(sets)
 	for _, key := range solutionWatchKeys(sets) {
-		if key.kind == solutionWatchConfig {
+		if key.fileWatch() {
 			seen[solutionWatchCanonicalPath(key.path)] = struct{}{}
+			continue
+		}
+		if key.kind == solutionWatchPackageDirectory {
+			// These watches only detect discovery changes. Their relevant
+			// files are already represented by the exact package inputs.
 			continue
 		}
 		for path := range newTreeWatcher(solutionWatchCanonicalPath(key.path), solutionWatchExclusions(key, artifacts)...).snapshot() {

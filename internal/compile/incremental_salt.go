@@ -44,6 +44,10 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	if err != nil {
 		return "", err
 	}
+	packageLayout, err := opts.packageLayout.fingerprint(dir)
+	if err != nil {
+		return "", err
+	}
 	// External transformers rewrite the output of every file they see, and
 	// nothing else in this payload notices them: tsgo drops
 	// `compilerOptions.plugins` while parsing options, and the plugin code
@@ -73,6 +77,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
 		ProjectReferencePaths map[string]string              `json:"projectReferencePaths,omitempty"`
 		RojoResolver          string                         `json:"rojoResolver,omitempty"`
+		PackageLayout         string                         `json:"packageLayout,omitempty"`
 	}{
 		Version:               "rotor-incremental-v2",
 		CompilerOptions:       options,
@@ -93,6 +98,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		TransformerPlugins:    plugins,
 		ProjectReferencePaths: projectReferencePaths,
 		RojoResolver:          rojoResolver,
+		PackageLayout:         packageLayout,
 	}, tsjson.Deterministic(true))
 	if err != nil {
 		return "", err

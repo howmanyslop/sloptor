@@ -41,7 +41,7 @@ func (d *solutionWatchDispatch) deliver(events []fswatch.Event, err error) {
 		var matched []fswatch.Event
 		for _, event := range events {
 			path := solutionWatchNormalizePath(event.Path)
-			if route.key.kind == solutionWatchConfig {
+			if route.key.fileWatch() {
 				if !solutionWatchPathWithin(path, route.path) || !solutionWatchPathWithin(route.path, path) {
 					continue
 				}
@@ -52,6 +52,9 @@ func (d *solutionWatchDispatch) deliver(events []fswatch.Event, err error) {
 				}
 				if solutionWatchPathWithin(path, route.path) {
 					relative, _ := filepath.Rel(route.path, path)
+					if route.key.kind == solutionWatchPackageDirectory && filepath.Dir(relative) != "." {
+						continue
+					}
 					event.Path = filepath.Join(filepath.FromSlash(route.key.path), relative)
 				} else if solutionWatchPathWithin(route.path, path) {
 					// A containing directory moved or disappeared. The route's
@@ -160,9 +163,11 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 	for _, key := range solutionWatchKeys(sets) {
 		route := solutionWatchRoute{key: key, path: solutionWatchCanonicalPath(key.path), callback: w.callback(key)}
 		physical := solutionWatchKey{kind: solutionWatchRoot, path: route.path}
-		switch key.kind {
-		case solutionWatchConfig:
+		switch {
+		case key.fileWatch():
 			physical.kind = solutionWatchConfig
+		case key.kind == solutionWatchPackageDirectory:
+			physical.kind = solutionWatchPackageDirectory
 		default:
 			route.excluded = solutionWatchExclusions(key, artifacts)
 		}
@@ -184,10 +189,10 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 	wanted := map[solutionWatchKey]struct{}{}
 	w.armed = true
 	for _, physical := range ordered {
-		if physical.kind != solutionWatchConfig {
+		if physical.kind == solutionWatchRoot {
 			covered := false
 			for selected := range wanted {
-				if selected.kind != solutionWatchConfig && solutionWatchPathWithin(physical.path, selected.path) {
+				if selected.kind == solutionWatchRoot && solutionWatchPathWithin(physical.path, selected.path) {
 					covered = true
 					break
 				}
@@ -197,7 +202,10 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 			}
 		}
 		matched := slices.DeleteFunc(slices.Clone(routes), func(route solutionWatchRoute) bool {
-			if physical.kind == solutionWatchConfig || route.key.kind == solutionWatchConfig {
+			if physical.fileWatch() || route.key.fileWatch() {
+				return !physical.fileWatch() || !route.key.fileWatch() || route.path != physical.path
+			}
+			if physical.kind == solutionWatchPackageDirectory || route.key.kind == solutionWatchPackageDirectory {
 				return physical.kind != route.key.kind || route.path != physical.path
 			}
 			return !solutionWatchPathWithin(route.path, physical.path) && !solutionWatchPathWithin(physical.path, route.path)
@@ -209,8 +217,10 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 			dispatch.set(matched)
 			var watch fswatch.Watch
 			var err error
-			if physical.kind == solutionWatchConfig {
+			if physical.fileWatch() {
 				watch, err = w.watcher.WatchFile(physical.path, dispatch.deliver)
+			} else if physical.kind == solutionWatchPackageDirectory {
+				watch, err = w.watcher.WatchDirectory(physical.path, dispatch.deliver)
 			} else {
 				watch, err = w.watcher.WatchDirectory(physical.path, dispatch.deliver, fswatch.WithRecursive())
 			}

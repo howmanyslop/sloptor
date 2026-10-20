@@ -147,6 +147,10 @@ type RojoResolver struct {
 	isolatedContainers   []RbxPath
 	walkedConfigs        []string
 	walkedDirectories    []string
+	// Package imports retain default-project composition, but an unrelated
+	// named project must not take precedence over the package's output path.
+	ignoreNamedProjects bool
+	projectFiles        *ProjectFiles
 	// IsGame is true when the tree declares $className "DataModel".
 	IsGame bool
 }
@@ -328,6 +332,18 @@ func Synthetic(basePath string) *RojoResolver {
 	return r
 }
 
+// PackageImports maps a typeRoot for relocatable package imports. Unlike
+// Synthetic, it only discovers default.project.json; named projects still
+// compose when explicitly referenced by a selected project's $path.
+func PackageImports(basePath string, projectFiles *ProjectFiles) *RojoResolver {
+	r := newRojoResolver()
+	r.ignoreNamedProjects = true
+	r.projectFiles = projectFiles
+	p := basePath
+	r.parseTree(basePath, "", &Tree{Path: &p}, true)
+	return r
+}
+
 // FromTree creates a resolver from an in-memory tree (RojoResolver.ts L213-217).
 func FromTree(basePath string, tree *Tree) *RojoResolver {
 	r := newRojoResolver()
@@ -343,12 +359,17 @@ func FromTree(basePath string, tree *Tree) *RojoResolver {
 func (r *RojoResolver) parseConfig(rojoConfigFilePath string, doNotPush bool) {
 	realPath := realpathOr(rojoConfigFilePath)
 	r.walkConfig(realPath)
+	if r.ignoreNamedProjects {
+		r.walkConfig(rojoConfigFilePath)
+	}
 	if !pathExists(realPath) {
 		r.warn(`RojoResolver: Path does not exist "` + rojoConfigFilePath + `"`)
 		return
 	}
 	configJSON := jsonValue{kind: jsonInvalid}
-	if data, err := os.ReadFile(realPath); err == nil {
+	if r.projectFiles != nil {
+		configJSON = r.projectFiles.read(realPath)
+	} else if data, err := os.ReadFile(realPath); err == nil {
 		configJSON = parseJSON(data)
 	}
 	if msg := validateConfig(configJSON); msg != "" {
@@ -411,6 +432,9 @@ func (r *RojoResolver) parsePath(itemPath string) {
 		}
 		if isDirectory {
 			r.walkDirectory(realPath)
+			if r.ignoreNamedProjects {
+				r.walkDirectory(itemPath)
+			}
 		}
 		if isDirectory && dirContains(realPath, rojoDefaultName) {
 			r.parseConfig(filepath.Join(itemPath, rojoDefaultName), true)
@@ -434,6 +458,11 @@ func (r *RojoResolver) parsePath(itemPath string) {
 func (r *RojoResolver) searchDirectory(directory, item string) {
 	realPath := realpathOr(directory)
 	r.walkDirectory(realPath)
+	if r.ignoreNamedProjects {
+		// Retain logical junction paths too: replacing a package link changes
+		// its layout even though the old physical directory still exists.
+		r.walkDirectory(directory)
+	}
 	entries, err := os.ReadDir(realPath)
 	if err != nil {
 		return
@@ -457,7 +486,7 @@ func (r *RojoResolver) searchDirectory(directory, item string) {
 	// the overwhelming majority of a source tree — need no extra stat.
 	for _, entry := range entries {
 		child := entry.Name()
-		if child == rojoDefaultName || !rojoFileRegex.MatchString(child) {
+		if r.ignoreNamedProjects || child == rojoDefaultName || !rojoFileRegex.MatchString(child) {
 			continue
 		}
 		if _, isRegular := entryKind(directory, entry); isRegular {

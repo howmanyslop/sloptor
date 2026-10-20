@@ -22,6 +22,7 @@ type SolutionWatchSet struct {
 	RojoConfigs         []string
 	RojoDirectories     []string
 	ArtifactDirectories []string
+	PackageInputs       *PackageWatchInputs
 }
 
 type WatchAssetEvent struct {
@@ -126,6 +127,9 @@ func (c *SolutionCoordinator) projectWatchSet(project SolutionProject, rojoState
 		}
 		set.RojoConfigs = state.configs
 		set.RojoDirectories = filterRojoWatchDirectories(dir, state, set.ArtifactDirectories)
+	}
+	if layout, err := preparePackageLayout(dir, config.Options(), project.Options); err == nil {
+		set.PackageInputs = layout.watchInputs(dir, config.Options().TypeRoots)
 	}
 	return set
 }
