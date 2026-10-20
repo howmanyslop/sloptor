@@ -19,7 +19,6 @@
 		"url": "git+https://github.com/howmanyslop/sloptor.git"
 	},
 	"license": "MIT",
-	"type": "module",
 	"exports": {
 		".": {
 			"types": "./api.d.ts",
