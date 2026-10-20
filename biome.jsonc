@@ -702,6 +702,17 @@
 					}
 				}
 			}
+		},
+
+		{
+			"includes": ["documentation/src/components/**/*.astro"],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noInlineStyles": "off"
+					}
+				}
+			}
 		}
 
 		// package.json exception
