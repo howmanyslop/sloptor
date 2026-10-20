@@ -6,7 +6,7 @@ import { baseIgnores, projectType } from "./constants.ts";
 import { getOxfmtConfigurationAsync } from "./get-oxfmt-configuration-async.ts";
 
 const BANNED_DEPENDENCIES = {
-	allowed: ["@typescript/native-preview"] satisfies ReadonlyArray<string>,
+	allowed: ["tsrs"] satisfies ReadonlyArray<string>,
 	modules: [] satisfies ReadonlyArray<string>,
 	presets: ["microutilities", "native", "preferred"] satisfies ReadonlyArray<string>,
 };

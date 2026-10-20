@@ -138,7 +138,7 @@ local fileChecks = new Mapping<String, Step> {
     depends = List("biome")
     check = new CommandSpec {
       command = new Command {
-        argv = List("tsgo", "-p", ".omp/tsconfig.json", "--noEmit", "--pretty", "false")
+        argv = List("tsrs", "-p", ".omp/tsconfig.json", "--noEmit", "--pretty", "false")
       }
       effect = "read"
     }

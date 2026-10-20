@@ -396,7 +396,7 @@
 		},
 		"typescript-ls": {
 			"binary": {
-				"arguments": ["--run", "tsgo", "--", "--lsp", "--stdio"],
+				"arguments": ["--run", "tsrs", "--", "--lsp", "--stdio"],
 				"path": "node"
 			},
 			"settings": {

@@ -9,6 +9,7 @@
 		"tinyexec": "catalog:dev"
 	},
 	"devDependencies": {
+		"@total-typescript/ts-reset": "catalog:types",
 		"@types/node": "catalog:types"
 	}
 }

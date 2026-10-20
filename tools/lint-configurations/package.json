@@ -17,7 +17,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "catalog:types",
-		"@typescript/native-preview": "catalog:dev",
-		"oxlint": "catalog:lint"
+		"oxlint": "catalog:lint",
+		"tsrs": "catalog:dev"
 	}
 }

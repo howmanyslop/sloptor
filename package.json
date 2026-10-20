@@ -60,9 +60,9 @@
 		"release": "bumpp",
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
-		"tsgo": "tsgo",
-		"type-check": "tsgo --noEmit",
-		"type-check:agent": "tsgo --noEmit --pretty false"
+		"tsrs": "tsrs",
+		"type-check": "tsrs --noEmit",
+		"type-check:agent": "tsrs --noEmit --pretty false"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:lint",
@@ -76,7 +76,6 @@
 		"@total-typescript/ts-reset": "catalog:types",
 		"@types/bun": "catalog:types",
 		"@types/node": "catalog:types",
-		"@typescript/native-preview": "catalog:dev",
 		"@vitest/eslint-plugin": "catalog:lint",
 		"arktype": "catalog:dev",
 		"bumpp": "catalog:dev",
@@ -94,10 +93,10 @@
 		"oxfmt": "catalog:lint",
 		"oxlint": "catalog:lint",
 		"oxlint-tsgolint": "catalog:lint",
-		"picocolors": "catalog:dev",
 		"pncat": "catalog:dev",
 		"skills": "catalog:dev",
 		"tinyexec": "catalog:dev",
+		"tsrs": "catalog:dev",
 		"type-fest": "catalog:dev",
 		"typescript": "catalog:dev",
 		"zx": "catalog:dev"
