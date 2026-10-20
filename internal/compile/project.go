@@ -225,6 +225,12 @@ func resolveIncludePath(dir, includePath string) (string, error) {
 //   - the Rojo tree declares $className DataModel (isGame) -> Game
 //   - otherwise                                            -> Model
 func newProjectContext(dir string, program *compiler.Program, opts ProjectOptions) (*projectContext, []string, error) {
+	return newProjectContextWithImportContext(dir, program, opts, true)
+}
+
+// Only an empty final transform selection can omit import-resolution setup.
+// Project validation and services are still required for that build pass.
+func newProjectContextWithImportContext(dir string, program *compiler.Program, opts ProjectOptions, needsTransformImportContext bool) (*projectContext, []string, error) {
 	options := program.Options()
 	outDir := options.OutDir
 
@@ -326,8 +332,10 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 	useCaseSensitiveFileNames := osvfs.FS().UseCaseSensitiveFileNames()
 	typeRoots := options.TypeRoots
 	pkgRojoResolvers := make([]*rojo.RojoResolver, 0, len(typeRoots))
-	for _, typeRoot := range typeRoots {
-		pkgRojoResolvers = append(pkgRojoResolvers, rojo.Synthetic(filepath.FromSlash(typeRoot)))
+	if needsTransformImportContext {
+		for _, typeRoot := range typeRoots {
+			pkgRojoResolvers = append(pkgRojoResolvers, rojo.Synthetic(filepath.FromSlash(typeRoot)))
+		}
 	}
 
 	// $env macro environment: the .env files live in the directory containing
@@ -337,7 +345,7 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 		envDir = filepath.Dir(filepath.FromSlash(configFilePath))
 	}
 
-	return &projectContext{
+	pctx := &projectContext{
 		dir:         dir,
 		projectType: projectType,
 		env:         dotenv.Load(envDir),
@@ -351,13 +359,16 @@ func newProjectContext(dir string, program *compiler.Program, opts ProjectOption
 			ProjectPath:       filepath.FromSlash(dir),
 
 			PkgRojoResolvers:          pkgRojoResolvers,
-			NodeModulesPathMapping:    createNodeModulesPathMapping(typeRoots, useCaseSensitiveFileNames, options.CustomConditions),
 			NodeModulesPath:           nodeModulesPath,
 			TypeRoots:                 typeRoots,
 			UseCaseSensitiveFileNames: useCaseSensitiveFileNames,
 			ProjectReferencePaths:     importPathMap,
 		},
-	}, nil, nil
+	}
+	if needsTransformImportContext {
+		pctx.rojoContext.NodeModulesPathMapping = createNodeModulesPathMapping(typeRoots, useCaseSensitiveFileNames, options.CustomConditions)
+	}
+	return pctx, nil, nil
 }
 
 func resolveRojoConfigPath(dir, configuredPath string) (string, []string, error) {

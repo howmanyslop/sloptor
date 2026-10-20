@@ -326,7 +326,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	timings.setSourceCounts(len(sourceFiles), len(selectedFiles))
 
 	stopProjectContext := timings.startStage(projectContextStage)
-	pctx, diags, err := newProjectContext(dir, program, opts)
+	pctx, diags, err := newProjectContextWithImportContext(dir, program, opts, len(selectedFiles) > 0)
 	stopProjectContext()
 	if err != nil {
 		return nil, diags, err
