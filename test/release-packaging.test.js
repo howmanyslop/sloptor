@@ -1,14 +1,16 @@
-"use strict";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
 
-const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
-const { version: packageVersion } = require("../package.json");
+import packageJson from "../package.json" with { type: "json" };
+import { PLATFORM_TARGETS } from "../platform.js";
 
-const repoRoot = path.resolve(__dirname, "..");
+const { version: packageVersion } = packageJson;
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
 
 function validate(root = repoRoot, ...arguments_) {
 	return spawnSync(process.execPath, ["scripts/validate-release.cjs", "--root", root, ...arguments_], {
@@ -81,7 +83,6 @@ test("release staging produces the main package and all six executable packages"
 	const dist = path.join(root, "dist");
 	const output = path.join(root, "npm");
 	fs.mkdirSync(dist);
-	const { PLATFORM_TARGETS } = require(path.join(repoRoot, "platform.js"));
 	for (const target of Object.values(PLATFORM_TARGETS)) {
 		const extension = target.goos === "windows" ? ".exe" : "";
 		const executable = path.join(dist, `sloptor-v${packageVersion}-${target.goos}-${target.goarch}-bin${extension}`);

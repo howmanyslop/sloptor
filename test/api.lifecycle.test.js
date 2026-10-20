@@ -1,14 +1,12 @@
-"use strict";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
 
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
+import { createBuildSession } from "../api.js";
 
-const { createBuildSession } = require("..");
-
-const fakeServer = path.join(__dirname, "support", "fake-api-server.js");
+const fakeServer = path.join(import.meta.dirname, "support", "fake-api-server.js");
 
 function temporaryPath(name) {
 	const directory = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-api-lifecycle-"));
@@ -43,7 +41,7 @@ test("session startup is lazy and disposing an unused session starts no process"
 test("missing executables produce a stable client error", async () => {
 	const missing = path.join(os.tmpdir(), `missing-sloptor-${process.pid}`, "sloptor");
 	const session = createBuildSession({ executable: missing });
-	await assert.rejects(session.build({ project: __dirname }), {
+	await assert.rejects(session.build({ project: import.meta.dirname }), {
 		code: "EXECUTABLE_NOT_FOUND",
 	});
 	await session.dispose();
@@ -58,7 +56,7 @@ for (const [mode, code] of [
 	test(`${mode} startup failures produce ${code}`, async () => {
 		const marker = temporaryPath("pid");
 		const session = fakeSession(mode, marker.file);
-		await assert.rejects(session.build({ project: __dirname }), { code });
+		await assert.rejects(session.build({ project: import.meta.dirname }), { code });
 		await session.dispose();
 		fs.rmSync(marker.directory, { force: true, recursive: true });
 	});
@@ -67,7 +65,7 @@ for (const [mode, code] of [
 test("malformed build results terminate the session", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("malformed-result", marker.file);
-	await assert.rejects(session.build({ project: __dirname }), { code: "PROTOCOL_ERROR" });
+	await assert.rejects(session.build({ project: import.meta.dirname }), { code: "PROTOCOL_ERROR" });
 	await session.dispose();
 	fs.rmSync(marker.directory, { force: true, recursive: true });
 });
@@ -75,7 +73,7 @@ test("malformed build results terminate the session", async () => {
 test("build results require every non-optional timing field", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("missing-timing-fields", marker.file);
-	await assert.rejects(session.build({ project: __dirname }), { code: "PROTOCOL_ERROR" });
+	await assert.rejects(session.build({ project: import.meta.dirname }), { code: "PROTOCOL_ERROR" });
 	await session.dispose();
 	fs.rmSync(marker.directory, { force: true, recursive: true });
 });
@@ -84,7 +82,7 @@ for (const mode of ["missing-callback-id", "non-string-callback-id"]) {
 	test(`${mode} terminates the session as a protocol error`, async () => {
 		const marker = temporaryPath("pid");
 		const session = fakeSession(mode, marker.file);
-		await assert.rejects(session.build({ project: __dirname, signal: AbortSignal.timeout(5000) }), {
+		await assert.rejects(session.build({ project: import.meta.dirname, signal: AbortSignal.timeout(5000) }), {
 			code: "PROTOCOL_ERROR",
 		});
 		await session.dispose();
@@ -96,7 +94,7 @@ test("transformer callbacks run in the API client process", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("transform-callback", marker.file);
 	try {
-		const result = await session.build({ project: __dirname });
+		const result = await session.build({ project: import.meta.dirname });
 		assert.equal(result.ok, true);
 	} finally {
 		await session.dispose();
@@ -107,11 +105,11 @@ test("transformer callbacks run in the API client process", async () => {
 test("selected and satisfied ownership sets must be provided together", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("success", marker.file);
-	await assert.rejects(session.build({ project: __dirname, selected: [__filename] }), {
+	await assert.rejects(session.build({ project: import.meta.dirname, selected: [import.meta.filename] }), {
 		code: "INVALID_REQUEST",
 		message: /selected and satisfied together/,
 	});
-	await assert.rejects(session.build({ project: __dirname, selected: [], satisfied: [""] }), {
+	await assert.rejects(session.build({ project: import.meta.dirname, selected: [], satisfied: [""] }), {
 		code: "INVALID_REQUEST",
 		message: /non-empty paths/,
 	});
@@ -122,7 +120,7 @@ test("selected and satisfied ownership sets must be provided together", async ()
 test("disposal does not suppress an in-flight server exit", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("exit", marker.file);
-	const build = session.build({ project: __dirname });
+	const build = session.build({ project: import.meta.dirname });
 	const disposal = session.dispose();
 	await assert.rejects(build, { code: "SERVER_EXITED" });
 	await disposal;
@@ -133,7 +131,7 @@ test("abort during the handshake terminates the child", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("delayed-initialize", marker.file);
 	const controller = new AbortController();
-	const build = session.build({ project: __dirname, signal: controller.signal });
+	const build = session.build({ project: import.meta.dirname, signal: controller.signal });
 
 	while (!fs.existsSync(marker.file)) {
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -151,7 +149,7 @@ test("aborting an active request terminates the child and the session", async ()
 	const marker = temporaryPath("pid");
 	const session = fakeSession("blocked-build", marker.file);
 	const controller = new AbortController();
-	const build = session.build({ project: __dirname, signal: controller.signal });
+	const build = session.build({ project: import.meta.dirname, signal: controller.signal });
 
 	while (!fs.existsSync(marker.file)) {
 		await new Promise((resolve) => setTimeout(resolve, 10));
@@ -161,7 +159,7 @@ test("aborting an active request terminates the child and the session", async ()
 
 	await assert.rejects(build, { code: "BUILD_CANCELLED" });
 	assert.equal(processExists(pid), false);
-	await assert.rejects(session.build({ project: __dirname }), { code: "SESSION_TERMINAL" });
+	await assert.rejects(session.build({ project: import.meta.dirname }), { code: "SESSION_TERMINAL" });
 	await session.dispose();
 	fs.rmSync(marker.directory, { force: true, recursive: true });
 });
@@ -169,7 +167,7 @@ test("aborting an active request terminates the child and the session", async ()
 test("disposal waits for the owned child to exit", async () => {
 	const marker = temporaryPath("pid");
 	const session = fakeSession("success", marker.file);
-	await session.build({ project: __dirname });
+	await session.build({ project: import.meta.dirname });
 	const pid = Number(fs.readFileSync(marker.file, "utf8"));
 	assert.equal(processExists(pid), true);
 	await session.dispose();

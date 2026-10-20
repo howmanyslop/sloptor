@@ -23,7 +23,6 @@
 	"exports": {
 		".": {
 			"types": "./api.d.ts",
-			"require": "./api.js",
 			"default": "./api.js"
 		},
 		"./package.json": "./package.json",
@@ -40,7 +39,8 @@
 		"bin/",
 		"scripts/install.js",
 		"tools/sidecar/index.js",
-		"tools/sidecar/lib/"
+		"tools/sidecar/lib/",
+		"tools/sidecar/package.json"
 	],
 	"scripts": {
 		"biome": "biome",
@@ -112,7 +112,7 @@
 	},
 	"packageManager": "pnpm@12.14.0",
 	"engines": {
-		"node": ">=18"
+		"node": "^20.19.0 || >=22.12.0"
 	},
 	"publishConfig": {
 		"access": "public",

@@ -1,14 +1,16 @@
-"use strict";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { pathToFileURL } from "node:url";
 
-const assert = require("node:assert/strict");
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
-const { version: packageVersion } = require("../package.json");
+import packageJson from "../package.json" with { type: "json" };
 
-const repoRoot = path.resolve(__dirname, "..");
+const { version: packageVersion } = packageJson;
+
+const repoRoot = path.resolve(import.meta.dirname, "..");
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-platform-package-"));
 const platformPackageName = `@rotor-rbx/rotor-${process.platform}-${process.arch}`;
 
@@ -22,7 +24,9 @@ function stageMain(name) {
 	}
 	fs.copyFileSync(path.join(repoRoot, "bin", "rotor.js"), path.join(root, "bin", "rotor.js"));
 	fs.copyFileSync(path.join(repoRoot, "scripts", "install.js"), path.join(root, "scripts", "install.js"));
-	fs.copyFileSync(path.join(repoRoot, "tools", "sidecar", "index.js"), path.join(root, "tools", "sidecar", "index.js"));
+	for (const file of ["index.js", "package.json"]) {
+		fs.copyFileSync(path.join(repoRoot, "tools", "sidecar", file), path.join(root, "tools", "sidecar", file));
+	}
 	fs.cpSync(path.join(repoRoot, "tools", "sidecar", "lib"), path.join(root, "tools", "sidecar", "lib"), {
 		recursive: true,
 	});
@@ -44,6 +48,10 @@ function stagePlatform(root, version = packageVersion, withBinary = true) {
 	return executable;
 }
 
+function importStaged(root, ...segments) {
+	return import(pathToFileURL(path.join(root, ...segments)).href);
+}
+
 function runNode(args, options = {}) {
 	return spawnSync(process.execPath, args, { encoding: "utf8", ...options });
 }
@@ -52,7 +60,7 @@ test.after(() => fs.rmSync(temporaryRoot, { force: true, recursive: true }));
 
 test("the API reports a missing optional platform package before starting a build", async () => {
 	const root = stageMain("missing");
-	const session = require(root).createBuildSession();
+	const session = (await importStaged(root, "api.js")).createBuildSession();
 	await assert.rejects(session.build({ project: root }), (error) => {
 		assert.equal(error.code, "EXECUTABLE_NOT_FOUND");
 		assert.match(error.message, new RegExp(platformPackageName));
@@ -65,7 +73,7 @@ test("the API reports a missing optional platform package before starting a buil
 test("the API rejects a platform package at a different version", async () => {
 	const root = stageMain("mismatch");
 	stagePlatform(root, "2.5.0");
-	const session = require(root).createBuildSession();
+	const session = (await importStaged(root, "api.js")).createBuildSession();
 	await assert.rejects(session.build({ project: root }), (error) => {
 		assert.equal(error.code, "VERSION_MISMATCH");
 		assert.ok(error.message.includes(`@${packageVersion}, but found ${platformPackageName}@2.5.0`), error.message);
@@ -93,7 +101,7 @@ session.build({ project: ${JSON.stringify(root)} }).then(
 test("the CLI and compatibility installer use the same installed executable", async () => {
 	const root = stageMain("cli");
 	const executable = stagePlatform(root);
-	const installer = require(path.join(root, "scripts", "install.js"));
+	const installer = await importStaged(root, "scripts", "install.js");
 	assert.equal(installer.binaryPath(), executable);
 	assert.equal(await installer.install({ quiet: true }), executable);
 

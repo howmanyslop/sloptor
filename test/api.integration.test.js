@@ -1,16 +1,18 @@
-"use strict";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { pathToFileURL } from "node:url";
 
-const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const test = require("node:test");
+import { createBuildSession } from "../api.js";
+import packageJson from "../package.json" with { type: "json" };
 
-const { createBuildSession } = require("..");
-const { version: packageVersion } = require("../package.json");
+const { version: packageVersion } = packageJson;
 
-const repoRoot = path.resolve(__dirname, "..");
+const repoRoot = path.resolve(import.meta.dirname, "..");
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-api-test-"));
 const executable = path.join(temporaryRoot, process.platform === "win32" ? "sloptor.exe" : "sloptor");
 
@@ -27,7 +29,7 @@ test.after(() => {
 
 test("one session builds a project repeatedly through one native server", async () => {
 	const project = path.join(temporaryRoot, "project");
-	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "single-project"), project, { recursive: true });
 
 	const session = createBuildSession({ executable });
 	try {
@@ -61,7 +63,7 @@ test("one session builds a project repeatedly through one native server", async 
 
 test("project output ownership includes every cache artifact across no-change builds", async () => {
 	const project = path.join(temporaryRoot, "complete-output-ownership");
-	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "single-project"), project, { recursive: true });
 	const configPath = path.join(project, "tsconfig.json");
 	const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
 	Object.assign(config.compilerOptions, {
@@ -237,7 +239,7 @@ test("transformer callback diagnostics map back to original source positions", a
 test("one request builds a canonical union with project-owned results and CLI byte parity", async () => {
 	const apiRoot = path.join(temporaryRoot, "multi-root-api");
 	const cliRoot = path.join(temporaryRoot, "multi-root-cli");
-	const fixture = path.join(__dirname, "fixtures", "multi-root");
+	const fixture = path.join(import.meta.dirname, "fixtures", "multi-root");
 	fs.cpSync(fixture, apiRoot, { recursive: true });
 	fs.cpSync(fixture, cliRoot, { recursive: true });
 
@@ -305,7 +307,7 @@ test("package roots can also be referenced without inheriting another root's con
 
 test("package roots import a referenced package through getModule", async () => {
 	const root = path.join(temporaryRoot, "package-reference-import");
-	const fixture = path.join(__dirname, "fixtures", "single-project");
+	const fixture = path.join(import.meta.dirname, "fixtures", "single-project");
 	for (const [project, config, manifest] of [
 		["lib", { include: ["src/**/*.d.ts"] }, { types: "src/index.d.ts", main: "out/init.luau" }],
 		["pkg", { references: [{ path: "../lib" }] }, {}],
@@ -457,7 +459,7 @@ test("conflicting root contexts return a failure for every selected config", asy
 
 test("a union failure owns one diagnostic and explicitly blocks every dependent", async () => {
 	const root = path.join(temporaryRoot, "multi-root-failure");
-	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "multi-root"), root, { recursive: true });
 	fs.writeFileSync(path.join(root, "shared", "src", "value.ts"), "export const sharedValue: string = 40;\n");
 
 	const session = createBuildSession({ executable });
@@ -489,7 +491,7 @@ test("a union failure owns one diagnostic and explicitly blocks every dependent"
 });
 
 test("a mixed cache hit builds selected projects without touching restored dependencies", async () => {
-	const fixture = path.join(__dirname, "fixtures", "multi-root");
+	const fixture = path.join(import.meta.dirname, "fixtures", "multi-root");
 	const referenceRoot = path.join(temporaryRoot, "mixed-hit-reference");
 	const mixedRoot = path.join(temporaryRoot, "mixed-hit-api");
 	fs.cpSync(fixture, referenceRoot, { recursive: true });
@@ -550,7 +552,7 @@ test("a mixed cache hit builds selected projects without touching restored depen
 
 test("missing restored declarations fail the selected project without rebuilding the satisfied dependency", async () => {
 	const root = path.join(temporaryRoot, "missing-restored-output");
-	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "multi-root"), root, { recursive: true });
 	const productionConfig = path.join(root, "production", "tsconfig.json");
 	const sharedConfig = path.join(root, "shared", "tsconfig.json");
 	const session = createBuildSession({ executable });
@@ -586,7 +588,7 @@ test("missing restored declarations fail the selected project without rebuilding
 
 test("invalid restored declarations fail without transforming or replacing the satisfied output", async () => {
 	const root = path.join(temporaryRoot, "invalid-restored-output");
-	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "multi-root"), root, { recursive: true });
 	const productionConfig = path.join(root, "production", "tsconfig.json");
 	const sharedConfig = path.join(root, "shared", "tsconfig.json");
 	const session = createBuildSession({ executable });
@@ -621,7 +623,7 @@ test("invalid restored declarations fail without transforming or replacing the s
 
 test("invalid ownership claims return one owned diagnostic and a terminal result for every selected project", async () => {
 	const root = path.join(temporaryRoot, "invalid-ownership");
-	fs.cpSync(path.join(__dirname, "fixtures", "multi-root"), root, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "multi-root"), root, { recursive: true });
 	const productionConfig = path.join(root, "production", "tsconfig.json");
 	const unknownConfig = path.join(root, "unknown", "tsconfig.json");
 	const session = createBuildSession({ executable });
@@ -659,10 +661,12 @@ test("an installed package resolves its native executable without an override", 
 		fs.copyFileSync(path.join(repoRoot, file), path.join(installedPackage, file));
 	}
 	fs.mkdirSync(path.join(installedPackage, "tools", "sidecar"), { recursive: true });
-	fs.copyFileSync(
-		path.join(repoRoot, "tools", "sidecar", "index.js"),
-		path.join(installedPackage, "tools", "sidecar", "index.js"),
-	);
+	for (const file of ["index.js", "package.json"]) {
+		fs.copyFileSync(
+			path.join(repoRoot, "tools", "sidecar", file),
+			path.join(installedPackage, "tools", "sidecar", file),
+		);
+	}
 	fs.cpSync(path.join(repoRoot, "tools", "sidecar", "lib"), path.join(installedPackage, "tools", "sidecar", "lib"), {
 		recursive: true,
 	});
@@ -678,9 +682,9 @@ test("an installed package resolves its native executable without an override", 
 	fs.copyFileSync(executable, installedExecutable);
 	if (process.platform !== "win32") fs.chmodSync(installedExecutable, 0o755);
 
-	const installedClient = require(installedPackage);
+	const installedClient = await import(pathToFileURL(path.join(installedPackage, "api.js")).href);
 	const project = path.join(temporaryRoot, "installed-project");
-	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "single-project"), project, { recursive: true });
 	const session = installedClient.createBuildSession();
 	try {
 		const result = await session.build({ project });
@@ -693,7 +697,7 @@ test("an installed package resolves its native executable without an override", 
 
 function createRootOverlapFixture(name) {
 	const root = path.join(temporaryRoot, name);
-	const fixture = path.join(__dirname, "fixtures", "single-project");
+	const fixture = path.join(import.meta.dirname, "fixtures", "single-project");
 	for (const project of ["shared", "consumer", "independent"]) {
 		const dir = path.join(root, project);
 		fs.cpSync(fixture, dir, { recursive: true });
@@ -751,7 +755,7 @@ function createLinkedTransformerProject(project) {
 }
 
 function createTransformerProject(project, prefix = "callback", phase = "start") {
-	fs.cpSync(path.join(__dirname, "fixtures", "single-project"), project, { recursive: true });
+	fs.cpSync(path.join(import.meta.dirname, "fixtures", "single-project"), project, { recursive: true });
 	fs.writeFileSync(path.join(project, "src", "main.ts"), `export const phase = ${JSON.stringify(phase)};\n`);
 	fs.writeFileSync(
 		path.join(project, "transformer.js"),
@@ -774,7 +778,9 @@ module.exports = (program, config, helpers) => {
 	const nodeModules = path.join(project, "node_modules");
 	fs.mkdirSync(nodeModules, { recursive: true });
 	const transformerFixture = path.join(repoRoot, "testdata", "transformers", "project");
-	const typescriptPackage = require.resolve("typescript/package.json", { paths: [transformerFixture] });
+	const typescriptPackage = createRequire(import.meta.url).resolve("typescript/package.json", {
+		paths: [transformerFixture],
+	});
 	fs.symlinkSync(path.dirname(typescriptPackage), path.join(nodeModules, "typescript"), "junction");
 }
 

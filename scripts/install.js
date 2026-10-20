@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-"use strict";
 
 // Kept as a compatibility subpath for consumers that called install() or
 // binaryPath() before platform executables moved to optional dependencies.
 // Resolution is local-only; this module never downloads or writes a binary.
 
-const path = require("node:path");
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const pkg = require(path.join(__dirname, "..", "package.json"));
-const { PLATFORM_TARGETS, releaseBinaryName, resolvePlatformBinary } = require("../platform.js");
+import pkg from "../package.json" with { type: "json" };
+import { PLATFORM_TARGETS, releaseBinaryName, resolvePlatformBinary } from "../platform.js";
 
 const MIN_BINARY_SIZE = 1024 * 1024;
 
@@ -26,9 +26,18 @@ async function install() {
 	return binaryPath();
 }
 
-module.exports = { install, binaryPath, assetUrl, MIN_BINARY_SIZE };
+export { install, binaryPath, assetUrl, MIN_BINARY_SIZE };
 
-if (require.main === module) {
+function isEntryPoint() {
+	if (!process.argv[1]) return false;
+	try {
+		return fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+	} catch {
+		return false;
+	}
+}
+
+if (isEntryPoint()) {
 	install()
 		.then((executable) => console.log(executable))
 		.catch((error) => {
