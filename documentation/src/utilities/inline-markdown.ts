@@ -77,8 +77,9 @@ function collectSegments(
 }
 
 /**
- * Splits text on inline Markdown so titles like "No `print`" or "**No `print`**" can render code spans and bold as
- * elements. Code spans take precedence over bold, and unclosed delimiters stay literal.
+ * Splits text on inline Markdown so titles like "No `print`" or "**No
+ * `print`**" can render code spans and bold as elements. Code spans take
+ * precedence over bold, and unclosed delimiters stay literal.
  *
  * @param text - The raw title text that may contain backtick or `**` pairs.
  * @returns The flagged segments in source order.

@@ -10,10 +10,10 @@ export default defineConfig({
 		},
 	},
 	test: {
+		name: "documentation",
 		clearMocks: true,
 		environment: "jsdom",
 		include: ["tests/unit/**/*.test.{ts,tsx}"],
-		name: "documentation",
 		restoreMocks: true,
 		setupFiles: ["./tests/unit/setup.ts"],
 	},

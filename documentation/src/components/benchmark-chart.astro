@@ -4,7 +4,7 @@ import { BENCHMARKS } from "../data/benchmarks";
 const SCALE_MAX = 400;
 const TICKS = [0, 100, 200, 300, 400];
 
-function percent(milliseconds: number): string {
+function toPercent(milliseconds: number): string {
 	return `${(milliseconds / SCALE_MAX) * 100}%`;
 }
 ---
@@ -19,7 +19,7 @@ function percent(milliseconds: number): string {
 							{label} · {files} files
 						</span>
 						<span class="benchmark-track">
-							<span class="benchmark-bar" style={`inline-size: ${percent(milliseconds)}`} />
+							<span class="benchmark-bar" style={`inline-size: ${toPercent(milliseconds)}`} />
 							<span class="benchmark-value">{milliseconds} ms</span>
 						</span>
 					</li>
@@ -28,7 +28,7 @@ function percent(milliseconds: number): string {
 		<div aria-hidden="true" class="benchmark-axis">
 			<span />
 			<span class="benchmark-ticks">
-				{TICKS.map((tick) => <span style={`inset-inline-start: ${percent(tick)}`}>{tick}</span>)}
+				{TICKS.map((tick) => <span style={`inset-inline-start: ${toPercent(tick)}`}>{tick}</span>)}
 			</span>
 		</div>
 	</div>

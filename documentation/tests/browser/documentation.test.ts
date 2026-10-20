@@ -23,7 +23,8 @@ playwrightIt("documents every flag of a command", async ({ page }) => {
 	await playwrightExpect(page.getByRole("cell", { name: "--checkers <n>" })).toBeVisible();
 });
 
-// Catches flags rendered with typographic dashes, which readers copy and the CLI rejects.
+// Catches flags rendered with typographic dashes, which readers copy and the CLI
+// rejects.
 playwrightIt("keeps double hyphens in flag descriptions", async ({ page }) => {
 	await page.goto(`${baseUrl}commands/build/`);
 
@@ -46,7 +47,7 @@ playwrightIt("lists place settings under a named environment", async ({ page }) 
 	await playwrightExpect(
 		page.getByRole("heading", { name: "[deploy.environments.<environment>.places.<place>]" }),
 	).toBeVisible();
-	await playwrightExpect(page.getByRole("cell", { exact: true, name: "placeId" })).toBeVisible();
+	await playwrightExpect(page.getByRole("cell", { name: "placeId", exact: true })).toBeVisible();
 });
 
 // Catches "View as Markdown" serving an empty or HTML response.
@@ -67,7 +68,7 @@ playwrightIt("copies a page as Markdown", async ({ page }) => {
 	await page.getByRole("heading", { level: 1 }).hover();
 	await page.getByRole("button", { name: "Copy page" }).click();
 	await playwrightExpect(page.getByRole("button", { name: "Copied!" })).toBeVisible();
-	playwrightExpect(await page.evaluate(() => navigator.clipboard.readText())).toContain("## From npm");
+	playwrightExpect(await page.evaluate(async () => navigator.clipboard.readText())).toContain("## From npm");
 });
 
 // Catches the theme toggle leaving the page on the wrong palette.

@@ -1,4 +1,5 @@
 import { describe, it } from "vitest";
+
 import { parseInlineMarkdown } from "$utilities/inline-markdown";
 
 describe("parseInlineMarkdown", () => {

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { schemaTables } from "$utilities/schema-reference";
+import { describe, it } from "vitest";
+
+import { toSchemaTables } from "$utilities/schema-reference";
 
 import type { JsonSchema } from "$utilities/schema-reference";
 
@@ -35,8 +36,10 @@ const deploySchema: JsonSchema = {
 describe("schemaTables", () => {
 	// Catches a user-named table (an environment, a place) vanishing from the
 	// configuration reference, so its keys are documented nowhere.
-	it("documents keys of tables the user names, under a placeholder", () => {
-		const paths = schemaTables(deploySchema).map((table) => table.path);
+	it("documents keys of tables the user names, under a placeholder", ({ expect }) => {
+		expect.assertions(2);
+
+		const paths = toSchemaTables(deploySchema).map((table) => table.path);
 
 		expect(paths).toContain("deploy.environments.<environment>");
 		expect(paths).toContain("deploy.environments.<environment>.places.<place>");
@@ -44,19 +47,23 @@ describe("schemaTables", () => {
 
 	// Catches a nested table's keys being listed under its parent, which would
 	// tell users to write them in the wrong TOML section.
-	it("lists each key under the table it belongs to", () => {
-		const tables = schemaTables(deploySchema);
+	it("lists each key under the table it belongs to", ({ expect }) => {
+		expect.assertions(2);
+
+		const tables = toSchemaTables(deploySchema);
 		const place = tables.find((table) => table.path === "deploy.environments.<environment>.places.<place>");
 		const environment = tables.find((table) => table.path === "deploy.environments.<environment>");
 
-		expect(place?.keys.map((key) => key.name)).toEqual(["placeId"]);
-		expect(environment?.keys.map((key) => key.name)).toEqual(["universeId"]);
+		expect(place?.keys.map((key) => key.name)).toStrictEqual(["placeId"]);
+		expect(environment?.keys.map((key) => key.name)).toStrictEqual(["universeId"]);
 	});
 
 	// Catches an enum option being shown as a bare "string", hiding the
 	// values a user is allowed to write.
-	it("shows the allowed values of an enum", () => {
-		const [table] = schemaTables({
+	it("shows the allowed values of an enum", ({ expect }) => {
+		expect.assertions(1);
+
+		const [table] = toSchemaTables({
 			properties: {
 				assets: { properties: { mode: { enum: ["module", "macro"], type: "string" } }, type: "object" },
 			},

@@ -39,7 +39,7 @@ function ensureAstroIntegration<Integration extends AstroIntegration>(
 		);
 	}
 
-	return { hooks, name };
+	return { name, hooks };
 }
 
 function removeTrailingWildcard(path: string): string {
@@ -153,7 +153,8 @@ export default defineConfig({
 		ensureAstroIntegration(createContextualMenuIntegration()),
 	],
 	markdown: {
-		// Command docs are full of `--flags`; smart dashes would turn them into en dashes.
+		// Command docs are full of `--flags`; smart dashes would turn them into
+		// en dashes.
 		processor: satteri({ features: { smartPunctuation: false } }),
 	},
 	outDir: "./dist/sloptor",

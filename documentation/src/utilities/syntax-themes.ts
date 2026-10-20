@@ -11,10 +11,11 @@ interface SyntaxTones {
 }
 
 /**
- * Builds a Shiki theme from the site's syntax tones. In a shell line the command stays ink, the subcommand is teal,
- * flags are amber, and values are raspberry. Every tone is at least 4.5:1 against the well and the paper, and none of
- * them reuses the grape (sloptor) or TypeScript blue (rbxtsc) data colors. Keep in sync with the `--syntax-*` tokens in
- * `custom.css`.
+ * Builds a Shiki theme from the site's syntax tones. In a shell line the
+ * command stays ink, the subcommand is teal, flags are amber, and values are
+ * raspberry. Every tone is at least 4.5:1 against the well and the paper, and
+ * none of them reuses the grape (sloptor) or TypeScript blue (rbxtsc) data
+ * colors. Keep in sync with the `--syntax-*` tokens in `custom.css`.
  *
  * @param name - The Shiki theme name.
  * @param type - Whether the theme is for the light or dark scheme.
@@ -23,8 +24,8 @@ interface SyntaxTones {
  */
 function createSyntaxTheme(name: string, type: "dark" | "light", tones: SyntaxTones): ThemeRegistration {
 	return {
-		colors: { "editor.background": tones.well, "editor.foreground": tones.ink },
 		name,
+		colors: { "editor.background": tones.well, "editor.foreground": tones.ink },
 		settings: [
 			{ settings: { foreground: tones.ink } },
 			{

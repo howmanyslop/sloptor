@@ -798,5 +798,12 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"regexp-js/use-ignore-case": "error",
 			},
 		},
+		{
+			name: "rotor/slop-rule",
+			files: ["documentation/src/integrations/contextual-menu.ts"],
+			rules: {
+				"sonar/file-name-differ-from-class": "off",
+			},
+		},
 	);
 }
