@@ -82,8 +82,12 @@ function containsCurrent(entries: ReadonlyArray<SidebarEntry>): boolean {
 			padding: 0.2em var(--sl-sidebar-item-padding-inline);
 			line-height: 1.4;
 			cursor: pointer;
-			-webkit-user-select: none;
-			user-select: none;
+		}
+		@supports (user-select: none) {
+			summary {
+				-webkit-user-select: none;
+				user-select: none;
+			}
 		}
 		summary::marker,
 		summary::-webkit-details-marker {

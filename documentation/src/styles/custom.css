@@ -197,9 +197,11 @@ site-search kbd {
 
 /* Sidebar: a margin column, not a menu of pills. */
 
-nav.sidebar,
-#starlight__sidebar {
-	overflow-anchor: none;
+@supports (overflow-anchor: none) {
+	nav.sidebar,
+	#starlight__sidebar {
+		overflow-anchor: none;
+	}
 }
 
 nav.sidebar {
@@ -224,10 +226,15 @@ nav.sidebar a {
 	color: var(--ink-2);
 	hyphens: manual;
 	word-break: normal;
-	text-wrap: pretty;
 	overflow-wrap: break-word;
 	border-radius: 0;
 	transition: color var(--hover-duration) ease;
+}
+
+@supports (text-wrap: pretty) {
+	nav.sidebar a {
+		text-wrap: pretty;
+	}
 }
 
 nav.sidebar a:hover {
@@ -996,6 +1003,7 @@ main:has(.note-row) .sl-container {
 }
 
 .terminal {
+	display: grid;
 	padding: 0.75rem 0;
 	margin: 0;
 	overflow-x: auto;
@@ -1004,10 +1012,6 @@ main:has(.note-row) .sl-container {
 	line-height: 1.6;
 	background: var(--well);
 	border: 1px solid var(--rule);
-}
-
-.terminal {
-	display: grid;
 }
 
 .terminal-line {
