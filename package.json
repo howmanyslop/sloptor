@@ -93,6 +93,7 @@
 		"oxlint-tsgolint": "catalog:lint",
 		"pncat": "catalog:tooling",
 		"skills": "catalog:tooling",
+		"tinyexec": "catalog:scripts",
 		"tsrs": "catalog:tooling",
 		"typescript": "catalog:tooling"
 	},
