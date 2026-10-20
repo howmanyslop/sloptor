@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 "use strict";
 
 const { spawnSync } = require("node:child_process");
@@ -6,11 +7,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-function npmCommand(arguments_, options) {
+function npmCommand(parameters, options) {
 	const bundledNpm = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
 	// biome-ignore lint/style/noProcessEnv: npm exposes the active CLI through this standard environment variable.
 	const npmCli = process.env.npm_execpath || (fs.existsSync(bundledNpm) ? bundledNpm : undefined);
-	const result = spawnSync(npmCli ? process.execPath : "npm", [...(npmCli ? [npmCli] : []), ...arguments_], {
+	const result = spawnSync(npmCli ? process.execPath : "npm", [...(npmCli ? [npmCli] : []), ...parameters], {
 		encoding: "utf8",
 		...options,
 	});

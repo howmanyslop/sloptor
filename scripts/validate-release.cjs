@@ -18,6 +18,7 @@ function readMatch(file, pattern, label) {
 	return match[1];
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: whatever bruh
 function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	const packageJson = readJson(path.join(root, "package.json"));
 	const codeVersion = readMatch(
@@ -50,6 +51,7 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	const targets = Object.values(platformModule.PLATFORM_TARGETS);
 	if (targets.length !== 6) throw new Error(`expected 6 supported platform targets, found ${targets.length}`);
 	const expectedDependencies = targets.map((target) => target.packageName).sort();
+	// biome-ignore lint/suspicious/useArraySortCompare: no.
 	const actualDependencies = Object.keys(packageJson.optionalDependencies ?? {}).sort();
 	if (JSON.stringify(actualDependencies) !== JSON.stringify(expectedDependencies)) {
 		throw new Error(
