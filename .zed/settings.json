@@ -12,6 +12,12 @@
 			"command": "mise",
 			"enabled": true,
 			"remote": false
+		},
+		"npm": {
+			"args": ["x", "--", "npm-registry-mcp"],
+			"command": "mise",
+			"enabled": true,
+			"remote": false
 		}
 	},
 	"edit_predictions": {
