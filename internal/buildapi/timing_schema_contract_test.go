@@ -91,7 +91,7 @@ func typescriptTimingFields(t *testing.T, source, interfaceName string) (require
 	if match == nil {
 		t.Fatalf("TypeScript timing schema has no %s interface", interfaceName)
 	}
-	fieldPattern := regexp.MustCompile(`readonly\s+([A-Za-z][A-Za-z0-9]*)(\?)?\s*:\s*number\s*;`)
+	fieldPattern := regexp.MustCompile(`readonly\s+([A-Za-z][A-Za-z0-9]*)(\?)?\s*:\s*number(?:\s*\|\s*undefined)?\s*;`)
 	for _, field := range fieldPattern.FindAllStringSubmatch(match[1], -1) {
 		if field[2] == "?" {
 			optional = append(optional, field[1])
