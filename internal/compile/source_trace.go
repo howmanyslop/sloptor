@@ -38,14 +38,18 @@ func newSourceTraceMap(raw, fileName, text string) (*sourceTraceMap, error) {
 	if err := json.Unmarshal([]byte(raw), &sourceMap); err != nil {
 		return nil, fmt.Errorf("parse transformer trace map: %w", err)
 	}
-	if sourceMap.Version != 3 {
-		return nil, fmt.Errorf("parse transformer trace map: version = %d, want 3", sourceMap.Version)
+	return newSourceTraceMapFromMappings(sourceMap.Version, sourceMap.Mappings, fileName, text)
+}
+
+func newSourceTraceMapFromMappings(version int, mappings, fileName, text string) (*sourceTraceMap, error) {
+	if version != 3 {
+		return nil, fmt.Errorf("parse transformer trace map: version = %d, want 3", version)
 	}
 
 	trace := &sourceTraceMap{fileName: fileName, text: text}
 	// DecodeMappings preserves generated-position order, which OriginalPosition
 	// relies on for its binary search below.
-	decoder := sourcemap.DecodeMappings(sourceMap.Mappings)
+	decoder := sourcemap.DecodeMappings(mappings)
 	for mapping := range decoder.Values() {
 		if !mapping.IsSourceMapping() {
 			continue

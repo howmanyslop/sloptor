@@ -1,7 +1,6 @@
 package compile
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -171,11 +170,8 @@ func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceM
 	if !ok {
 		return "", nil, errors.New("compile: TypeScript printer writer does not expose text")
 	}
-	raw, err := json.Marshal(generator.RawSourceMap())
-	if err != nil {
-		return "", nil, fmt.Errorf("compile: encode native Flamework trace: %w", err)
-	}
-	trace, err := newSourceTraceMap(string(raw), metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
+	raw := generator.RawSourceMap()
+	trace, err := newSourceTraceMapFromMappings(raw.Version, raw.Mappings, metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
 	if err != nil {
 		return "", nil, err
 	}
