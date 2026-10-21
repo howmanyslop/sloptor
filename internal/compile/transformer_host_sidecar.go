@@ -12,6 +12,9 @@ import (
 type sidecarTransformerHost struct{}
 
 func (sidecarTransformerHost) transform(ctx context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
+	if prefix, _ := nonNilContext(ctx).Value(parallelPrefixKey{}).(*parallelPrefix); prefix != nil {
+		call.parallel, call.parallelBuild = prefix.attestation, prefix.build
+	}
 	return runShardedTransformerSidecar(ctx, call)
 }
 

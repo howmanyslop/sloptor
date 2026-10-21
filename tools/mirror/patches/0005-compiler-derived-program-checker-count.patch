@@ -1,5 +1,4 @@
 diff --git a/tsgo/compiler/checkerpool.go b/tsgo/compiler/checkerpool.go
-index 1afc917..a7ae609 100644
 --- a/tsgo/compiler/checkerpool.go
 +++ b/tsgo/compiler/checkerpool.go
 @@ -4,6 +4,7 @@ import (
@@ -7,19 +6,29 @@ index 1afc917..a7ae609 100644
  	"slices"
  	"sync"
 +	"sync/atomic"
- 
+
  	"rotor/tsgo/ast"
  	"rotor/tsgo/checker"
-@@ -28,7 +29,7 @@ type checkerPool struct {
+@@ -25,15 +26,15 @@ type checkerPool struct {
+ 	program *Program
+ 	tracing *tracing.Tracing
+
+-	// Each slot is built at most once, on first use. Slot count and the
+-	// file-to-slot mapping stay fixed, so a file always gets the same checker.
++	// Each slot is built at most once, on first use. Slot count stays fixed,
++	// and a file keeps its slot unless forEachFileOnFreeChecker moves it.
+ 	checkerOnces       []sync.Once
  	createCheckersOnce sync.Once
  	checkers           []*checker.Checker
  	locks              []*sync.Mutex
--	fileAssociations   map[*ast.SourceFile]*checker.Checker
-+	fileAssociations   map[*ast.SourceFile]*atomic.Pointer[checker.Checker]
+
+ 	fileAssociationsOnce sync.Once
+-	fileAssociations     map[*ast.SourceFile]int
++	fileAssociations     map[*ast.SourceFile]*atomic.Int32
  }
- 
+
  var _ CheckerPool = (*checkerPool)(nil)
-@@ -41,6 +42,8 @@ func newCheckerPoolWithTracing(program *Program, tr *tracing.Tracing) *checkerPo
+@@ -46,6 +47,8 @@ func newCheckerPoolWithTracing(program *Program, tr *tracing.Tracing) *checkerPo
  	checkerCount := 4
  	if program.SingleThreaded() {
  		checkerCount = 1
@@ -28,58 +37,68 @@ index 1afc917..a7ae609 100644
  	} else if c := program.Options().Checkers; c != nil {
  		checkerCount = *c
  	}
-@@ -76,12 +79,21 @@ func (p *checkerPool) GetChecker(ctx context.Context, file *ast.SourceFile) (*ch
+@@ -80,7 +83,7 @@ func (p *checkerPool) GetChecker(ctx context.Context, file *ast.SourceFile) (*ch
+ // This is only safe when the caller guarantees no concurrent access to the same checker,
  // e.g. for read-only operations like obtaining an emit resolver.
  func (p *checkerPool) getCheckerForFileNonExclusive(file *ast.SourceFile) (*checker.Checker, func()) {
- 	p.createCheckers()
--	return p.fileAssociations[file], noop
-+	return p.associatedChecker(file), noop
-+}
-+
-+// associatedChecker is the checker tasked with checking file, or nil for a
-+// file outside the program.
-+func (p *checkerPool) associatedChecker(file *ast.SourceFile) *checker.Checker {
-+	if association := p.fileAssociations[file]; association != nil {
-+		return association.Load()
-+	}
-+	return nil
+-	idx, ok := p.getFileAssociations()[file]
++	idx, ok := p.associatedSlot(file)
+ 	if !ok {
+ 		if p.tracing != nil {
+ 			p.createCheckers()
+@@ -91,7 +94,7 @@ func (p *checkerPool) getCheckerForFileNonExclusive(file *ast.SourceFile) (*check
  }
- 
+
  func (p *checkerPool) getCheckerForFileExclusive(ctx context.Context, file *ast.SourceFile) (*checker.Checker, func()) {
- 	p.createCheckers()
--	c := p.fileAssociations[file]
-+	c := p.associatedChecker(file)
- 	idx := slices.Index(p.checkers, c)
- 	p.locks[idx].Lock()
- 	return c, sync.OnceFunc(func() {
-@@ -111,13 +123,45 @@ func (p *checkerPool) createCheckers() {
- 
- 		wg.RunAndWait()
- 
--		p.fileAssociations = make(map[*ast.SourceFile]*checker.Checker, len(p.program.files))
-+		p.fileAssociations = make(map[*ast.SourceFile]*atomic.Pointer[checker.Checker], len(p.program.files))
- 		for i, file := range p.program.files {
--			p.fileAssociations[file] = p.checkers[i%checkerCount]
-+			association := &atomic.Pointer[checker.Checker]{}
-+			association.Store(p.checkers[i%checkerCount])
-+			p.fileAssociations[file] = association
- 		}
+-	idx, ok := p.getFileAssociations()[file]
++	idx, ok := p.associatedSlot(file)
+ 	if !ok {
+ 		// Unknown files have no slot; index -1 panics as before.
+ 		idx = -1
+@@ -141,17 +144,60 @@ func (p *checkerPool) createCheckers() {
  	})
  }
- 
+
+-func (p *checkerPool) getFileAssociations() map[*ast.SourceFile]int {
++func (p *checkerPool) getFileAssociations() map[*ast.SourceFile]*atomic.Int32 {
+ 	p.fileAssociationsOnce.Do(func() {
+ 		checkerCount := len(p.checkers)
+-		p.fileAssociations = make(map[*ast.SourceFile]int, len(p.program.files))
++		p.fileAssociations = make(map[*ast.SourceFile]*atomic.Int32, len(p.program.files))
+ 		for i, file := range p.program.files {
+-			p.fileAssociations[file] = i % checkerCount
++			slot := &atomic.Int32{}
++			slot.Store(int32(i % checkerCount))
++			p.fileAssociations[file] = slot
+ 		}
+ 	})
+ 	return p.fileAssociations
+ }
+
++// associatedSlot is the slot of the checker tasked with checking file, and
++// false for a file outside the program.
++func (p *checkerPool) associatedSlot(file *ast.SourceFile) (int, bool) {
++	slot := p.getFileAssociations()[file]
++	if slot == nil {
++		return 0, false
++	}
++	return int(slot.Load()), true
++}
++
 +// forEachFileOnFreeChecker runs cb for every file, largest first, on whichever
 +// checker finishes its previous file first, and leaves each file associated
 +// with the checker that took it, so later requests for the file reuse the work
 +// that checker did. cb runs without the checker's lock, which it may take.
 +func (p *checkerPool) forEachFileOnFreeChecker(ctx context.Context, files []*ast.SourceFile, cb func(file *ast.SourceFile)) {
 +	p.createCheckers()
++	fileAssociations := p.getFileAssociations()
 +	queue := slices.Clone(files)
 +	slices.SortStableFunc(queue, func(a, b *ast.SourceFile) int {
 +		return len(b.Text()) - len(a.Text())
 +	})
 +	var next atomic.Int64
 +	wg := core.NewWorkGroup(p.program.SingleThreaded())
-+	for _, c := range p.checkers {
++	for checkerIdx := range len(p.checkers) {
 +		wg.Queue(func() {
 +			for ctx.Err() == nil {
 +				position := int(next.Add(1)) - 1
@@ -87,8 +106,8 @@ index 1afc917..a7ae609 100644
 +					return
 +				}
 +				file := queue[position]
-+				if association := p.fileAssociations[file]; association != nil {
-+					association.Store(c)
++				if slot := fileAssociations[file]; slot != nil {
++					slot.Store(int32(checkerIdx))
 +				}
 +				cb(file)
 +			}
@@ -100,17 +119,16 @@ index 1afc917..a7ae609 100644
  // Runs `cb` for each checker in the pool concurrently, locking and unlocking checker mutexes as it goes,
  // making it safe to call `forEachCheckerParallel` from many threads simultaneously.
  func (p *checkerPool) forEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
-@@ -155,7 +199,7 @@ func (p *checkerPool) forEachCheckerGroupDo(ctx context.Context, files []*ast.So
+@@ -190,7 +236,7 @@ func (p *checkerPool) forEachCheckerGroupDo(ctx context.Context, files []*ast.So
  			p.locks[checkerIdx].Lock()
  			defer p.locks[checkerIdx].Unlock()
  			for i, file := range files {
--				if checker := p.checkers[checkerIdx]; checker == p.fileAssociations[file] {
-+				if checker := p.checkers[checkerIdx]; checker == p.associatedChecker(file) {
- 					cb(checker, i, file)
+-				if idx, ok := fileAssociations[file]; ok && idx == checkerIdx {
++				if slot := fileAssociations[file]; slot != nil && int(slot.Load()) == checkerIdx {
+ 					cb(p.checkers[checkerIdx], i, file)
  				}
  			}
 diff --git a/tsgo/compiler/program.go b/tsgo/compiler/program.go
-index 4989854..ad97da8 100644
 --- a/tsgo/compiler/program.go
 +++ b/tsgo/compiler/program.go
 @@ -38,9 +38,12 @@ type ProgramOptions struct {
@@ -127,9 +145,9 @@ index 4989854..ad97da8 100644
 +	ProjectName     string
 +	Tracing         *tracing.Tracing
  }
- 
+
  func (p *ProgramOptions) canUseProjectReferenceSource() bool {
-@@ -290,11 +293,19 @@ func (p *Program) UpdateProgram(changedFilePath tspath.Path, newHost CompilerHos
+@@ -295,11 +298,19 @@ const minReplacementsForFileIndex = 8
  // imports that still resolve to modules already present in the program. Otherwise it rebuilds
  // once via NewProgram. createCheckerPool, if non-nil, overrides the stored pool factory.
  func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool) (*Program, bool) {
@@ -143,16 +161,16 @@ index 4989854..ad97da8 100644
  	if len(changedFilePaths) == 0 {
  		return p, true
  	}
- 
+
  	newOpts := p.opts
 +	newOpts.CheckerCount = checkerCount
  	newOpts.Host = newHost
  	if createCheckerPool != nil {
  		newOpts.CreateCheckerPool = createCheckerPool
-@@ -307,8 +318,11 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
+@@ -312,8 +323,11 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
  		resolutions  module.ModeAwareCache[*module.ResolvedModule]
  	}
- 
+
 -	replacements := make([]replacement, 0, len(changedFilePaths))
 -	for _, changedFilePath := range changedFilePaths {
 +	// Every way out below is the same full rebuild, so the cheap checks run
@@ -163,10 +181,10 @@ index 4989854..ad97da8 100644
  		// Package redirect groups need a full rebuild so redirect targets recalculate.
  		_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
  		_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
-@@ -316,11 +330,23 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
+@@ -321,11 +335,23 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
  			return NewProgram(newOpts), false
  		}
- 
+
 -		oldFile := p.filesByPath[changedFilePath]
 -		if oldFile == nil {
 +		oldFiles[index] = p.filesByPath[changedFilePath]
@@ -190,28 +208,10 @@ index 4989854..ad97da8 100644
  		if newFile == nil {
  			return NewProgram(newOpts), false
  		}
-@@ -365,9 +391,15 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
- 		result.resolvedModules = maps.Clone(p.resolvedModules)
- 	}
- 
-+	fileIndices := make(map[tspath.Path]int, len(result.files))
-+	for index, file := range result.files {
-+		if _, seen := fileIndices[file.Path()]; !seen {
-+			fileIndices[file.Path()] = index
-+		}
-+	}
- 	for _, entry := range replacements {
--		index := core.FindIndex(result.files, func(file *ast.SourceFile) bool { return file.Path() == entry.path })
--		if index < 0 {
-+		index, ok := fileIndices[entry.path]
-+		if !ok {
- 			return NewProgram(newOpts), false
- 		}
- 		result.files[index] = entry.newFile
-@@ -551,6 +583,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
+@@ -586,6 +612,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
  	}
  }
- 
+
 +// ForEachFileOnFreeChecker runs cb for every file, each on whichever checker
 +// is free next, and reassigns each file to the checker that ran it; it reports
 +// false, having run nothing, when the program's checkers cannot be reassigned.

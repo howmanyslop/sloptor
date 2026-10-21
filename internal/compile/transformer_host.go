@@ -6,21 +6,24 @@ import (
 	"os"
 	"path/filepath"
 
+	"rotor/internal/config"
 	"rotor/tsgo/ast"
 )
 
 // TransformerRequest is the native-to-JavaScript transformer protocol. It is
 // shared by the subprocess sidecar and API callback adapters.
 type TransformerRequest struct {
-	Protocol         int                      `json:"protocol"`
-	Operation        string                   `json:"operation"`
-	TsConfigPath     string                   `json:"tsConfigPath"`
-	ProjectDir       string                   `json:"projectDir"`
-	CompileFileNames []string                 `json:"compileFileNames"`
-	RootFileNames    []string                 `json:"rootFileNames,omitempty"`
-	ChangedFiles     []TransformerChangedFile `json:"changedFiles"`
-	Plugins          []json.RawMessage        `json:"plugins,omitempty"`
-	SourceOrigin     string                   `json:"sourceOrigin,omitempty"`
+	Protocol            int                                `json:"protocol"`
+	Operation           string                             `json:"operation"`
+	TsConfigPath        string                             `json:"tsConfigPath"`
+	ProjectDir          string                             `json:"projectDir"`
+	CompileFileNames    []string                           `json:"compileFileNames"`
+	RootFileNames       []string                           `json:"rootFileNames,omitempty"`
+	ChangedFiles        []TransformerChangedFile           `json:"changedFiles"`
+	Plugins             []json.RawMessage                  `json:"plugins,omitempty"`
+	ParallelAttestation *config.ParallelTransformersConfig `json:"parallelAttestation,omitempty"`
+	ParallelWorker      bool                               `json:"parallelWorker,omitempty"`
+	SourceOrigin        string                             `json:"sourceOrigin,omitempty"`
 }
 
 type TransformerChangedFile struct {
@@ -35,6 +38,9 @@ type TransformerResponse struct {
 	Metrics                       *TransformerResponseMetrics  `json:"metrics,omitempty"`
 	AfterDeclarationsTransformers int                          `json:"afterDeclarationsTransformers"`
 	Transport                     *TransformerTransportMetrics `json:"-"`
+	ParallelReady                 bool                         `json:"parallelReady,omitempty"`
+	ParallelBatchDiagnostics      int                          `json:"parallelBatchDiagnostics,omitempty"`
+	ParallelSourceDiagnostics     int                          `json:"parallelSourceDiagnostics,omitempty"`
 }
 
 // TransformerTransportMetrics are populated by transports that can measure
@@ -95,14 +101,16 @@ type transformerHost interface {
 }
 
 type transformerCall struct {
-	dir          string
-	configPath   string
-	compileFiles []*ast.SourceFile
-	stampFiles   []*ast.SourceFile
-	overlays     map[string]string
-	plugins      []json.RawMessage
-	state        *sidecarBuildState
-	sourceOrigin string
+	dir           string
+	configPath    string
+	compileFiles  []*ast.SourceFile
+	stampFiles    []*ast.SourceFile
+	overlays      map[string]string
+	plugins       []json.RawMessage
+	state         *sidecarBuildState
+	parallel      *config.ParallelTransformersConfig
+	parallelBuild *cliTransformerBuild
+	sourceOrigin  string
 }
 
 const transformerOriginalAuthored = "original-authored"

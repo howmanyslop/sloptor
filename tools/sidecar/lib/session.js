@@ -456,8 +456,11 @@ class SidecarProjectSession {
   handleRequest(request) {
     // Round only when responding so short repairs accumulate across the batch.
     const phases = { configMs: 0n, programMs: 0n, factoriesMs: 0n, transformMs: 0n, parentRepairMs: 0n, printMs: 0n };
+    let batchDiagnostics = 0;
+    let sourceDiagnostics = 0;
     const respond = (response) => ({
       ...response,
+      ...(request.parallelWorker ? { parallelBatchDiagnostics: batchDiagnostics, parallelSourceDiagnostics: sourceDiagnostics } : {}),
       metrics: {
         ...response.metrics,
         phases: Object.fromEntries(Object.entries(phases).map(([phase, ns]) => [phase, Number(ns / 1000000n)])),
@@ -476,6 +479,21 @@ class SidecarProjectSession {
           measurePhase(phases, "factoriesMs", () => validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath));
         }
         return respond({ diagnostics: [], transformed: [] });
+      }
+      if (request.operation === "parallel-preflight") {
+        // No Program or transformer factory is created by this operation.
+        // A mismatch is a serial admission decision, never a build diagnostic.
+        try {
+          for (const changedFile of request.changedFiles) {
+            this.updateFile(changedFile.fileName, changedFile.text);
+          }
+          const parsed = this.refreshParsedConfig(false);
+          const ready = parsed.diagnostics.length === 0 && !!this.parsed &&
+            require("./parallel").preflightParallelTransformers(this.ts, this.tsModulePath, request);
+          return { diagnostics: [], transformed: [], parallelReady: ready };
+        } catch {
+          return { diagnostics: [], transformed: [], parallelReady: false };
+        }
       }
       if (request.operation === "validate") {
         const parsedState = measurePhase(phases, "configMs", () => this.refreshParsedConfig(false));
@@ -522,6 +540,7 @@ class SidecarProjectSession {
         return state;
       });
       if (!this.parsed) {
+        batchDiagnostics = parsedState.diagnostics.length;
         return respond({ diagnostics: parsedState.diagnostics, transformed: [] });
       }
 
@@ -554,6 +573,7 @@ class SidecarProjectSession {
         program = measurePhase(phases, "programMs", () => this.service.getProgram());
       }
       if (!syntax && !program) {
+        batchDiagnostics = parsedState.diagnostics.length + 1;
         return respond({
           diagnostics: [...parsedState.diagnostics, createProtocolDiagnostic("error", "program-missing", "Language service did not return a program")],
           transformed: [],
@@ -564,6 +584,7 @@ class SidecarProjectSession {
         createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath));
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
+      batchDiagnostics = diagnostics.length;
       const sourceFiles = syntax
         ? require("./original-react-syntax").parseOriginalReactInputs(this, syntax.inputs)
         : [];
@@ -575,6 +596,7 @@ class SidecarProjectSession {
         }
         sourceFiles.push(sourceFile);
       }
+      sourceDiagnostics = diagnostics.length - batchDiagnostics;
 
       if (sourceFiles.length === 0) {
         return respond({ diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length });
@@ -683,8 +705,13 @@ function validateRequest(request) {
   if (typeof request.tsConfigPath !== "string" || request.tsConfigPath.length === 0) {
     return createRequestDiagnostic("tsConfigPath must be a non-empty string");
   }
-  if (request.operation !== "transform" && request.operation !== "validate" && request.operation !== "warm") {
-    return createRequestDiagnostic("operation must equal \"transform\", \"validate\" or \"warm\"");
+  if (
+    request.operation !== "transform" &&
+    request.operation !== "validate" &&
+    request.operation !== "warm" &&
+    request.operation !== "parallel-preflight"
+  ) {
+    return createRequestDiagnostic("operation must equal \"transform\", \"validate\", \"warm\" or \"parallel-preflight\"");
   }
   if (request.operation === "validate" || request.operation === "warm") {
     return undefined;

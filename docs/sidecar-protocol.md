@@ -277,3 +277,118 @@ loading, `checker`/`compilerOptions` factory instantiation, the
 `after -> before` execution quirk, the `afterDeclarations` count the worker
 reports instead of running, stdio protocol handling with warm overlay updates,
 per-project typescript resolution, and the stdout-protection rule.
+
+## Experimental project-attested two-worker builds
+
+Serial execution is the default. A project may opt into exactly two workers
+with `parallelTransformers` in `rotor.toml`. The owner asserts that the entire
+ordered stage, including module initialization, factories, per-file state and
+side effects, is deterministic and independent of batch boundaries. This is
+compatibility assurance for reviewed project code, not authentication or a
+general guarantee about transformer plugins.
+
+```toml
+[parallelTransformers]
+workers = 2
+batchIndependent = true
+typescript = "<reviewed loaded ts.version>"
+
+[[parallelTransformers.plugins]]
+config = '''{"transform":"my-transformer","silent":true}'''
+sha256 = "<owner-reviewed package digest>"
+
+[[parallelTransformers.dependencies]]
+from = 0
+specifier = "my-patched-dependency"
+sha256 = "<owner-reviewed dependency digest>"
+```
+
+Each `plugins` entry holds the complete plugin JSON options object (including
+`transform`), in stage order. Object key order is immaterial; values, array
+order and omitted properties must match. The owner lists all patched or
+locally built dependencies on the plugins' load paths. `from` is the zero-based
+plugin index from whose entry directory Node resolves that dependency. The
+host cannot infer whether this owner-maintained list is complete.
+
+The host checks these facts before invoking any transformer factory:
+
+- Provenance comes from the actual one-shot CLI `build` path, including
+  `build --build --project`. Its local solution coordinator drains once,
+  deduplicates canonical configs and builds each scheduled project once.
+  API, watch, dev, check, diagnostics and resident/unknown callers stay serial.
+  A shared nonblocking token permits one outstanding split per CLI invocation;
+  busy projects run serially. Project profiling labels/tasks remain intact.
+- The slot has never been used, the pipeline's initial external prefix is its
+  entire external stage, and there is no later external suffix. Native
+  Flamework is the only following transform. Both workers close after this call.
+- The prepared request has no narrowed `rootFileNames`. Overlays are authored
+  compile sources only; config, declaration and package overlays stay serial.
+- Every compile source is inside `projectDir`, with no intervening
+  `package.json` or `node_modules` scope. Unique ancestor directories are
+  checked without traversing dependency stores. Directory aliases and symlinks
+  in those directories conservatively select serial. The root's common
+  `node_modules` entry is allowed.
+- Both normal `main.js` sessions check the same ordered plugin options,
+  resolved package content identities, listed dependency identities and loaded
+  TypeScript version. Normal plugin resolution, export validation and the
+  existing same-TypeScript-instance check are retained at their ordinary point
+  after Program creation. Preflight only resolves paths and reads metadata/code
+  bytes; it never evaluates a plugin or its TypeScript peer, creates no Program
+  and calls no factory. The loaded engine version binds TypeScript identity;
+  a forwarding wrapper's package version is not the engine version.
+
+Missing, mismatched or unsupported attestations fall back before transform
+dispatch, using the ordinary full request and first session. Config decoding
+keeps the existing TOML errors/warnings; an unknown attestation key disables
+admission. A failed or timed-out transport after dispatch is an error with no
+serial replay: repeating plugin side effects would be unsafe. The existing
+serial transport's retry policy is unchanged. A worker-0 preflight transport
+failure consumes its existing first-attempt retry budget. A rejected/timed-out
+auxiliary is reaped before ordinary serial execution on unchanged worker 0 with
+a fresh request timeout. Parent cancellation remains an error.
+
+Content identity uses SHA-256 with the domain `rotor-package-v1\0`. Resolve the
+entry normally and take its physical installed package root after the last
+`node_modules` segment, including a scope if present. For local code outside
+`node_modules`, take the nearest ancestor with a named `package.json`, skipping
+unnamed module-format markers. Missing/ambiguous package ownership selects serial.
+Enumerate every regular file below that package root except nested
+`node_modules`. Sort relative paths by JavaScript code-unit order with `/`
+separators. For each file append UTF-8 `relativePath\0decimalByteLength\0`, then
+the exact file bytes. Include code and `package.json`; no timestamps or absolute
+paths enter the digest. Links/special files, over 8,192 entries, over 4,096 files,
+or over 64 MiB select serial. `packageDigest(entry)` in `lib/parallel.js`
+implements this format. Recording a digest is the owner's review decision;
+Rotor neither supplies private expected values nor treats a live digest as
+approval. A changed backend or dependency requires renewed chain parity;
+recording a new digest alone does not qualify it. Registry dependency closure,
+TypeScript engine/lib files, Node,
+signatures and benchmark manifests are outside this contract.
+
+Requests differ only in their contiguous `compileFileNames` ranges and a
+private response-partition marker. Roots, overlays, config paths and plugin
+options remain identical. Outputs concatenate in range order. Diagnostic
+partitions retain serial phase order: the common factory/config prefix once,
+then all missing-source diagnostics, then transform diagnostics in range order,
+without sorting, normalization or deduplication.
+The first serial-shaped catch (one error `sidecar-internal` diagnostic and no
+outputs) discards all outputs and excludes stderr from later ranges. After both
+workers reap, stderr uses the existing serial line forwarding in range order,
+including its CRLF handling, line-length cap and unterminated-line behavior.
+Abnormal cleanup or incomplete drainage, including `exec.ErrWaitDelay`, cannot
+turn an otherwise successful split green. An earlier ordered internal failure
+keeps the serial failure shape. The split token is released after cleanup.
+
+Metrics describe the coordinator's transform elapsed wall time, summed worker
+CPU and summed plugin work. Overlapping worker phase metrics are omitted;
+they are not summed as elapsed wall time. Transport bytes include preflight,
+and spawn telemetry includes the second worker, including a rejected preflight.
+Verbose output emits `transformer parallel batch completed (workers=2)` only
+after successful split responses, merging and cleanup; spawns alone do not
+prove admission.
+An owner's attestation still carries TypeScript's lazy-checker-order residual
+and requires parity validation of the chosen chain. Process initialization
+warnings may appear once per worker. The owner must disable external timing
+and other batch-sensitive side effects for attested runs. Attestation does not
+universally guarantee plugin semantics. No full-build performance
+or general plugin-safety claim follows from enabling this experiment.

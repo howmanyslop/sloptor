@@ -288,6 +288,11 @@ func (p *Program) UpdateProgram(changedFilePath tspath.Path, newHost CompilerHos
 	return p.UpdateProgramFiles([]tspath.Path{changedFilePath}, newHost, createCheckerPool)
 }
 
+// minReplacementsForFileIndex is the smallest UpdateProgramFiles batch that indexes file
+// positions instead of searching per replacement. Smaller batches, including single-file
+// updates, keep the linear search.
+const minReplacementsForFileIndex = 8
+
 // UpdateProgramFiles applies multiple source-text changes from newHost in one Program reconstruction.
 // It reuses the existing file set when every changed file is shape-compatible, or only changes
 // imports that still resolve to modules already present in the program. Otherwise it rebuilds
@@ -391,15 +396,39 @@ func (p *Program) UpdateProgramFilesWithCheckers(changedFilePaths []tspath.Path,
 		result.resolvedModules = maps.Clone(p.resolvedModules)
 	}
 
-	fileIndices := make(map[tspath.Path]int, len(result.files))
-	for index, file := range result.files {
-		if _, seen := fileIndices[file.Path()]; !seen {
-			fileIndices[file.Path()] = index
+	// Large batches look up each replacement's first slice position in one scan instead of
+	// one linear search per replacement. This is only valid when every replacement keeps its
+	// path: each write then leaves the path sequence of result.files unchanged, so the first
+	// position found before any write stays the first position after every write. A batch
+	// with any path-changing replacement keeps the per-entry search. Missing paths stay at -1
+	// and fall back at their own entry, as before. The cutoff is a conservative guess, not a
+	// measured optimum.
+	var firstIndexByPath map[tspath.Path]int
+	if len(replacements) >= minReplacementsForFileIndex &&
+		core.Every(replacements, func(entry replacement) bool { return entry.newFile.Path() == entry.path }) {
+		firstIndexByPath = make(map[tspath.Path]int, len(replacements))
+		for _, entry := range replacements {
+			firstIndexByPath[entry.path] = -1
+		}
+		unfound := len(firstIndexByPath)
+		for i, file := range result.files {
+			if unfound == 0 {
+				break
+			}
+			if index, ok := firstIndexByPath[file.Path()]; ok && index < 0 {
+				firstIndexByPath[file.Path()] = i
+				unfound--
+			}
 		}
 	}
 	for _, entry := range replacements {
-		index, ok := fileIndices[entry.path]
-		if !ok {
+		var index int
+		if firstIndexByPath != nil {
+			index = firstIndexByPath[entry.path]
+		} else {
+			index = core.FindIndex(result.files, func(file *ast.SourceFile) bool { return file.Path() == entry.path })
+		}
+		if index < 0 {
 			return NewProgram(newOpts), false
 		}
 		result.files[index] = entry.newFile

@@ -12,6 +12,8 @@ import (
 // (Shared/types.ts L4-18): the fully-resolved option set a build runs with.
 // `project` is CLI-only (a yargs option default, not part of ProjectOptions).
 type projectOptions struct {
+	// Set only by runBuildBody after resolving the watch option.
+	oneShotBuild           bool
 	includePath            string
 	rojo                   string
 	typeName               string // ProjectType choice; "" = infer (upstream undefined)

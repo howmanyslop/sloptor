@@ -51,21 +51,22 @@ type sidecarResponse = TransformerResponse
 type sidecarPluginMetric = TransformerPluginMetric
 
 type sidecarCallStats struct {
-	wait            time.Duration
-	prep            time.Duration
-	roundTrip       time.Duration
-	decode          time.Duration
-	requestBytes    int64
-	responseBytes   int64
-	stats           int
-	reads           int
-	changedFiles    int
-	spawned         bool
-	restarted       bool
-	nodeWallMs      int64
-	nodeCPUUserUs   int64
-	nodeCPUSystemUs int64
-	nodeVersion     string
+	wait             time.Duration
+	prep             time.Duration
+	roundTrip        time.Duration
+	decode           time.Duration
+	requestBytes     int64
+	responseBytes    int64
+	stats            int
+	reads            int
+	changedFiles     int
+	spawned          bool
+	additionalSpawns int
+	restarted        bool
+	nodeWallMs       int64
+	nodeCPUUserUs    int64
+	nodeCPUSystemUs  int64
+	nodeVersion      string
 }
 
 type sidecarDiagnostic = TransformerDiagnostic
@@ -88,6 +89,7 @@ type preparedTransformerProgram struct {
 	sidecarReads             int
 	sidecarChangedFiles      int
 	sidecarSpawned           bool
+	sidecarAdditionalSpawns  int
 	sidecarRestarted         bool
 	nodeWallMs               int64
 	nodeCPUUserUs            int64
@@ -286,6 +288,7 @@ func preparedFromSidecarStats(program *compiler.Program, sourceTraces diagnostic
 		sidecarReads:             stats.reads,
 		sidecarChangedFiles:      stats.changedFiles,
 		sidecarSpawned:           stats.spawned,
+		sidecarAdditionalSpawns:  stats.additionalSpawns,
 		sidecarRestarted:         stats.restarted,
 		nodeWallMs:               stats.nodeWallMs,
 		nodeCPUUserUs:            stats.nodeCPUUserUs,
@@ -308,7 +311,10 @@ type sidecarSession struct {
 	stdin  io.WriteCloser
 	stdout *bufio.Reader
 	stderr *sidecarStderrTail
-	stamps map[string]sidecarFileStamp
+	// Candidate capture owns the read end independently of Cmd.Wait so a
+	// killed process cannot hide an incomplete stderr drain behind ExitError.
+	stderrReader io.Closer
+	stamps       map[string]sidecarFileStamp
 	// overlaid names the files whose text in the worker came from a caller
 	// overlay rather than from disk, keyed the way changedFilesFor looks an
 	// overlay up and valued with the path a request carries. The worker's
@@ -321,6 +327,7 @@ type sidecarSession struct {
 type sidecarSlot struct {
 	mu      sync.Mutex
 	session *sidecarSession
+	used    bool
 }
 
 type sidecarBuildState struct {
@@ -381,6 +388,7 @@ func (s *sidecarBuildState) addCall(stats sidecarCallStats) {
 	s.call.reads += stats.reads
 	s.call.changedFiles += stats.changedFiles
 	s.call.spawned = s.call.spawned || stats.spawned
+	s.call.additionalSpawns += stats.additionalSpawns
 	s.call.restarted = s.call.restarted || stats.restarted
 	s.call.nodeWallMs += stats.nodeWallMs
 	s.call.nodeCPUUserUs += stats.nodeCPUUserUs
@@ -404,6 +412,7 @@ func (s *sidecarBuildState) applyTo(prepared *preparedTransformerProgram) {
 	prepared.sidecarReads = s.call.reads
 	prepared.sidecarChangedFiles = s.call.changedFiles
 	prepared.sidecarSpawned = s.call.spawned
+	prepared.sidecarAdditionalSpawns = s.call.additionalSpawns
 	prepared.sidecarRestarted = s.call.restarted
 	prepared.nodeWallMs = s.call.nodeWallMs
 	prepared.nodeCPUUserUs = s.call.nodeCPUUserUs
@@ -448,6 +457,7 @@ type sidecarStderrTail struct {
 	mu      sync.Mutex
 	tail    []string
 	pending []string
+	done    chan struct{}
 }
 
 // sidecarStderrLineLimit caps the bytes kept per stderr line; the rest of
@@ -458,8 +468,9 @@ const (
 )
 
 func newSidecarStderrTail(pipe io.Reader) *sidecarStderrTail {
-	t := &sidecarStderrTail{}
+	t := &sidecarStderrTail{done: make(chan struct{})}
 	go func() {
+		defer close(t.done)
 		// Keep reading to EOF: a reader that stops early leaves the pipe full
 		// and blocks the worker on its next stderr write.
 		reader := bufio.NewReader(pipe)
@@ -529,6 +540,10 @@ func (t *sidecarStderrTail) String() string {
 }
 
 func spawnSidecarSession(dir, sidecarDir string) (*sidecarSession, error) {
+	return spawnSidecarSessionMode(dir, sidecarDir, false)
+}
+
+func spawnSidecarSessionMode(dir, sidecarDir string, ownedStderr bool) (*sidecarSession, error) {
 	nodeCommand := os.Getenv("ROTOR_NODE_PATH")
 	if nodeCommand != "" {
 		if _, err := os.Stat(nodeCommand); err != nil {
@@ -546,28 +561,52 @@ func spawnSidecarSession(dir, sidecarDir string) (*sidecarSession, error) {
 	cmd.Dir = filepath.FromSlash(dir)
 	cmd.Env = sidecarEnv(dir, sidecarDir)
 
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		return nil, err
+	var stderrPipe io.ReadCloser
+	var stderrReader io.Closer
+	if ownedStderr {
+		reader, writer, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		stderrPipe, stderrReader = reader, reader
+		cmd.Stderr = writer
+		// The child owns its inherited write handle after Start. Closing our
+		// copy lets the tail reader observe actual EOF, separately from Wait.
+		defer func() { _ = writer.Close() }()
+	} else {
+		stderrPipe, err = cmd.StderrPipe()
+		if err != nil {
+			return nil, err
+		}
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		if stderrReader != nil {
+			_ = stderrReader.Close()
+		}
 		return nil, err
 	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
+		if stderrReader != nil {
+			_ = stderrReader.Close()
+		}
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		if stderrReader != nil {
+			_ = stderrReader.Close()
+		}
 		return nil, err
 	}
 	return &sidecarSession{
-		cmd:      cmd,
-		stdin:    stdin,
-		stdout:   bufio.NewReader(stdout),
-		stderr:   newSidecarStderrTail(stderrPipe),
-		stamps:   map[string]sidecarFileStamp{},
-		overlaid: map[string]string{},
+		cmd:          cmd,
+		stdin:        stdin,
+		stdout:       bufio.NewReader(stdout),
+		stderr:       newSidecarStderrTail(stderrPipe),
+		stderrReader: stderrReader,
+		stamps:       map[string]sidecarFileStamp{},
+		overlaid:     map[string]string{},
 	}, nil
 }
 
@@ -636,17 +675,57 @@ func sidecarResponseTimeout() (time.Duration, error) {
 }
 
 func (s *sidecarSession) close() {
+	_ = s.closeAndWait()
+}
+
+func (s *sidecarSession) closeAndWait() error {
+	return s.closeWithExpectedKill(false)
+}
+
+// Only a timed-out auxiliary preflight may treat our own successful kill as
+// expected. Ordinary closure still reports every Wait error. Owned stderr
+// drainage is checked separately even when the expected kill hides ExitError.
+func (s *sidecarSession) closeWithExpectedKill(expectedKill bool) error {
 	_ = s.stdin.Close()
+	var cleanupErr error
 	if s.cmd.Process != nil {
-		done := make(chan struct{})
-		go func() { _ = s.cmd.Wait(); close(done) }()
+		done := make(chan error, 1)
+		go func() { done <- s.cmd.Wait() }()
 		select {
-		case <-done:
+		case cleanupErr = <-done:
 		case <-time.After(2 * time.Second):
-			_ = s.cmd.Process.Kill()
-			<-done
+			killErr := s.cmd.Process.Kill()
+			waitErr := <-done
+			if expectedKill && killErr == nil {
+				// Inspect the direct Wait result, not an errors.As match that
+				// could hide another error joined with the killed-process exit.
+				if _, killedExit := waitErr.(*exec.ExitError); killedExit {
+					waitErr = nil
+				}
+			}
+			if errors.Is(killErr, os.ErrProcessDone) {
+				killErr = nil
+			}
+			cleanupErr = errors.Join(waitErr, killErr)
 		}
 	}
+	if s.stderrReader != nil {
+		// Cmd.Wait prefers ExitError to its internal pipe-copy/WaitDelay
+		// error. Our owned read end instead exposes EOF independently, so
+		// intentional process termination cannot hide a forced pipe close.
+		timer := time.NewTimer(2 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-s.stderr.done:
+		case <-timer.C:
+			cleanupErr = errors.Join(cleanupErr, exec.ErrWaitDelay)
+		}
+		cleanupErr = errors.Join(cleanupErr, s.stderrReader.Close())
+	}
+	if s.stderr.done != nil {
+		<-s.stderr.done
+	}
+	return cleanupErr
 }
 
 // changedFilesFor stat-diffs the program's project files against the
@@ -770,25 +849,16 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed, reads, stats
 }
 
-func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*sidecarResponse, sidecarCallStats, error) {
-	return runTransformerSidecarShard(parent, 0, dir, configPath, compileFiles, stampFiles, overlays, plugins, state, sourceOrigin)
+func runTransformerSidecarCall(parent context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
+	return runTransformerSidecarShard(parent, 0, call)
 }
 
 // runTransformerSidecarShard is one round trip through the worker that owns
 // shard of a project. Shard 0 is the project's ordinary worker, which every
 // unsharded request (incremental and watch rebuilds) also goes through.
-func runTransformerSidecarShard(parent context.Context, shard int, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecarShard(parent context.Context, shard int, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
-	call := transformerCall{
-		dir:          dir,
-		configPath:   configPath,
-		compileFiles: compileFiles,
-		stampFiles:   stampFiles,
-		overlays:     overlays,
-		plugins:      plugins,
-		state:        state,
-		sourceOrigin: sourceOrigin,
-	}
+	dir, configPath, plugins, state := call.dir, call.configPath, call.plugins, call.state
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
 		return nil, stats, err
@@ -808,6 +878,8 @@ func runTransformerSidecarShard(parent context.Context, shard int, dir, configPa
 	slot.mu.Lock()
 	stats.wait = stopWait()
 	defer slot.mu.Unlock()
+	fresh := !slot.used && slot.session == nil
+	slot.used = true
 
 	for attempt := 0; ; attempt++ {
 		stopPrep := logStage(configPath, sidecarPreparationStage)
@@ -820,7 +892,7 @@ func runTransformerSidecarShard(parent context.Context, shard int, dir, configPa
 			// Node in the same physical directory sent in the request so that
 			// cwd, tsconfig-derived options, and source-file paths agree on
 			// macOS symlink roots and Windows short-name aliases.
-			session, err = spawnSidecarSession(sidecarDirPath, sidecarDir)
+			session, err = spawnSidecarSessionMode(sidecarDirPath, sidecarDir, fresh && call.parallel != nil)
 			if err != nil {
 				stats.prep += stopPrep()
 				return nil, stats, nodeRequirementError(err, configPath, plugins)
@@ -837,6 +909,26 @@ func runTransformerSidecarShard(parent context.Context, shard int, dir, configPa
 		if err != nil {
 			stats.prep += stopPrep()
 			return nil, stats, err
+		}
+		if attempt == 0 && fresh && parallelRequestSupported(call, request) && call.parallelBuild != nil && call.parallelBuild.trySplit() {
+			stats.prep += stopPrep()
+			response, handled, parallelErr := runParallelTransformer(parent, timeout, sidecarDir, slot, request, call.parallel, &stats)
+			// An admitted split has reaped both sessions before returning. A
+			// rejected auxiliary has also been reaped before token release.
+			<-call.parallelBuild.split
+			if handled {
+				if parallelErr == nil && state != nil {
+					state.diskScanned = true
+				}
+				return response, stats, parallelErr
+			}
+			if parallelErr != nil {
+				// Worker 0 failed during preflight, before any transform.
+				// Consume the existing first transport attempt; the next loop
+				// iteration is the single remaining ordinary serial attempt.
+				continue
+			}
+			stopPrep = logStage(configPath, sidecarPreparationStage)
 		}
 		payload, err := json.Marshal(request)
 		stats.prep += stopPrep()
@@ -928,6 +1020,7 @@ func runTransformerSidecarValidationWithContext(parent context.Context, dir, con
 	slot.mu.Lock()
 	stats.wait = stopWait()
 	defer slot.mu.Unlock()
+	slot.used = true
 
 	for attempt := 0; ; attempt++ {
 		stopPrep := logStage(configPath, sidecarPreparationStage)

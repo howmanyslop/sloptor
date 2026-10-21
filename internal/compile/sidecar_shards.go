@@ -81,8 +81,10 @@ func splitSidecarShards(files []*ast.SourceFile, count int) [][]*ast.SourceFile 
 // answers about its files that a single worker would.
 func runShardedTransformerSidecar(ctx context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
 	count := sidecarShardCount(len(call.compileFiles))
-	if count <= 1 {
-		return runTransformerSidecarWithContext(ctx, call.dir, call.configPath, call.compileFiles, call.stampFiles, call.overlays, call.plugins, call.state, call.sourceOrigin)
+	// A configured parallel transformer split already divides the request
+	// between its own two workers.
+	if count <= 1 || call.parallel != nil {
+		return runTransformerSidecarCall(ctx, call)
 	}
 	shards := splitSidecarShards(call.compileFiles, count)
 	responses := make([]*sidecarResponse, len(shards))
@@ -96,8 +98,10 @@ func runShardedTransformerSidecar(ctx context.Context, call transformerCall) (*s
 		if call.state != nil {
 			state = &sidecarBuildState{stageOverlays: call.state.stageOverlays, diskScanned: call.state.diskScanned, rebases: call.state.rebases}
 		}
+		shardCall := call
+		shardCall.compileFiles, shardCall.state = files, state
 		wg.Go(func() {
-			responses[index], stats[index], errs[index] = runTransformerSidecarShard(ctx, index, call.dir, call.configPath, files, call.stampFiles, call.overlays, call.plugins, state, call.sourceOrigin)
+			responses[index], stats[index], errs[index] = runTransformerSidecarShard(ctx, index, shardCall)
 		})
 	}
 	wg.Wait()

@@ -523,6 +523,9 @@ type ProjectOptions struct {
 	// Context cancels build work and carries the API session's transformer
 	// callback. Nil preserves the CLI's process-owned lifecycle.
 	Context context.Context
+	// CLI-only lifetime provenance, shared by copied solution project options.
+	// Kept separate from Context so project labels/tasks/cancellation survive.
+	cliTransformerBuild *cliTransformerBuild
 
 	projectReferencePaths   map[string]string
 	pendingSolutionPersists *[]func() error

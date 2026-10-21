@@ -22217,10 +22217,10 @@ func (c *Checker) getObjectTypeInstantiation(t *Type, m *TypeMapper, alias *Type
 	// We are instantiating an anonymous type that has one or more type parameters in scope. Apply the
 	// mapper to the type parameters to produce the effective list of type arguments, and compute the
 	// instantiation cache key from the type IDs of the type arguments.
-	combinedMapper := c.combineTypeMappers(t.Mapper(), m)
+	typeMapper := t.Mapper()
 	typeArguments := make([]*Type, len(typeParameters))
 	for i, tp := range typeParameters {
-		typeArguments[i] = combinedMapper.Map(tp)
+		typeArguments[i] = c.mapWithCombinedTypeMappers(tp, typeMapper, m)
 	}
 	newAlias := alias
 	if newAlias == nil {
@@ -24318,8 +24318,8 @@ func (c *Checker) getTailRecursionRoot(newType *Type, newMapper *TypeMapper) (*C
 	if newType.flags&TypeFlagsConditional != 0 && newMapper != nil {
 		newRoot := newType.AsConditionalType().root
 		if len(newRoot.outerTypeParameters) != 0 {
-			typeParamMapper := c.combineTypeMappers(newType.AsConditionalType().mapper, newMapper)
-			typeArguments := core.Map(newRoot.outerTypeParameters, func(t *Type) *Type { return typeParamMapper.Map(t) })
+			typeParamMapper := newType.AsConditionalType().mapper
+			typeArguments := core.Map(newRoot.outerTypeParameters, func(t *Type) *Type { return c.mapWithCombinedTypeMappers(t, typeParamMapper, newMapper) })
 			newRootMapper := newTypeMapper(newRoot.outerTypeParameters, typeArguments)
 			var newCheckType *Type
 			if newRoot.isDistributive {
@@ -25632,9 +25632,45 @@ func (c *Checker) addTypesToUnion(typeSet []*Type, includes TypeFlags, types []*
 				if t.alias != nil || u.origin != nil {
 					includes |= TypeFlagsUnion
 				}
-				typeSet, includes = c.addTypesToUnion(typeSet, includes, u.types)
+				typeSet, includes = c.addUnionConstituentsToUnion(typeSet, includes, u.types)
 			} else {
 				typeSet, includes = c.addTypeToUnion(typeSet, includes, t)
+			}
+			lastType = t
+		}
+	}
+	return typeSet, includes
+}
+
+// addUnionConstituentsToUnion is addTypesToUnion for the constituents of a union type. In such a list,
+// plain string literal types ascend by value and type ID. CompareTypes orders them by these keys only,
+// and the keys never change. Thus a plain string literal that follows another one sorts after it, and
+// its search starts after that one. Every other constituent takes the general path and resets the start.
+func (c *Checker) addUnionConstituentsToUnion(typeSet []*Type, includes TypeFlags, types []*Type) ([]*Type, TypeFlags) {
+	var lastType *Type
+	low := 0
+	for _, t := range types {
+		if t != lastType {
+			switch {
+			case t.flags == TypeFlagsStringLiteral && t.alias == nil:
+				// Of the addTypeToUnion checks, only the includes mask applies to this type.
+				includes |= t.flags & TypeFlagsIncludesMask
+				index, found := slices.BinarySearchFunc(typeSet[low:], t, CompareTypes)
+				low += index
+				if !found {
+					typeSet = slices.Insert(typeSet, low, t)
+				}
+				low++
+			case t.flags&TypeFlagsUnion != 0:
+				u := t.AsUnionType()
+				if t.alias != nil || u.origin != nil {
+					includes |= TypeFlagsUnion
+				}
+				typeSet, includes = c.addUnionConstituentsToUnion(typeSet, includes, u.types)
+				low = 0
+			default:
+				typeSet, includes = c.addTypeToUnion(typeSet, includes, t)
+				low = 0
 			}
 			lastType = t
 		}
