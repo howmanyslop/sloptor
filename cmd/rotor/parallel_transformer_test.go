@@ -18,7 +18,12 @@ import (
 func TestCmdBuildSolutionReachesParallelTransformer(t *testing.T) {
 	// Exercise the actual command parser/body, --build coordinator and normal
 	// worker transport. No fabricated oneShotBuild flag or builder replacement.
-	dir := writeBuildableProject(t, "")
+	// Admission rejects aliases, including Windows TEMP's RUNNER~1 short name.
+	// Exercise an eligible physical project root, as the admission tests do.
+	dir, err := filepath.EvalSymlinks(writeBuildableProject(t, ""))
+	if err != nil {
+		t.Fatalf("resolve physical fixture root: %v", err)
+	}
 	_, file, _, _ := runtime.Caller(0)
 	worker := filepath.Clean(filepath.Join(filepath.Dir(file), "../../tools/sidecar"))
 	t.Setenv("ROTOR_SIDECAR_PATH", worker)
@@ -82,7 +87,7 @@ sha256 = %q
 	logservice.Output = &stages
 	defer func() { logservice.Output, logservice.Verbose = previousOutput, previousVerbose }()
 	stdout, stderr, code := captureBuildOutput(t, []string{"--build", "--project", configPath, "--verbose", "--noInclude"})
-	if code != 0 || !strings.Contains(stages.String(), "transformer parallel batch completed (workers=2)") {
+	if code != 0 || strings.Count(stages.String(), "transformer parallel batch completed (workers=2)") != 1 {
 		t.Fatalf("actual solution CLI did not complete a split: exit=%d\n%s\n%s\n%s", code, stdout, stderr, stages.String())
 	}
 }
