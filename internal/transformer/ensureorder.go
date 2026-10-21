@@ -20,29 +20,23 @@ func ensureTransformOrder(s *State, nodes []*ast.Node) []luau.Expression {
 // ensureTransformOrderWith is ensureTransformOrder with an explicit per-node
 // transformer (upstream's optional third parameter).
 func ensureTransformOrderWith(s *State, nodes []*ast.Node, transformer func(*State, *ast.Node) luau.Expression) []luau.Expression {
-	type expressionInfo struct {
-		expression luau.Expression
-		prereqs    *luau.List[luau.Statement]
-	}
-
-	infos := make([]expressionInfo, len(nodes))
+	result := make([]luau.Expression, len(nodes))
+	prereqs := make([]*luau.List[luau.Statement], len(nodes))
 	for i, node := range nodes {
-		expression, prereqs := s.Capture(func() luau.Expression { return transformer(s, node) })
-		infos[i] = expressionInfo{expression, prereqs}
+		result[i], prereqs[i] = s.Capture(func() luau.Expression { return transformer(s, node) })
 	}
 
 	// findLastIndex(expressionInfoList, info => !isEmpty(info.prereqs))
 	lastIndexWithPrereqs := -1
-	for i := len(infos) - 1; i >= 0; i-- {
-		if infos[i].prereqs.IsNonEmpty() {
+	for i := len(prereqs) - 1; i >= 0; i-- {
+		if prereqs[i].IsNonEmpty() {
 			lastIndexWithPrereqs = i
 			break
 		}
 	}
 
-	result := make([]luau.Expression, 0, len(infos))
-	for i, info := range infos {
-		s.PrereqList(info.prereqs)
+	for i, expression := range result {
+		s.PrereqList(prereqs[i])
 
 		isConstVar := false
 		if exp := nodes[i]; ast.IsIdentifier(exp) {
@@ -52,12 +46,10 @@ func ensureTransformOrderWith(s *State, nodes []*ast.Node, transformer func(*Sta
 		}
 
 		if i < lastIndexWithPrereqs &&
-			!luau.IsSimplePrimitive(info.expression) &&
-			info.expression.Kind() != luau.KindTemporaryIdentifier &&
+			!luau.IsSimplePrimitive(expression) &&
+			expression.Kind() != luau.KindTemporaryIdentifier &&
 			!isConstVar {
-			result = append(result, s.PushToVar(info.expression, "exp"))
-		} else {
-			result = append(result, info.expression)
+			result[i] = s.PushToVar(expression, "exp")
 		}
 	}
 	return result
