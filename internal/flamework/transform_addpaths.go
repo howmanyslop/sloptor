@@ -238,19 +238,26 @@ func addPathsPattern(state *TransformState, input string) (string, bool) {
 	return path.Join(relative, "**"), true
 }
 
-// addPathsModules returns import specifiers, relative to file, for every
-// program source whose path or ancestor directory matches pattern and that
-// Rojo places as a module (not a Script or LocalScript). It also returns the
-// project-relative paths of every program source.
-func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string) ([]string, map[string]bool, error) {
+// addPathsSourceIndex is the pattern-independent part of addPathsModules:
+// every program source with a project-relative path, in program order.
+type addPathsSourceIndex struct {
+	entries []addPathsSource
+	// sources is shared by every call on the state; callers only read it.
+	sources map[string]bool
+}
+
+type addPathsSource struct {
+	file     *ast.SourceFile
+	relative string
+	segments []string
+}
+
+func programAddPathsSources(state *TransformState) *addPathsSourceIndex {
+	if state.addPathsSources != nil {
+		return state.addPathsSources
+	}
 	root := state.project.RootDirectory()
-	resolver := state.project.RojoResolver()
-	translator := state.project.PathTranslator()
-	compare := tspath.ComparePathsOptions{UseCaseSensitiveFileNames: state.program.UseCaseSensitiveFileNames()}
-	fromDirectory := tspath.GetDirectoryPath(file.FileName())
-	type match struct{ relative, module string }
-	matches := make([]match, 0)
-	sources := make(map[string]bool)
+	index := &addPathsSourceIndex{sources: make(map[string]bool)}
 	for _, source := range state.program.GetSourceFiles() {
 		if source.IsDeclarationFile || state.program.IsSourceFileFromExternalLibrary(source) {
 			continue
@@ -259,32 +266,69 @@ func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string
 		if err != nil {
 			continue
 		}
-		sources[relative] = true
-		if source == file {
+		index.sources[relative] = true
+		index.entries = append(index.entries, addPathsSource{
+			file: source, relative: relative, segments: strings.Split(strings.ToLower(relative), "/"),
+		})
+	}
+	state.addPathsSources = index
+	return index
+}
+
+// addPathsModules returns import specifiers, relative to file, for every
+// program source whose path or ancestor directory matches pattern and that
+// Rojo places as a module (not a Script or LocalScript). It also returns the
+// project-relative paths of every program source.
+func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string) ([]string, map[string]bool, error) {
+	resolver := state.project.RojoResolver()
+	translator := state.project.PathTranslator()
+	compare := tspath.ComparePathsOptions{UseCaseSensitiveFileNames: state.program.UseCaseSensitiveFileNames()}
+	fromDirectory := tspath.GetDirectoryPath(file.FileName())
+	programSources := programAddPathsSources(state)
+	patternSegments := strings.Split(strings.ToLower(pattern), "/")
+	type match struct{ relative, module string }
+	matches := make([]match, 0)
+	for _, source := range programSources.entries {
+		if source.file == file {
 			continue
 		}
-		matched, err := matchGlobOrAncestor(pattern, relative)
+		matched, err := matchAddPathsGlobSegmentsOrAncestor(patternSegments, source.segments)
 		if err != nil {
 			return nil, nil, err
 		}
 		if !matched {
 			continue
 		}
-		output := translator.GetOutputPath(source.FileName())
+		output := translator.GetOutputPath(source.file.FileName())
 		if _, ok := resolver.GetRbxPathFromFilePath(output); !ok {
 			continue
 		}
 		if isScriptRbxType(resolver.GetRbxTypeFromFilePath(output)) {
 			continue
 		}
-		matches = append(matches, match{relative: relative, module: moduleSpecifier(fromDirectory, source.FileName(), compare)})
+		matches = append(matches, match{relative: source.relative, module: moduleSpecifier(fromDirectory, source.file.FileName(), compare)})
 	}
 	sort.Slice(matches, func(i, j int) bool { return matches[i].relative < matches[j].relative })
 	modules := make([]string, len(matches))
 	for index, match := range matches {
 		modules[index] = match.module
 	}
-	return modules, sources, nil
+	return modules, programSources.sources, nil
+}
+
+// matchAddPathsGlobSegmentsOrAncestor tries the full project-relative path,
+// then each parent, without preparing the same glob and path again. Matching
+// stays lazy so unreachable invalid pattern segments do not report errors.
+func matchAddPathsGlobSegmentsOrAncestor(pattern, relative []string) (bool, error) {
+	for length := len(relative); length > 0; length-- {
+		if length == 1 && (relative[0] == "." || relative[0] == "") {
+			break
+		}
+		if matched, err := matchGlobSegments(pattern, relative[:length]); err != nil || matched {
+			return matched, err
+		}
+	}
+	return false, nil
 }
 
 // hasUnimportableModule reports a file on disk that pattern matches and Rojo
