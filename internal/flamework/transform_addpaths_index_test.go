@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"rotor/internal/config"
@@ -106,6 +107,7 @@ func writeAddPathsIndexFixture(t *testing.T) string {
 	writeAddPathsFixture(t, directory, `import "ext-lib";`+"\nexport {};\n")
 	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"moduleResolution":"node","rootDir":"src","outDir":"out"},"include":["src/**/*.ts","../outside/**/*.ts"]}`)
 	writeTransformFixture(t, directory, "src/server/services/Upper/Mixed.ts", "export {};\n")
+	writeTransformFixture(t, directory, "src/server/services/Ärea/Ünicode.ts", "export {};\n")
 	writeTransformFixture(t, directory, "src/server/services/.hidden/skip.ts", "export {};\n")
 	writeTransformFixture(t, directory, "node_modules/ext-lib/package.json", `{"name":"ext-lib"}`)
 	writeTransformFixture(t, directory, "node_modules/ext-lib/index.ts", "export const value = 1;\n")
@@ -135,7 +137,10 @@ func TestAddPathsModules_matchesReferenceForEveryCallerAndPattern(t *testing.T) 
 		t.Fatalf("fixture lacks an external source (%v) or an escaped source (%v)", external != nil, escape != nil)
 	}
 	callers := []string{"src/server/main.server.ts", "src/server/services/a.ts", "src/shared/components/x.ts", "src/server/services/Upper/Mixed.ts"}
-	patterns := []string{"src/server/services/**", "src/shared/components/*.ts", "src/server/services/upper/*", "src/server/services/Upper/*", "src/**", "src/missing/**", "src/["}
+	patterns := []string{
+		"src/server/services/**", "src/shared/components/*.ts", "src/server/services/upper/*", "src/server/services/Upper/*", "src/**", "src/missing/**", "src/[",
+		"src/server/services", "src/server/services/.hidden/*", "src/server/services/*/*.ts", "src/missing/[", "src/server/services/ärea/ünicode.ts",
+	}
 
 	// When / Then: every call gives the result of the old loop, in two rounds
 	// so that calls after an error also use the built index.
@@ -150,6 +155,19 @@ func TestAddPathsModules_matchesReferenceForEveryCallerAndPattern(t *testing.T) 
 	sources := state.addPathsSources.sources
 	if !sources["src/server/main.server.ts"] || sources["src/shared/components/types.d.ts"] || sources["node_modules/ext-lib/index.ts"] || len(sources) != len(state.addPathsSources.entries) {
 		t.Fatalf("source index = %v", sources)
+	}
+}
+
+func TestAddPathsGlobSegmentsOrAncestor_stopsBeforeRoot(t *testing.T) {
+	for _, relative := range []string{".", ""} {
+		matched, err := matchAddPathsGlobSegmentsOrAncestor([]string{"**"}, strings.Split(relative, "/"))
+		if matched || err != nil {
+			t.Fatalf("root %q matched = %v, error = %v", relative, matched, err)
+		}
+	}
+	matched, err := matchAddPathsGlobSegmentsOrAncestor([]string{"**"}, nil)
+	if matched || err != nil {
+		t.Fatalf("empty segments matched = %v, error = %v", matched, err)
 	}
 }
 

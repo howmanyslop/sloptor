@@ -249,6 +249,7 @@ type addPathsSourceIndex struct {
 type addPathsSource struct {
 	file     *ast.SourceFile
 	relative string
+	segments []string
 }
 
 func programAddPathsSources(state *TransformState) *addPathsSourceIndex {
@@ -266,7 +267,9 @@ func programAddPathsSources(state *TransformState) *addPathsSourceIndex {
 			continue
 		}
 		index.sources[relative] = true
-		index.entries = append(index.entries, addPathsSource{file: source, relative: relative})
+		index.entries = append(index.entries, addPathsSource{
+			file: source, relative: relative, segments: strings.Split(strings.ToLower(relative), "/"),
+		})
 	}
 	state.addPathsSources = index
 	return index
@@ -282,13 +285,14 @@ func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string
 	compare := tspath.ComparePathsOptions{UseCaseSensitiveFileNames: state.program.UseCaseSensitiveFileNames()}
 	fromDirectory := tspath.GetDirectoryPath(file.FileName())
 	programSources := programAddPathsSources(state)
+	patternSegments := strings.Split(strings.ToLower(pattern), "/")
 	type match struct{ relative, module string }
 	matches := make([]match, 0)
 	for _, source := range programSources.entries {
 		if source.file == file {
 			continue
 		}
-		matched, err := matchGlobOrAncestor(pattern, source.relative)
+		matched, err := matchAddPathsGlobSegmentsOrAncestor(patternSegments, source.segments)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -310,6 +314,21 @@ func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string
 		modules[index] = match.module
 	}
 	return modules, programSources.sources, nil
+}
+
+// matchAddPathsGlobSegmentsOrAncestor tries the full project-relative path,
+// then each parent, without preparing the same glob and path again. Matching
+// stays lazy so unreachable invalid pattern segments do not report errors.
+func matchAddPathsGlobSegmentsOrAncestor(pattern, relative []string) (bool, error) {
+	for length := len(relative); length > 0; length-- {
+		if length == 1 && (relative[0] == "." || relative[0] == "") {
+			break
+		}
+		if matched, err := matchGlobSegments(pattern, relative[:length]); err != nil || matched {
+			return matched, err
+		}
+	}
+	return false, nil
 }
 
 // hasUnimportableModule reports a file on disk that pattern matches and Rojo
