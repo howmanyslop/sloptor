@@ -1026,7 +1026,8 @@ test("a transformer that ignores its program transforms the same without one", (
   const programless = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
   const withProgram = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
   withProgram.programRequired = true;
-  t.after(() => { programless.dispose(); withProgram.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
+  const cwd = process.cwd();
+  t.after(() => { process.chdir(cwd); programless.dispose(); withProgram.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
 
   const skipped = programless.handleRequest(fixture.request);
   const built = withProgram.handleRequest(fixture.request);
@@ -1052,7 +1053,8 @@ test("a transformer that reads its program still sees the checker's types", (t) 
 };\n`);
 
   const session = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
-  t.after(() => { session.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
+  const cwd = process.cwd();
+  t.after(() => { process.chdir(cwd); session.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
   const first = session.handleRequest(fixture.request);
   const second = session.handleRequest(fixture.request);
 
