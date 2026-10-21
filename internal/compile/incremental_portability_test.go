@@ -74,7 +74,7 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 			if fixture.name == "rojo-files" {
 				// Linux golden: A/x.lua sorts before AB.lua with slash
 				// separators, but the native Windows order is reversed.
-				const wantSalt = "a416de476645ee5ff85d03b4c989c0cebb3145d9cc9f15fadbd86e378ab7c33b"
+				const wantSalt = "4bd28dd0f0a7b11315597de050b72c5a0db05f89f98451cec7d2609af2e001bf"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("Rojo salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -82,7 +82,7 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 			if fixture.name == "source-root" {
 				// Windows golden: /sources is URL metadata, not an absolute
 				// filesystem path to relativize on Unix.
-				const wantSalt = "7643e41ffcc2ce1a1ddafcc3dabc28ba0420c8b309b0b57b2adb44c896628e3d"
+				const wantSalt = "de6a3d8ec4fc6ef9503e167d3a56a7c4f32df26cd102adddd7c45874707f9320"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("sourceRoot salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -112,19 +112,30 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 }
 
 func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
-	for _, mode := range []string{"realpaths", "preserveSymlinks", "sibling-manifest", "runtime-package", "transformer"} {
+	for _, mode := range []string{"realpaths", "preserveSymlinks", "sibling-manifest", "runtime-package", "transformer", "virtual-store", "transitive-store", "workspace-store", "hoisted-store", "workspace-hoisted-store"} {
 		t.Run(mode, func(t *testing.T) {
+			workspaceStore := mode == "workspace-store" || mode == "workspace-hoisted-store"
+			hoistedStore := mode == "hoisted-store" || mode == "workspace-hoisted-store"
+			transitiveStore := mode == "transitive-store" || workspaceStore || hoistedStore
 			var dirs []string
 			var manifests [][]byte
 			var manifestPaths []string
+			var declarationPaths []string
 			for i := range 2 {
 				packageName := "portable-types"
 				if mode == "runtime-package" {
 					packageName = "@rbxts/portable-types"
 				}
+				if mode == "workspace-hoisted-store" {
+					packageName = "@scope/portable-types"
+				}
 				dir := writeProject(t, "@scope/portable-linked", "")
-				if mode == "sibling-manifest" {
-					project := filepath.Join(t.TempDir(), "project")
+				if mode == "sibling-manifest" || workspaceStore {
+					projectPath := "project"
+					if workspaceStore {
+						projectPath = filepath.Join("packages", "app")
+					}
+					project := filepath.Join(t.TempDir(), projectPath)
 					if err := os.CopyFS(project, os.DirFS(dir)); err != nil {
 						t.Fatal(err)
 					}
@@ -140,6 +151,25 @@ func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
 					setPortabilityCompilerOptions(t, dir, map[string]any{"preserveSymlinks": true})
 				}
 				store := t.TempDir()
+				packageRoot := dir
+				if workspaceStore {
+					packageRoot = filepath.Clean(filepath.Join(dir, "..", ".."))
+				}
+				if mode == "virtual-store" || hoistedStore {
+					// pnpm truncates virtual-store names at different lengths
+					// on Windows and Unix. Logical package links stay the same.
+					storeNames := []string{"portable-types@1.0.0_peer-package@1.0.0_another-peer-package@1.0.0", "portable-types@1.0.0_abcd1234"}
+					store = filepath.Join(packageRoot, "node_modules", ".pnpm", storeNames[i], "node_modules", packageName)
+					if err := os.MkdirAll(store, 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if transitiveStore && !hoistedStore {
+					store = filepath.Join(packageRoot, "node_modules", ".pnpm", "portable-types@1.0.0", "node_modules", packageName)
+					if err := os.MkdirAll(store, 0o755); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if mode == "sibling-manifest" {
 					storeName := []string{"store-one", "store-two"}[i]
 					store = filepath.Join(dir, "..", storeName)
@@ -163,19 +193,24 @@ func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
 					writeProjectFile(t, store, "default.project.json", `{"name":"portable-types","tree":{"$path":"out"}}`)
 				}
 				link := filepath.Join(dir, "node_modules", filepath.FromSlash(packageName))
-				modules := filepath.Dir(link)
-				if err := os.MkdirAll(modules, 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(store, link); err != nil {
-					if runtime.GOOS != "windows" {
-						t.Skipf("cannot create package symlink: %v", err)
-					}
-					if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, store).CombinedOutput(); err != nil {
-						t.Fatalf("create package junction: %v: %s", err, output)
-					}
-				}
 				main := "import type { Value } from '" + packageName + "';\nexport const value: Value = { value: 1 };\n"
+				if transitiveStore {
+					parentNames := []string{"parent-types@1.0.0_peer-package@1.0.0_another-peer-package@1.0.0", "parent-types@1.0.0_abcd1234"}
+					parentName := parentNames[i]
+					if hoistedStore {
+						parentName = "parent-types@1.0.0"
+					}
+					parent := filepath.Join(packageRoot, "node_modules", ".pnpm", parentName, "node_modules", "parent-types")
+					writeProjectFile(t, parent, "package.json", `{"name":"parent-types","types":"index.d.ts"}`)
+					writeProjectFile(t, parent, "index.d.ts", `export { Value } from "`+packageName+`";`)
+					linkPortabilityPackage(t, parent, filepath.Join(packageRoot, "node_modules", "parent-types"))
+					link = filepath.Join(filepath.Dir(parent), packageName)
+					if hoistedStore {
+						link = filepath.Join(packageRoot, "node_modules", ".pnpm", "node_modules", packageName)
+					}
+					main = "import type { Value } from 'parent-types';\nexport const value: Value = { value: 1 };\n"
+				}
+				linkPortabilityPackage(t, store, link)
 				if mode == "runtime-package" {
 					main = "import { answer } from '" + packageName + "';\nimport type { Value } from '" + packageName + "';\nexport const value: Value = { value: answer };\n"
 				}
@@ -213,6 +248,7 @@ module.exports = () => () => sourceFile => {
 				dirs = append(dirs, dir)
 				manifests = append(manifests, manifest)
 				manifestPaths = append(manifestPaths, manifestPath)
+				declarationPaths = append(declarationPaths, filepath.Join(store, "details.d.ts"))
 				t.Logf("%s portable salt: %s", mode, portabilityManifestSalt(t, manifest))
 			}
 			if !bytes.Equal(manifests[0], manifests[1]) {
@@ -221,7 +257,7 @@ module.exports = () => () => sourceFile => {
 			if mode == "runtime-package" {
 				// Linux golden includes a wildcard suffix with a mixed-case
 				// filename; native lookup canonicalization must not leak in.
-				const wantSalt = "069a17089d23bbb2021e6bd99928be5f1ead8b3367eaa5286321778c04c06953"
+				const wantSalt = "c1940f3de4c7190bee08eb27d70d24d83c5a9fc43ff77a073aebcf71ff1e1a9b"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("package salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -238,11 +274,7 @@ module.exports = () => () => sourceFile => {
 			}
 			// Changing a declaration in the new store must still reach its
 			// importer through the graph restored from the old checkout.
-			packageName := "portable-types"
-			if mode == "runtime-package" {
-				packageName = "@rbxts/portable-types"
-			}
-			writeFlameworkIncrementalFile(t, filepath.Join(dirs[1], "node_modules", filepath.FromSlash(packageName), "details.d.ts"), `export interface Value { readonly value: string; }`)
+			writeFlameworkIncrementalFile(t, declarationPaths[1], `export interface Value { readonly value: string; }`)
 			timings = NewBuildTimings()
 			_, _, err := BuildProjectWithOptions(dirs[1], ProjectOptions{Timings: timings})
 			if mode == "transformer" {
@@ -253,6 +285,21 @@ module.exports = () => () => sourceFile => {
 				t.Fatal("restored manifest hid a dependency type error")
 			}
 		})
+	}
+}
+
+func linkPortabilityPackage(t *testing.T, store, link string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(store, link); err != nil {
+		if runtime.GOOS != "windows" {
+			t.Skipf("cannot create package symlink: %v", err)
+		}
+		if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, store).CombinedOutput(); err != nil {
+			t.Fatalf("create package junction: %v: %s", err, output)
+		}
 	}
 }
 
@@ -302,7 +349,7 @@ func TestBuildSolutionIncrementalManifestsSurviveCheckoutMove(t *testing.T) {
 				t.Logf("%s portable salt: %s", project, portabilityManifestSalt(t, manifest))
 				if project == "game" {
 					// Linux golden retains the SomeModule.ts spelling.
-					const wantSalt = "f4d3d6c99bfcdde8278b8a83c81cdbde58a245a89e62aae8d7b6f386899180d3"
+					const wantSalt = "4b405655afe700a89ede29f9c1e1ea85eadfcdc8f07f4c45582b6fbc19cae1d8"
 					if got := portabilityManifestSalt(t, manifest); got != wantSalt {
 						t.Errorf("reference salt = %s, want portable salt %s", got, wantSalt)
 					}
@@ -497,5 +544,87 @@ func TestIncrementalManifestOnAnotherVolumeSurvivesCheckoutMove(t *testing.T) {
 	}
 	if timings.Counts.SelectedSources != 0 || timings.Counts.ActualWrites != 0 {
 		t.Fatalf("restored cross-volume build selected %d and wrote %d", timings.Counts.SelectedSources, timings.Counts.ActualWrites)
+	}
+}
+
+func TestIncrementalWorkspaceRojoPathsRemainDistinct(t *testing.T) {
+	game := `{"name":"workspace","tree":{"$className":"DataModel","ReplicatedStorage":{"code":{"$path":"packages/shared/out"},"include":{"$path":"include"}}}}`
+	dir := writeProject(t, "@scope/workspace", game)
+	enableIncrementalBuilds(t, dir)
+	setPortabilityCompilerOptions(t, dir, map[string]any{"outDir": "packages/shared/out"})
+	writeProjectFile(t, dir, "packages/shared/package.json", `{"name":"workspace-link","types":"index.d.ts"}`)
+	writeProjectFile(t, dir, "packages/shared/index.d.ts", `export interface Value { readonly value: number; }`)
+	writeProjectFile(t, dir, "src/main.ts", `import type { Value } from "workspace-link"; import { VALUE } from "./util"; export const value: Value = { value: VALUE };`)
+	writeProjectFile(t, dir, "src/util.ts", `export const VALUE = 1;`)
+	writeProjectFile(t, dir, "include/RuntimeLib.lua", "return {}\n")
+	if err := os.MkdirAll(filepath.Join(dir, "node_modules"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "packages", "shared"), filepath.Join(dir, "node_modules", "workspace-link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil || len(diags) != 0 {
+		t.Fatalf("seed build: %v (diags: %v)", err, diags)
+	}
+	manifest := mustReadFile(t, filepath.Join(dir, "out", "cache.rbxtsc.tsbuildinfo"))
+	if !bytes.Contains(manifest, []byte("project://packages/shared/index.d.ts")) {
+		t.Fatalf("workspace input lost its project-relative identity:\n%s", manifest)
+	}
+	writeProjectFile(t, dir, "default.project.json", strings.Replace(game, "packages/shared/out", "node_modules/workspace-link/out", 1))
+	_, cleanDiags, cleanErr := CompileProject(dir)
+	if cleanErr == nil || !strings.Contains(strings.Join(cleanDiags, "\n"), "Could not find Rojo data") {
+		t.Fatalf("clean compile accepted a mount that does not cover the physical output: %v %v", cleanErr, cleanDiags)
+	}
+	timings := NewBuildTimings()
+	_, diags, err := BuildProjectWithOptions(dir, ProjectOptions{Timings: timings})
+	if timings.Counts.SelectedSources == 0 || err == nil || !strings.Contains(strings.Join(diags, "\n"), "Could not find Rojo data") {
+		t.Fatalf("changed Rojo mount selected %d sources: %v (diags: %v); want the clean compile failure", timings.Counts.SelectedSources, err, diags)
+	}
+}
+
+func TestIncrementalSaltUsesCachedProjectReferencePaths(t *testing.T) {
+	f := newReferenceFixture(t)
+	f.project("shared", nil, map[string]any{"declarationDir": "types"})
+	f.project("game", []string{"shared"}, nil)
+	f.write("shared/src/SomeModule.ts", "export const value = 1;\n")
+	sharedConfig := filepath.Join(f.dir, "shared", "tsconfig.json")
+	var config map[string]any
+	if err := json.Unmarshal(mustReadFile(t, sharedConfig), &config); err != nil {
+		t.Fatal(err)
+	}
+	config["rbxts"] = map[string]any{"luau": false}
+	f.json("shared/tsconfig.json", config)
+	f.build()
+	configPath := filepath.Join(f.dir, "game", "tsconfig.json")
+	graph, err := BuildSolutionGraph(configPath, f.options())
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateCrossProjectMetadata(graph)
+	var cachedOptions ProjectOptions
+	for _, project := range graph.Projects {
+		if project.ConfigPath == configPath {
+			cachedOptions = project.Options
+		}
+	}
+	dir, program, diags, err := newProjectProgram(filepath.Dir(configPath), configPath)
+	if err != nil || len(diags) != 0 {
+		t.Fatalf("program: %v (diags: %v)", err, diags)
+	}
+	direct, err := incrementalSaltWithFlamework(dir, program, f.options(), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached, err := incrementalSaltWithFlamework(dir, program, cachedOptions, "", nil)
+	if err != nil || cached != direct {
+		t.Fatalf("cached salt = %s, direct = %s: %v", cached, direct, err)
+	}
+	// Metadata and Program belong to the same snapshot. A salt calculation
+	// must not re-read each reference's options behind that snapshot.
+	config["rbxts"] = map[string]any{"luau": true}
+	f.json("shared/tsconfig.json", config)
+	after, err := incrementalSaltWithFlamework(dir, program, cachedOptions, "", nil)
+	if err != nil || after != cached {
+		t.Fatalf("salt re-read reference options: before = %s, after = %s: %v", cached, after, err)
 	}
 }

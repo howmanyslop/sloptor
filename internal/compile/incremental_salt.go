@@ -26,15 +26,21 @@ func outputManifestPath(projectDir, configPath string) string {
 
 func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts ProjectOptions, pathTranslatorBuildInfoPath string, flameworkInputs *FlameworkIncrementalInputs) (string, error) {
 	encodePath := incrementalPathEncoder(dir, program)
-	options := portableIncrementalOptions(program.Options(), program.GetCurrentDirectory(), encodePath)
+	// Authored paths can have different resolution semantics through a link.
+	// Only compiler-resolved input filenames need package-store aliases.
+	relativePath := func(name string) string { return relativeIncrementalPath(dir, name) }
+	options := portableIncrementalOptions(program.Options(), program.GetCurrentDirectory(), relativePath)
 	// State-file directories cannot affect emitted code. Anchor their names
 	// consistently whether the cache is inside the project or on another drive.
 	options.TsBuildInfoFile = incrementalBuildInfoIdentity(program.Options().TsBuildInfoFile)
 	buildInfoTarget := incrementalBuildInfoIdentity(pathTranslatorBuildInfoPath)
-	projectReferencePaths := createProjectReferencePathMap(program, opts, false)
+	projectReferencePaths := opts.projectReferenceSaltPaths
+	if projectReferencePaths == nil {
+		projectReferencePaths = createProjectReferencePathMap(program, opts, false)
+	}
 	portableReferences := make(map[string]string, len(projectReferencePaths))
 	for source, output := range projectReferencePaths {
-		portableReferences[encodePath(source)] = encodePath(output)
+		portableReferences[encodePath(source)] = relativePath(output)
 	}
 	rojoConfigPath, _, err := resolveRojoConfigPath(dir, opts.RojoConfigPath)
 	if err != nil {
@@ -50,7 +56,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	}
 	// Import paths come from the Rojo resolver, which reads project files the
 	// manifest does not hash, such as a dependency's default.project.json.
-	rojoResolver, err := rojoResolverFingerprint(opts.rojoCache, rojoConfigPath, encodePath)
+	rojoResolver, err := rojoResolverFingerprint(opts.rojoCache, rojoConfigPath, relativePath)
 	if err != nil {
 		return "", err
 	}
@@ -89,15 +95,15 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		RojoResolver          string                         `json:"rojoResolver,omitempty"`
 		PackageLayout         string                         `json:"packageLayout,omitempty"`
 	}{
-		Version:               "rotor-incremental-v3",
+		Version:               "rotor-incremental-v4",
 		CompilerOptions:       options,
 		ConfigFilePath:        options.ConfigFilePath,
 		OutDir:                options.OutDir,
 		TsBuildInfoFile:       options.TsBuildInfoFile,
 		PathTranslatorTarget:  buildInfoTarget,
 		Type:                  string(opts.Type),
-		RojoConfigPath:        encodePath(rojoConfigPath),
-		IncludePath:           encodePath(includePath),
+		RojoConfigPath:        relativePath(rojoConfigPath),
+		IncludePath:           relativePath(includePath),
 		LuaExtension:          !opts.LuaExtension,
 		Declaration:           options.Declaration.IsTrue(),
 		EmitDeclarationOnly:   opts.EmitDeclarationOnly,

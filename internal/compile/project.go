@@ -536,10 +536,11 @@ type ProjectOptions struct {
 	// callback. Nil preserves the CLI's process-owned lifecycle.
 	Context context.Context
 
-	projectReferencePaths   map[string]string
-	pendingSolutionPersists *[]func() error
-	deferRojoCachePersist   bool
-	compileCache            *solutionCompileCache
+	projectReferencePaths     map[string]string
+	projectReferenceSaltPaths map[string]string
+	pendingSolutionPersists   *[]func() error
+	deferRojoCachePersist     bool
+	compileCache              *solutionCompileCache
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds

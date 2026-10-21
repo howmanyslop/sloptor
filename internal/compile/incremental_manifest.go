@@ -86,11 +86,11 @@ func readIncrementalManifest(path string, program *compiler.Program) (*increment
 	projectDir := program.GetCurrentDirectory()
 	encodePath := incrementalSourcePathEncoder(program)
 	for _, file := range program.SourceFiles() {
-		stored := resolveIncrementalSourcePath(path, projectDir, encodePath(file.FileName()))
+		stored := resolveIncrementalSourcePath(projectDir, encodePath(file.FileName()))
 		sourcePaths[normalizeSourceFilePath(stored)] = normalizeSourceFilePath(file.FileName())
 	}
 	manifest.Files = mapIncrementalFiles(manifest.Files, func(name string) string {
-		absolute := resolveIncrementalSourcePath(path, projectDir, name)
+		absolute := resolveIncrementalSourcePath(projectDir, name)
 		if source, ok := sourcePaths[normalizeSourceFilePath(absolute)]; ok {
 			return source
 		}
