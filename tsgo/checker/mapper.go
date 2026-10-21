@@ -49,6 +49,15 @@ func (c *Checker) combineTypeMappers(m1 *TypeMapper, m2 *TypeMapper) *TypeMapper
 	return m2
 }
 
+func (c *Checker) mapWithCombinedTypeMappers(t *Type, m1 *TypeMapper, m2 *TypeMapper) *Type {
+	if m1 != nil {
+		if t1 := m1.Map(t); t1 != t {
+			return c.instantiateType(t1, m2)
+		}
+	}
+	return m2.Map(t)
+}
+
 func mergeTypeMappers(m1 *TypeMapper, m2 *TypeMapper) *TypeMapper {
 	if m1 != nil {
 		return newMergedTypeMapper(m1, m2)

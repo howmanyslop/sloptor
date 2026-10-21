@@ -1,0 +1,48 @@
+diff --git a/tsgo/checker/checker.go b/tsgo/checker/checker.go
+index 821826f306cd5963b35094ec38fc298d89700ef0..53356712df06de757f0aa083755c0a7c62639116 100644
+--- a/tsgo/checker/checker.go
++++ b/tsgo/checker/checker.go
+@@ -22217,10 +22217,10 @@ func (c *Checker) getObjectTypeInstantiation(t *Type, m *TypeMapper, alias *Type
+ 	// We are instantiating an anonymous type that has one or more type parameters in scope. Apply the
+ 	// mapper to the type parameters to produce the effective list of type arguments, and compute the
+ 	// instantiation cache key from the type IDs of the type arguments.
+-	combinedMapper := c.combineTypeMappers(t.Mapper(), m)
++	typeMapper := t.Mapper()
+ 	typeArguments := make([]*Type, len(typeParameters))
+ 	for i, tp := range typeParameters {
+-		typeArguments[i] = combinedMapper.Map(tp)
++		typeArguments[i] = c.mapWithCombinedTypeMappers(tp, typeMapper, m)
+ 	}
+ 	newAlias := alias
+ 	if newAlias == nil {
+@@ -24318,8 +24318,8 @@ func (c *Checker) getTailRecursionRoot(newType *Type, newMapper *TypeMapper) (*C
+ 	if newType.flags&TypeFlagsConditional != 0 && newMapper != nil {
+ 		newRoot := newType.AsConditionalType().root
+ 		if len(newRoot.outerTypeParameters) != 0 {
+-			typeParamMapper := c.combineTypeMappers(newType.AsConditionalType().mapper, newMapper)
+-			typeArguments := core.Map(newRoot.outerTypeParameters, func(t *Type) *Type { return typeParamMapper.Map(t) })
++			typeParamMapper := newType.AsConditionalType().mapper
++			typeArguments := core.Map(newRoot.outerTypeParameters, func(t *Type) *Type { return c.mapWithCombinedTypeMappers(t, typeParamMapper, newMapper) })
+ 			newRootMapper := newTypeMapper(newRoot.outerTypeParameters, typeArguments)
+ 			var newCheckType *Type
+ 			if newRoot.isDistributive {
+diff --git a/tsgo/checker/mapper.go b/tsgo/checker/mapper.go
+index 4c8a03191ad2cdd7db662658f3604c411d9ab5bf..bd2b9678d1020016a461ef0313aa3cacb5c956d6 100644
+--- a/tsgo/checker/mapper.go
++++ b/tsgo/checker/mapper.go
+@@ -49,6 +49,15 @@ func (c *Checker) combineTypeMappers(m1 *TypeMapper, m2 *TypeMapper) *TypeMapper
+ 	return m2
+ }
+
++func (c *Checker) mapWithCombinedTypeMappers(t *Type, m1 *TypeMapper, m2 *TypeMapper) *Type {
++	if m1 != nil {
++		if t1 := m1.Map(t); t1 != t {
++			return c.instantiateType(t1, m2)
++		}
++	}
++	return m2.Map(t)
++}
++
+ func mergeTypeMappers(m1 *TypeMapper, m2 *TypeMapper) *TypeMapper {
+ 	if m1 != nil {
+ 		return newMergedTypeMapper(m1, m2)
