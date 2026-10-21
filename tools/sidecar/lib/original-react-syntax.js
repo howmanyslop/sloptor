@@ -1,4 +1,4 @@
-// One source-reviewed React factory, original authored input only. Profiles come
+﻿// Source-reviewed React factories, original authored input only. Profiles come
 // from the opt-in host resolver or the private finite-test harness.
 const fs = require("node:fs");
 const path = require("node:path");
@@ -33,12 +33,14 @@ function matchesPin(pin) {
     createHash("sha256").update(fs.readFileSync(pin.path)).digest("hex") === pin.sha256;
 }
 
-function supportedChain(configs) {
+function supportedChain(configs, kind) {
   if (!Array.isArray(configs) || configs.length !== 1) return false;
   const config = configs[0];
+  const oxc = kind === "react-original-source-oxc-v1";
   return config && config.after === true && typeof config.transform === "string" &&
     (config.type === undefined || config.type === "program") &&
-    Object.keys(config).every((key) => ["after", "transform", "type", "include"].includes(key)) &&
+    (!oxc || config.backend === "oxc") &&
+    Object.keys(config).every((key) => ["after", "transform", "type", "include", ...(oxc ? ["backend"] : [])].includes(key)) &&
     Array.isArray(config.include) && config.include.every((glob) => typeof glob === "string");
 }
 
@@ -86,9 +88,16 @@ function disjointProjectReferences(session, inputs, parseHost) {
 function selectOriginalReactInputs(session, request, configs, parseHost, profile = session.benchOriginalReactProfile) {
   try {
     if (!profile || request[BENCH_ORIGINAL_SOURCE] !== profile || !frozenData(profile) ||
-        profile.kind !== "react-original-source-v1" || !supportedChain(configs) ||
+        !["react-original-source-v1", "react-original-source-oxc-v1"].includes(profile.kind) ||
+        !supportedChain(configs, profile.kind) ||
         !Array.isArray(profile.chains) || !profile.chains.some((chain) =>
-          supportedChain(chain) && isDeepStrictEqual(configs, chain))) return;
+          supportedChain(chain, profile.kind) && isDeepStrictEqual(configs, chain))) return;
+    const oxc = profile.kind === "react-original-source-oxc-v1";
+    // Also bind the native path selected by the actual bundle's workspace
+    // lookup. A private profile cannot widen this release's options or pins.
+    if (oxc && !isDeepStrictEqual(profile, require("./react-syntax-profile").resolveReactSyntaxProfile(
+      session.projectDir, session.tsModulePath, configs,
+    ))) return;
     if (realpath(request.projectDir) !== path.normalize(request.projectDir) ||
         realpath(request.tsConfigPath) !== path.normalize(request.tsConfigPath)) return;
 
@@ -104,13 +113,14 @@ function selectOriginalReactInputs(session, request, configs, parseHost, profile
         options.allowNonTsExtensions || options.noResolve || options.preserveSymlinks) return;
 
     const { entry, chunk, typescript } = profile;
-    if (![entry, chunk, typescript.module, typescript.implementation].every(matchesPin) ||
+    const bundles = [entry, chunk, ...(oxc ? [profile.runtime] : [])];
+    if (![...bundles, ...(oxc ? [profile.binding, profile.upstream, ...profile.imports] : []), typescript.module, typescript.implementation].every(matchesPin) ||
         session.tsModulePath !== typescript.module.path ||
         require.cache[typescript.module.path]?.exports !== ts ||
         require.cache[typescript.implementation.path]?.exports !== ts ||
         realpath(require.resolve(configs[0].transform, { paths: [session.projectDir] })) !== entry.path ||
         realpath(require.resolve(`./${path.basename(chunk.path)}`, { paths: [path.dirname(entry.path)] })) !== chunk.path ||
-        [entry, chunk].some((pin) =>
+        bundles.some((pin) =>
           realpath(require.resolve("typescript", { paths: [path.dirname(pin.path)] })) !== typescript.module.path)) return;
     // The existing TS6 wrapper is permitted only with its separately pinned
     // actual implementation and the unchanged forwarding source.

@@ -1,18 +1,26 @@
-const assert = require("node:assert/strict");
+﻿const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
+const { createHash } = require("node:crypto");
 const { PassThrough } = require("node:stream");
 const { pathToFileURL } = require("node:url");
 const test = require("node:test");
 const { counter } = require("./original-react-syntax-fixtures");
 const { SidecarProjectSession, SidecarServer, serveStdio } = require("..");
+const { BENCH_ORIGINAL_SOURCE, selectOriginalReactInputs } = require("../lib/original-react-syntax");
 
 const manifestPath = process.env.SLOPTOR_SYNTAX_PROFILE_MANIFEST;
 test("production stdio and API opt-in use the pinned real factory only for authored requests", {
   skip: !manifestPath, timeout: 75000,
 }, async (t) => {
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  const oxc = manifest.profile.kind === "react-original-source-oxc-v1";
+  if (oxc) {
+    for (const pin of manifest.artifactFiles) {
+      assert.equal(createHash("sha256").update(fs.readFileSync(pin.path)).digest("hex"), pin.sha256, pin.path);
+    }
+  }
   assert.equal(process.env.ANIME_RUSH_APPLIER_CACHE, "off");
   assert.equal(process.env.ANIME_RUSH_APPLIER_TIMINGS, undefined);
   const projectDir = path.join(manifest.outputDir, "production-fixture");
@@ -24,11 +32,19 @@ test("production stdio and API opt-in use the pinned real factory only for autho
   const fileName = path.join(projectDir, "positive.tsx");
   const tsConfigPath = path.join(projectDir, "tsconfig.json");
   fs.writeFileSync(fileName, counter);
-  const writeConfig = (transform = "anime-rush-react-compiler-applier", include = ["**", "!**/*.test.tsx"]) => {
+  const compileFileNames = [fileName];
+  if (oxc) {
+    for (const name of ["unchanged.ts", "unchanged.tsx"]) {
+      const unchanged = path.join(projectDir, name);
+      fs.writeFileSync(unchanged, "export const value = 1;\n");
+      compileFileNames.push(unchanged);
+    }
+  }
+  const writeConfig = (transform = "anime-rush-react-compiler-applier", include = ["**", "!**/*.test.tsx"], extraOptions = {}) => {
     fs.writeFileSync(tsConfigPath, JSON.stringify({ compilerOptions: {
       target: "ESNext", jsx: "react", module: "Preserve", moduleResolution: "Bundler", moduleDetection: "force",
-      noLib: true, types: [], plugins: [{ after: true, transform, include }],
-    }, files: ["positive.tsx"] }));
+      noLib: true, types: [], ...extraOptions, plugins: [{ after: true, transform, include, ...(oxc ? { backend: "oxc" } : {}) }],
+    }, files: compileFileNames.map(name => path.basename(name)) }));
   };
   const counts = { services: 0, programCalls: 0, acquisitions: 0, factories: 0, absentPrograms: 0 };
   const serviceValues = new WeakMap(), registryValues = new WeakMap();
@@ -56,19 +72,26 @@ test("production stdio and API opt-in use the pinned real factory only for autho
     },
   });
   const originalLoad = Module._load;
+  const factoryConfigs = [];
   Module._load = function (name, parent, isMain) {
     const loaded = Reflect.apply(originalLoad, this, [name, parent, isMain]);
     if (name !== manifest.profile.entry.path) return loaded;
     return new Proxy(loaded, { apply(target, receiver, args) {
       counts.factories++;
       if (args[0] === undefined) counts.absentPrograms++;
+      if (oxc) {
+        assert.equal(args[1].backend, "oxc", "the real factory receives the unchanged backend option");
+        factoryConfigs.push(JSON.parse(JSON.stringify(args[1])));
+      }
       return Reflect.apply(target, receiver, args);
     } });
   };
   const servers = new Set();
+  let latestServer;
   const originalHandle = SidecarServer.prototype.handleRequest;
   SidecarServer.prototype.handleRequest = function (request) {
     servers.add(this);
+    latestServer = this;
     return originalHandle.call(this, request);
   };
   const oldOptIn = process.env.ROTOR_REACT_SYNTAX_HOST;
@@ -83,6 +106,62 @@ test("production stdio and API opt-in use the pinned real factory only for autho
   });
   const { createBuildSession } = await import(pathToFileURL(path.resolve(__dirname, "../../../api.js")).href);
   const allRecords = [];
+  function checkOxcProfileGates() {
+    const session = [...latestServer.sessions.values()][0];
+    const profile = session.reactSyntaxProfile;
+    assert.equal(profile.kind, "react-original-source-oxc-v1");
+    const freeze = value => {
+      if (value && typeof value === "object") { Object.values(value).forEach(freeze); Object.freeze(value); }
+      return value;
+    };
+    const parseHost = { useCaseSensitiveFileNames: session.ts.sys.useCaseSensitiveFileNames,
+      readDirectory: session.ts.sys.readDirectory, fileExists: name => session.fileExists(name),
+      readFile: name => session.readFile(name), getCurrentDirectory: () => projectDir,
+      onUnRecoverableConfigFileDiagnostic: () => undefined };
+    const chain = session.parsed.options.plugins;
+    const select = (candidate = profile, configs = chain, configured = configs) => {
+      const view = Object.create(session);
+      view.parsed = { ...session.parsed, options: { ...session.parsed.options, plugins: configured } };
+      return selectOriginalReactInputs(view, { projectDir, tsConfigPath, compileFileNames,
+        [BENCH_ORIGINAL_SOURCE]: candidate }, configs, parseHost, candidate);
+    };
+    const before = { ...counts };
+    assert(select());
+    const pins = ["entry", "chunk", "runtime", "binding", "upstream"].map(key => [key, profile[key]]);
+    pins.push(...profile.imports.map((pin, index) => [index, pin]));
+    for (const [key, pin] of pins) {
+      const invalid = typeof key === "number"
+        ? { ...profile, imports: profile.imports.map((value, index) => index === key ? { ...value, sha256: "0".repeat(64) } : value) }
+        : { ...profile, [key]: { ...pin, sha256: "0".repeat(64) } };
+      assert.equal(select(freeze(invalid)), undefined, String(key));
+      // Simulate a changed artifact read only during admission. Do not rewrite
+      // an installed bundle/binding or substitute the factory used for parity.
+      const readFile = fs.readFileSync;
+      try {
+        fs.readFileSync = function (name, ...args) {
+          const contents = Reflect.apply(readFile, this, [name, ...args]);
+          return name === pin.path ? Buffer.concat([contents, Buffer.from("drift")]) : contents;
+        };
+        assert.equal(select(), undefined, `${key} artifact digest`);
+      } finally {
+        fs.readFileSync = readFile;
+      }
+    }
+    assert.equal(select(freeze({ ...profile, entry: profile.chunk })), undefined, "wrong entry");
+    assert.equal(select(freeze({ ...profile, runtime: { ...profile.runtime,
+      path: path.join(projectDir, "missing.cjs") } })), undefined, "missing runtime");
+    const { backend, ...withoutBackend } = chain[0];
+    for (const config of [withoutBackend, { ...chain[0], backend: "babel" }, { ...chain[0], backend: "rust" },
+      { ...chain[0], refresh: {} }, { ...chain[0], include: ["**"] }, { ...chain[0], type: "program" }]) {
+      // Even an in-process profile cannot attest an unreviewed option shape.
+      const invalid = freeze(JSON.parse(JSON.stringify({ ...profile, chains: [[config]] })));
+      assert.equal(select(invalid, [config]), undefined, JSON.stringify(config));
+    }
+    const mixed = [{ transform: "jecs" }, ...chain, { transform: "editor-name" }];
+    assert.equal(select(profile, mixed), undefined, "mixed chain");
+    assert.equal(select(profile, chain, mixed), undefined, "request cannot conceal configured plugins");
+    assert.deepEqual(counts, before, "profile rejection performs no factory, service or Program work");
+  }
   async function run(transport, enabled) {
     process.env.ROTOR_REACT_SYNTAX_HOST = enabled ? "1" : "0";
     writeConfig();
@@ -107,16 +186,19 @@ test("production stdio and API opt-in use the pinned real factory only for autho
       };
       close = () => session.dispose();
     }
-    const check = async (name, extra = {}, eligible = true) => {
+    const check = async (name, extra = {}, eligible = true, diagnostic = false) => {
       const before = { ...counts };
+      const configStart = factoryConfigs.length;
       const request = { protocol: 1, operation: "transform", projectDir, tsConfigPath,
-        compileFileNames: [fileName], changedFiles: [], sourceOrigin: "original-authored", ...extra };
+        compileFileNames, changedFiles: [], sourceOrigin: "original-authored", ...extra };
       const response = await send(request);
       const delta = Object.fromEntries(Object.keys(counts).map(key => [key, counts[key] - before[key]]));
       const { metrics, ...semantic } = response;
-      records.push({ name, response: semantic });
-      allRecords.push({ transport, enabled, name, response, counters: delta });
-      assert.deepEqual(response.diagnostics, [], name);
+      const configs = oxc ? { factoryConfigs: factoryConfigs.slice(configStart) } : {};
+      records.push({ name, response: semantic, ...configs });
+      allRecords.push({ transport, enabled, name, response, counters: delta, ...configs });
+      if (diagnostic) assert(response.diagnostics.length > 0, name);
+      else assert.deepEqual(response.diagnostics, [], name);
       if (request.operation === "validate") {
         assert.equal(delta.factories, 0);
         assert.equal(delta.programCalls, 0);
@@ -135,7 +217,19 @@ test("production stdio and API opt-in use the pinned real factory only for autho
     };
     try {
       const first = await check("authored-bare");
-      assert.match(first.transformed[0].text, /const memoCache = c\(2\)/);
+      assert.match(first.transformed[0].text, oxc ? /memoCache/ : /const memoCache = c\(2\)/);
+      if (oxc) {
+        assert.equal(first.transformed.length, 1, "ordinary TS/TSX files stay unchanged");
+        const trace = JSON.parse(first.transformed[0].traceMap);
+        assert(trace.sources.some(name => name.endsWith("positive.tsx")));
+        assert(trace.mappings.length > 0);
+        if (transport === "stdio" && enabled) checkOxcProfileGates();
+        writeConfig("anime-rush-react-compiler-applier", ["**", "!**/use-sync-external-store-with-selector.tsx", "!**/*.test.tsx"]);
+        assert.deepEqual(await check("authored-hooks-options"), first);
+        writeConfig(undefined, undefined, { hostSyntaxUnknownOption: true });
+        await check("config-diagnostic", {}, true, true);
+        writeConfig();
+      }
       await check("missing-origin", { sourceOrigin: undefined }, false);
       await check("unknown-origin", { sourceOrigin: "unknown" }, false);
       await check("suffix-overlay", { sourceOrigin: undefined,
