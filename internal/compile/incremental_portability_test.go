@@ -112,8 +112,9 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 }
 
 func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
-	for _, mode := range []string{"realpaths", "preserveSymlinks", "sibling-manifest", "runtime-package", "transformer", "virtual-store", "transitive-store", "workspace-store", "hoisted-store", "workspace-hoisted-store"} {
-		t.Run(mode, func(t *testing.T) {
+	for _, name := range []string{"realpaths", "preserveSymlinks", "sibling-manifest", "runtime-package", "transformer", "virtual-store", "transitive-store", "workspace-store", "hoisted-store", "workspace-hoisted-store", "aliased-transitive-store", "aliased-workspace-store", "aliased-hoisted-store", "aliased-workspace-hoisted-store"} {
+		t.Run(name, func(t *testing.T) {
+			mode, aliased := strings.CutPrefix(name, "aliased-")
 			workspaceStore := mode == "workspace-store" || mode == "workspace-hoisted-store"
 			hoistedStore := mode == "hoisted-store" || mode == "workspace-hoisted-store"
 			transitiveStore := mode == "transitive-store" || workspaceStore || hoistedStore
@@ -140,6 +141,16 @@ func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
 						t.Fatal(err)
 					}
 					dir = project
+				}
+				if aliased {
+					root, projectPath := dir, "."
+					if workspaceStore {
+						root = filepath.Clean(filepath.Join(dir, "..", ".."))
+						projectPath = filepath.Join("packages", "app")
+					}
+					alias := filepath.Join(t.TempDir(), "checkout")
+					linkPortabilityDirectory(t, root, alias)
+					dir = filepath.Join(alias, projectPath)
 				}
 				enableIncrementalBuilds(t, dir)
 				manifestPath := filepath.Join(dir, "out", "cache.rbxtsc.tsbuildinfo")
@@ -203,14 +214,14 @@ func TestBuildProjectIncrementalManifestSurvivesPackageStoreMove(t *testing.T) {
 					parent := filepath.Join(packageRoot, "node_modules", ".pnpm", parentName, "node_modules", "parent-types")
 					writeProjectFile(t, parent, "package.json", `{"name":"parent-types","types":"index.d.ts"}`)
 					writeProjectFile(t, parent, "index.d.ts", `export { Value } from "`+packageName+`";`)
-					linkPortabilityPackage(t, parent, filepath.Join(packageRoot, "node_modules", "parent-types"))
+					linkPortabilityDirectory(t, parent, filepath.Join(packageRoot, "node_modules", "parent-types"))
 					link = filepath.Join(filepath.Dir(parent), packageName)
 					if hoistedStore {
 						link = filepath.Join(packageRoot, "node_modules", ".pnpm", "node_modules", packageName)
 					}
 					main = "import type { Value } from 'parent-types';\nexport const value: Value = { value: 1 };\n"
 				}
-				linkPortabilityPackage(t, store, link)
+				linkPortabilityDirectory(t, store, link)
 				if mode == "runtime-package" {
 					main = "import { answer } from '" + packageName + "';\nimport type { Value } from '" + packageName + "';\nexport const value: Value = { value: answer };\n"
 				}
@@ -288,17 +299,17 @@ module.exports = () => () => sourceFile => {
 	}
 }
 
-func linkPortabilityPackage(t *testing.T, store, link string) {
+func linkPortabilityDirectory(t *testing.T, target, link string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(store, link); err != nil {
+	if err := os.Symlink(target, link); err != nil {
 		if runtime.GOOS != "windows" {
 			t.Skipf("cannot create package symlink: %v", err)
 		}
-		if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, store).CombinedOutput(); err != nil {
-			t.Fatalf("create package junction: %v: %s", err, output)
+		if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+			t.Fatalf("create fixture junction: %v: %s", err, output)
 		}
 	}
 }
@@ -550,6 +561,9 @@ func TestIncrementalManifestOnAnotherVolumeSurvivesCheckoutMove(t *testing.T) {
 func TestIncrementalWorkspaceRojoPathsRemainDistinct(t *testing.T) {
 	game := `{"name":"workspace","tree":{"$className":"DataModel","ReplicatedStorage":{"code":{"$path":"packages/shared/out"},"include":{"$path":"include"}}}}`
 	dir := writeProject(t, "@scope/workspace", game)
+	alias := filepath.Join(t.TempDir(), "checkout")
+	linkPortabilityDirectory(t, dir, alias)
+	dir = alias
 	enableIncrementalBuilds(t, dir)
 	setPortabilityCompilerOptions(t, dir, map[string]any{"outDir": "packages/shared/out"})
 	writeProjectFile(t, dir, "packages/shared/package.json", `{"name":"workspace-link","types":"index.d.ts"}`)

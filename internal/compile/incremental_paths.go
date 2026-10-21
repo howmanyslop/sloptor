@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"rotor/internal/fsutil"
 	"rotor/tsgo/collections"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/tspath"
@@ -48,6 +49,25 @@ func relativeIncrementalPath(dir, name string) string {
 	return filepath.ToSlash(filepath.Clean(name))
 }
 
+// The compiler can retain an aliased checkout directory while resolving
+// dependencies through its physical spelling (Windows 8.3 paths, for example).
+// Resolve the base once, rather than doing filesystem work for every input.
+func incrementalRelativeSourcePathEncoder(dir string) func(string) string {
+	relative := func(name string) string { return relativeIncrementalPath(dir, name) }
+	physicalDir, err := fsutil.EvalSymlinks(dir)
+	if err != nil || normalizeSourceFilePath(physicalDir) == normalizeSourceFilePath(dir) {
+		return relative
+	}
+	return func(name string) string {
+		logical := relative(name)
+		physical := relativeIncrementalPath(physicalDir, name)
+		if lessIncrementalPath(physical, logical) {
+			return physical
+		}
+		return logical
+	}
+}
+
 // Reverse the compiler's known package symlinks instead of persisting pnpm's
 // machine-specific store paths. Directory aliases also cover declarations
 // reached through relative imports inside a linked package.
@@ -64,6 +84,11 @@ func incrementalPathEncoder(dir string, program *compiler.Program) func(string) 
 			name = strings.ToLower(name)
 		}
 		return name
+	}
+	encodeRelative := incrementalRelativeSourcePathEncoder(dir)
+	encodeProjectRelative := encodeRelative
+	if canonical(projectDir) != canonical(dir) {
+		encodeProjectRelative = incrementalRelativeSourcePathEncoder(projectDir)
 	}
 	pathAfterSegments := func(name string, segments ...string) (string, bool) {
 		_, suffix, found := strings.Cut("/"+filepath.ToSlash(canonical(name))+"/", "/"+strings.Join(segments, "/")+"/")
@@ -126,10 +151,10 @@ func incrementalPathEncoder(dir string, program *compiler.Program) func(string) 
 		if result, ok := encoded[name]; ok {
 			return result
 		}
-		best := relativeIncrementalPath(dir, name)
+		best := encodeRelative(name)
 		// Workspace files already have stable project-relative identities.
 		// A local node_modules store still needs its logical package link.
-		relativeToProject := relativeIncrementalPath(projectDir, name)
+		relativeToProject := encodeProjectRelative(name)
 		isProjectLocal := filepath.IsLocal(filepath.FromSlash(relativeToProject))
 		_, inNodeModules := pathAfterSegments(relativeToProject, "node_modules")
 		_, inVirtualStore := pathAfterSegments(relativeToProject, "node_modules", ".pnpm")
@@ -157,7 +182,7 @@ func incrementalPathEncoder(dir string, program *compiler.Program) func(string) 
 						next = append(next, candidate)
 						// Prefer a known package link to its realpath, even
 						// when the manifest lives closer to the package store.
-						candidateRelative := relativeIncrementalPath(projectDir, candidate)
+						candidateRelative := encodeProjectRelative(candidate)
 						// A sibling dependency link can introduce its parent's
 						// platform-dependent store name. Keep the realpath for
 						// a local or workspace virtual store until a link escapes
@@ -169,7 +194,7 @@ func incrementalPathEncoder(dir string, program *compiler.Program) func(string) 
 							continue
 						}
 						if !foundLink || lessIncrementalPath(candidateRelative, bestLink) {
-							best = relativeIncrementalPath(dir, candidate)
+							best = encodeRelative(candidate)
 							bestLink = candidateRelative
 							foundLink = true
 						}
