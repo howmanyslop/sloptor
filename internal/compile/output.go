@@ -103,7 +103,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	if manifestPath == "" {
 		manifestPath = outputManifestPath(filepath.FromSlash(dir), program.Options().ConfigFilePath)
 	}
-	previousManifest, err := readIncrementalManifest(manifestPath)
+	previousManifest, err := readIncrementalManifest(manifestPath, program)
 	if err != nil {
 		stopManifest()
 		return nil, nil, err
@@ -139,7 +139,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	} else {
 		currentManifest = &incrementalManifest{
-			Version: 2,
+			Version: 3,
 			Salt:    salt,
 			Files:   map[string]incrementalFileState{},
 			Outputs: map[string]string{},
@@ -183,7 +183,7 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		currentPresence := writer.newOutputPresenceIndex(currentManifest.Outputs)
 		pruneMissingOutputs(currentPresence, currentManifest.Outputs)
 		if !sameIncrementalManifest(previousManifest, currentManifest) {
-			if err := writeIncrementalManifest(manifestPath, currentManifest); err != nil {
+			if err := writeIncrementalManifest(manifestPath, currentManifest, program); err != nil {
 				stopPersistence()
 				return nil, nil, err
 			}
@@ -504,7 +504,9 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 			}
 		}
 		if currentManifest != nil && !sameIncrementalManifest(previousManifest, currentManifest) {
-			return writeIncrementalManifest(manifestPath, currentManifest)
+			// The graph describes original inputs. A transformer can replace
+			// their imports and discard the package links needed to encode them.
+			return writeIncrementalManifest(manifestPath, currentManifest, originalProgram)
 		}
 		return nil
 	}

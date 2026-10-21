@@ -4,11 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"rotor/internal/rojo"
+	"rotor/tsgo/collections"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/core"
 	tsjson "rotor/tsgo/json"
+	"rotor/tsgo/tspath"
 )
 
 func outputManifestPath(projectDir, configPath string) string {
@@ -21,10 +25,16 @@ func outputManifestPath(projectDir, configPath string) string {
 }
 
 func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts ProjectOptions, pathTranslatorBuildInfoPath string, flameworkInputs *FlameworkIncrementalInputs) (string, error) {
-	options := program.Options()
-	projectReferencePaths := opts.projectReferencePaths
-	if projectReferencePaths == nil {
-		projectReferencePaths = createCrossProjectImportPathMap(program, opts)
+	encodePath := incrementalPathEncoder(dir, program)
+	options := portableIncrementalOptions(program.Options(), program.GetCurrentDirectory(), encodePath)
+	// State-file directories cannot affect emitted code. Anchor their names
+	// consistently whether the cache is inside the project or on another drive.
+	options.TsBuildInfoFile = incrementalBuildInfoIdentity(program.Options().TsBuildInfoFile)
+	buildInfoTarget := incrementalBuildInfoIdentity(pathTranslatorBuildInfoPath)
+	projectReferencePaths := createProjectReferencePathMap(program, opts, false)
+	portableReferences := make(map[string]string, len(projectReferencePaths))
+	for source, output := range projectReferencePaths {
+		portableReferences[encodePath(source)] = encodePath(output)
 	}
 	rojoConfigPath, _, err := resolveRojoConfigPath(dir, opts.RojoConfigPath)
 	if err != nil {
@@ -34,13 +44,13 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	if err != nil {
 		return "", err
 	}
-	flameworkSalt, err := flameworkIncrementalSalt(flameworkInputs)
+	flameworkSalt, err := flameworkIncrementalSalt(portableFlameworkIncrementalInputs(flameworkInputs, encodePath))
 	if err != nil {
 		return "", err
 	}
 	// Import paths come from the Rojo resolver, which reads project files the
 	// manifest does not hash, such as a dependency's default.project.json.
-	rojoResolver, err := rojoResolverFingerprint(opts.rojoCache, rojoConfigPath)
+	rojoResolver, err := rojoResolverFingerprint(opts.rojoCache, rojoConfigPath, encodePath)
 	if err != nil {
 		return "", err
 	}
@@ -53,7 +63,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	// `compilerOptions.plugins` while parsing options, and the plugin code
 	// lives outside the project. Upgrading a transformer therefore has to
 	// invalidate the whole manifest.
-	plugins, err := transformerPluginFingerprints(dir, options.ConfigFilePath)
+	plugins, err := transformerPluginFingerprints(dir, program.Options().ConfigFilePath)
 	if err != nil {
 		return "", err
 	}
@@ -79,15 +89,15 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		RojoResolver          string                         `json:"rojoResolver,omitempty"`
 		PackageLayout         string                         `json:"packageLayout,omitempty"`
 	}{
-		Version:               "rotor-incremental-v2",
+		Version:               "rotor-incremental-v3",
 		CompilerOptions:       options,
 		ConfigFilePath:        options.ConfigFilePath,
 		OutDir:                options.OutDir,
 		TsBuildInfoFile:       options.TsBuildInfoFile,
-		PathTranslatorTarget:  pathTranslatorBuildInfoPath,
+		PathTranslatorTarget:  buildInfoTarget,
 		Type:                  string(opts.Type),
-		RojoConfigPath:        rojoConfigPath,
-		IncludePath:           includePath,
+		RojoConfigPath:        encodePath(rojoConfigPath),
+		IncludePath:           encodePath(includePath),
 		LuaExtension:          !opts.LuaExtension,
 		Declaration:           options.Declaration.IsTrue(),
 		EmitDeclarationOnly:   opts.EmitDeclarationOnly,
@@ -96,7 +106,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		MinifyOutput:          opts.MinifyOutput,
 		FlameworkSalt:         flameworkSalt,
 		TransformerPlugins:    plugins,
-		ProjectReferencePaths: projectReferencePaths,
+		ProjectReferencePaths: portableReferences,
 		RojoResolver:          rojoResolver,
 		PackageLayout:         packageLayout,
 	}, tsjson.Deterministic(true))
@@ -107,16 +117,23 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func incrementalBuildInfoIdentity(name string) string {
+	if name == "" {
+		return ""
+	}
+	return "buildinfo://" + filepath.Base(filepath.FromSlash(name))
+}
+
 // rojoResolverFingerprint hashes the resolver state that maps files to Roblox
 // paths, so a build whose Rojo paths changed rebuilds every file. It leaves out
 // the walked configs and directories: those only validate the resolver cache,
 // and the first build's own outDir joins them. It is empty without a Rojo
 // project.
-func rojoResolverFingerprint(cache *rojo.RojoResolverCache, rojoConfigPath string) (string, error) {
+func rojoResolverFingerprint(cache *rojo.RojoResolverCache, rojoConfigPath string, encodePath func(string) string) (string, error) {
 	if cache == nil || rojoConfigPath == "" {
 		return "", nil
 	}
-	state := cache.Load(rojoConfigPath).GetState()
+	state := portableIncrementalRojoState(cache.Load(rojoConfigPath).GetState(), encodePath)
 	payload, err := tsjson.Marshal(struct {
 		RbxPath            rojo.RbxPath                 `json:"rbxPath"`
 		Partitions         []rojo.PartitionInfo         `json:"partitions"`
@@ -135,4 +152,55 @@ func rojoResolverFingerprint(cache *rojo.RojoResolverCache, rojoConfigPath strin
 	}
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func portableIncrementalRojoState(state rojo.ResolverState, encodePath func(string) string) rojo.ResolverState {
+	for i := range state.Partitions {
+		state.Partitions[i].FsPath = encodePath(state.Partitions[i].FsPath)
+	}
+	for i := range state.FilePaths {
+		state.FilePaths[i].Path = encodePath(state.FilePaths[i].Path)
+	}
+	// Native separators sort differently on Windows. Exact mappings have no
+	// precedence, so sort them again after encoding; partition order matters.
+	slices.SortFunc(state.FilePaths, func(a, b rojo.ResolverFilePathState) int {
+		return strings.Compare(a.Path, b.Path)
+	})
+	return state
+}
+
+func portableIncrementalOptions(options *core.CompilerOptions, currentDirectory string, encodePath func(string) string) *core.CompilerOptions {
+	result := options.Clone()
+	// sourceRoot and mapRoot are authored URL metadata, not path-type
+	// options. In particular, /sources must mean the same thing on every OS.
+	for _, value := range []*string{
+		&result.ConfigFilePath, &result.OutDir, &result.TsBuildInfoFile,
+		&result.RootDir, &result.BaseUrl, &result.PathsBasePath,
+		&result.DeclarationDir, &result.OutFile, &result.Project,
+		&result.GenerateCpuProfile, &result.GenerateTrace, &result.PprofDir,
+	} {
+		*value = encodePath(*value)
+	}
+	result.RootDirs = slices.Clone(options.RootDirs)
+	for i, name := range result.RootDirs {
+		result.RootDirs[i] = encodePath(name)
+	}
+	result.TypeRoots = slices.Clone(options.TypeRoots)
+	for i, name := range result.TypeRoots {
+		result.TypeRoots[i] = encodePath(name)
+	}
+	if options.Paths != nil {
+		result.Paths = &collections.OrderedMap[string, []string]{}
+		base := options.GetPathsBasePath(currentDirectory)
+		for key, values := range options.Paths.Entries() {
+			values = slices.Clone(values)
+			for i, name := range values {
+				// Combine without cleaning: substitution happens before
+				// resolving '..' in a wildcard target.
+				values[i] = encodePath(tspath.CombinePaths(base, name))
+			}
+			result.Paths.Set(key, values)
+		}
+	}
+	return result
 }
