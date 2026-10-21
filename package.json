@@ -51,7 +51,7 @@
 		"format": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --fix $a && node --run oxfmt -- $a' _",
 		"format:check": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched $a && node --run oxfmt -- --no-error-on-unmatched-pattern --check $a' _",
 		"format:safe": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run biome -- check --no-errors-on-unmatched --fix $a && node --run oxfmt -- --no-error-on-unmatched-pattern $a' _",
-		"isentinel-lint": "NODE_OPTIONS=\"${NODE_OPTIONS:-} --max-old-space-size=6144\" isentinel-lint --concurrency=off --eslint-args=\"--config eslint.config.ts\" --oxlint-args=\"--config oxlint.config.ts --disable-nested-config\"",
+		"isentinel-lint": "node scripts/run-isentinel-lint.js",
 		"jiti": "jiti",
 		"lint": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run isentinel-lint -- $a && node --run biome -- check --no-errors-on-unmatched $a' _",
 		"lint:agent": "bash -c 'a=$(bash scripts/get-defaults.sh \"$@\"); node --run isentinel-lint -- --agents $a && node --run biome -- check --no-errors-on-unmatched --reporter concise $a' _",
