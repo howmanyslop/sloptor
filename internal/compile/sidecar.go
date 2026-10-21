@@ -119,7 +119,7 @@ func prepareTransformerProgramWithHost(ctx context.Context, host transformerHost
 		return &preparedTransformerProgram{program: program, sourceFiles: sourceFiles, flamework: flamework}, nil, nil
 	}
 
-	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, nil, nil)
+	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, nil, nil, transformerOriginalAuthored)
 	if err != nil {
 		return nil, diags, err
 	}
@@ -145,10 +145,10 @@ func applyTransformerSidecar(dir string, program *compiler.Program, sourceFiles 
 }
 
 func applyTransformerSidecarWithPlugins(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
-	return applyTransformerSidecarWithPluginsAndHost(context.Background(), sidecarTransformerHost{}, dir, program, sourceFiles, overlays, plugins, state)
+	return applyTransformerSidecarWithPluginsAndHost(context.Background(), sidecarTransformerHost{}, dir, program, sourceFiles, overlays, plugins, state, "")
 }
 
-func applyTransformerSidecarWithPluginsAndHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
+func applyTransformerSidecarWithPluginsAndHost(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*preparedTransformerProgram, []string, error) {
 	configPath := program.Options().ConfigFilePath
 	if configPath == "" {
 		configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
@@ -168,6 +168,7 @@ func applyTransformerSidecarWithPluginsAndHost(ctx context.Context, host transfo
 	response, stats, err := host.transform(ctx, transformerCall{
 		dir: dir, configPath: configPath, compileFiles: sourceFiles,
 		stampFiles: projectSourceFiles(program), overlays: overlays, plugins: plugins, state: state,
+		sourceOrigin: sourceOrigin,
 	})
 	sidecarRegion.End()
 	if err != nil {
@@ -752,7 +753,7 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 	return changed, reads, stats
 }
 
-func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState) (*sidecarResponse, sidecarCallStats, error) {
+func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	call := transformerCall{
 		dir:          dir,
@@ -762,6 +763,7 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 		overlays:     overlays,
 		plugins:      plugins,
 		state:        state,
+		sourceOrigin: sourceOrigin,
 	}
 	sidecarDir, err := resolveSidecarDir()
 	if err != nil {
