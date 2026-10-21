@@ -22,6 +22,7 @@ type nativeSourceOverlay struct {
 	fileName string
 	text     string
 	trace    *sourceTraceMap
+	rebase   *TransformerRebase
 }
 
 type nativeProgramUpdate struct {

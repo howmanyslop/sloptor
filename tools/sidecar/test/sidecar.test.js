@@ -1063,3 +1063,64 @@ test("a transformer that reads its program still sees the checker's types", (t) 
     assert.match(response.transformed[0].text, /answer = "number"/);
   }
 });
+
+// Catches a file rewritten by native jecs coming back traced into the rewrite
+// instead of the file on disk, or printed differently from the JavaScript
+// pipeline, once a later plugin changes it. The expected text and trace are
+// the single-pass answer: a stand-in for jecs and the later plugin run back to
+// back in one request against the file on disk.
+test("a rebased rewrite transforms and traces as the transformer it stands in for", (t) => {
+  const fixture = writeProgramlessFixture("rotor-sidecar-rebase-", `module.exports = (_program, _config, { ts }) => (context) => {
+  const visit = (node) => ts.isStringLiteral(node) ? ts.factory.createStringLiteral("changed") : ts.visitEachChild(node, visit, context);
+  return (sourceFile) => ts.visitNode(sourceFile, visit);
+};\n`);
+  t.after(() => fs.rmSync(fixture.fixtureDir, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(fixture.fixtureDir, "prepend.js"), `module.exports = (_program, _config, { ts }) => () => (sourceFile) =>
+  ts.factory.updateSourceFile(sourceFile, [
+    ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
+      ts.factory.createVariableDeclaration("made", undefined, undefined, ts.factory.createNumericLiteral(0)),
+    ], ts.NodeFlags.Const)),
+    ...sourceFile.statements,
+  ]);\n`);
+  const [fileName] = fixture.request.compileFileNames;
+  const onDisk = fs.readFileSync(fileName, "utf8");
+
+  // What native jecs sends: the stand-in's printed rewrite, and per node in
+  // preorder its range in the rewrite and on disk, or none for its own nodes.
+  const original = ts.createSourceFile(fileName, onDisk, ts.ScriptTarget.ESNext, true);
+  const rewritten = ts.factory.updateSourceFile(original, [
+    ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
+      ts.factory.createVariableDeclaration("made", undefined, undefined, ts.factory.createNumericLiteral(0)),
+    ], ts.NodeFlags.Const)),
+    ...original.statements,
+  ]);
+  const printedText = ts.createPrinter().printFile(rewritten);
+  const printed = ts.createSourceFile(fileName, printedText, ts.ScriptTarget.ESNext, true);
+  const ranges = [];
+  const made = (node) => {
+    ranges.push(node.getStart(printed), node.end, -1, -1, 1);
+    ts.forEachChild(node, made);
+  };
+  const kept = (node, from) => {
+    ranges.push(node.getStart(printed), node.end, from.pos, from.end, 0);
+    const children = [];
+    ts.forEachChild(from, (child) => { children.push(child); });
+    let index = 0;
+    ts.forEachChild(node, (child) => { kept(child, children[index++]); });
+  };
+  made(printed.statements[0]);
+  printed.statements.slice(1).forEach((statement, index) => kept(statement, original.statements[index]));
+
+  const plugin = { transform: "./plugin.js" };
+  const single = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath)
+    .handleRequest({ ...fixture.request, plugins: [{ transform: "./prepend.js" }, plugin] });
+  const rebased = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath).handleRequest({
+    ...fixture.request,
+    plugins: [plugin],
+    changedFiles: [{ fileName, text: printedText, rebase: { text: onDisk, ranges } }],
+  });
+
+  assert.deepEqual(rebased.diagnostics, []);
+  assert.equal(single.transformed.length, 1);
+  assert.deepEqual(rebased.transformed.map(({ text, traceMap }) => ({ text, traceMap })), single.transformed.map(({ text, traceMap }) => ({ text, traceMap })));
+});

@@ -199,7 +199,10 @@ func applyNativeJecsTransform(ctx context.Context, program *compiler.Program, so
 			if err != nil {
 				return err
 			}
-			overlays[group[position]] = &nativeSourceOverlay{fileName: original.FileName(), text: text, trace: trace}
+			overlays[group[position]] = &nativeSourceOverlay{
+				fileName: original.FileName(), text: text, trace: trace,
+				rebase: newJecsRebase(original, result.Files[position], text),
+			}
 		}
 		return nil
 	}
@@ -238,9 +241,13 @@ func applyNativeJecsTransform(ctx context.Context, program *compiler.Program, so
 	}
 
 	var changed []nativeSourceOverlay
+	rebases := map[string]*TransformerRebase{}
 	for _, overlay := range overlays {
 		if overlay != nil {
 			changed = append(changed, *overlay)
+			if overlay.rebase != nil {
+				rebases[normalizeSourceFilePath(overlay.fileName)] = overlay.rebase
+			}
 		}
 	}
 	transformedProgram, remapped, composed, err := updateNativeFlameworkProgram(nativeProgramUpdate{
@@ -252,5 +259,5 @@ func applyNativeJecsTransform(ctx context.Context, program *compiler.Program, so
 	if transformedProgram == nil {
 		return nil, errors.New("compile: native jecs program update returned nil")
 	}
-	return &preparedTransformerProgram{program: transformedProgram, sourceFiles: remapped, sourceTraces: composed}, nil
+	return &preparedTransformerProgram{program: transformedProgram, sourceFiles: remapped, sourceTraces: composed, rebases: rebases}, nil
 }

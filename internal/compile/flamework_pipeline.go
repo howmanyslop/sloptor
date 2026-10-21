@@ -166,6 +166,7 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 }
 
 func applyExternalTransformerStage(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState, sourceOrigin string) (*preparedTransformerProgram, []string, error) {
+	inputTraces := traces
 	if usesSubprocessSidecar(host) {
 		if config, rest := nativeJecsStage(dir, plugins); config != nil {
 			if len(rest) > 0 {
@@ -183,6 +184,10 @@ func applyExternalTransformerStage(ctx context.Context, host transformerHost, di
 				return native, nil, nil
 			}
 			program, sourceFiles, traces, plugins = native.program, native.sourceFiles, native.sourceTraces, rest
+			if state != nil {
+				state.rebases = native.rebases
+				defer func() { state.rebases = nil }()
+			}
 		}
 	}
 	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state, sourceOrigin)
@@ -201,6 +206,12 @@ func applyExternalTransformerStage(ctx context.Context, host transformerHost, di
 		composed[key] = trace
 	}
 	for key, trace := range transformed.sourceTraces {
+		// A rebased file came back traced to the text native jecs started
+		// from, not to its rewrite.
+		if state.rebaseFor(key) != nil {
+			composed[key] = composeSourceTraceMaps(trace, inputTraces[key])
+			continue
+		}
 		composed[key] = composeSourceTraceMaps(trace, traces[key])
 	}
 	transformed.sourceFiles = remapped

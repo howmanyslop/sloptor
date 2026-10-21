@@ -24,8 +24,9 @@ type TransformerRequest struct {
 }
 
 type TransformerChangedFile struct {
-	FileName string `json:"fileName"`
-	Text     string `json:"text"`
+	FileName string             `json:"fileName"`
+	Text     string             `json:"text"`
+	Rebase   *TransformerRebase `json:"rebase,omitempty"`
 }
 
 type TransformerResponse struct {
@@ -126,6 +127,11 @@ func prepareTransformerRequest(call transformerCall, tracker *sidecarSession, di
 	stats.changedFiles += ioStats.changedFiles
 	if err != nil {
 		return sidecarRequest{}, err
+	}
+	if call.state != nil && len(call.state.rebases) > 0 {
+		for index := range changedFiles {
+			changedFiles[index].Rebase = call.state.rebases[normalizeSourceFilePath(filepath.ToSlash(changedFiles[index].FileName))]
+		}
 	}
 
 	request := sidecarRequest{

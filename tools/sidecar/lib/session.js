@@ -127,6 +127,9 @@ class SidecarProjectSession {
     // programRequired latches once a plugin reads the program it was handed,
     // so later requests skip straight to the LanguageService.
     this.programRequired = false;
+    // rebases holds, per canonical path, what this request sent to rebuild a
+    // native jecs rewrite against the file on disk; see rebaseSourceFile.
+    this.rebases = new Map();
   }
 
   canonicalize(fileName) {
@@ -325,15 +328,13 @@ class SidecarProjectSession {
     if (text === undefined) {
       return undefined;
     }
-    return this.ts.createSourceFile(
-      actualPath,
-      text,
-      {
-        languageVersion: this.ts.getEmitScriptTarget(options),
-        setExternalModuleIndicator: this.ts.getSetExternalModuleIndicator?.(options),
-      },
-      true,
-    );
+    const languageOptions = {
+      languageVersion: this.ts.getEmitScriptTarget(options),
+      setExternalModuleIndicator: this.ts.getSetExternalModuleIndicator?.(options),
+    };
+    const sourceFile = this.ts.createSourceFile(actualPath, text, languageOptions, true);
+    const rebase = this.rebases.get(this.canonicalize(actualPath));
+    return rebase ? rebaseSourceFile(this.ts, sourceFile, rebase, languageOptions) : sourceFile;
   }
 
   // tryProgramlessTransform runs the request against source files parsed on
@@ -490,8 +491,12 @@ class SidecarProjectSession {
         });
       }
 
+      this.rebases.clear();
       for (const changedFile of request.changedFiles) {
-        this.updateFile(changedFile.fileName, changedFile.text);
+        const actualPath = this.updateFile(changedFile.fileName, changedFile.text);
+        if (changedFile.rebase) {
+          this.rebases.set(this.canonicalize(actualPath), changedFile.rebase);
+        }
       }
 
       if (!this.programRequired && request.compileFileNames.length > 0) {
@@ -601,6 +606,49 @@ class SidecarProjectSession {
   }
 }
 
+// rebaseSourceFile turns the parse of a native jecs rewrite back into the tree
+// the JavaScript jecs transformer hands the next plugin: the file on disk,
+// holding the rewrite's statements, each node at the range it was written at
+// there and every node jecs made up at none. Plugins that map their edits back
+// through node ranges, and the trace printed afterwards, then land where they
+// land under the JavaScript transformer. rebase.ranges lists, per node of the
+// rewrite in preorder, its start and end in the rewrite, its range on disk and
+// whether a factory made it (internal/compile/jecs_rebase.go). A node the list
+// does not name, such as a token tsgo keeps no node for, counts as made up.
+function rebaseSourceFile(ts, printed, rebase, languageOptions) {
+  const original = ts.createSourceFile(printed.fileName, rebase.text, languageOptions, true);
+  const { ranges } = rebase;
+  const nodesAt = new Map();
+  for (let index = 0; index + 4 < ranges.length; index += 5) {
+    const key = `${ranges[index]}:${ranges[index + 1]}`;
+    const queue = nodesAt.get(key);
+    if (queue) {
+      queue.push(index);
+    } else {
+      nodesAt.set(key, [index]);
+    }
+  }
+  const visit = (node) => {
+    const index = nodesAt.get(`${node.getStart(printed)}:${node.end}`)?.shift();
+    ts.forEachChild(node, visit);
+    if (index === undefined) {
+      node.pos = -1;
+      node.end = -1;
+      node.flags |= ts.NodeFlags.Synthesized;
+      return;
+    }
+    node.pos = ranges[index + 2];
+    node.end = ranges[index + 3];
+    if (ranges[index + 4] === 1) {
+      node.flags |= ts.NodeFlags.Synthesized;
+    }
+  };
+  for (const statement of printed.statements) {
+    visit(statement);
+  }
+  return ts.factory.updateSourceFile(original, printed.statements);
+}
+
 // The trace map is not an emit artifact — rotor needs it to put every position
 // this reprint produces (diagnostics included) back into the coordinates of the
 // file on disk. So it is generated whether or not the project emits source
@@ -653,6 +701,10 @@ function validateRequest(request) {
   for (const changedFile of request.changedFiles) {
     if (!changedFile || typeof changedFile.fileName !== "string" || typeof changedFile.text !== "string") {
       return createRequestDiagnostic("each changedFiles item must include string fileName and text");
+    }
+    const { rebase } = changedFile;
+    if (rebase !== undefined && (!rebase || typeof rebase.text !== "string" || !Array.isArray(rebase.ranges))) {
+      return createRequestDiagnostic("a changedFiles rebase must include string text and an array of ranges");
     }
   }
   return undefined;

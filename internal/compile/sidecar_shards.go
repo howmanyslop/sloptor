@@ -94,7 +94,7 @@ func runShardedTransformerSidecar(ctx context.Context, call transformerCall) (*s
 		// others are still reading; the merged result is published below.
 		var state *sidecarBuildState
 		if call.state != nil {
-			state = &sidecarBuildState{stageOverlays: call.state.stageOverlays, diskScanned: call.state.diskScanned}
+			state = &sidecarBuildState{stageOverlays: call.state.stageOverlays, diskScanned: call.state.diskScanned, rebases: call.state.rebases}
 		}
 		wg.Go(func() {
 			responses[index], stats[index], errs[index] = runTransformerSidecarShard(ctx, index, call.dir, call.configPath, files, call.stampFiles, call.overlays, call.plugins, state, call.sourceOrigin)
