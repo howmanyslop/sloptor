@@ -35,6 +35,43 @@ const Schema = `{
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "parallelTransformers": {
+      "type": "object",
+      "description": "Experimental project-owned batch-independence attestation for two transformer workers in a one-shot CLI build, including --build. One split may be outstanding per CLI invocation. Missing, mismatched or unsupported attestations use serial execution.",
+      "additionalProperties": false,
+      "required": ["workers", "batchIndependent", "typescript", "plugins"],
+      "properties": {
+        "workers": { "const": 2 },
+        "batchIndependent": { "const": true },
+        "typescript": { "type": "string", "minLength": 1 },
+        "plugins": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["config", "sha256"],
+            "properties": {
+              "config": { "type": "string", "description": "Complete plugin options object as JSON, including transform. Array order must match the whole initial external stage." },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "specifier", "sha256"],
+            "properties": {
+              "from": { "type": "integer", "minimum": 0, "description": "Zero-based plugin index from whose load path to resolve this patched/local dependency." },
+              "specifier": { "type": "string", "minLength": 1 },
+              "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            }
+          }
+        }
+      }
+    },
     "assets": {
       "type": "object",
       "description": "Configures rotor asset sync and the $asset macro.",

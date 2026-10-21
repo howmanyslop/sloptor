@@ -433,6 +433,7 @@ func (timings *BuildTimings) recordPreparedTransformerProgram(prepared *prepared
 	if prepared.sidecarSpawned {
 		timings.Counts.SidecarSpawns++
 	}
+	timings.Counts.SidecarSpawns += prepared.sidecarAdditionalSpawns
 	if prepared.sidecarRestarted {
 		timings.Counts.SidecarRestarts++
 	}
@@ -459,6 +460,7 @@ func (timings *BuildTimings) recordPreparedTransformerProgram(prepared *prepared
 		if prepared.sidecarSpawned {
 			parent.Counts.SidecarSpawns++
 		}
+		parent.Counts.SidecarSpawns += prepared.sidecarAdditionalSpawns
 		if prepared.sidecarRestarted {
 			parent.Counts.SidecarRestarts++
 		}

@@ -137,7 +137,11 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 	currentFiles := sourceFiles
 	traces := diagnosticTraces(nil)
 	if len(pipeline.prefix) > 0 {
-		prepared, stageDiags, err := applyExternalTransformerStage(ctx, host, dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
+		// This prefix is the only external call for this one-shot project task:
+		// the suffix is empty and native Flamework never calls the sidecar.
+		// The eligibility context is scoped to this call, not the whole host.
+		prefixContext := parallelPrefixContext(ctx, dir, pipeline, opts)
+		prepared, stageDiags, err := applyExternalTransformerStage(prefixContext, host, dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
 		if err != nil {
 			return nil, stageDiags, err
 		}

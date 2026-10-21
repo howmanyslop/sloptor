@@ -12,7 +12,10 @@ import (
 type sidecarTransformerHost struct{}
 
 func (sidecarTransformerHost) transform(ctx context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
-	return runTransformerSidecarWithContext(ctx, call.dir, call.configPath, call.compileFiles, call.stampFiles, call.overlays, call.plugins, call.state)
+	if prefix, _ := nonNilContext(ctx).Value(parallelPrefixKey{}).(*parallelPrefix); prefix != nil {
+		call.parallel, call.parallelBuild = prefix.attestation, prefix.build
+	}
+	return runTransformerSidecarCall(ctx, call)
 }
 
 func (sidecarTransformerHost) validate(ctx context.Context, dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
