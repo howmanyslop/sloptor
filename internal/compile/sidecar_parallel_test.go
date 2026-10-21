@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime/pprof"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -224,6 +225,12 @@ func (input *parallelRecordingInput) Write(payload []byte) (int, error) {
 	return len(payload), nil
 }
 
+func (input *parallelRecordingInput) recordedRequests() []sidecarRequest {
+	input.mu.Lock()
+	defer input.mu.Unlock()
+	return slices.Clone(input.requests)
+}
+
 func (input *parallelRecordingInput) Close() error {
 	input.closed = true
 	if input.closeReader != nil {
@@ -254,8 +261,9 @@ func TestParallelPreflightMismatchKeepsSerialSession(t *testing.T) {
 		return nil, nil
 	}
 	_, handled, err := runParallelTransformerWithSpawner(context.Background(), time.Second, "", slot, sidecarRequest{}, nil, &sidecarCallStats{}, spawn)
-	if err != nil || handled || input.closed || slot.session != first || len(input.requests) != 1 || input.requests[0].Operation != "parallel-preflight" {
-		t.Fatalf("handled=%v err=%v requests=%#v", handled, err, input.requests)
+	requests := input.recordedRequests()
+	if err != nil || handled || input.closed || slot.session != first || len(requests) != 1 || requests[0].Operation != "parallel-preflight" {
+		t.Fatalf("handled=%v err=%v requests=%#v", handled, err, requests)
 	}
 }
 
@@ -292,8 +300,9 @@ func TestParallelScriptedCloseAndStderrOrder(t *testing.T) {
 				t.Fatalf("stderr %q != %q", output.String(), want)
 			}
 			for _, input := range []*parallelRecordingInput{input0, input1} {
-				if len(input.requests) != 2 || !reflect.DeepEqual(input.requests[1].ChangedFiles, request.ChangedFiles) {
-					t.Fatal(input.requests)
+				requests := input.recordedRequests()
+				if len(requests) != 2 || !reflect.DeepEqual(requests[1].ChangedFiles, request.ChangedFiles) {
+					t.Fatal(requests)
 				}
 			}
 		})
@@ -314,7 +323,7 @@ func TestParallelTransportFailureNeverRetriesSerial(t *testing.T) {
 	spawns := 0
 	spawn := func(string, string, bool) (*sidecarSession, error) { spawns++; return second, nil }
 	_, handled, err := runParallelTransformerWithSpawner(context.Background(), time.Second, "", slot, sidecarRequest{CompileFileNames: []string{"a", "b"}}, nil, &sidecarCallStats{}, spawn)
-	if !handled || err == nil || spawns != 1 || !input0.closed || !input1.closed || slot.session != nil || len(input0.requests) > 2 || len(input1.requests) > 2 {
+	if !handled || err == nil || spawns != 1 || !input0.closed || !input1.closed || slot.session != nil || len(input0.recordedRequests()) > 2 || len(input1.recordedRequests()) > 2 {
 		t.Fatalf("handled=%v error=%v spawns=%d", handled, err, spawns)
 	}
 }
@@ -441,7 +450,7 @@ func TestParallelPreflightFailureKeepsBoundedSerialFallback(t *testing.T) {
 		return nil, nil
 	}
 	_, handled, err := runParallelTransformerWithSpawner(context.Background(), time.Second, "", slot, sidecarRequest{}, nil, &sidecarCallStats{}, spawn)
-	if handled || err == nil || slot.session != nil || !input.closed || len(input.requests) != 1 {
+	if handled || err == nil || slot.session != nil || !input.closed || len(input.recordedRequests()) != 1 {
 		t.Fatalf("handled=%v err=%v", handled, err)
 	}
 	// Auxiliary timeout must leave worker 0 untouched for a fresh ordinary
@@ -458,7 +467,7 @@ func TestParallelPreflightFailureKeepsBoundedSerialFallback(t *testing.T) {
 		t.Fatalf("auxiliary timeout: %v %v", handled, err)
 	}
 	response, err := parallelRoundTrip(context.Background(), first, sidecarRequest{Operation: "transform"}, &sidecarCallStats{})
-	if err != nil || response == nil || len(input.requests) != 2 {
+	if err != nil || response == nil || len(input.recordedRequests()) != 2 {
 		t.Fatalf("ordinary serial request failed: %v", err)
 	}
 }
