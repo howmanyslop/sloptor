@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -792,11 +793,14 @@ func TestPreparseAliasesMatchSerialAliases(t *testing.T) {
 	// When/Then: the parallel aliases equal the serial ones in both case modes.
 	compare()
 
-	// When/Then: with the files under the working directory, the relative
-	// aliases are equal too.
+	// When/Then: changing the working directory preserves the serial result.
+	// The Windows realpath wrapper makes "." absolute; on other platforms it
+	// stays relative, so the serial code cannot make a relative alias from it.
 	t.Chdir(dir)
-	if aliases := compare(); aliases[normalizeOverlayPath("one.ts", true)] != "one" {
-		t.Fatal("working-directory fixture made no relative alias")
+	aliases := compare()
+	text, hasRelative := aliases[normalizeOverlayPath("one.ts", true)]
+	if hasRelative != (runtime.GOOS == "windows") || (hasRelative && text != "one") {
+		t.Fatalf("working-directory relative alias = %q, present %v", text, hasRelative)
 	}
 
 	// And: zero or one overlay gives the serial result.
