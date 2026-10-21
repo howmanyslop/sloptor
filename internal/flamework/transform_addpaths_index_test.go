@@ -131,7 +131,9 @@ func TestAddPathsModules_matchesReferenceForEveryCallerAndPattern(t *testing.T) 
 	// Given: one state, and callers inside and outside the matched directories.
 	directory := writeAddPathsIndexFixture(t)
 	state := newAddPathsIndexState(t, directory)
-	external := state.program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "node_modules/ext-lib/index.ts")))
+	// Package resolution realpaths node_modules imports, including temp-directory
+	// aliases on Windows; look up the same canonical filename in the Program.
+	external := state.program.GetSourceFile(osvfs.FS().Realpath(filepath.ToSlash(filepath.Join(directory, "node_modules/ext-lib/index.ts"))))
 	escape := state.program.GetSourceFile(filepath.ToSlash(filepath.Join(filepath.Dir(directory), "outside/escape.ts")))
 	if external == nil || !state.program.IsSourceFileFromExternalLibrary(external) || escape == nil {
 		t.Fatalf("fixture lacks an external source (%v) or an escaped source (%v)", external != nil, escape != nil)
