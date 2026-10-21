@@ -173,7 +173,9 @@ func applyExternalTransformerStage(ctx context.Context, host transformerHost, di
 	inputTraces := traces
 	if usesSubprocessSidecar(host) {
 		if config, rest := nativeJecsStage(dir, plugins); config != nil {
-			if len(rest) > 0 {
+			// A parallel transformer split admits only a worker no request has
+			// used yet, so a warmed worker would turn it away.
+			if prefix, _ := nonNilContext(ctx).Value(parallelPrefixKey{}).(*parallelPrefix); len(rest) > 0 && prefix == nil {
 				configPath := program.Options().ConfigFilePath
 				if configPath == "" {
 					configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))

@@ -323,11 +323,8 @@ func (p *Program) UpdateProgramFilesWithCheckers(changedFilePaths []tspath.Path,
 		resolutions  module.ModeAwareCache[*module.ResolvedModule]
 	}
 
-	// Every way out below is the same full rebuild, so the cheap checks run
-	// first and the changed files are parsed in parallel; parsing reads only
-	// the host, which the parallel file loader already calls concurrently.
-	oldFiles := make([]*ast.SourceFile, len(changedFilePaths))
-	for index, changedFilePath := range changedFilePaths {
+	replacements := make([]replacement, 0, len(changedFilePaths))
+	for _, changedFilePath := range changedFilePaths {
 		// Package redirect groups need a full rebuild so redirect targets recalculate.
 		_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
 		_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
@@ -335,23 +332,11 @@ func (p *Program) UpdateProgramFilesWithCheckers(changedFilePaths []tspath.Path,
 			return NewProgram(newOpts), false
 		}
 
-		oldFiles[index] = p.filesByPath[changedFilePath]
-		if oldFiles[index] == nil {
+		oldFile := p.filesByPath[changedFilePath]
+		if oldFile == nil {
 			return NewProgram(newOpts), false
 		}
-	}
-	newFiles := make([]*ast.SourceFile, len(changedFilePaths))
-	parse := core.NewWorkGroup(p.SingleThreaded() || len(changedFilePaths) < 2)
-	for index, oldFile := range oldFiles {
-		parse.Queue(func() {
-			newFiles[index] = newHost.GetSourceFile(oldFile.ParseOptions())
-		})
-	}
-	parse.RunAndWait()
-
-	replacements := make([]replacement, 0, len(changedFilePaths))
-	for index, changedFilePath := range changedFilePaths {
-		oldFile, newFile := oldFiles[index], newFiles[index]
+		newFile := newHost.GetSourceFile(oldFile.ParseOptions())
 		if newFile == nil {
 			return NewProgram(newOpts), false
 		}

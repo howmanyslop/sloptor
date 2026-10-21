@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"rotor/internal/config"
 )
 
 type solutionBuildDrainer struct {
@@ -648,7 +650,13 @@ func (d *solutionBuildDrainer) warmTransformerWorkers() {
 		}) {
 			continue
 		}
-		warmTransformerSidecarShards(filepath.Dir(project.ConfigPath), project.ConfigPath, nil, 0)
+		dir := filepath.Dir(project.ConfigPath)
+		// A parallel transformer split admits only a worker no request has
+		// used yet, so a warmed worker would turn it away.
+		if cfg, err := config.Load(dir); err == nil && parallelConfigSupported(cfg) {
+			continue
+		}
+		warmTransformerSidecarShards(dir, project.ConfigPath, nil, 0)
 	}
 }
 

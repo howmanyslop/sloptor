@@ -344,7 +344,7 @@ class SidecarProjectSession {
   // project's import closure. The first time any plugin reads the program the
   // attempt is abandoned and the session stops trying, so the request is
   // answered by the ordinary path below with exactly the program it had before.
-  tryProgramlessTransform(request, options, phases) {
+  tryProgramlessTransform(request, options, phases, pluginLoads) {
     let touched = false;
     const program = new Proxy({}, {
       get(_target, property) {
@@ -360,7 +360,7 @@ class SidecarProjectSession {
     let created;
     try {
       created = measurePhase(phases, "factoriesMs", () =>
-        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath));
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, undefined, pluginLoads));
     } catch (error) {
       if (touched) {
         return undefined;
@@ -458,6 +458,7 @@ class SidecarProjectSession {
     const phases = { configMs: 0n, programMs: 0n, factoriesMs: 0n, transformMs: 0n, parentRepairMs: 0n, printMs: 0n };
     let batchDiagnostics = 0;
     let sourceDiagnostics = 0;
+    const pluginLoads = new Map();
     const respond = (response) => ({
       ...response,
       ...(request.parallelWorker ? { parallelBatchDiagnostics: batchDiagnostics, parallelSourceDiagnostics: sourceDiagnostics } : {}),
@@ -526,7 +527,7 @@ class SidecarProjectSession {
           });
         }
         if (parsed.errors.length === 0) {
-          const programless = this.tryProgramlessTransform(request, parsed.options, phases);
+          const programless = this.tryProgramlessTransform(request, parsed.options, phases, pluginLoads);
           if (programless) {
             return respond(programless);
           }
@@ -581,7 +582,7 @@ class SidecarProjectSession {
       }
 
       const { transforms, diagnostics: pluginDiagnostics, plugins } = measurePhase(phases, "factoriesMs", () =>
-        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath));
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath, pluginLoads));
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       batchDiagnostics = diagnostics.length;
@@ -711,7 +712,7 @@ function validateRequest(request) {
     request.operation !== "warm" &&
     request.operation !== "parallel-preflight"
   ) {
-    return createRequestDiagnostic("operation must equal \"transform\", \"validate\", \"warm\" or \"parallel-preflight\"");
+    return createRequestDiagnostic("operation must equal \"transform\", \"validate\" or \"warm\"");
   }
   if (request.operation === "validate" || request.operation === "warm") {
     return undefined;

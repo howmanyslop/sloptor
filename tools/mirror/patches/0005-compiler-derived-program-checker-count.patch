@@ -167,48 +167,7 @@ diff --git a/tsgo/compiler/program.go b/tsgo/compiler/program.go
  	newOpts.Host = newHost
  	if createCheckerPool != nil {
  		newOpts.CreateCheckerPool = createCheckerPool
-@@ -312,8 +323,11 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
- 		resolutions  module.ModeAwareCache[*module.ResolvedModule]
- 	}
-
--	replacements := make([]replacement, 0, len(changedFilePaths))
--	for _, changedFilePath := range changedFilePaths {
-+	// Every way out below is the same full rebuild, so the cheap checks run
-+	// first and the changed files are parsed in parallel; parsing reads only
-+	// the host, which the parallel file loader already calls concurrently.
-+	oldFiles := make([]*ast.SourceFile, len(changedFilePaths))
-+	for index, changedFilePath := range changedFilePaths {
- 		// Package redirect groups need a full rebuild so redirect targets recalculate.
- 		_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
- 		_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
-@@ -321,11 +335,23 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
- 			return NewProgram(newOpts), false
- 		}
-
--		oldFile := p.filesByPath[changedFilePath]
--		if oldFile == nil {
-+		oldFiles[index] = p.filesByPath[changedFilePath]
-+		if oldFiles[index] == nil {
- 			return NewProgram(newOpts), false
- 		}
--		newFile := newHost.GetSourceFile(oldFile.ParseOptions())
-+	}
-+	newFiles := make([]*ast.SourceFile, len(changedFilePaths))
-+	parse := core.NewWorkGroup(p.SingleThreaded() || len(changedFilePaths) < 2)
-+	for index, oldFile := range oldFiles {
-+		parse.Queue(func() {
-+			newFiles[index] = newHost.GetSourceFile(oldFile.ParseOptions())
-+		})
-+	}
-+	parse.RunAndWait()
-+
-+	replacements := make([]replacement, 0, len(changedFilePaths))
-+	for index, changedFilePath := range changedFilePaths {
-+		oldFile, newFile := oldFiles[index], newFiles[index]
- 		if newFile == nil {
- 			return NewProgram(newOpts), false
- 		}
-@@ -586,6 +612,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
+@@ -586,6 +597,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
  	}
  }
 

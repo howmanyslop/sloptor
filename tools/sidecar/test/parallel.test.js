@@ -165,15 +165,18 @@ test("session preflight then ordinary transform preserves evaluation order and r
   request.parallelAttestation.typescript = ts.version;
   request.parallelAttestation.plugins[0].sha256 = packageDigest(p.entry);
   const semantic = ({ metrics, ...response }) => response;
+  // The session first tries the transform without a Program, so a plugin that
+  // fails to load is evaluated before the Program it falls back to, but only
+  // once.
   const baseline = server().handleRequest(request);
-  assert.deepEqual(events, ["program", "evaluate"]);
+  assert.deepEqual(events, ["evaluate", "program"]);
   events.length = 0;
   const preflighted = server();
   const admission = preflighted.handleRequest({ ...request, operation: "parallel-preflight" });
   assert.equal(admission.parallelReady, true);
   assert.deepEqual(events, [], "preflight must not create a Program or evaluate the throwing module");
   const ordinary = preflighted.handleRequest(request);
-  assert.deepEqual(events, ["program", "evaluate"], "one ordinary evaluation after Program creation");
+  assert.deepEqual(events, ["evaluate", "program"], "the same single evaluation as without preflight");
   assert.deepEqual(semantic(ordinary), semantic(baseline));
   events.length = 0;
   const partitioned = server().handleRequest({ ...request, parallelWorker: true });
