@@ -147,6 +147,7 @@ type RojoResolver struct {
 	isolatedContainers   []RbxPath
 	walkedConfigs        []string
 	walkedDirectories    []string
+	activeDirectories    map[string]struct{}
 	// Package imports retain default-project composition, but an unrelated
 	// named project must not take precedence over the package's output path.
 	ignoreNamedProjects bool
@@ -437,6 +438,11 @@ func (r *RojoResolver) parsePath(itemPath string) {
 			}
 		}
 		if isDirectory && dirContains(realPath, rojoDefaultName) {
+			key, entered := r.enterDirectory(realPath)
+			if !entered {
+				return
+			}
+			defer delete(r.activeDirectories, key)
 			r.parseConfig(filepath.Join(itemPath, rojoDefaultName), true)
 		} else {
 			r.partitions = append([]PartitionInfo{{
@@ -445,7 +451,7 @@ func (r *RojoResolver) parsePath(itemPath string) {
 			}}, r.partitions...)
 
 			if isDirectory {
-				r.searchDirectory(itemPath, "")
+				r.searchDirectory(itemPath, "", make(map[string]struct{}))
 			}
 		}
 	}
@@ -454,15 +460,26 @@ func (r *RojoResolver) parsePath(itemPath string) {
 // searchDirectory recursively discovers nested project files inside a
 // partition (RojoResolver.ts L284-314). A default.project.json found while
 // walking is parsed WITH its name pushed (doNotPush=false), replacing the
-// directory's own name.
-func (r *RojoResolver) searchDirectory(directory, item string) {
+// directory's own name. Each $path scan visits a real directory once, so
+// only the first implicit alias discovers its nested project mappings.
+// Independent explicit $path mounts retain separate discovery contexts.
+func (r *RojoResolver) searchDirectory(directory, item string, visited map[string]struct{}) {
 	realPath := realpathOr(directory)
-	r.walkDirectory(realPath)
 	if r.ignoreNamedProjects {
 		// Retain logical junction paths too: replacing a package link changes
 		// its layout even though the old physical directory still exists.
 		r.walkDirectory(directory)
 	}
+	key, entered := r.enterDirectory(realPath)
+	if !entered {
+		return
+	}
+	defer delete(r.activeDirectories, key)
+	if _, seen := visited[key]; seen {
+		return
+	}
+	visited[key] = struct{}{}
+	r.walkDirectory(realPath)
 	entries, err := os.ReadDir(realPath)
 	if err != nil {
 		return
@@ -497,13 +514,25 @@ func (r *RojoResolver) searchDirectory(directory, item string) {
 	// folders
 	for _, entry := range entries {
 		if isDir, _ := entryKind(directory, entry); isDir {
-			r.searchDirectory(filepath.Join(directory, entry.Name()), entry.Name())
+			r.searchDirectory(filepath.Join(directory, entry.Name()), entry.Name(), visited)
 		}
 	}
 
 	if item != "" {
 		r.rbxPath = r.rbxPath[:len(r.rbxPath)-1]
 	}
+}
+
+func (r *RojoResolver) enterDirectory(realPath string) (key string, entered bool) {
+	key = CanonicalFileName(realPath, osvfs.FS().UseCaseSensitiveFileNames())
+	if _, active := r.activeDirectories[key]; active {
+		return key, false
+	}
+	if r.activeDirectories == nil {
+		r.activeDirectories = make(map[string]struct{})
+	}
+	r.activeDirectories[key] = struct{}{}
+	return key, true
 }
 
 func (r *RojoResolver) walkConfig(path string) {
