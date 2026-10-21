@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.3
+-- Compiled with sloptor v2.9.0-beta.1
 local function arrayRest()
 	local _binding = { 1, 2, 3 }
 	local a = _binding[1]

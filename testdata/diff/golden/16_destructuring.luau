@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.3
+-- Compiled with sloptor v2.9.0-beta.1
 local arr = { 1, 2, 3, 4 }
 local first = arr[1]
 local second = arr[2]

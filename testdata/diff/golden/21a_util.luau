@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.3
+-- Compiled with sloptor v2.9.0-beta.1
 local MAX = 100
 local function clamp(x)
 	return if x > MAX then MAX else x

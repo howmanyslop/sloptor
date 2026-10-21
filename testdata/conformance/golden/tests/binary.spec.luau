@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.8.3
+-- Compiled with sloptor v2.9.0-beta.1
 return function()
 	it("should support binary expressions on properties", function()
 		local foo = {

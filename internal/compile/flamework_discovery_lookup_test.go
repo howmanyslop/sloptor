@@ -26,7 +26,7 @@ func TestFlameworkDiscoveryLookupEmittedArtifactsAndRecovery(t *testing.T) {
 	}
 	output := result.Outputs["out/init.luau"]
 	// Captured from baseline production, including the absence of source decorator calls.
-	wantOutput := "-- Compiled with sloptor v2.8.3\nlocal TS = _G[script]\n--* @metadata identifier \n" + `local Reflect = TS.import(script, TS.getModule(script, "@flamework", "core").out).Reflect
+	wantOutput := "-- Compiled with sloptor v2.9.0-beta.1\nlocal TS = _G[script]\n--* @metadata identifier \n" + `local Reflect = TS.import(script, TS.getModule(script, "@flamework", "core").out).Reflect
 local Persisted
 do
 	Persisted = setmetatable({}, {
