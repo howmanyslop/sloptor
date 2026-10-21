@@ -30,11 +30,13 @@ type projectReferenceInfo struct {
 	config     *projectConfig
 	err        string
 	writeRoots []string
-	// paths maps each source and declaration file to its Luau import path;
-	// emits reports whether the project has any.
-	paths   map[string]string
-	outputs []string
-	emits   bool
+	// paths maps source and declaration files to Luau paths for runtime lookup.
+	// saltPaths preserves authored spelling without runtime lookup aliases.
+	// emits reports whether the project produces outputs.
+	paths     map[string]string
+	saltPaths map[string]string
+	outputs   []string
+	emits     bool
 }
 
 // crossProjectMetadata caches projectReferenceInfo per project, so a watch
@@ -111,6 +113,7 @@ func newProjectReferenceInfo(project SolutionProject) *projectReferenceInfo {
 	}
 	translator := createPathTranslator(config, !project.Options.LuaExtension)
 	info.paths = map[string]string{}
+	info.saltPaths = map[string]string{}
 	info.outputs = []string{}
 	info.emits = true
 	for _, fileName := range config.FileNames() {
@@ -121,10 +124,12 @@ func newProjectReferenceInfo(project SolutionProject) *projectReferenceInfo {
 		info.outputs = append(info.outputs, importPath)
 		canonical := rojo.CanonicalFileName(fileName, osvfs.FS().UseCaseSensitiveFileNames())
 		info.paths[canonical] = importPath
+		info.saltPaths[normalizeSourceFilePath(fileName)] = importPath
 		if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
 			declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, options, config)
 			declarationCanonical := rojo.CanonicalFileName(declarationPath, osvfs.FS().UseCaseSensitiveFileNames())
 			info.paths[declarationCanonical] = importPath
+			info.saltPaths[normalizeSourceFilePath(declarationPath)] = importPath
 		}
 	}
 	addProjectRealPathAliases(info.paths, filepath.Dir(project.ConfigPath), osvfs.FS().UseCaseSensitiveFileNames())
@@ -136,7 +141,7 @@ func newProjectReferenceInfo(project SolutionProject) *projectReferenceInfo {
 func (info *projectReferenceInfo) equal(other *projectReferenceInfo) bool {
 	if other == nil || info.err != other.err || info.emits != other.emits ||
 		!slices.Equal(info.writeRoots, other.writeRoots) || !slices.Equal(info.outputs, other.outputs) ||
-		!maps.Equal(info.paths, other.paths) || (info.config == nil) != (other.config == nil) {
+		!maps.Equal(info.paths, other.paths) || !maps.Equal(info.saltPaths, other.saltPaths) || (info.config == nil) != (other.config == nil) {
 		return false
 	}
 	return info.config == nil || reflect.DeepEqual(info.config.Options(), other.config.Options())
@@ -170,6 +175,7 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 	for index := range graph.Projects {
 		project := &graph.Projects[index]
 		paths := map[string]string{}
+		saltPaths := map[string]string{}
 		outputs := []string{}
 		visited := map[string]bool{}
 		var visit func(string)
@@ -183,6 +189,7 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 			}
 			if info := m.infos[configPath]; info != nil {
 				maps.Copy(paths, info.paths)
+				maps.Copy(saltPaths, info.saltPaths)
 				outputs = append(outputs, info.outputs...)
 			}
 		}
@@ -190,6 +197,7 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 			visit(reference)
 		}
 		project.Options.projectReferencePaths = paths
+		project.Options.projectReferenceSaltPaths = saltPaths
 		if own := m.infos[project.ConfigPath]; own.emits {
 			outputs = append(outputs, own.outputs...)
 			includePath, err := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath)

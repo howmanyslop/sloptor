@@ -336,6 +336,7 @@ func sameSolutionProjectOptions(left, right ProjectOptions) bool {
 	left.rojoCache, right.rojoCache = nil, nil
 	left.packageLayout, right.packageLayout = nil, nil
 	left.projectReferencePaths, right.projectReferencePaths = nil, nil
+	left.projectReferenceSaltPaths, right.projectReferenceSaltPaths = nil, nil
 	left.pendingSolutionPersists, right.pendingSolutionPersists = nil, nil
 	left.pendingSolutionDependencyPersists, right.pendingSolutionDependencyPersists = nil, nil
 	left.compileCache, right.compileCache = nil, nil

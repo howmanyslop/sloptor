@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 
+	"rotor/internal/fsutil"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
 	"rotor/tsgo/tspath"
@@ -22,6 +23,8 @@ import (
 //
 // Files carries each source file's content hash and the project files it
 // resolved a reference to, which is the import graph selection walks.
+// Keys are absolute compiler filenames in memory and project-relative URIs
+// on disk, independent of the manifest's folder or volume.
 //
 // Outputs carries the content hash of every file this build wrote, keyed by
 // project-relative output path. It is what lets the writer skip a byte-identical
@@ -52,7 +55,7 @@ type incrementalFileState struct {
 	Refs []string `json:"refs,omitempty"`
 }
 
-func readIncrementalManifest(path string) (*incrementalManifest, error) {
+func readIncrementalManifest(path string, program *compiler.Program) (*incrementalManifest, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -64,7 +67,7 @@ func readIncrementalManifest(path string) (*incrementalManifest, error) {
 	if err := stdjson.Unmarshal(data, &manifest); err != nil {
 		return nil, nil
 	}
-	if manifest.Version != 2 {
+	if manifest.Version != 3 {
 		return nil, nil
 	}
 	if manifest.Files == nil {
@@ -73,11 +76,38 @@ func readIncrementalManifest(path string) (*incrementalManifest, error) {
 	if manifest.Outputs == nil {
 		manifest.Outputs = map[string]string{}
 	}
+	// Inspection callers can read the persisted graph without a compiler.
+	if program == nil {
+		return &manifest, nil
+	}
+	// Reuse the compiler's filenames, including its preserveSymlinks choice,
+	// without realpath/stat calls for every file on a warm build.
+	sourcePaths := map[string]string{}
+	projectDir := program.GetCurrentDirectory()
+	encodePath := incrementalSourcePathEncoder(program)
+	for _, file := range program.SourceFiles() {
+		stored := resolveIncrementalSourcePath(projectDir, encodePath(file.FileName()))
+		sourcePaths[normalizeSourceFilePath(stored)] = normalizeSourceFilePath(file.FileName())
+	}
+	manifest.Files = mapIncrementalFiles(manifest.Files, func(name string) string {
+		absolute := resolveIncrementalSourcePath(projectDir, name)
+		if source, ok := sourcePaths[normalizeSourceFilePath(absolute)]; ok {
+			return source
+		}
+		if !program.Options().PreserveSymlinks.IsTrue() {
+			if real, err := fsutil.EvalSymlinks(absolute); err == nil {
+				absolute = real
+			}
+		}
+		return normalizeSourceFilePath(absolute)
+	})
 	return &manifest, nil
 }
 
-func writeIncrementalManifest(path string, manifest *incrementalManifest) error {
-	data, err := stdjson.MarshalIndent(manifest, "", "\t")
+func writeIncrementalManifest(path string, manifest *incrementalManifest, program *compiler.Program) error {
+	stored := *manifest
+	stored.Files = mapIncrementalFiles(manifest.Files, incrementalSourcePathEncoder(program))
+	data, err := stdjson.MarshalIndent(&stored, "", "\t")
 	if err != nil {
 		return err
 	}
@@ -105,6 +135,21 @@ func writeIncrementalManifest(path string, manifest *incrementalManifest) error 
 	return os.Rename(tempPath, path)
 }
 
+// Only the persisted graph uses relative paths; selection and declaration
+// signatures continue to use the compiler's absolute source filenames.
+func mapIncrementalFiles(files map[string]incrementalFileState, convert func(string) string) map[string]incrementalFileState {
+	result := make(map[string]incrementalFileState, len(files))
+	for name, state := range files {
+		state.Refs = slices.Clone(state.Refs)
+		for i, ref := range state.Refs {
+			state.Refs[i] = convert(ref)
+		}
+		sort.Strings(state.Refs)
+		result[convert(name)] = state
+	}
+	return result
+}
+
 func sameIncrementalManifest(a, b *incrementalManifest) bool {
 	return reflect.DeepEqual(a, b)
 }
@@ -125,7 +170,7 @@ func resolvedNonCompiledInputs(program *compiler.Program) []*ast.SourceFile {
 func buildIncrementalManifest(program *compiler.Program, sourceFiles []*ast.SourceFile, salt string, previous *incrementalManifest) (*incrementalManifest, error) {
 	inputFiles := slices.Concat(sourceFiles, resolvedNonCompiledInputs(program))
 	manifest := &incrementalManifest{
-		Version: 2,
+		Version: 3,
 		Salt:    salt,
 		Files:   make(map[string]incrementalFileState, len(inputFiles)),
 		Outputs: map[string]string{},

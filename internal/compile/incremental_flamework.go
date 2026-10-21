@@ -138,6 +138,30 @@ func flameworkIncrementalSalt(inputs *FlameworkIncrementalInputs) (string, error
 	return incrementalContentHash(payload), nil
 }
 
+func portableFlameworkIncrementalInputs(inputs *FlameworkIncrementalInputs, encodePath func(string) string) *FlameworkIncrementalInputs {
+	if inputs == nil {
+		return nil
+	}
+	result := *inputs
+	result.PackageInputs = slices.Clone(inputs.PackageInputs)
+	for i := range result.PackageInputs {
+		result.PackageInputs[i].Path = encodePath(result.PackageInputs[i].Path)
+	}
+	result.BuildInfoInputs = slices.Clone(inputs.BuildInfoInputs)
+	for i := range result.BuildInfoInputs {
+		result.BuildInfoInputs[i].Path = encodePath(result.BuildInfoInputs[i].Path)
+	}
+	result.RelevantGlobs = slices.Clone(inputs.RelevantGlobs)
+	for i, glob := range result.RelevantGlobs {
+		result.RelevantGlobs[i].Pattern = encodePath(glob.Pattern)
+		result.RelevantGlobs[i].Matches = slices.Clone(glob.Matches)
+		for j, match := range glob.Matches {
+			result.RelevantGlobs[i].Matches[j] = encodePath(match)
+		}
+	}
+	return &result
+}
+
 func normalizeEffectivePlugins(plugins []json.RawMessage) ([]json.RawMessage, error) {
 	normalized := make([]json.RawMessage, len(plugins))
 	for index, raw := range plugins {
