@@ -521,6 +521,7 @@ class SidecarProjectSession {
       if (!this.programRequired && request.compileFileNames.length > 0) {
         const parsed = measurePhase(phases, "configMs", () => this.parseOptionsOnly());
         if (!parsed) {
+          batchDiagnostics = 1;
           return respond({
             diagnostics: [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)],
             transformed: [],
