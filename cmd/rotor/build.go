@@ -344,6 +344,9 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	opts.builders = parsed.builders
 	opts.checkers = parsed.checkers
 	opts.singleThreaded = parsed.singleThreaded
+	// A one-shot solution uses one local coordinator/Drain. Canonical configs
+	// are deduplicated and each scheduled project builds once.
+	opts.oneShotBuild = !opts.watch && !opts.emitDeclarationOnly
 	if parsed.timings != "" && opts.watch {
 		return usageFailure("--timings cannot be used with --watch")
 	}
@@ -602,7 +605,7 @@ func runBuildSolutionOnce(tsConfigPath string, opts projectOptions, timings *com
 }
 
 func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.ProjectOptions {
-	return compile.ProjectOptions{
+	compiled := compile.ProjectOptions{
 		TsConfigPath:           tsConfigPath,
 		IncludePath:            opts.includePath,
 		EmitIncludeFiles:       !opts.noInclude,
@@ -621,6 +624,10 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		SingleThreaded:         opts.singleThreaded,
 		SolutionArgv:           opts.argv.rbxtsOptions(),
 	}
+	if opts.oneShotBuild {
+		compile.MarkOneShotCLITransformerBuild(&compiled)
+	}
+	return compiled
 }
 
 // jsonDiagnostic is one entry in the --json diagnostics array. file/line/col
