@@ -1074,7 +1074,10 @@ test("a rebased rewrite transforms and traces as the transformer it stands in fo
   const visit = (node) => ts.isStringLiteral(node) ? ts.factory.createStringLiteral("changed") : ts.visitEachChild(node, visit, context);
   return (sourceFile) => ts.visitNode(sourceFile, visit);
 };\n`);
-  t.after(() => fs.rmSync(fixture.fixtureDir, { recursive: true, force: true }));
+  const cwd = process.cwd();
+  const singleSession = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
+  const rebasedSession = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
+  t.after(() => { process.chdir(cwd); singleSession.dispose(); rebasedSession.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
   fs.writeFileSync(path.join(fixture.fixtureDir, "prepend.js"), `module.exports = (_program, _config, { ts }) => () => (sourceFile) =>
   ts.factory.updateSourceFile(sourceFile, [
     ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
@@ -1112,9 +1115,9 @@ test("a rebased rewrite transforms and traces as the transformer it stands in fo
   printed.statements.slice(1).forEach((statement, index) => kept(statement, original.statements[index]));
 
   const plugin = { transform: "./plugin.js" };
-  const single = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath)
+  const single = singleSession
     .handleRequest({ ...fixture.request, plugins: [{ transform: "./prepend.js" }, plugin] });
-  const rebased = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath).handleRequest({
+  const rebased = rebasedSession.handleRequest({
     ...fixture.request,
     plugins: [plugin],
     changedFiles: [{ fileName, text: printedText, rebase: { text: onDisk, ranges } }],
