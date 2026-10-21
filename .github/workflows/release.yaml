@@ -185,8 +185,12 @@ jobs:
       - name: Set up Mise toolchain
         uses: jdx/mise-action@v2
         with:
-          install_args: node
+          install_args: node pnpm
           experimental: true
+
+      # sync-release-notes.ts imports arktype and tinyexec from @sloptor/scripts.
+      - name: Install script dependencies
+        run: pnpm install --frozen-lockfile --filter @sloptor/scripts
 
       - name: Write release notes to CHANGELOG.md and the documentation
         run: node scripts/sync-release-notes.ts --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
