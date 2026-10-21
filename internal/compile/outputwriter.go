@@ -162,6 +162,9 @@ func (writer *outputWriter) dirRoot(relative string) (*os.Root, error) {
 	if !writer.caseSensitive {
 		cacheKey = strings.ToLower(cacheKey)
 	}
+	if actual, ok := writer.dirRoots.Load(cacheKey); ok {
+		return actual.(func() (*os.Root, error))()
+	}
 	open := sync.OnceValues(func() (*os.Root, error) {
 		return writer.root.OpenRoot(relative)
 	})
