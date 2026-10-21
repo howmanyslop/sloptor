@@ -165,15 +165,18 @@ test("session preflight then ordinary transform preserves evaluation order and r
   request.parallelAttestation.typescript = ts.version;
   request.parallelAttestation.plugins[0].sha256 = packageDigest(p.entry);
   const semantic = ({ metrics, ...response }) => response;
+  // The session first tries the transform without a Program, so a plugin that
+  // fails to load is evaluated before the Program it falls back to, but only
+  // once.
   const baseline = server().handleRequest(request);
-  assert.deepEqual(events, ["program", "evaluate"]);
+  assert.deepEqual(events, ["evaluate", "program"]);
   events.length = 0;
   const preflighted = server();
   const admission = preflighted.handleRequest({ ...request, operation: "parallel-preflight" });
   assert.equal(admission.parallelReady, true);
   assert.deepEqual(events, [], "preflight must not create a Program or evaluate the throwing module");
   const ordinary = preflighted.handleRequest(request);
-  assert.deepEqual(events, ["program", "evaluate"], "one ordinary evaluation after Program creation");
+  assert.deepEqual(events, ["evaluate", "program"], "the same single evaluation as without preflight");
   assert.deepEqual(semantic(ordinary), semantic(baseline));
   events.length = 0;
   const partitioned = server().handleRequest({ ...request, parallelWorker: true });
@@ -181,4 +184,24 @@ test("session preflight then ordinary transform preserves evaluation order and r
   assert.equal(partitioned.parallelSourceDiagnostics, 1);
   const { parallelBatchDiagnostics, parallelSourceDiagnostics, ...response } = partitioned;
   assert.deepEqual(semantic(response), semantic(baseline));
+});
+
+// Catches a worker's config-parse failure counted as a source diagnostic. Both
+// workers report it, so the merged response would hold it twice where a serial
+// transform reports it once.
+test("a worker's config-parse failure is a batch diagnostic", (t) => {
+  const { SidecarServer } = require("../lib/session");
+  const p = project(t);
+  fs.writeFileSync(p.tsPath, `module.exports = require(${JSON.stringify(require.resolve("typescript"))});\n`);
+  const ts = require(p.tsPath);
+  const loader = () => ts;
+  loader.modulePathFor = () => p.tsPath;
+  const server = new SidecarServer(loader);
+  t.after(() => server.dispose());
+  fs.writeFileSync(path.join(p.dir, "main.ts"), "export const value = 1;\n");
+  const response = server.handleRequest({ ...p.request, protocol: 1, operation: "transform", parallelWorker: true,
+    tsConfigPath: path.join(p.dir, "missing-tsconfig.json"), compileFileNames: [path.join(p.dir, "main.ts")], changedFiles: [] });
+  assert.deepEqual(response.diagnostics.map(({ code }) => code), ["config-parse"]);
+  assert.equal(response.parallelBatchDiagnostics, 1);
+  assert.equal(response.parallelSourceDiagnostics, 0);
 });

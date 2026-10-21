@@ -543,7 +543,11 @@ type ProjectOptions struct {
 	projectReferenceSaltPaths map[string]string
 	pendingSolutionPersists   *[]func() error
 	deferRojoCachePersist     bool
-	compileCache              *solutionCompileCache
+	// onCompileStart runs when this build has selected source files to
+	// compile, before any of its stages. A solution build uses it to warm the
+	// transformer workers of the projects still ahead of it.
+	onCompileStart func()
+	compileCache   *solutionCompileCache
 
 	// IncludePath is the raw --includePath value; "" applies upstream's
 	// default of <projectDir>/include (createProjectData.ts L29). It feeds
@@ -903,10 +907,26 @@ func compileProjectSourceFiles(dir string, program *compiler.Program, pctx *proj
 	results := make([]compiledProjectSourceFile, len(sourceFiles))
 	prechecks := make([]precheckedProjectSourceFile, len(sourceFiles))
 	progressLabels := compileProjectProgressLabels(sourceFiles)
+
+	// A derived program checks each file on whichever checker is free next, so
+	// a few expensive files cannot keep one checker busy long after the rest;
+	// each file stays with that checker for the transform below. The callback
+	// is unguarded for the same reason as the group loop's.
+	fileIndices := make(map[*ast.SourceFile]int, len(sourceFiles))
+	for index, sourceFile := range sourceFiles {
+		fileIndices[sourceFile] = index
+	}
+	balanced := program.ForEachFileOnFreeChecker(ctx, sourceFiles, func(sourceFile *ast.SourceFile) {
+		pprof.SetGoroutineLabels(ctx)
+		prechecks[fileIndices[sourceFile]] = precheckProjectSourceFile(ctx, program, sourceFile, opts)
+	})
 	groups := groupSourceFilesByChecker(ctx, program, sourceFiles)
 
 	wg := core.NewWorkGroup(program.SingleThreaded() || len(groups) <= 1)
 	for _, group := range groups {
+		if balanced {
+			break
+		}
 		group := group
 		wg.Queue(func() {
 			pprof.SetGoroutineLabels(ctx)

@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"runtime/trace"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,6 +74,7 @@ type sidecarOutputFile = TransformerOutputFile
 
 type preparedTransformerProgram struct {
 	program                  *compiler.Program
+	rebases                  map[string]*TransformerRebase
 	sourceFiles              []*ast.SourceFile
 	flamework                *config.FlameworkConfig
 	sourceTraces             diagnosticTraces
@@ -215,7 +217,12 @@ func applyTransformerSidecarWithPluginsAndHost(ctx context.Context, host transfo
 			stopDecode()
 			return nil, nil, fmt.Errorf("compile: transformer trace source missing from program: %s", file.FileName)
 		}
-		fileTrace, err := newSourceTraceMap(file.TraceMap, original.FileName(), original.Text())
+		// A rebased file's trace indexes the text native jecs started from.
+		originalText := original.Text()
+		if rebase := state.rebaseFor(original.FileName()); rebase != nil {
+			originalText = rebase.Text
+		}
+		fileTrace, err := newSourceTraceMap(file.TraceMap, original.FileName(), originalText)
 		if err != nil {
 			stopDecode()
 			return nil, nil, err
@@ -327,6 +334,16 @@ type sidecarBuildState struct {
 	stageOverlays map[string]string
 	diskScanned   bool
 	call          sidecarCallStats
+	// rebases are native jecs's rewrites the sidecar rebuilds against the
+	// files on disk, keyed by normalizeSourceFilePath; see TransformerRebase.
+	rebases map[string]*TransformerRebase
+}
+
+func (s *sidecarBuildState) rebaseFor(fileName string) *TransformerRebase {
+	if s == nil {
+		return nil
+	}
+	return s.rebases[normalizeSourceFilePath(fileName)]
 }
 
 func newSidecarBuildState() *sidecarBuildState {
@@ -833,6 +850,13 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 }
 
 func runTransformerSidecarCall(parent context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
+	return runTransformerSidecarShard(parent, 0, call)
+}
+
+// runTransformerSidecarShard is one round trip through the worker that owns
+// shard of a project. Shard 0 is the project's ordinary worker, which every
+// unsharded request (incremental and watch rebuilds) also goes through.
+func runTransformerSidecarShard(parent context.Context, shard int, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	dir, configPath, plugins, state := call.dir, call.configPath, call.plugins, call.state
 	sidecarDir, err := resolveSidecarDir()
@@ -846,6 +870,9 @@ func runTransformerSidecarCall(parent context.Context, call transformerCall) (*s
 
 	roundTripStage := transformerRoundTripStageName(configPath, plugins)
 	sidecarDirPath, sidecarConfigPath, key := canonicalTransformerRequestPaths(dir, configPath)
+	if shard > 0 {
+		key += "#" + strconv.Itoa(shard)
+	}
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()

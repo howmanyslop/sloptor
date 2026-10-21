@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime/trace"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
+
+	"rotor/internal/config"
 )
 
 type solutionBuildDrainer struct {
@@ -17,6 +21,7 @@ type solutionBuildDrainer struct {
 	references           *referenceRojoCache
 	persists             map[string][]func() error
 	persistOrder         []string
+	warmWorkers          sync.Once
 }
 
 func (c *SolutionCoordinator) Drain() (*BuildResult, []string, error) {
@@ -628,7 +633,31 @@ func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []s
 	options := project.Options
 	options.TsConfigPath = project.ConfigPath
 	options.deferRojoCachePersist = true
+	options.onCompileStart = func() { d.warmWorkers.Do(d.warmTransformerWorkers) }
 	return BuildProjectWithOptions(filepath.Dir(project.ConfigPath), options)
+}
+
+// warmTransformerWorkers starts the first transformer worker of every project
+// in the solution whose plugins run in the sidecar. It runs once a project
+// actually compiles: a solution where everything is up to date spawns no
+// Node process, while a real build has its dependents' workers loaded by the
+// time those projects reach their transform.
+func (d *solutionBuildDrainer) warmTransformerWorkers() {
+	for _, project := range d.graph.Projects {
+		plugins, err := effectiveTransformerPlugins(project.ConfigPath)
+		if err != nil || !slices.ContainsFunc(plugins, func(plugin transformerPluginConfig) bool {
+			return plugin.Transform != legacyFlameworkTransformer
+		}) {
+			continue
+		}
+		dir := filepath.Dir(project.ConfigPath)
+		// A parallel transformer split admits only a worker no request has
+		// used yet, so a warmed worker would turn it away.
+		if cfg, err := config.Load(dir); err == nil && parallelConfigSupported(cfg) {
+			continue
+		}
+		warmTransformerSidecarShards(dir, project.ConfigPath, nil, 0)
+	}
 }
 
 func (d *solutionBuildDrainer) appendPersists(configPath string, persists []func() error) {

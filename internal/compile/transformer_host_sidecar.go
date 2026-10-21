@@ -15,7 +15,7 @@ func (sidecarTransformerHost) transform(ctx context.Context, call transformerCal
 	if prefix, _ := nonNilContext(ctx).Value(parallelPrefixKey{}).(*parallelPrefix); prefix != nil {
 		call.parallel, call.parallelBuild = prefix.attestation, prefix.build
 	}
-	return runTransformerSidecarCall(ctx, call)
+	return runShardedTransformerSidecar(ctx, call)
 }
 
 func (sidecarTransformerHost) validate(ctx context.Context, dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {

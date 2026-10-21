@@ -88,6 +88,13 @@ function syncProjectProcessPaths(projectDir, tsConfigPath) {
   }
 }
 
+class ProgramRequiredError extends Error {
+  constructor(property) {
+    super(`transformer read program.${String(property)}`);
+    this.name = "ProgramRequiredError";
+  }
+}
+
 class SidecarProjectSession {
   constructor(ts, projectDir, tsConfigPath, tsModulePath, benchOriginalReactProfile, reactSyntaxHost = false) {
     this.ts = ts;
@@ -117,6 +124,12 @@ class SidecarProjectSession {
     this.rootLimitDisabled = false;
     this.parsed = undefined;
     this.service = undefined;
+    // programRequired latches once a plugin reads the program it was handed,
+    // so later requests skip straight to the LanguageService.
+    this.programRequired = false;
+    // rebases holds, per canonical path, what this request sent to rebuild a
+    // native jecs rewrite against the file on disk; see rebaseSourceFile.
+    this.rebases = new Map();
   }
 
   canonicalize(fileName) {
@@ -237,6 +250,25 @@ class SidecarProjectSession {
     return this.versions.get(canonical) ?? 0;
   }
 
+  // parseOptionsOnly resolves the tsconfig's compiler options (extends chain
+  // included) without expanding its include globs: the programless path needs
+  // the options to parse and transform the files it is handed, never the
+  // project's file list, and walking the globs is most of what parsing a large
+  // project's config costs. An empty walk makes TypeScript report that the
+  // config has no inputs, which is only true of this view of it.
+  parseOptionsOnly() {
+    const parsed = this.ts.getParsedCommandLineOfConfigFile(
+      this.tsConfigPath,
+      {},
+      { ...createParseHost(this, this.ts), readDirectory: () => [] },
+    );
+    if (!parsed) {
+      return undefined;
+    }
+    const noInputs = this.ts.Diagnostics.No_inputs_were_found_in_config_file_0_Specified_include_paths_were_1_and_exclude_paths_were_2.code;
+    return { ...parsed, errors: parsed.errors.filter((diagnostic) => diagnostic.code !== noInputs) };
+  }
+
   refreshParsedConfig(createService = true) {
     const parsed = this.ts.getParsedCommandLineOfConfigFile(
       this.tsConfigPath,
@@ -286,6 +318,84 @@ class SidecarProjectSession {
 
     const canonical = this.canonicalize(actualPath);
     return program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === canonical);
+  }
+
+  // parseStandaloneSourceFile parses fileName the way the LanguageService's
+  // document registry would, without building a program around it.
+  parseStandaloneSourceFile(fileName, options) {
+    const actualPath = this.rememberFile(fileName);
+    const text = this.readFile(actualPath);
+    if (text === undefined) {
+      return undefined;
+    }
+    const languageOptions = {
+      languageVersion: this.ts.getEmitScriptTarget(options),
+      setExternalModuleIndicator: this.ts.getSetExternalModuleIndicator?.(options),
+    };
+    const sourceFile = this.ts.createSourceFile(actualPath, text, languageOptions, true);
+    const rebase = this.rebases.get(this.canonicalize(actualPath));
+    return rebase ? rebaseSourceFile(this.ts, sourceFile, rebase, languageOptions) : sourceFile;
+  }
+
+  // tryProgramlessTransform runs the request against source files parsed on
+  // their own, handing every factory a program that refuses to be read. A
+  // transformer that never looks at its program (the React-compiler applier
+  // runs its own analysis) then costs no LanguageService parse and bind of the
+  // project's import closure. The first time any plugin reads the program the
+  // attempt is abandoned and the session stops trying, so the request is
+  // answered by the ordinary path below with exactly the program it had before.
+  tryProgramlessTransform(request, options, phases, pluginLoads) {
+    let touched = false;
+    const program = new Proxy({}, {
+      get(_target, property) {
+        touched = true;
+        throw new ProgramRequiredError(property);
+      },
+      has() {
+        touched = true;
+        throw new ProgramRequiredError("has");
+      },
+    });
+    const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(options);
+    let created;
+    try {
+      created = measurePhase(phases, "factoriesMs", () =>
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, undefined, pluginLoads));
+    } catch (error) {
+      if (touched) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (touched || created.diagnostics.length > 0) {
+      return undefined;
+    }
+    const sourceFiles = [];
+    for (const fileName of request.compileFileNames) {
+      const sourceFile = this.parseStandaloneSourceFile(fileName, options);
+      if (!sourceFile) {
+        return undefined;
+      }
+      sourceFiles.push(sourceFile);
+    }
+    let transformResult;
+    try {
+      transformResult = this.transformSourceFilesWithOptions(options, sourceFiles, created.transforms, phases);
+    } catch (error) {
+      if (touched) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (touched) {
+      return undefined;
+    }
+    return {
+      diagnostics: transformResult.diagnostics,
+      transformed: transformResult.transformed,
+      metrics: { plugins: pluginMetrics(created.plugins) },
+      afterDeclarationsTransformers: created.transforms.afterDeclarations.length,
+    };
   }
 
   transformSourceFiles(program, sourceFiles, transforms, phases) {
@@ -348,6 +458,7 @@ class SidecarProjectSession {
     const phases = { configMs: 0n, programMs: 0n, factoriesMs: 0n, transformMs: 0n, parentRepairMs: 0n, printMs: 0n };
     let batchDiagnostics = 0;
     let sourceDiagnostics = 0;
+    const pluginLoads = new Map();
     const respond = (response) => ({
       ...response,
       ...(request.parallelWorker ? { parallelBatchDiagnostics: batchDiagnostics, parallelSourceDiagnostics: sourceDiagnostics } : {}),
@@ -357,6 +468,19 @@ class SidecarProjectSession {
       },
     });
     try {
+      if (request.operation === "warm") {
+        // warm does a transform's fixed costs ahead of it, so a worker spawned
+        // while rotor is still busy elsewhere is ready when the transform
+        // arrives: TypeScript is already loaded with the session, and this
+        // resolves the config's options and loads the plugin modules. It
+        // reports nothing; the transform that follows reports for real.
+        const parsed = measurePhase(phases, "configMs", () => this.parseOptionsOnly());
+        if (parsed) {
+          const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(parsed.options);
+          measurePhase(phases, "factoriesMs", () => validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath));
+        }
+        return respond({ diagnostics: [], transformed: [] });
+      }
       if (request.operation === "parallel-preflight") {
         // No Program or transformer factory is created by this operation.
         // A mismatch is a serial admission decision, never a build diagnostic.
@@ -386,8 +510,30 @@ class SidecarProjectSession {
         });
       }
 
+      this.rebases.clear();
       for (const changedFile of request.changedFiles) {
-        this.updateFile(changedFile.fileName, changedFile.text);
+        const actualPath = this.updateFile(changedFile.fileName, changedFile.text);
+        if (changedFile.rebase) {
+          this.rebases.set(this.canonicalize(actualPath), changedFile.rebase);
+        }
+      }
+
+      if (!this.programRequired && request.compileFileNames.length > 0) {
+        const parsed = measurePhase(phases, "configMs", () => this.parseOptionsOnly());
+        if (!parsed) {
+          batchDiagnostics = 1;
+          return respond({
+            diagnostics: [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)],
+            transformed: [],
+          });
+        }
+        if (parsed.errors.length === 0) {
+          const programless = this.tryProgramlessTransform(request, parsed.options, phases, pluginLoads);
+          if (programless) {
+            return respond(programless);
+          }
+        }
+        this.programRequired = true;
       }
 
       const parsedState = measurePhase(phases, "configMs", () => {
@@ -437,7 +583,7 @@ class SidecarProjectSession {
       }
 
       const { transforms, diagnostics: pluginDiagnostics, plugins } = measurePhase(phases, "factoriesMs", () =>
-        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath));
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath, pluginLoads));
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
       batchDiagnostics = diagnostics.length;
@@ -484,6 +630,49 @@ class SidecarProjectSession {
   }
 }
 
+// rebaseSourceFile turns the parse of a native jecs rewrite back into the tree
+// the JavaScript jecs transformer hands the next plugin: the file on disk,
+// holding the rewrite's statements, each node at the range it was written at
+// there and every node jecs made up at none. Plugins that map their edits back
+// through node ranges, and the trace printed afterwards, then land where they
+// land under the JavaScript transformer. rebase.ranges lists, per node of the
+// rewrite in preorder, its start and end in the rewrite, its range on disk and
+// whether a factory made it (internal/compile/jecs_rebase.go). A node the list
+// does not name, such as a token tsgo keeps no node for, counts as made up.
+function rebaseSourceFile(ts, printed, rebase, languageOptions) {
+  const original = ts.createSourceFile(printed.fileName, rebase.text, languageOptions, true);
+  const { ranges } = rebase;
+  const nodesAt = new Map();
+  for (let index = 0; index + 4 < ranges.length; index += 5) {
+    const key = `${ranges[index]}:${ranges[index + 1]}`;
+    const queue = nodesAt.get(key);
+    if (queue) {
+      queue.push(index);
+    } else {
+      nodesAt.set(key, [index]);
+    }
+  }
+  const visit = (node) => {
+    const index = nodesAt.get(`${node.getStart(printed)}:${node.end}`)?.shift();
+    ts.forEachChild(node, visit);
+    if (index === undefined) {
+      node.pos = -1;
+      node.end = -1;
+      node.flags |= ts.NodeFlags.Synthesized;
+      return;
+    }
+    node.pos = ranges[index + 2];
+    node.end = ranges[index + 3];
+    if (ranges[index + 4] === 1) {
+      node.flags |= ts.NodeFlags.Synthesized;
+    }
+  };
+  for (const statement of printed.statements) {
+    visit(statement);
+  }
+  return ts.factory.updateSourceFile(original, printed.statements);
+}
+
 // The trace map is not an emit artifact — rotor needs it to put every position
 // this reprint produces (diagnostics included) back into the coordinates of the
 // file on disk. So it is generated whether or not the project emits source
@@ -518,10 +707,15 @@ function validateRequest(request) {
   if (typeof request.tsConfigPath !== "string" || request.tsConfigPath.length === 0) {
     return createRequestDiagnostic("tsConfigPath must be a non-empty string");
   }
-  if (request.operation !== "transform" && request.operation !== "validate" && request.operation !== "parallel-preflight") {
-    return createRequestDiagnostic("operation must equal \"transform\" or \"validate\"");
+  if (
+    request.operation !== "transform" &&
+    request.operation !== "validate" &&
+    request.operation !== "warm" &&
+    request.operation !== "parallel-preflight"
+  ) {
+    return createRequestDiagnostic("operation must equal \"transform\", \"validate\" or \"warm\"");
   }
-  if (request.operation === "validate") {
+  if (request.operation === "validate" || request.operation === "warm") {
     return undefined;
   }
   if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {
@@ -536,6 +730,10 @@ function validateRequest(request) {
   for (const changedFile of request.changedFiles) {
     if (!changedFile || typeof changedFile.fileName !== "string" || typeof changedFile.text !== "string") {
       return createRequestDiagnostic("each changedFiles item must include string fileName and text");
+    }
+    const { rebase } = changedFile;
+    if (rebase !== undefined && (!rebase || typeof rebase.text !== "string" || !Array.isArray(rebase.ranges))) {
+      return createRequestDiagnostic("a changedFiles rebase must include string text and an array of ranges");
     }
   }
   return undefined;

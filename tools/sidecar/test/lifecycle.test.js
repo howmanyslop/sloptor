@@ -45,7 +45,11 @@ test("config replacements release language service documents, including validati
   });
   const server = new SidecarServer(instrumented);
   t.after(() => server.dispose());
-  const request = { protocol: 1, operation: "transform", projectDir, tsConfigPath, compileFileNames: [fileName], changedFiles: [], plugins: [] };
+  // The plugin reads its program, so every request goes through the
+  // LanguageService whose document ownership this test tracks.
+  const pluginPath = path.join(projectDir, "plugin.js");
+  fs.writeFileSync(pluginPath, "module.exports = (program) => { program.getCompilerOptions(); return () => (file) => file; };\n");
+  const request = { protocol: 1, operation: "transform", projectDir, tsConfigPath, compileFileNames: [fileName], changedFiles: [], plugins: [{ transform: pluginPath }] };
   const writeConfig = (strict, target) => fs.writeFileSync(tsConfigPath, JSON.stringify({ compilerOptions: { noLib: true, strict, target }, files: ["main.ts"] }));
   const transform = () => {
     const response = server.handleRequest(request);

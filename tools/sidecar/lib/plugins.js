@@ -63,9 +63,13 @@ function realpath(fileName) {
   return fs.realpathSync.native?.(fileName) ?? fs.realpathSync(fileName);
 }
 
-function loadPluginDefinition(config, baseDir, tsModulePath) {
+// loads, when given, holds the outcome of each module a request has already
+// evaluated, so a module that throws while loading is evaluated once per
+// request even when the request asks for its factories twice. Node caches only
+// modules that loaded.
+function loadPluginDefinition(config, baseDir, tsModulePath, loads) {
   const modulePath = require.resolve(config.transform, { paths: [baseDir] });
-  const requiredModule = require(modulePath);
+  const requiredModule = requirePluginModule(modulePath, loads);
   const factoryModule = typeof requiredModule === "function"
     ? Object.assign({ default: requiredModule }, requiredModule)
     : requiredModule;
@@ -96,6 +100,24 @@ function loadPluginDefinition(config, baseDir, tsModulePath) {
   }
 
   return { modulePath, factoryModule, factory };
+}
+
+function requirePluginModule(modulePath, loads) {
+  const previous = loads?.get(modulePath);
+  if (previous) {
+    if (previous.failed) {
+      throw previous.error;
+    }
+    return previous.value;
+  }
+  try {
+    const value = require(modulePath);
+    loads?.set(modulePath, { failed: false, value });
+    return value;
+  } catch (error) {
+    loads?.set(modulePath, { failed: true, error });
+    throw error;
+  }
 }
 
 // validatePluginConfigs performs only the protocol's declaration-time checks:
@@ -170,7 +192,7 @@ function pluginMetrics(plugins) {
   return plugins.map((plugin) => ({ transform: plugin.transform, ms: Number(plugin.ns / 1000000n) }));
 }
 
-function createTransformerList(ts, program, configs, baseDir, tsModulePath, originalReactEntry) {
+function createTransformerList(ts, program, configs, baseDir, tsModulePath, originalReactEntry, loads) {
   const transforms = {
     before: [],
     after: [],
@@ -185,7 +207,7 @@ function createTransformerList(ts, program, configs, baseDir, tsModulePath, orig
     }
 
     try {
-      const loaded = loadPluginDefinition(config, baseDir, tsModulePath);
+      const loaded = loadPluginDefinition(config, baseDir, tsModulePath, loads);
       if (loaded.diagnostic) {
         diagnostics.push(loaded.diagnostic);
         continue;

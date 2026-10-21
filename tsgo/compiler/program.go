@@ -38,9 +38,12 @@ type ProgramOptions struct {
 	UseSourceOfProjectReference bool
 	SingleThreaded              core.Tristate
 	CreateCheckerPool           func(*Program) CheckerPool
-	TypingsLocation             string
-	ProjectName                 string
-	Tracing                     *tracing.Tracing
+	// CheckerCount, when positive, sizes the default checker pool in place of
+	// the compiler options' checkers setting.
+	CheckerCount    int
+	TypingsLocation string
+	ProjectName     string
+	Tracing         *tracing.Tracing
 }
 
 func (p *ProgramOptions) canUseProjectReferenceSource() bool {
@@ -295,11 +298,19 @@ const minReplacementsForFileIndex = 8
 // imports that still resolve to modules already present in the program. Otherwise it rebuilds
 // once via NewProgram. createCheckerPool, if non-nil, overrides the stored pool factory.
 func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool) (*Program, bool) {
+	return p.UpdateProgramFilesWithCheckers(changedFilePaths, newHost, createCheckerPool, p.opts.CheckerCount)
+}
+
+// UpdateProgramFilesWithCheckers is UpdateProgramFiles for a program whose
+// default checker pool holds checkerCount checkers (see
+// ProgramOptions.CheckerCount); zero keeps the compiler options' setting.
+func (p *Program) UpdateProgramFilesWithCheckers(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool, checkerCount int) (*Program, bool) {
 	if len(changedFilePaths) == 0 {
 		return p, true
 	}
 
 	newOpts := p.opts
+	newOpts.CheckerCount = checkerCount
 	newOpts.Host = newHost
 	if createCheckerPool != nil {
 		newOpts.CreateCheckerPool = createCheckerPool
@@ -584,6 +595,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
 	if p.compilerCheckerPool != nil {
 		p.compilerCheckerPool.forEachCheckerParallel(cb)
 	}
+}
+
+// ForEachFileOnFreeChecker runs cb for every file, each on whichever checker
+// is free next, and reassigns each file to the checker that ran it; it reports
+// false, having run nothing, when the program's checkers cannot be reassigned.
+// Only a program given its own checker count reassigns: which checker checks a
+// file changes the order of the types a declaration emit prints, and only
+// derived programs, which emit no declarations, are given one.
+func (p *Program) ForEachFileOnFreeChecker(ctx context.Context, files []*ast.SourceFile, cb func(file *ast.SourceFile)) bool {
+	if p.compilerCheckerPool == nil || p.opts.CheckerCount <= 0 {
+		return false
+	}
+	p.compilerCheckerPool.forEachFileOnFreeChecker(ctx, files, cb)
+	return true
 }
 
 // Return a checker for the given file. We may have multiple checkers in concurrent scenarios and this

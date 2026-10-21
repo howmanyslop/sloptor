@@ -26,6 +26,12 @@ type TransformInput struct {
 	Project      *Project
 	Analyses     []FileAnalysis
 	MacroRuntime *MacroRuntime
+	// Print, when set, runs for every file in the goroutine that transformed
+	// it, while that goroutine has the file's EmitContext to itself; the
+	// parallel loop gives each worker an EmitContext of its own, so printing
+	// there is the only way to print files concurrently. Its result is
+	// returned as SourceMetadata.Printed.
+	Print func(SourceMetadata) (any, error)
 }
 
 // SourceMetadata preserves the original source identity alongside its AST replacement.
@@ -35,6 +41,33 @@ type SourceMetadata struct {
 	transformed *ast.SourceFile
 	trace       SourceTrace
 	emitContext *printer.EmitContext
+	printed     any
+}
+
+func newSourceMetadata(sourceFile, transformed *ast.SourceFile, emitContext *printer.EmitContext) SourceMetadata {
+	return SourceMetadata{
+		fileName:    sourceFile.FileName(),
+		original:    sourceFile,
+		transformed: transformed,
+		emitContext: emitContext,
+		trace: SourceTrace{
+			fileName: sourceFile.FileName(),
+			text:     sourceFile.Text(),
+		},
+	}
+}
+
+// printSource runs input.Print for one file's metadata, if the caller set it.
+func printSource(input TransformInput, metadata SourceMetadata) (SourceMetadata, error) {
+	if input.Print == nil {
+		return metadata, nil
+	}
+	printed, err := input.Print(metadata)
+	if err != nil {
+		return metadata, err
+	}
+	metadata.printed = printed
+	return metadata, nil
 }
 
 func (m SourceMetadata) FileName() string             { return m.fileName }
@@ -45,6 +78,9 @@ func (m SourceMetadata) Trace() SourceTrace           { return m.trace }
 func (m SourceMetadata) EmitContext() *printer.EmitContext {
 	return m.emitContext
 }
+
+// Printed is TransformInput.Print's result for this file, or nil.
+func (m SourceMetadata) Printed() any { return m.printed }
 
 // SourceTrace carries the original source identity required to compose later trace maps.
 type SourceTrace struct {

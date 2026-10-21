@@ -242,7 +242,7 @@ test("sidecar protocol requires an explicit operation", () => {
   assert.deepEqual(response.transformed, []);
   assert.equal(response.diagnostics.length, 1);
   assert.equal(response.diagnostics[0].code, "invalid-request");
-  assert.equal(response.diagnostics[0].message, 'operation must equal "transform" or "validate"');
+  assert.equal(response.diagnostics[0].message, 'operation must equal "transform", "validate" or "warm"');
 });
 
 // Catches comment-driven compiler directives disappearing before later
@@ -539,6 +539,9 @@ test("worker phase metrics attribute work and reset across requests", (t) => {
     },
   };
   const session = new SidecarProjectSession(measuredTs, fixtureDir, configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  session.programRequired = true;
   t.after(() => session.dispose());
   const request = {
     protocol: 1, operation: "transform", projectDir: fixtureDir, tsConfigPath: configPath,
@@ -553,6 +556,9 @@ test("worker phase metrics attribute work and reset across requests", (t) => {
   assert.deepEqual(first.metrics.plugins.map((plugin) => plugin.ms), [12, 12]);
   assert.deepEqual(session.handleRequest(request), first, "warm response includes only this request's work");
   const baseline = new sidecar.SidecarProjectSession(measuredTs, fixtureDir, configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  baseline.programRequired = true;
   t.after(() => baseline.dispose());
   baseline.refreshParsedConfig();
   const program = baseline.service.getProgram();
@@ -884,6 +890,9 @@ function narrowRootsRequest(project, rootFileNames) {
 test("rootFileNames narrows the worker program to the files being compiled", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  session.programRequired = true;
 
   const response = session.handleRequest(narrowRootsRequest(project, [project.files.a, project.files.globals]));
 
@@ -897,6 +906,9 @@ test("rootFileNames narrows the worker program to the files being compiled", () 
 test("the worker's root limit only ever widens within a session", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  session.programRequired = true;
 
   session.handleRequest(narrowRootsRequest(project, [project.files.a]));
   const afterFirst = session.projectVersion;
@@ -937,6 +949,9 @@ test("rootFileNames must be an array of strings when present", () => {
 test("a narrowed root whose file was deleted is dropped, not reported", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  session.programRequired = true;
 
   session.handleRequest(narrowRootsRequest(project, [project.files.a, project.files.b]));
   assert.deepEqual(programFileNames(session), [toSlash(project.files.a), toSlash(project.files.b)]);
@@ -956,6 +971,9 @@ test("a narrowed root whose file was deleted is dropped, not reported", () => {
 test("a narrowed request after a limitless one neither shrinks nor churns the program", () => {
   const project = narrowRootsProject();
   const session = new sidecar.SidecarProjectSession(ts, project.projectRoot, project.configPath);
+  // Covers the LanguageService path, which a plugin that never reads its
+  // program would otherwise skip.
+  session.programRequired = true;
   const everything = [
     toSlash(project.files.a),
     toSlash(project.files.b),
@@ -978,4 +996,132 @@ test("a narrowed request after a limitless one neither shrinks nor churns the pr
   assert.equal(session.rootLimit, undefined, "the limit is already the whole project");
   assert.deepEqual(programFileNames(session), everything, "a narrowed request must not shrink the root set");
   assert.equal(session.projectVersion, settled, "a narrowed request must not invalidate the program");
+});
+
+function writeProgramlessFixture(prefix, pluginSource) {
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const sourceDir = path.join(fixtureDir, "src");
+  fs.mkdirSync(sourceDir, { recursive: true });
+  const fileName = path.join(sourceDir, "main.ts");
+  fs.writeFileSync(fileName, "const answer: number = 42;\nexport const label = \"start\";\nexport { answer };\n");
+  fs.writeFileSync(path.join(fixtureDir, "plugin.js"), pluginSource);
+  const configPath = path.join(fixtureDir, "tsconfig.json");
+  fs.writeFileSync(configPath, JSON.stringify({
+    compilerOptions: { module: "CommonJS", noLib: true, target: "ESNext", rootDir: "src", outDir: "out", plugins: [{ transform: "./plugin.js" }] },
+    include: ["src"],
+  }));
+  const request = { protocol: 1, operation: "transform", projectDir: fixtureDir, tsConfigPath: configPath, compileFileNames: [fileName], changedFiles: [] };
+  return { fixtureDir, configPath, request };
+}
+
+// Catches a transformer that never reads its program producing different text
+// when the worker skips building the program than when it builds one. The
+// expected output is the LanguageService path's own answer for the same input.
+test("a transformer that ignores its program transforms the same without one", (t) => {
+  const fixture = writeProgramlessFixture("rotor-sidecar-programless-", `module.exports = (_program, _config, { ts }) => (context) => {
+  const visit = (node) => ts.isStringLiteral(node) ? ts.factory.createStringLiteral("changed") : ts.visitEachChild(node, visit, context);
+  return (sourceFile) => ts.visitNode(sourceFile, visit);
+};\n`);
+
+  const cwd = process.cwd();
+  const programless = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
+  const withProgram = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
+  withProgram.programRequired = true;
+  t.after(() => { process.chdir(cwd); programless.dispose(); withProgram.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
+
+  const skipped = programless.handleRequest(fixture.request);
+  const built = withProgram.handleRequest(fixture.request);
+
+  assert.deepEqual(skipped.diagnostics, []);
+  assert.equal(skipped.transformed.length, 1);
+  assert.match(skipped.transformed[0].text, /"changed"/);
+  assert.deepEqual(skipped.transformed.map(({ text, traceMap }) => ({ text, traceMap })), built.transformed.map(({ text, traceMap }) => ({ text, traceMap })));
+});
+
+// Catches a transformer that asks the checker about its file getting no
+// answer, or a stale one, because the worker first tried it without a
+// program. The expected type is the annotation written in the fixture.
+test("a transformer that reads its program still sees the checker's types", (t) => {
+  const fixture = writeProgramlessFixture("rotor-sidecar-checker-", `module.exports = (program, _config, { ts }) => {
+  const checker = program.getTypeChecker();
+  return (context) => {
+    const visit = (node) => ts.isVariableDeclaration(node) && node.name.text === "answer"
+      ? ts.factory.updateVariableDeclaration(node, node.name, undefined, undefined, ts.factory.createStringLiteral(checker.typeToString(checker.getTypeAtLocation(node.name))))
+      : ts.visitEachChild(node, visit, context);
+    return (sourceFile) => ts.visitNode(sourceFile, visit);
+  };
+};\n`);
+
+  const cwd = process.cwd();
+  const session = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath);
+  t.after(() => { process.chdir(cwd); session.dispose(); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
+  const first = session.handleRequest(fixture.request);
+  const second = session.handleRequest(fixture.request);
+
+  for (const response of [first, second]) {
+    assert.deepEqual(response.diagnostics, []);
+    assert.match(response.transformed[0].text, /answer = "number"/);
+  }
+});
+
+// Catches a file rewritten by native jecs coming back traced into the rewrite
+// instead of the file on disk, or printed differently from the JavaScript
+// pipeline, once a later plugin changes it. The expected text and trace are
+// the single-pass answer: a stand-in for jecs and the later plugin run back to
+// back in one request against the file on disk.
+test("a rebased rewrite transforms and traces as the transformer it stands in for", (t) => {
+  const fixture = writeProgramlessFixture("rotor-sidecar-rebase-", `module.exports = (_program, _config, { ts }) => (context) => {
+  const visit = (node) => ts.isStringLiteral(node) ? ts.factory.createStringLiteral("changed") : ts.visitEachChild(node, visit, context);
+  return (sourceFile) => ts.visitNode(sourceFile, visit);
+};\n`);
+  const cwd = process.cwd();
+  t.after(() => { process.chdir(cwd); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
+  fs.writeFileSync(path.join(fixture.fixtureDir, "prepend.js"), `module.exports = (_program, _config, { ts }) => () => (sourceFile) =>
+  ts.factory.updateSourceFile(sourceFile, [
+    ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
+      ts.factory.createVariableDeclaration("made", undefined, undefined, ts.factory.createNumericLiteral(0)),
+    ], ts.NodeFlags.Const)),
+    ...sourceFile.statements,
+  ]);\n`);
+  const [fileName] = fixture.request.compileFileNames;
+  const onDisk = fs.readFileSync(fileName, "utf8");
+
+  // What native jecs sends: the stand-in's printed rewrite, and per node in
+  // preorder its range in the rewrite and on disk, or none for its own nodes.
+  const original = ts.createSourceFile(fileName, onDisk, ts.ScriptTarget.ESNext, true);
+  const rewritten = ts.factory.updateSourceFile(original, [
+    ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
+      ts.factory.createVariableDeclaration("made", undefined, undefined, ts.factory.createNumericLiteral(0)),
+    ], ts.NodeFlags.Const)),
+    ...original.statements,
+  ]);
+  const printedText = ts.createPrinter().printFile(rewritten);
+  const printed = ts.createSourceFile(fileName, printedText, ts.ScriptTarget.ESNext, true);
+  const ranges = [];
+  const made = (node) => {
+    ranges.push(node.getStart(printed), node.end, -1, -1, 1);
+    ts.forEachChild(node, made);
+  };
+  const kept = (node, from) => {
+    ranges.push(node.getStart(printed), node.end, from.pos, from.end, 0);
+    const children = [];
+    ts.forEachChild(from, (child) => { children.push(child); });
+    let index = 0;
+    ts.forEachChild(node, (child) => { kept(child, children[index++]); });
+  };
+  made(printed.statements[0]);
+  printed.statements.slice(1).forEach((statement, index) => kept(statement, original.statements[index]));
+
+  const plugin = { transform: "./plugin.js" };
+  const single = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath)
+    .handleRequest({ ...fixture.request, plugins: [{ transform: "./prepend.js" }, plugin] });
+  const rebased = new sidecar.SidecarProjectSession(ts, fixture.fixtureDir, fixture.configPath).handleRequest({
+    ...fixture.request,
+    plugins: [plugin],
+    changedFiles: [{ fileName, text: printedText, rebase: { text: onDisk, ranges } }],
+  });
+
+  assert.deepEqual(rebased.diagnostics, []);
+  assert.equal(single.transformed.length, 1);
+  assert.deepEqual(rebased.transformed.map(({ text, traceMap }) => ({ text, traceMap })), single.transformed.map(({ text, traceMap }) => ({ text, traceMap })));
 });

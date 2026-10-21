@@ -26,6 +26,7 @@ type nativeSourceOverlay struct {
 	fileName string
 	text     string
 	trace    *sourceTraceMap
+	rebase   *TransformerRebase
 }
 
 type nativeProgramUpdate struct {
@@ -33,6 +34,26 @@ type nativeProgramUpdate struct {
 	sourceFiles []*ast.SourceFile
 	traces      diagnosticTraces
 	overlays    []nativeSourceOverlay
+}
+
+// derivedProgramDefaultCheckers sizes the checker pool of every program rotor
+// derives from a project's program by overlaying transformed source: the
+// native Flamework visit, semantic diagnostics and rendering all fan out across
+// it. The project's own program keeps the configured count, because its
+// checkers emit declarations, whose text follows checker type order; a fixed
+// count rather than a CPU-derived one keeps everything else alike on every
+// machine too.
+const derivedProgramDefaultCheckers = 8
+
+// derivedProgramCheckers is the checker count for a program derived from
+// program: derivedProgramDefaultCheckers, unless the project configured a
+// count (--checkers or tsconfig `checkers`) or runs single-threaded, which it
+// keeps.
+func derivedProgramCheckers(program *compiler.Program) int {
+	if program.Options().Checkers != nil || program.SingleThreaded() {
+		return 0
+	}
+	return derivedProgramDefaultCheckers
 }
 
 func updateProgramWithTextOverlays(program *compiler.Program, overlays map[string]string) (*compiler.Program, bool, error) {
@@ -162,7 +183,7 @@ func (host nativeOverlayHost) GetSourceFile(opts ast.SourceFileParseOptions) *as
 }
 
 // updateProgramFilesWithOverlays applies the changed overlay files with one
-// UpdateProgramFiles call. That call asks for each changed file in turn through
+// UpdateProgramFilesWithCheckers call. That call asks for each changed file in turn through
 // GetSourceFile(oldFile.ParseOptions()), so it parses them one at a time.
 // Unless the Program is single-threaded, the overlay aliases resolve and the
 // changed files parse first, in work groups, and the host gives each parse to
@@ -171,7 +192,7 @@ func (host nativeOverlayHost) GetSourceFile(opts ast.SourceFileParseOptions) *as
 func updateProgramFilesWithOverlays(program *compiler.Program, overlays map[string]string, changed []tspath.Path) (*compiler.Program, bool) {
 	base := program.Host()
 	if program.SingleThreaded() {
-		return program.UpdateProgramFiles(changed, newNativeOverlayHost(base, overlays), nil)
+		return program.UpdateProgramFilesWithCheckers(changed, newNativeOverlayHost(base, overlays), nil, derivedProgramCheckers(program))
 	}
 	caseSensitive := base.FS().UseCaseSensitiveFileNames()
 	host := newNativeOverlayHostWithAliases(base, overlays, parallelOverlayAliases(overlays, caseSensitive))
@@ -179,7 +200,7 @@ func updateProgramFilesWithOverlays(program *compiler.Program, overlays map[stri
 	// The updated Program keeps this host; once released it parses every
 	// request again, as a host without preparsed files does.
 	defer host.preparsed.release()
-	return program.UpdateProgramFiles(changed, host, nil)
+	return program.UpdateProgramFilesWithCheckers(changed, host, nil, derivedProgramCheckers(program))
 }
 
 // preparsedOverlays holds overlay parses made before UpdateProgramFiles asks
@@ -380,6 +401,12 @@ func composeNativeOverlayTraces(program *compiler.Program, traces diagnosticTrac
 }
 
 func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceMetadata) (string, *sourceTraceMap, error) {
+	return printNativeSource(sourceFile, metadata.Original(), metadata.EmitContext(), metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
+}
+
+// printNativeSource prints a natively transformed source file and the trace
+// map that takes its positions back to originalText.
+func printNativeSource(sourceFile, original *ast.SourceFile, emitContext *printer.EmitContext, originalFileName, originalText string) (string, *sourceTraceMap, error) {
 	writer := printer.NewTextWriter("\n", 0)
 	generator := sourcemap.NewGenerator(
 		filepath.Base(sourceFile.FileName()),
@@ -387,13 +414,13 @@ func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceM
 		filepath.Dir(sourceFile.FileName()),
 		tspath.ComparePathsOptions{UseCaseSensitiveFileNames: true, CurrentDirectory: filepath.Dir(sourceFile.FileName())},
 	)
-	printer.NewPrinter(printer.PrinterOptions{SourceMap: true, InlineSources: true}, printer.PrintHandlers{}, metadata.EmitContext()).Write(sourceFile.AsNode(), metadata.Original(), writer, generator)
+	printer.NewPrinter(printer.PrinterOptions{SourceMap: true, InlineSources: true}, printer.PrintHandlers{}, emitContext).Write(sourceFile.AsNode(), original, writer, generator)
 	textWriter, ok := writer.(interface{ String() string })
 	if !ok {
 		return "", nil, errors.New("compile: TypeScript printer writer does not expose text")
 	}
 	raw := generator.RawSourceMap()
-	trace, err := newSourceTraceMapFromMappings(raw.Version, raw.Mappings, metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
+	trace, err := newSourceTraceMapFromMappings(raw.Version, raw.Mappings, originalFileName, originalText)
 	if err != nil {
 		return "", nil, err
 	}

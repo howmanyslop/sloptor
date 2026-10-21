@@ -10,6 +10,10 @@ import (
 )
 
 func (p *Project) AddGlob(pattern, origin string) {
+	if p.recording != nil {
+		p.recording.addGlob(pattern, origin)
+		return
+	}
 	p.buildInfo.AddGlob(pattern, origin)
 }
 

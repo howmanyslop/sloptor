@@ -17,6 +17,9 @@ type DeclarationIdentity struct {
 }
 
 func (p *Project) Identifier(declaration DeclarationIdentity) (string, error) {
+	if p.recording != nil {
+		return p.recording.identifier(p, declaration)
+	}
 	if existing, ok := p.buildInfo.Identifier(declaration.InternalID); ok {
 		return existing, nil
 	}
@@ -75,6 +78,9 @@ func (p *Project) PreloadIdentifiers(declarations []DeclarationIdentity) (map[st
 func (p *Project) HashString(text, context string) (string, error) {
 	if context == "" {
 		context = DefaultHashContext
+	}
+	if p.recording != nil {
+		return p.recording.hashString(p, text, context)
 	}
 	return p.buildInfo.HashString(text, context)
 }
