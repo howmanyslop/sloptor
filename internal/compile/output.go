@@ -238,6 +238,9 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 	stopSelection()
+	if len(selectedFiles) > 0 && opts.onCompileStart != nil {
+		opts.onCompileStart()
+	}
 
 	copyFilesGate := loadCopyFilesGatePreBuild(copyFilesGateInputs{
 		RootDirs:       getRootDirs(program),
@@ -259,14 +262,30 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		return nil, nil, err
 	}
 	stopIncludeCopy()
-	stopNonCompiledCopy := timings.startStage(nonCompiledCopyStage)
-	if !copyFilesGate.SkipCopyFiles {
-		if err := copyNonCompiledFiles(pathTranslator, getRootDirs(program)); err != nil {
-			stopNonCompiledCopy()
-			return nil, nil, err
+	// Copying the non-compiled files is disk work no compile stage reads, so
+	// it runs beside them. Every return waits for it, so a failed build never
+	// leaves a copy running into the next one.
+	nonCompiledCopied := make(chan error, 1)
+	rootDirs := getRootDirs(program)
+	go func() {
+		stopNonCompiledCopy := timings.startStage(nonCompiledCopyStage)
+		var err error
+		if !copyFilesGate.SkipCopyFiles {
+			err = copyNonCompiledFiles(pathTranslator, rootDirs)
 		}
+		stopNonCompiledCopy()
+		nonCompiledCopied <- err
+	}()
+	var nonCompiledCopyErr error
+	nonCompiledCopyJoined := false
+	joinNonCompiledCopy := func() error {
+		if !nonCompiledCopyJoined {
+			nonCompiledCopyErr = <-nonCompiledCopied
+			nonCompiledCopyJoined = true
+		}
+		return nonCompiledCopyErr
 	}
-	stopNonCompiledCopy()
+	defer func() { _ = joinNonCompiledCopy() }()
 	timings.setSourceCounts(len(sourceFiles), len(selectedFiles))
 
 	// rotor extension: detect $env usage on the already-loaded source text
@@ -352,6 +371,31 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 
+	if err := joinNonCompiledCopy(); err != nil {
+		return nil, nil, err
+	}
+	declarations := signatureDeclarations
+	prefetched, ok, err := pipelineOpts.declarationPrefetch.result()
+	if err != nil {
+		return declarationBuildFailure(err)
+	}
+	if ok {
+		declarations = prefetched
+	}
+	// Declarations and compiled outputs are disjoint files, so they write
+	// together; a compiled-output failure still reports first.
+	type declarationWrite struct {
+		files []string
+		err   error
+	}
+	declarationsWritten := make(chan declarationWrite, 1)
+	go func() {
+		stopDeclarations := timings.startStage(declarationEmitWritesStage)
+		files, err := emitDeclarations(originalProgram, selectedPaths, declarations, opts.WriteOnlyChanged, writer, timings)
+		stopDeclarations()
+		declarationsWritten <- declarationWrite{files: files, err: err}
+	}()
+
 	stopCompiledOutputWrites := timings.startStage(compiledOutputWritesStage)
 	emittedFiles := make([]string, 0, len(outputs))
 	relOuts := make([]string, 0, len(outputs))
@@ -385,12 +429,14 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 				sourceMap, err = rewriteSourceMapWithTrace(sourceMap, trace)
 				if err != nil {
 					stopCompiledOutputWrites()
+					<-declarationsWritten
 					return nil, nil, err
 				}
 			}
 			sourceMap, err = rewriteSourceMapPaths(sourceMap, absOut)
 			if err != nil {
 				stopCompiledOutputWrites()
+				<-declarationsWritten
 				return nil, nil, err
 			}
 		}
@@ -417,10 +463,12 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 	if err := writer.prepare(writePaths); err != nil {
 		stopCompiledOutputWrites()
+		<-declarationsWritten
 		return nil, nil, err
 	}
 	err = parallelize(writeWorkers(), jobs)
 	stopCompiledOutputWrites()
+	declarationResult := <-declarationsWritten
 	if err != nil {
 		return nil, nil, err
 	}
@@ -431,21 +479,10 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	}
 	timings.setEmittedEntries(len(emittedFiles))
 
-	declarations := signatureDeclarations
-	prefetched, ok, err := pipelineOpts.declarationPrefetch.result()
-	if err != nil {
-		return declarationBuildFailure(err)
+	if declarationResult.err != nil {
+		return declarationBuildFailure(declarationResult.err)
 	}
-	if ok {
-		declarations = prefetched
-	}
-	stopDeclarations := timings.startStage(declarationEmitWritesStage)
-	declFiles, err := emitDeclarations(originalProgram, selectedPaths, declarations, opts.WriteOnlyChanged, writer, timings)
-	stopDeclarations()
-	if err != nil {
-		return declarationBuildFailure(err)
-	}
-	emittedFiles = append(emittedFiles, declFiles...)
+	emittedFiles = append(emittedFiles, declarationResult.files...)
 	timings.setHashSkips(writer.hashSkipCount())
 
 	stopPersistence := timings.startStage(persistenceStage)

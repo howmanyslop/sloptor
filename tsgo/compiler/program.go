@@ -38,9 +38,12 @@ type ProgramOptions struct {
 	UseSourceOfProjectReference bool
 	SingleThreaded              core.Tristate
 	CreateCheckerPool           func(*Program) CheckerPool
-	TypingsLocation             string
-	ProjectName                 string
-	Tracing                     *tracing.Tracing
+	// CheckerCount, when positive, sizes the default checker pool in place of
+	// the compiler options' checkers setting.
+	CheckerCount    int
+	TypingsLocation string
+	ProjectName     string
+	Tracing         *tracing.Tracing
 }
 
 func (p *ProgramOptions) canUseProjectReferenceSource() bool {
@@ -290,11 +293,19 @@ func (p *Program) UpdateProgram(changedFilePath tspath.Path, newHost CompilerHos
 // imports that still resolve to modules already present in the program. Otherwise it rebuilds
 // once via NewProgram. createCheckerPool, if non-nil, overrides the stored pool factory.
 func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool) (*Program, bool) {
+	return p.UpdateProgramFilesWithCheckers(changedFilePaths, newHost, createCheckerPool, p.opts.CheckerCount)
+}
+
+// UpdateProgramFilesWithCheckers is UpdateProgramFiles for a program whose
+// default checker pool holds checkerCount checkers (see
+// ProgramOptions.CheckerCount); zero keeps the compiler options' setting.
+func (p *Program) UpdateProgramFilesWithCheckers(changedFilePaths []tspath.Path, newHost CompilerHost, createCheckerPool func(*Program) CheckerPool, checkerCount int) (*Program, bool) {
 	if len(changedFilePaths) == 0 {
 		return p, true
 	}
 
 	newOpts := p.opts
+	newOpts.CheckerCount = checkerCount
 	newOpts.Host = newHost
 	if createCheckerPool != nil {
 		newOpts.CreateCheckerPool = createCheckerPool
@@ -307,8 +318,11 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
 		resolutions  module.ModeAwareCache[*module.ResolvedModule]
 	}
 
-	replacements := make([]replacement, 0, len(changedFilePaths))
-	for _, changedFilePath := range changedFilePaths {
+	// Every way out below is the same full rebuild, so the cheap checks run
+	// first and the changed files are parsed in parallel; parsing reads only
+	// the host, which the parallel file loader already calls concurrently.
+	oldFiles := make([]*ast.SourceFile, len(changedFilePaths))
+	for index, changedFilePath := range changedFilePaths {
 		// Package redirect groups need a full rebuild so redirect targets recalculate.
 		_, inRedirectFiles := p.redirectFilesByPath[changedFilePath]
 		_, isRedirectTarget := p.redirectTargetsMap[changedFilePath]
@@ -316,11 +330,23 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
 			return NewProgram(newOpts), false
 		}
 
-		oldFile := p.filesByPath[changedFilePath]
-		if oldFile == nil {
+		oldFiles[index] = p.filesByPath[changedFilePath]
+		if oldFiles[index] == nil {
 			return NewProgram(newOpts), false
 		}
-		newFile := newHost.GetSourceFile(oldFile.ParseOptions())
+	}
+	newFiles := make([]*ast.SourceFile, len(changedFilePaths))
+	parse := core.NewWorkGroup(p.SingleThreaded() || len(changedFilePaths) < 2)
+	for index, oldFile := range oldFiles {
+		parse.Queue(func() {
+			newFiles[index] = newHost.GetSourceFile(oldFile.ParseOptions())
+		})
+	}
+	parse.RunAndWait()
+
+	replacements := make([]replacement, 0, len(changedFilePaths))
+	for index, changedFilePath := range changedFilePaths {
+		oldFile, newFile := oldFiles[index], newFiles[index]
 		if newFile == nil {
 			return NewProgram(newOpts), false
 		}
@@ -365,9 +391,15 @@ func (p *Program) UpdateProgramFiles(changedFilePaths []tspath.Path, newHost Com
 		result.resolvedModules = maps.Clone(p.resolvedModules)
 	}
 
+	fileIndices := make(map[tspath.Path]int, len(result.files))
+	for index, file := range result.files {
+		if _, seen := fileIndices[file.Path()]; !seen {
+			fileIndices[file.Path()] = index
+		}
+	}
 	for _, entry := range replacements {
-		index := core.FindIndex(result.files, func(file *ast.SourceFile) bool { return file.Path() == entry.path })
-		if index < 0 {
+		index, ok := fileIndices[entry.path]
+		if !ok {
 			return NewProgram(newOpts), false
 		}
 		result.files[index] = entry.newFile
@@ -549,6 +581,20 @@ func (p *Program) ForEachCheckerParallel(cb func(idx int, c *checker.Checker)) {
 	if p.compilerCheckerPool != nil {
 		p.compilerCheckerPool.forEachCheckerParallel(cb)
 	}
+}
+
+// ForEachFileOnFreeChecker runs cb for every file, each on whichever checker
+// is free next, and reassigns each file to the checker that ran it; it reports
+// false, having run nothing, when the program's checkers cannot be reassigned.
+// Only a program given its own checker count reassigns: which checker checks a
+// file changes the order of the types a declaration emit prints, and only
+// derived programs, which emit no declarations, are given one.
+func (p *Program) ForEachFileOnFreeChecker(ctx context.Context, files []*ast.SourceFile, cb func(file *ast.SourceFile)) bool {
+	if p.compilerCheckerPool == nil || p.opts.CheckerCount <= 0 {
+		return false
+	}
+	p.compilerCheckerPool.forEachFileOnFreeChecker(ctx, files, cb)
+	return true
 }
 
 // Return a checker for the given file. We may have multiple checkers in concurrent scenarios and this

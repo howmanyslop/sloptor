@@ -62,22 +62,31 @@ func Transform(input TransformInput) (TransformResult, error) {
 
 	files := make([]*ast.SourceFile, len(input.Files))
 	sources := make([]SourceMetadata, len(input.Files))
+	if parallelTransformEligible(input, state) {
+		if results, ok := transformFilesParallel(state, input); ok {
+			for index := range input.Files {
+				files[index] = results[index].transformed
+				sources[index] = results[index].metadata
+			}
+			return TransformResult{
+				Files:       files,
+				Plans:       clonePlans(plans),
+				Diagnostics: state.orderedDiagnostics(),
+				Sources:     sources,
+			}, nil
+		}
+	}
 	for index, sourceFile := range input.Files {
 		transformed, transformErr := transformSourceFile(state, sourceFile)
 		if transformErr != nil {
 			return TransformResult{}, fmt.Errorf("transform Flamework source %q: %w", sourceFile.FileName(), transformErr)
 		}
 		files[index] = transformed
-		sources[index] = SourceMetadata{
-			fileName:    sourceFile.FileName(),
-			original:    sourceFile,
-			transformed: transformed,
-			emitContext: state.EmitContext(),
-			trace: SourceTrace{
-				fileName: sourceFile.FileName(),
-				text:     sourceFile.Text(),
-			},
+		metadata, err := printSource(input, newSourceMetadata(sourceFile, transformed, state.EmitContext()))
+		if err != nil {
+			return TransformResult{}, err
 		}
+		sources[index] = metadata
 	}
 
 	return TransformResult{
@@ -137,9 +146,11 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 			return nil, fmt.Errorf("transform Flamework expressions: %w", err)
 		}
 	}
-	ast.SetParentInChildren(expressionTransformed.AsNode())
-	defer ast.SetParentInChildren(sourceFile.AsNode())
 	if !planned {
+		// Nothing below reads parents here: deduplicateSourceImports walks the
+		// statements, and DeepCloneReparse parents its own copy. Leaving the
+		// original tree's parents alone is what lets parallel workers visit
+		// unplanned files while other checkers read those nodes.
 		if expressionTransformed == sourceFile {
 			return sourceFile, nil
 		}
@@ -149,6 +160,8 @@ func transformSourceFile(state *TransformState, sourceFile *ast.SourceFile) (*as
 		}
 		return state.factory.DeepCloneReparse(transformed.AsNode()).AsSourceFile(), nil
 	}
+	ast.SetParentInChildren(expressionTransformed.AsNode())
+	defer ast.SetParentInChildren(sourceFile.AsNode())
 	classTransformed := false
 	var classErr error
 	var visitor *ast.NodeVisitor

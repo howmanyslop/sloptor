@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"runtime/trace"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -754,6 +755,13 @@ func (s *sidecarSession) revertDroppedOverlays(overlaid map[string]sidecarChange
 }
 
 func runTransformerSidecarWithContext(parent context.Context, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*sidecarResponse, sidecarCallStats, error) {
+	return runTransformerSidecarShard(parent, 0, dir, configPath, compileFiles, stampFiles, overlays, plugins, state, sourceOrigin)
+}
+
+// runTransformerSidecarShard is one round trip through the worker that owns
+// shard of a project. Shard 0 is the project's ordinary worker, which every
+// unsharded request (incremental and watch rebuilds) also goes through.
+func runTransformerSidecarShard(parent context.Context, shard int, dir, configPath string, compileFiles, stampFiles []*ast.SourceFile, overlays map[string]string, plugins []json.RawMessage, state *sidecarBuildState, sourceOrigin string) (*sidecarResponse, sidecarCallStats, error) {
 	var stats sidecarCallStats
 	call := transformerCall{
 		dir:          dir,
@@ -776,6 +784,9 @@ func runTransformerSidecarWithContext(parent context.Context, dir, configPath st
 
 	roundTripStage := transformerRoundTripStageName(configPath, plugins)
 	sidecarDirPath, sidecarConfigPath, key := canonicalTransformerRequestPaths(dir, configPath)
+	if shard > 0 {
+		key += "#" + strconv.Itoa(shard)
+	}
 	slot := sidecarSlotFor(key)
 	stopWait := logStage(configPath, sidecarSessionWaitStage)
 	slot.mu.Lock()

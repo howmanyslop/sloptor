@@ -11,13 +11,19 @@ func transformFlameworkCallExpression(state *TransformState, node *ast.Node, run
 	if !callMayBeFlameworkMacro(state, node) {
 		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
 	}
-	signature := state.checker.GetResolvedSignature(node)
-	if signature == nil {
-		return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
-	}
-	result, err := transformFlameworkCall(state, node, runtime)
-	if err != nil {
-		return expressionTransformResult{}, err
+	var result MacroTransformResult
+	if calleeMayResolveToFlameworkMacro(state, node) {
+		signature := state.checker.GetResolvedSignature(node)
+		if signature == nil {
+			return transformFlameworkExpressionChildrenWithRuntime(state, node, runtime)
+		}
+		var err error
+		result, err = transformFlameworkCall(state, node, runtime)
+		if err != nil {
+			return expressionTransformResult{}, err
+		}
+	} else {
+		result = passThroughFlameworkCall(state, node)
 	}
 	if macroTransformChanged(node, result.Expression) {
 		return expressionTransformResult{

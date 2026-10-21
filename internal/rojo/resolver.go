@@ -151,6 +151,9 @@ type RojoResolver struct {
 	// named project must not take precedence over the package's output path.
 	ignoreNamedProjects bool
 	projectFiles        *ProjectFiles
+	// listings, when set, answers the walk's directory reads from a parallel
+	// prefetch of the same tree.
+	listings *directoryListings
 	// IsGame is true when the tree declares $className "DataModel".
 	IsGame bool
 }
@@ -339,6 +342,7 @@ func PackageImports(basePath string, projectFiles *ProjectFiles) *RojoResolver {
 	r := newRojoResolver()
 	r.ignoreNamedProjects = true
 	r.projectFiles = projectFiles
+	r.listings = prefetchDirectoryListings(basePath)
 	p := basePath
 	r.parseTree(basePath, "", &Tree{Path: &p}, true)
 	return r
@@ -436,7 +440,7 @@ func (r *RojoResolver) parsePath(itemPath string) {
 				r.walkDirectory(itemPath)
 			}
 		}
-		if isDirectory && dirContains(realPath, rojoDefaultName) {
+		if isDirectory && r.dirContains(realPath, rojoDefaultName) {
 			r.parseConfig(filepath.Join(itemPath, rojoDefaultName), true)
 		} else {
 			r.partitions = append([]PartitionInfo{{
@@ -456,14 +460,20 @@ func (r *RojoResolver) parsePath(itemPath string) {
 // walking is parsed WITH its name pushed (doNotPush=false), replacing the
 // directory's own name.
 func (r *RojoResolver) searchDirectory(directory, item string) {
-	realPath := realpathOr(directory)
+	r.searchDirectoryAt(directory, realpathOr(directory), item)
+}
+
+// searchDirectoryAt is searchDirectory for a directory whose physical path is
+// already known. A child that is a plain directory sits at its parent's
+// physical path plus its name, so only links pay for a realpath.
+func (r *RojoResolver) searchDirectoryAt(directory, realPath, item string) {
 	r.walkDirectory(realPath)
 	if r.ignoreNamedProjects {
 		// Retain logical junction paths too: replacing a package link changes
 		// its layout even though the old physical directory still exists.
 		r.walkDirectory(directory)
 	}
-	entries, err := os.ReadDir(realPath)
+	entries, err := r.listings.readDir(realPath)
 	if err != nil {
 		return
 	}
@@ -497,7 +507,12 @@ func (r *RojoResolver) searchDirectory(directory, item string) {
 	// folders
 	for _, entry := range entries {
 		if isDir, _ := entryKind(directory, entry); isDir {
-			r.searchDirectory(filepath.Join(directory, entry.Name()), entry.Name())
+			child := filepath.Join(directory, entry.Name())
+			if entry.Type() == os.ModeDir {
+				r.searchDirectoryAt(child, filepath.Join(realPath, entry.Name()), entry.Name())
+			} else {
+				r.searchDirectoryAt(child, r.listings.realpath(filepath.Join(realPath, entry.Name())), entry.Name())
+			}
 		}
 	}
 
@@ -781,6 +796,24 @@ func pathExists(p string) bool {
 // unchanged on failure.
 func realpathOr(p string) string {
 	return filepath.FromSlash(osvfs.FS().Realpath(filepath.ToSlash(p)))
+}
+
+// dirContains is the package-level dirContains, answered from the prefetch
+// when the walk has one.
+func (r *RojoResolver) dirContains(dir, name string) bool {
+	if r.listings == nil {
+		return dirContains(dir, name)
+	}
+	entries, err := r.listings.readDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Name() == name {
+			return true
+		}
+	}
+	return false
 }
 
 // dirContains mirrors fs.readdirSync(dir).includes(name): an exact,

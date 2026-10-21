@@ -88,6 +88,13 @@ function syncProjectProcessPaths(projectDir, tsConfigPath) {
   }
 }
 
+class ProgramRequiredError extends Error {
+  constructor(property) {
+    super(`transformer read program.${String(property)}`);
+    this.name = "ProgramRequiredError";
+  }
+}
+
 class SidecarProjectSession {
   constructor(ts, projectDir, tsConfigPath, tsModulePath, benchOriginalReactProfile, reactSyntaxHost = false) {
     this.ts = ts;
@@ -117,6 +124,9 @@ class SidecarProjectSession {
     this.rootLimitDisabled = false;
     this.parsed = undefined;
     this.service = undefined;
+    // programRequired latches once a plugin reads the program it was handed,
+    // so later requests skip straight to the LanguageService.
+    this.programRequired = false;
   }
 
   canonicalize(fileName) {
@@ -237,6 +247,25 @@ class SidecarProjectSession {
     return this.versions.get(canonical) ?? 0;
   }
 
+  // parseOptionsOnly resolves the tsconfig's compiler options (extends chain
+  // included) without expanding its include globs: the programless path needs
+  // the options to parse and transform the files it is handed, never the
+  // project's file list, and walking the globs is most of what parsing a large
+  // project's config costs. An empty walk makes TypeScript report that the
+  // config has no inputs, which is only true of this view of it.
+  parseOptionsOnly() {
+    const parsed = this.ts.getParsedCommandLineOfConfigFile(
+      this.tsConfigPath,
+      {},
+      { ...createParseHost(this, this.ts), readDirectory: () => [] },
+    );
+    if (!parsed) {
+      return undefined;
+    }
+    const noInputs = this.ts.Diagnostics.No_inputs_were_found_in_config_file_0_Specified_include_paths_were_1_and_exclude_paths_were_2.code;
+    return { ...parsed, errors: parsed.errors.filter((diagnostic) => diagnostic.code !== noInputs) };
+  }
+
   refreshParsedConfig(createService = true) {
     const parsed = this.ts.getParsedCommandLineOfConfigFile(
       this.tsConfigPath,
@@ -286,6 +315,86 @@ class SidecarProjectSession {
 
     const canonical = this.canonicalize(actualPath);
     return program.getSourceFiles().find((sourceFile) => this.canonicalize(sourceFile.fileName) === canonical);
+  }
+
+  // parseStandaloneSourceFile parses fileName the way the LanguageService's
+  // document registry would, without building a program around it.
+  parseStandaloneSourceFile(fileName, options) {
+    const actualPath = this.rememberFile(fileName);
+    const text = this.readFile(actualPath);
+    if (text === undefined) {
+      return undefined;
+    }
+    return this.ts.createSourceFile(
+      actualPath,
+      text,
+      {
+        languageVersion: this.ts.getEmitScriptTarget(options),
+        setExternalModuleIndicator: this.ts.getSetExternalModuleIndicator?.(options),
+      },
+      true,
+    );
+  }
+
+  // tryProgramlessTransform runs the request against source files parsed on
+  // their own, handing every factory a program that refuses to be read. A
+  // transformer that never looks at its program (the React-compiler applier
+  // runs its own analysis) then costs no LanguageService parse and bind of the
+  // project's import closure. The first time any plugin reads the program the
+  // attempt is abandoned and the session stops trying, so the request is
+  // answered by the ordinary path below with exactly the program it had before.
+  tryProgramlessTransform(request, options, phases) {
+    let touched = false;
+    const program = new Proxy({}, {
+      get(_target, property) {
+        touched = true;
+        throw new ProgramRequiredError(property);
+      },
+      has() {
+        touched = true;
+        throw new ProgramRequiredError("has");
+      },
+    });
+    const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(options);
+    let created;
+    try {
+      created = measurePhase(phases, "factoriesMs", () =>
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath));
+    } catch (error) {
+      if (touched) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (touched || created.diagnostics.length > 0) {
+      return undefined;
+    }
+    const sourceFiles = [];
+    for (const fileName of request.compileFileNames) {
+      const sourceFile = this.parseStandaloneSourceFile(fileName, options);
+      if (!sourceFile) {
+        return undefined;
+      }
+      sourceFiles.push(sourceFile);
+    }
+    let transformResult;
+    try {
+      transformResult = this.transformSourceFilesWithOptions(options, sourceFiles, created.transforms, phases);
+    } catch (error) {
+      if (touched) {
+        return undefined;
+      }
+      throw error;
+    }
+    if (touched) {
+      return undefined;
+    }
+    return {
+      diagnostics: transformResult.diagnostics,
+      transformed: transformResult.transformed,
+      metrics: { plugins: pluginMetrics(created.plugins) },
+      afterDeclarationsTransformers: created.transforms.afterDeclarations.length,
+    };
   }
 
   transformSourceFiles(program, sourceFiles, transforms, phases) {
@@ -354,6 +463,19 @@ class SidecarProjectSession {
       },
     });
     try {
+      if (request.operation === "warm") {
+        // warm does a transform's fixed costs ahead of it, so a worker spawned
+        // while rotor is still busy elsewhere is ready when the transform
+        // arrives: TypeScript is already loaded with the session, and this
+        // resolves the config's options and loads the plugin modules. It
+        // reports nothing; the transform that follows reports for real.
+        const parsed = measurePhase(phases, "configMs", () => this.parseOptionsOnly());
+        if (parsed) {
+          const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(parsed.options);
+          measurePhase(phases, "factoriesMs", () => validatePluginConfigs(pluginConfigs, this.projectDir, this.tsModulePath));
+        }
+        return respond({ diagnostics: [], transformed: [] });
+      }
       if (request.operation === "validate") {
         const parsedState = measurePhase(phases, "configMs", () => this.refreshParsedConfig(false));
         if (!this.parsed) {
@@ -370,6 +492,23 @@ class SidecarProjectSession {
 
       for (const changedFile of request.changedFiles) {
         this.updateFile(changedFile.fileName, changedFile.text);
+      }
+
+      if (!this.programRequired && request.compileFileNames.length > 0) {
+        const parsed = measurePhase(phases, "configMs", () => this.parseOptionsOnly());
+        if (!parsed) {
+          return respond({
+            diagnostics: [createProtocolDiagnostic("error", "config-parse", `Failed to parse ${this.tsConfigPath}`)],
+            transformed: [],
+          });
+        }
+        if (parsed.errors.length === 0) {
+          const programless = this.tryProgramlessTransform(request, parsed.options, phases);
+          if (programless) {
+            return respond(programless);
+          }
+        }
+        this.programRequired = true;
       }
 
       const parsedState = measurePhase(phases, "configMs", () => {
@@ -496,10 +635,10 @@ function validateRequest(request) {
   if (typeof request.tsConfigPath !== "string" || request.tsConfigPath.length === 0) {
     return createRequestDiagnostic("tsConfigPath must be a non-empty string");
   }
-  if (request.operation !== "transform" && request.operation !== "validate") {
-    return createRequestDiagnostic("operation must equal \"transform\" or \"validate\"");
+  if (request.operation !== "transform" && request.operation !== "validate" && request.operation !== "warm") {
+    return createRequestDiagnostic("operation must equal \"transform\", \"validate\" or \"warm\"");
   }
-  if (request.operation === "validate") {
+  if (request.operation === "validate" || request.operation === "warm") {
     return undefined;
   }
   if (!Array.isArray(request.compileFileNames) || !request.compileFileNames.every((fileName) => typeof fileName === "string")) {

@@ -166,6 +166,25 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 }
 
 func applyExternalTransformerStage(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState, sourceOrigin string) (*preparedTransformerProgram, []string, error) {
+	if usesSubprocessSidecar(host) {
+		if config, rest := nativeJecsStage(dir, plugins); config != nil {
+			if len(rest) > 0 {
+				configPath := program.Options().ConfigFilePath
+				if configPath == "" {
+					configPath = filepath.ToSlash(filepath.Join(filepath.FromSlash(dir), "tsconfig.json"))
+				}
+				warmTransformerSidecarShards(dir, configPath, rawTransformerPlugins(rest), len(sourceFiles))
+			}
+			native, err := applyNativeJecsTransform(ctx, program, sourceFiles, traces, *config)
+			if err != nil {
+				return nil, []string{err.Error()}, err
+			}
+			if len(rest) == 0 {
+				return native, nil, nil
+			}
+			program, sourceFiles, traces, plugins = native.program, native.sourceFiles, native.sourceTraces, rest
+		}
+	}
 	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state, sourceOrigin)
 	if err != nil {
 		return nil, diags, err
@@ -198,14 +217,37 @@ func rawTransformerPlugins(plugins []transformerPluginConfig) []json.RawMessage 
 }
 
 func applyNativeFlameworkTransform(dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, project *flamework.Project) (*preparedTransformerProgram, []DiagnosticInfo, error) {
+	stop := logStageNamed(program.Options().ConfigFilePath, "native Flamework transform")
+	defer stop()
+	configPath := program.Options().ConfigFilePath
+	stopChecker := logStageNamed(configPath, "native Flamework checker")
 	checker, release := program.GetTypeChecker(context.Background())
+	stopChecker()
 	defer release()
+	// Upstream always prints a fresh source-file update, so by default every
+	// source is overlaid back into the Program (restoring printFlameworkSource
+	// and the overlay/reparse path). Only flamework.skipUnchangedFiles opts
+	// back into pointer-identity reuse of unchanged files. Printing happens in
+	// the transform's own workers, each holding its file's EmitContext.
+	skipUnchanged := project.SkipUnchangedFiles()
+	stopVisit := logStageNamed(configPath, "native Flamework visit and print")
 	result, err := flamework.Transform(flamework.TransformInput{
 		Program: program,
 		Checker: checker,
 		Files:   sourceFiles,
 		Project: project,
+		Print: func(metadata flamework.SourceMetadata) (any, error) {
+			if skipUnchanged && !metadata.Changed() {
+				return nil, nil
+			}
+			text, trace, err := printFlameworkSource(metadata.Transformed(), metadata)
+			if err != nil {
+				return nil, err
+			}
+			return nativeSourceOverlay{fileName: metadata.FileName(), text: text, trace: trace}, nil
+		},
 	})
+	stopVisit()
 	if err != nil {
 		return nil, nil, fmt.Errorf("compile: native Flamework transform: %w", err)
 	}
@@ -213,25 +255,17 @@ func applyNativeFlameworkTransform(dir string, program *compiler.Program, source
 		return nil, tsDiagnosticInfos(result.Diagnostics, traces), errors.New("compile: native Flamework diagnostics")
 	}
 
-	// Upstream always prints a fresh source-file update, so by default every
-	// source is overlaid back into the Program (restoring printFlameworkSource
-	// and the overlay/reparse path). Only flamework.skipUnchangedFiles opts
-	// back into pointer-identity reuse of unchanged files.
-	skipUnchanged := project.SkipUnchangedFiles()
 	changed := make([]nativeSourceOverlay, 0, len(result.Sources))
-	for index, metadata := range result.Sources {
-		if skipUnchanged && !metadata.Changed() {
-			continue
+	for _, metadata := range result.Sources {
+		if overlay, ok := metadata.Printed().(nativeSourceOverlay); ok {
+			changed = append(changed, overlay)
 		}
-		text, trace, err := printFlameworkSource(result.Files[index], metadata)
-		if err != nil {
-			return nil, nil, err
-		}
-		changed = append(changed, nativeSourceOverlay{fileName: metadata.FileName(), text: text, trace: trace})
 	}
+	stopUpdate := logStageNamed(configPath, "native Flamework program update")
 	transformedProgram, remapped, composed, err := updateNativeFlameworkProgram(nativeProgramUpdate{
 		program: program, sourceFiles: sourceFiles, traces: traces, overlays: changed,
 	})
+	stopUpdate()
 	if err != nil {
 		return nil, nil, err
 	}

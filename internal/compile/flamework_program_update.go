@@ -31,6 +31,26 @@ type nativeProgramUpdate struct {
 	overlays    []nativeSourceOverlay
 }
 
+// derivedProgramDefaultCheckers sizes the checker pool of every program rotor
+// derives from a project's program by overlaying transformed source: the
+// native Flamework visit, semantic diagnostics and rendering all fan out across
+// it. The project's own program keeps the configured count, because its
+// checkers emit declarations, whose text follows checker type order; a fixed
+// count rather than a CPU-derived one keeps everything else alike on every
+// machine too.
+const derivedProgramDefaultCheckers = 8
+
+// derivedProgramCheckers is the checker count for a program derived from
+// program: derivedProgramDefaultCheckers, unless the project configured a
+// count (--checkers or tsconfig `checkers`) or runs single-threaded, which it
+// keeps.
+func derivedProgramCheckers(program *compiler.Program) int {
+	if program.Options().Checkers != nil || program.SingleThreaded() {
+		return 0
+	}
+	return derivedProgramDefaultCheckers
+}
+
 func updateProgramWithTextOverlays(program *compiler.Program, overlays map[string]string) (*compiler.Program, bool, error) {
 	if len(overlays) == 0 {
 		return program, true, nil
@@ -67,7 +87,7 @@ func updateProgramWithTextOverlays(program *compiler.Program, overlays map[strin
 	}
 
 	host := newNativeOverlayHost(program.Host(), hostOverlays)
-	updated, reused := program.UpdateProgramFiles(changed, host, nil)
+	updated, reused := program.UpdateProgramFilesWithCheckers(changed, host, nil, derivedProgramCheckers(program))
 	return updated, reused, nil
 }
 
@@ -104,7 +124,7 @@ func updateNativeFlameworkProgram(input nativeProgramUpdate) (*compiler.Program,
 	}
 
 	host := newNativeOverlayHost(input.program.Host(), texts)
-	program, _ := input.program.UpdateProgramFiles(changed, host, nil)
+	program, _ := input.program.UpdateProgramFilesWithCheckers(changed, host, nil, derivedProgramCheckers(input.program))
 
 	remapped, err := remapProgramSourceFiles(program, input.sourceFiles)
 	if err != nil {
@@ -158,6 +178,12 @@ func (host nativeOverlayHost) GetSourceFile(opts ast.SourceFileParseOptions) *as
 }
 
 func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceMetadata) (string, *sourceTraceMap, error) {
+	return printNativeSource(sourceFile, metadata.Original(), metadata.EmitContext(), metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
+}
+
+// printNativeSource prints a natively transformed source file and the trace
+// map that takes its positions back to originalText.
+func printNativeSource(sourceFile, original *ast.SourceFile, emitContext *printer.EmitContext, originalFileName, originalText string) (string, *sourceTraceMap, error) {
 	writer := printer.NewTextWriter("\n", 0)
 	generator := sourcemap.NewGenerator(
 		filepath.Base(sourceFile.FileName()),
@@ -165,13 +191,13 @@ func printFlameworkSource(sourceFile *ast.SourceFile, metadata flamework.SourceM
 		filepath.Dir(sourceFile.FileName()),
 		tspath.ComparePathsOptions{UseCaseSensitiveFileNames: true, CurrentDirectory: filepath.Dir(sourceFile.FileName())},
 	)
-	printer.NewPrinter(printer.PrinterOptions{SourceMap: true, InlineSources: true}, printer.PrintHandlers{}, metadata.EmitContext()).Write(sourceFile.AsNode(), metadata.Original(), writer, generator)
+	printer.NewPrinter(printer.PrinterOptions{SourceMap: true, InlineSources: true}, printer.PrintHandlers{}, emitContext).Write(sourceFile.AsNode(), original, writer, generator)
 	textWriter, ok := writer.(interface{ String() string })
 	if !ok {
 		return "", nil, errors.New("compile: TypeScript printer writer does not expose text")
 	}
 	raw := generator.RawSourceMap()
-	trace, err := newSourceTraceMapFromMappings(raw.Version, raw.Mappings, metadata.Trace().OriginalFileName(), metadata.Trace().OriginalText())
+	trace, err := newSourceTraceMapFromMappings(raw.Version, raw.Mappings, originalFileName, originalText)
 	if err != nil {
 		return "", nil, err
 	}

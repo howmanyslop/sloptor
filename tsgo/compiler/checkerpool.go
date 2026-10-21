@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"rotor/tsgo/ast"
 	"rotor/tsgo/checker"
@@ -28,7 +29,7 @@ type checkerPool struct {
 	createCheckersOnce sync.Once
 	checkers           []*checker.Checker
 	locks              []*sync.Mutex
-	fileAssociations   map[*ast.SourceFile]*checker.Checker
+	fileAssociations   map[*ast.SourceFile]*atomic.Pointer[checker.Checker]
 }
 
 var _ CheckerPool = (*checkerPool)(nil)
@@ -41,6 +42,8 @@ func newCheckerPoolWithTracing(program *Program, tr *tracing.Tracing) *checkerPo
 	checkerCount := 4
 	if program.SingleThreaded() {
 		checkerCount = 1
+	} else if program.opts.CheckerCount > 0 {
+		checkerCount = program.opts.CheckerCount
 	} else if c := program.Options().Checkers; c != nil {
 		checkerCount = *c
 	}
@@ -76,12 +79,21 @@ func (p *checkerPool) GetChecker(ctx context.Context, file *ast.SourceFile) (*ch
 // e.g. for read-only operations like obtaining an emit resolver.
 func (p *checkerPool) getCheckerForFileNonExclusive(file *ast.SourceFile) (*checker.Checker, func()) {
 	p.createCheckers()
-	return p.fileAssociations[file], noop
+	return p.associatedChecker(file), noop
+}
+
+// associatedChecker is the checker tasked with checking file, or nil for a
+// file outside the program.
+func (p *checkerPool) associatedChecker(file *ast.SourceFile) *checker.Checker {
+	if association := p.fileAssociations[file]; association != nil {
+		return association.Load()
+	}
+	return nil
 }
 
 func (p *checkerPool) getCheckerForFileExclusive(ctx context.Context, file *ast.SourceFile) (*checker.Checker, func()) {
 	p.createCheckers()
-	c := p.fileAssociations[file]
+	c := p.associatedChecker(file)
 	idx := slices.Index(p.checkers, c)
 	p.locks[idx].Lock()
 	return c, sync.OnceFunc(func() {
@@ -111,11 +123,43 @@ func (p *checkerPool) createCheckers() {
 
 		wg.RunAndWait()
 
-		p.fileAssociations = make(map[*ast.SourceFile]*checker.Checker, len(p.program.files))
+		p.fileAssociations = make(map[*ast.SourceFile]*atomic.Pointer[checker.Checker], len(p.program.files))
 		for i, file := range p.program.files {
-			p.fileAssociations[file] = p.checkers[i%checkerCount]
+			association := &atomic.Pointer[checker.Checker]{}
+			association.Store(p.checkers[i%checkerCount])
+			p.fileAssociations[file] = association
 		}
 	})
+}
+
+// forEachFileOnFreeChecker runs cb for every file, largest first, on whichever
+// checker finishes its previous file first, and leaves each file associated
+// with the checker that took it, so later requests for the file reuse the work
+// that checker did. cb runs without the checker's lock, which it may take.
+func (p *checkerPool) forEachFileOnFreeChecker(ctx context.Context, files []*ast.SourceFile, cb func(file *ast.SourceFile)) {
+	p.createCheckers()
+	queue := slices.Clone(files)
+	slices.SortStableFunc(queue, func(a, b *ast.SourceFile) int {
+		return len(b.Text()) - len(a.Text())
+	})
+	var next atomic.Int64
+	wg := core.NewWorkGroup(p.program.SingleThreaded())
+	for _, c := range p.checkers {
+		wg.Queue(func() {
+			for ctx.Err() == nil {
+				position := int(next.Add(1)) - 1
+				if position >= len(queue) {
+					return
+				}
+				file := queue[position]
+				if association := p.fileAssociations[file]; association != nil {
+					association.Store(c)
+				}
+				cb(file)
+			}
+		})
+	}
+	wg.RunAndWait()
 }
 
 // Runs `cb` for each checker in the pool concurrently, locking and unlocking checker mutexes as it goes,
@@ -155,7 +199,7 @@ func (p *checkerPool) forEachCheckerGroupDo(ctx context.Context, files []*ast.So
 			p.locks[checkerIdx].Lock()
 			defer p.locks[checkerIdx].Unlock()
 			for i, file := range files {
-				if checker := p.checkers[checkerIdx]; checker == p.fileAssociations[file] {
+				if checker := p.checkers[checkerIdx]; checker == p.associatedChecker(file) {
 					cb(checker, i, file)
 				}
 			}

@@ -79,6 +79,10 @@ type Project struct {
 	analysis         *AnalysisState
 	buildInfo        *BuildInfo
 	runtimeConfig    *RuntimeConfig
+	// recording, when set, makes this a parallel transform worker's view of
+	// the project: build-info writes are recorded for an in-order replay
+	// instead of applied (see transform_parallel.go).
+	recording *transformRecording
 }
 
 func OpenProject(options ProjectOptions) (*Project, error) {

@@ -277,3 +277,56 @@ func writeTransformFixture(t *testing.T, directory, name, contents string) {
 		t.Fatalf("write fixture %s: %v", name, err)
 	}
 }
+
+func transformFixtureSource(t *testing.T, lines []string) string {
+	t.Helper()
+	directory := t.TempDir()
+	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"strict":true},"files":["src/main.ts"]}`)
+	writeTransformFixture(t, directory, "src/main.ts", strings.Join(lines, "\n"))
+	program := newTransformProgram(t, directory)
+	checker, release := program.GetTypeChecker(context.Background())
+	defer release()
+	sourceFile := program.GetSourceFile(filepath.ToSlash(filepath.Join(directory, "src/main.ts")))
+	if sourceFile == nil {
+		t.Fatal("source file not found")
+	}
+	project, err := OpenProject(ProjectOptions{ProjectDir: directory, RootDir: "src"})
+	if err != nil {
+		t.Fatalf("OpenProject() error = %v", err)
+	}
+	runtime := MacroRuntime{UUID: func() (string, error) { return "11111111-1111-4111-8111-111111111111", nil }}
+	result, err := Transform(TransformInput{Program: program, Checker: checker, Files: []*ast.SourceFile{sourceFile}, Project: project, MacroRuntime: &runtime})
+	if err != nil {
+		t.Fatalf("Transform() error = %v", err)
+	}
+	return printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(result.Files[0])
+}
+
+// Catches a macro being left unexpanded when its marker only exists after
+// the call's type arguments instantiate a mapped parameter type: the
+// declared `Same<T>` has no `_flamework` property, `Same<Caller<"uuid">>`
+// does. The expected UUID is the one the fixture's runtime hands out.
+func TestTransform_expandsMacroWhoseMarkerAppearsThroughAMappedParameter(t *testing.T) {
+	printed := transformFixtureSource(t, []string{
+		`type Caller<M extends string> = { _flamework_macro_caller: M };`,
+		`type Same<T> = { [K in keyof T]: T[K] };`,
+		`declare function inspect<T>(value?: Same<T>): T;`,
+		`inspect<Caller<"uuid">>();`,
+	})
+	if !strings.Contains(printed, `"11111111-1111-4111-8111-111111111111" as never`) {
+		t.Fatalf("macro through a mapped parameter was not expanded:\n%s", printed)
+	}
+}
+
+// Catches an ordinary call that omits an optional argument being treated as a
+// macro: nothing in its signature names Flamework, so it must print as written.
+func TestTransform_leavesAnOrdinaryCallWithAnOmittedArgumentAlone(t *testing.T) {
+	printed := transformFixtureSource(t, []string{
+		`declare function plain(value?: { size: number }): void;`,
+		`plain();`,
+	})
+	if strings.Contains(printed, "as never") || !strings.Contains(printed, "plain();") {
+		t.Fatalf("ordinary call was rewritten:\n%s", printed)
+	}
+}
