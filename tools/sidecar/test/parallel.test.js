@@ -185,3 +185,23 @@ test("session preflight then ordinary transform preserves evaluation order and r
   const { parallelBatchDiagnostics, parallelSourceDiagnostics, ...response } = partitioned;
   assert.deepEqual(semantic(response), semantic(baseline));
 });
+
+// Catches a worker's config-parse failure counted as a source diagnostic. Both
+// workers report it, so the merged response would hold it twice where a serial
+// transform reports it once.
+test("a worker's config-parse failure is a batch diagnostic", (t) => {
+  const { SidecarServer } = require("../lib/session");
+  const p = project(t);
+  fs.writeFileSync(p.tsPath, `module.exports = require(${JSON.stringify(require.resolve("typescript"))});\n`);
+  const ts = require(p.tsPath);
+  const loader = () => ts;
+  loader.modulePathFor = () => p.tsPath;
+  const server = new SidecarServer(loader);
+  t.after(() => server.dispose());
+  fs.writeFileSync(path.join(p.dir, "main.ts"), "export const value = 1;\n");
+  const response = server.handleRequest({ ...p.request, protocol: 1, operation: "transform", parallelWorker: true,
+    tsConfigPath: path.join(p.dir, "missing-tsconfig.json"), compileFileNames: [path.join(p.dir, "main.ts")], changedFiles: [] });
+  assert.deepEqual(response.diagnostics.map(({ code }) => code), ["config-parse"]);
+  assert.equal(response.parallelBatchDiagnostics, 1);
+  assert.equal(response.parallelSourceDiagnostics, 0);
+});
