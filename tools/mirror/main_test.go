@@ -36,6 +36,29 @@ func TestApplyOverlay(t *testing.T) {
 			t.Errorf("%s/%s is out of sync with %s/%s.tmpl; edit the overlay and re-copy", outDir, rel, overlayDir, rel)
 		}
 	}
+
+	// The mirror omits upstream *_test.go files, so Rotor's checker tests survive
+	// regeneration only as overlay templates.
+	for _, name := range []string{"union_flatten_search_test.go", "union_flatten_search_export_test.go"} {
+		want, err := os.ReadFile(filepath.Join(overlayDir, "checker", name+".tmpl"))
+		if err != nil {
+			t.Fatalf("read overlay source: %v", err)
+		}
+		got, err := os.ReadFile(filepath.Join(dst, "checker", name))
+		if err != nil {
+			t.Fatalf("%s not applied: %v", name, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("applied %s differs from overlay source", name)
+		}
+		checkedIn, err := os.ReadFile(filepath.Join(outDir, "checker", name))
+		if err != nil {
+			t.Fatalf("read checked-in %s: %v", name, err)
+		}
+		if string(checkedIn) != string(want) {
+			t.Errorf("tsgo/checker/%s is out of sync with %s/checker/%s.tmpl; edit the overlay and re-copy", name, overlayDir, name)
+		}
+	}
 }
 
 func TestMirrorMergesHarmlessUpstreamContextDrift(t *testing.T) {

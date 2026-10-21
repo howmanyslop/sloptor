@@ -25632,9 +25632,45 @@ func (c *Checker) addTypesToUnion(typeSet []*Type, includes TypeFlags, types []*
 				if t.alias != nil || u.origin != nil {
 					includes |= TypeFlagsUnion
 				}
-				typeSet, includes = c.addTypesToUnion(typeSet, includes, u.types)
+				typeSet, includes = c.addUnionConstituentsToUnion(typeSet, includes, u.types)
 			} else {
 				typeSet, includes = c.addTypeToUnion(typeSet, includes, t)
+			}
+			lastType = t
+		}
+	}
+	return typeSet, includes
+}
+
+// addUnionConstituentsToUnion is addTypesToUnion for the constituents of a union type. In such a list,
+// plain string literal types ascend by value and type ID. CompareTypes orders them by these keys only,
+// and the keys never change. Thus a plain string literal that follows another one sorts after it, and
+// its search starts after that one. Every other constituent takes the general path and resets the start.
+func (c *Checker) addUnionConstituentsToUnion(typeSet []*Type, includes TypeFlags, types []*Type) ([]*Type, TypeFlags) {
+	var lastType *Type
+	low := 0
+	for _, t := range types {
+		if t != lastType {
+			switch {
+			case t.flags == TypeFlagsStringLiteral && t.alias == nil:
+				// Of the addTypeToUnion checks, only the includes mask applies to this type.
+				includes |= t.flags & TypeFlagsIncludesMask
+				index, found := slices.BinarySearchFunc(typeSet[low:], t, CompareTypes)
+				low += index
+				if !found {
+					typeSet = slices.Insert(typeSet, low, t)
+				}
+				low++
+			case t.flags&TypeFlagsUnion != 0:
+				u := t.AsUnionType()
+				if t.alias != nil || u.origin != nil {
+					includes |= TypeFlagsUnion
+				}
+				typeSet, includes = c.addUnionConstituentsToUnion(typeSet, includes, u.types)
+				low = 0
+			default:
+				typeSet, includes = c.addTypeToUnion(typeSet, includes, t)
+				low = 0
 			}
 			lastType = t
 		}
