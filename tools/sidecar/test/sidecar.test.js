@@ -1074,7 +1074,8 @@ test("a rebased rewrite transforms and traces as the transformer it stands in fo
   const visit = (node) => ts.isStringLiteral(node) ? ts.factory.createStringLiteral("changed") : ts.visitEachChild(node, visit, context);
   return (sourceFile) => ts.visitNode(sourceFile, visit);
 };\n`);
-  t.after(() => fs.rmSync(fixture.fixtureDir, { recursive: true, force: true }));
+  const cwd = process.cwd();
+  t.after(() => { process.chdir(cwd); fs.rmSync(fixture.fixtureDir, { recursive: true, force: true, maxRetries: 5 }); });
   fs.writeFileSync(path.join(fixture.fixtureDir, "prepend.js"), `module.exports = (_program, _config, { ts }) => () => (sourceFile) =>
   ts.factory.updateSourceFile(sourceFile, [
     ts.factory.createVariableStatement(undefined, ts.factory.createVariableDeclarationList([
