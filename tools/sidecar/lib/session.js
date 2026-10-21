@@ -89,12 +89,15 @@ function syncProjectProcessPaths(projectDir, tsConfigPath) {
 }
 
 class SidecarProjectSession {
-  constructor(ts, projectDir, tsConfigPath, tsModulePath) {
+  constructor(ts, projectDir, tsConfigPath, tsModulePath, benchOriginalReactProfile, reactSyntaxHost = false) {
     this.ts = ts;
     this.projectDir = normalizePath(projectDir);
     this.tsConfigPath = normalizePath(tsConfigPath);
     syncProjectProcessPaths(this.projectDir, this.tsConfigPath);
     this.tsModulePath = tsModulePath;
+    // In-process BENCH/PRIVATE opt-in only; never read from the wire request.
+    this.benchOriginalReactProfile = benchOriginalReactProfile;
+    this.reactSyntaxHost = reactSyntaxHost;
     this.documentRegistry = ts.createDocumentRegistry(ts.sys.useCaseSensitiveFileNames);
     this.overrides = new Map();
     this.actualPaths = new Map();
@@ -286,6 +289,10 @@ class SidecarProjectSession {
   }
 
   transformSourceFiles(program, sourceFiles, transforms, phases) {
+    return this.transformSourceFilesWithOptions(program.getCompilerOptions(), sourceFiles, transforms, phases);
+  }
+
+  transformSourceFilesWithOptions(options, sourceFiles, transforms, phases) {
     const transformerList = wrapTransformersWithParentFix(
       this.ts,
       flattenIntoTransformers(transforms),
@@ -313,7 +320,7 @@ class SidecarProjectSession {
       undefined,
       undefined,
       this.ts.factory,
-      program.getCompilerOptions(),
+      options,
       sourceFiles,
       transformerList,
       false,
@@ -366,7 +373,7 @@ class SidecarProjectSession {
       }
 
       const parsedState = measurePhase(phases, "configMs", () => {
-        const state = this.refreshParsedConfig();
+        const state = this.refreshParsedConfig(!this.benchOriginalReactProfile && !this.reactSyntaxHost);
         this.setRootLimit(request.rootFileNames);
         return state;
       });
@@ -374,21 +381,49 @@ class SidecarProjectSession {
         return respond({ diagnostics: parsedState.diagnostics, transformed: [] });
       }
 
-      const program = measurePhase(phases, "programMs", () => this.service.getProgram());
-      if (!program) {
+      const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
+      if (this.reactSyntaxHost && this.reactSyntaxProfileSignature !== this.configSignature) {
+        this.reactSyntaxProfile = require("./react-syntax-profile").resolveReactSyntaxProfile(
+          this.projectDir, this.tsModulePath, this.parsed.options.plugins);
+        this.reactSyntaxProfileSignature = this.configSignature;
+      }
+      const profile = this.benchOriginalReactProfile ?? this.reactSyntaxProfile;
+      let syntax;
+      if (profile) {
+        const { BENCH_ORIGINAL_SOURCE, selectOriginalReactInputs } = require("./original-react-syntax");
+        // Only the initial authored native stage may claim this wire value.
+        // A JSON request cannot provide the private Symbol itself.
+        const input = !this.benchOriginalReactProfile && this.reactSyntaxHost && request.sourceOrigin === "original-authored"
+          ? { ...request, [BENCH_ORIGINAL_SOURCE]: profile } : request;
+        syntax = selectOriginalReactInputs(this, input, pluginConfigs, createParseHost(this, this.ts), profile);
+      }
+      let program;
+      if (syntax) {
+        // The next generic request recreates a service from the same accumulated
+        // overlays, versions, config and monotonically widening root state.
+        this.service?.dispose();
+        this.service = undefined;
+      } else {
+        if (!this.service) {
+          this.service = this.ts.createLanguageService(createServiceHost(this, this.ts), this.documentRegistry);
+        }
+        program = measurePhase(phases, "programMs", () => this.service.getProgram());
+      }
+      if (!syntax && !program) {
         return respond({
           diagnostics: [...parsedState.diagnostics, createProtocolDiagnostic("error", "program-missing", "Language service did not return a program")],
           transformed: [],
         });
       }
 
-      const pluginConfigs = Array.isArray(request.plugins) ? request.plugins : getPluginConfigs(this.parsed.options);
       const { transforms, diagnostics: pluginDiagnostics, plugins } = measurePhase(phases, "factoriesMs", () =>
-        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath));
+        createTransformerList(this.ts, program, pluginConfigs, this.projectDir, this.tsModulePath, syntax?.entryPath));
 
       const diagnostics = [...parsedState.diagnostics, ...pluginDiagnostics];
-      const sourceFiles = [];
-      for (const fileName of request.compileFileNames) {
+      const sourceFiles = syntax
+        ? require("./original-react-syntax").parseOriginalReactInputs(this, syntax.inputs)
+        : [];
+      for (const fileName of syntax ? [] : request.compileFileNames) {
         const sourceFile = this.getSourceFile(program, fileName);
         if (!sourceFile) {
           diagnostics.push(createProtocolDiagnostic("error", "source-file-missing", `Source file not found in program: ${fileName}`));
@@ -401,7 +436,9 @@ class SidecarProjectSession {
         return respond({ diagnostics, transformed: [], metrics: { plugins: pluginMetrics(plugins) }, afterDeclarationsTransformers: transforms.afterDeclarations.length });
       }
 
-      const transformResult = this.transformSourceFiles(program, sourceFiles, transforms, phases);
+      const transformResult = syntax
+        ? this.transformSourceFilesWithOptions(this.parsed.options, sourceFiles, transforms, phases)
+        : this.transformSourceFiles(program, sourceFiles, transforms, phases);
       return respond({
         diagnostics: [...diagnostics, ...transformResult.diagnostics],
         transformed: transformResult.transformed,
@@ -526,8 +563,10 @@ function withProjectModulePaths(projectDir, run) {
 }
 
 class SidecarServer {
-  constructor(tsOrLoader) {
+  constructor(tsOrLoader, { benchOriginalReactProfile, reactSyntaxHost = false } = {}) {
     this.loadTypeScript = typeof tsOrLoader === "function" ? tsOrLoader : () => tsOrLoader;
+    this.benchOriginalReactProfile = benchOriginalReactProfile;
+    this.reactSyntaxHost = reactSyntaxHost;
     this.sessions = new Map();
   }
 
@@ -587,7 +626,7 @@ class SidecarServer {
             transformed: [],
           };
         }
-        session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath);
+        session = new SidecarProjectSession(ts, request.projectDir, request.tsConfigPath, tsModulePath, this.benchOriginalReactProfile, this.reactSyntaxHost);
         this.sessions.set(sessionKey, session);
       }
 

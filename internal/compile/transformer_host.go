@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"rotor/tsgo/ast"
@@ -19,6 +20,7 @@ type TransformerRequest struct {
 	RootFileNames    []string                 `json:"rootFileNames,omitempty"`
 	ChangedFiles     []TransformerChangedFile `json:"changedFiles"`
 	Plugins          []json.RawMessage        `json:"plugins,omitempty"`
+	SourceOrigin     string                   `json:"sourceOrigin,omitempty"`
 }
 
 type TransformerChangedFile struct {
@@ -99,7 +101,10 @@ type transformerCall struct {
 	overlays     map[string]string
 	plugins      []json.RawMessage
 	state        *sidecarBuildState
+	sourceOrigin string
 }
+
+const transformerOriginalAuthored = "original-authored"
 
 func canonicalTransformerRequestPaths(dir, configPath string) (string, string, string) {
 	dir = canonicalSidecarPath(dir)
@@ -136,6 +141,9 @@ func prepareTransformerRequest(call transformerCall, tracker *sidecarSession, di
 		request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
 	}
 	request.RootFileNames = narrowedSidecarRoots(call.compileFiles, call.stampFiles)
+	if os.Getenv("ROTOR_REACT_SYNTAX_HOST") == "1" && call.sourceOrigin == transformerOriginalAuthored {
+		request.SourceOrigin = transformerOriginalAuthored
+	}
 	return request, nil
 }
 

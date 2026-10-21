@@ -12,7 +12,7 @@ import (
 type sidecarTransformerHost struct{}
 
 func (sidecarTransformerHost) transform(ctx context.Context, call transformerCall) (*sidecarResponse, sidecarCallStats, error) {
-	return runTransformerSidecarWithContext(ctx, call.dir, call.configPath, call.compileFiles, call.stampFiles, call.overlays, call.plugins, call.state)
+	return runTransformerSidecarWithContext(ctx, call.dir, call.configPath, call.compileFiles, call.stampFiles, call.overlays, call.plugins, call.state, call.sourceOrigin)
 }
 
 func (sidecarTransformerHost) validate(ctx context.Context, dir, configPath string) (*sidecarResponse, sidecarCallStats, error) {
