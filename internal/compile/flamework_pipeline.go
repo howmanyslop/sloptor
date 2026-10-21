@@ -141,7 +141,7 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 		// the suffix is empty and native Flamework never calls the sidecar.
 		// The eligibility context is scoped to this call, not the whole host.
 		prefixContext := parallelPrefixContext(ctx, dir, pipeline, opts)
-		prepared, stageDiags, err := applyExternalTransformerStage(prefixContext, host, dir, program, currentFiles, overlays, traces, pipeline.prefix, state)
+		prepared, stageDiags, err := applyExternalTransformerStage(prefixContext, host, dir, program, currentFiles, overlays, traces, pipeline.prefix, state, transformerOriginalAuthored)
 		if err != nil {
 			return nil, stageDiags, err
 		}
@@ -158,7 +158,7 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 	traces = prepared.sourceTraces
 	state.absorbSourceFiles(currentFiles)
 	if len(pipeline.suffix) > 0 {
-		next, stageDiags, stageErr := applyExternalTransformerStage(ctx, host, dir, program, currentFiles, overlays, traces, pipeline.suffix, state)
+		next, stageDiags, stageErr := applyExternalTransformerStage(ctx, host, dir, program, currentFiles, overlays, traces, pipeline.suffix, state, "")
 		if stageErr != nil {
 			return nil, stageDiags, stageErr
 		}
@@ -169,8 +169,8 @@ func runCompilePipelineWithOptions(dir string, program *compiler.Program, source
 	return &compilePipelineResult{prepared: prepared, flameworkProject: pipeline.project}, nil, nil
 }
 
-func applyExternalTransformerStage(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState) (*preparedTransformerProgram, []string, error) {
-	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state)
+func applyExternalTransformerStage(ctx context.Context, host transformerHost, dir string, program *compiler.Program, sourceFiles []*ast.SourceFile, overlays map[string]string, traces diagnosticTraces, plugins []transformerPluginConfig, state *sidecarBuildState, sourceOrigin string) (*preparedTransformerProgram, []string, error) {
+	transformed, diags, err := applyTransformerSidecarWithPluginsAndHost(ctx, host, dir, program, sourceFiles, overlays, rawTransformerPlugins(plugins), state, sourceOrigin)
 	if err != nil {
 		return nil, diags, err
 	}

@@ -3,6 +3,7 @@ package compile
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 
 	"rotor/internal/config"
@@ -22,6 +23,7 @@ type TransformerRequest struct {
 	Plugins             []json.RawMessage                  `json:"plugins,omitempty"`
 	ParallelAttestation *config.ParallelTransformersConfig `json:"parallelAttestation,omitempty"`
 	ParallelWorker      bool                               `json:"parallelWorker,omitempty"`
+	SourceOrigin        string                             `json:"sourceOrigin,omitempty"`
 }
 
 type TransformerChangedFile struct {
@@ -107,7 +109,10 @@ type transformerCall struct {
 	state         *sidecarBuildState
 	parallel      *config.ParallelTransformersConfig
 	parallelBuild *cliTransformerBuild
+	sourceOrigin  string
 }
+
+const transformerOriginalAuthored = "original-authored"
 
 func canonicalTransformerRequestPaths(dir, configPath string) (string, string, string) {
 	dir = canonicalSidecarPath(dir)
@@ -144,6 +149,9 @@ func prepareTransformerRequest(call transformerCall, tracker *sidecarSession, di
 		request.CompileFileNames = append(request.CompileFileNames, filepath.FromSlash(sourceFile.FileName()))
 	}
 	request.RootFileNames = narrowedSidecarRoots(call.compileFiles, call.stampFiles)
+	if os.Getenv("ROTOR_REACT_SYNTAX_HOST") == "1" && call.sourceOrigin == transformerOriginalAuthored {
+		request.SourceOrigin = transformerOriginalAuthored
+	}
 	return request, nil
 }
 

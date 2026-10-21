@@ -170,7 +170,7 @@ function pluginMetrics(plugins) {
   return plugins.map((plugin) => ({ transform: plugin.transform, ms: Number(plugin.ns / 1000000n) }));
 }
 
-function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
+function createTransformerList(ts, program, configs, baseDir, tsModulePath, originalReactEntry) {
   const transforms = {
     before: [],
     after: [],
@@ -189,6 +189,15 @@ function createTransformerList(ts, program, configs, baseDir, tsModulePath) {
       if (loaded.diagnostic) {
         diagnostics.push(loaded.diagnostic);
         continue;
+      }
+      // The private syntax route already checked the immutable files without
+      // evaluating them. A changed/cached export must fail before its factory,
+      // never execute a hook or retry a partially loaded chain with a Program.
+      if (originalReactEntry && (realpath(loaded.modulePath) !== originalReactEntry ||
+          Object.keys(loaded.factoryModule).length !== 1 ||
+          loaded.factoryModule.default !== loaded.factory ||
+          loaded.factoryModule.shouldTransformSourceFile !== undefined)) {
+        throw new Error("Original React syntax profile export assertion failed");
       }
       const plugin = { transform: config.transform, ns: 0n };
       const factoryStarted = process.hrtime.bigint();

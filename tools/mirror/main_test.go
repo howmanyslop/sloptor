@@ -16,23 +16,48 @@ func TestApplyOverlay(t *testing.T) {
 		t.Fatalf("applyOverlay: %v", err)
 	}
 
-	want, err := os.ReadFile(filepath.Join(overlayDir, "checker", "rotor_exports.go.tmpl"))
-	if err != nil {
-		t.Fatalf("read overlay source: %v", err)
+	for _, rel := range []string{"checker/rotor_exports.go", "compiler/checkerpool_lazy_test.go"} {
+		want, err := os.ReadFile(filepath.Join(overlayDir, filepath.FromSlash(rel)+".tmpl"))
+		if err != nil {
+			t.Fatalf("read overlay source: %v", err)
+		}
+		got, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("%s not applied: %v", rel, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("applied %s differs from overlay source\ngot:\n%s\nwant:\n%s", rel, got, want)
+		}
+		checkedIn, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("read checked-in %s: %v", rel, err)
+		}
+		if string(checkedIn) != string(want) {
+			t.Errorf("%s/%s is out of sync with %s/%s.tmpl; edit the overlay and re-copy", outDir, rel, overlayDir, rel)
+		}
 	}
-	got, err := os.ReadFile(filepath.Join(dst, "checker", "rotor_exports.go"))
-	if err != nil {
-		t.Fatalf("shim not applied: %v", err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("applied shim differs from overlay source\ngot:\n%s\nwant:\n%s", got, want)
-	}
-	checkedIn, err := os.ReadFile(filepath.Join(outDir, "checker", "rotor_exports.go"))
-	if err != nil {
-		t.Fatalf("read checked-in shim: %v", err)
-	}
-	if string(checkedIn) != string(want) {
-		t.Errorf("tsgo/checker/rotor_exports.go is out of sync with %s/checker/rotor_exports.go.tmpl; edit the overlay and re-copy", overlayDir)
+
+	// The mirror omits upstream *_test.go files, so Rotor's checker tests survive
+	// regeneration only as overlay templates.
+	for _, name := range []string{"union_flatten_search_test.go", "union_flatten_search_export_test.go"} {
+		want, err := os.ReadFile(filepath.Join(overlayDir, "checker", name+".tmpl"))
+		if err != nil {
+			t.Fatalf("read overlay source: %v", err)
+		}
+		got, err := os.ReadFile(filepath.Join(dst, "checker", name))
+		if err != nil {
+			t.Fatalf("%s not applied: %v", name, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("applied %s differs from overlay source", name)
+		}
+		checkedIn, err := os.ReadFile(filepath.Join(outDir, "checker", name))
+		if err != nil {
+			t.Fatalf("read checked-in %s: %v", name, err)
+		}
+		if string(checkedIn) != string(want) {
+			t.Errorf("tsgo/checker/%s is out of sync with %s/checker/%s.tmpl; edit the overlay and re-copy", name, overlayDir, name)
+		}
 	}
 }
 
@@ -77,6 +102,21 @@ func TestMirrorMergesHarmlessUpstreamContextDrift(t *testing.T) {
 	if !strings.Contains(string(printer), "e.leadingComments = slices.Clone(source.leadingComments)") ||
 		!strings.Contains(string(printer), "e.trailingComments = slices.Clone(source.trailingComments)") {
 		t.Error("emit context no longer retains copied comments")
+	}
+	// The lazy checker pool patch and its overlay test must regenerate to the
+	// checked-in files exactly.
+	for _, rel := range []string{"compiler/checkerpool.go", "compiler/checkerpool_lazy_test.go"} {
+		generated, err := os.ReadFile(filepath.Join(destination, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		checkedIn, err := os.ReadFile(filepath.Join(outDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.ReplaceAll(string(generated), "\r\n", "\n") != strings.ReplaceAll(string(checkedIn), "\r\n", "\n") {
+			t.Errorf("generated %s differs from %s/%s", rel, outDir, rel)
+		}
 	}
 }
 

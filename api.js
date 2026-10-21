@@ -75,7 +75,9 @@ class BuildSession {
 	#exitPromise;
 	#stderr = "";
 	#abortPromise;
-	#transformerServer = new SidecarServer(resolveTypeScript);
+	#transformerServer = new SidecarServer(resolveTypeScript, {
+		reactSyntaxHost: process.env.ROTOR_REACT_SYNTAX_HOST === "1",
+	});
 
 	constructor(executable, executableArgs, resolveFromPlatformPackage) {
 		this.#executable = executable;

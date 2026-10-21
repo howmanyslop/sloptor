@@ -86,6 +86,11 @@ type TransformState struct {
 	flameworkExpressionSurfaces map[string]bool
 
 	expressionChildren *flameworkExpressionChildVisitor
+
+	// addPathsSources is built by the first addPaths expansion and reused by
+	// later ones. The Program and the absolute project root are fixed for this
+	// state, so the source paths do not change during its life.
+	addPathsSources *addPathsSourceIndex
 }
 
 func newTransformState(input TransformInput, plans []FilePlan) (*TransformState, error) {

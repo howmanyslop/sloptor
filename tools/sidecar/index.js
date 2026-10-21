@@ -31,7 +31,9 @@ function transformSourceFiles(tsApi, program, sourceFiles, transforms) {
 function serveStdio(options = {}) {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
-  const server = options.server ?? new SidecarServer(options.ts ?? resolveTypeScript);
+  const server = options.server ?? new SidecarServer(options.ts ?? resolveTypeScript, {
+    reactSyntaxHost: process.env.ROTOR_REACT_SYNTAX_HOST === "1",
+  });
   const lineReader = readline.createInterface({
     input,
     crlfDelay: Infinity,
