@@ -392,7 +392,19 @@ func resolveRojoConfigPath(dir, configuredPath string) (string, []string, error)
 }
 
 func createCrossProjectImportPathMap(program *compiler.Program, opts ProjectOptions) map[string]string {
+	return createProjectReferencePathMap(program, opts, true)
+}
+
+// Runtime lookups use OS-canonical keys and physical aliases. Fingerprints
+// instead preserve the reference config's filenames on every OS.
+func createProjectReferencePathMap(program *compiler.Program, opts ProjectOptions, canonicalKeys bool) map[string]string {
 	useCaseSensitiveFileNames := osvfs.FS().UseCaseSensitiveFileNames()
+	fileKey := func(name string) string {
+		if canonicalKeys {
+			return rojo.CanonicalFileName(name, useCaseSensitiveFileNames)
+		}
+		return normalizeSourceFilePath(name)
+	}
 	result := make(map[string]string)
 	visited := map[*tsoptions.ParsedCommandLine]bool{}
 	var visit func(*tsoptions.ParsedCommandLine)
@@ -430,15 +442,15 @@ func createCrossProjectImportPathMap(program *compiler.Program, opts ProjectOpti
 				continue
 			}
 			importPath := translator.GetImportPath(fileName, false)
-			canonical := rojo.CanonicalFileName(fileName, useCaseSensitiveFileNames)
-			paths[canonical] = importPath
+			paths[fileKey(fileName)] = importPath
 			if !tspath.IsDeclarationFileName(fileName) && !strings.HasSuffix(fileName, ".json") {
 				declarationPath := outputpaths.GetOutputDeclarationFileNameWorker(fileName, options, reference)
-				declarationCanonical := rojo.CanonicalFileName(declarationPath, useCaseSensitiveFileNames)
-				paths[declarationCanonical] = importPath
+				paths[fileKey(declarationPath)] = importPath
 			}
 		}
-		addProjectRealPathAliases(paths, filepath.Dir(reference.ConfigName()), useCaseSensitiveFileNames)
+		if canonicalKeys {
+			addProjectRealPathAliases(paths, filepath.Dir(reference.ConfigName()), useCaseSensitiveFileNames)
+		}
 		maps.Copy(result, paths)
 	}
 	for _, reference := range program.GetResolvedProjectReferences() {
@@ -527,9 +539,10 @@ type ProjectOptions struct {
 	// Kept separate from Context so project labels/tasks/cancellation survive.
 	cliTransformerBuild *cliTransformerBuild
 
-	projectReferencePaths   map[string]string
-	pendingSolutionPersists *[]func() error
-	deferRojoCachePersist   bool
+	projectReferencePaths     map[string]string
+	projectReferenceSaltPaths map[string]string
+	pendingSolutionPersists   *[]func() error
+	deferRojoCachePersist     bool
 	// onCompileStart runs when this build has selected source files to
 	// compile, before any of its stages. A solution build uses it to warm the
 	// transformer workers of the projects still ahead of it.

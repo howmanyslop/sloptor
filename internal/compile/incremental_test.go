@@ -16,7 +16,7 @@ func TestIncrementalManifestV1HardCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manifest, err := readIncrementalManifest(path)
+	manifest, err := readIncrementalManifest(path, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,11 @@ func TestBuildIncrementalManifestRecomputesAllReferencesAfterSourceChange(t *tes
 	}
 
 	manifestPath := filepath.Join(dir, "out", "cache.rbxtsc.tsbuildinfo")
-	seeded, err := readIncrementalManifest(manifestPath)
+	_, program, diags, err := newProjectProgramWithOptions(dir, "", ProjectOptions{})
+	if err != nil {
+		t.Fatalf("read project: %v (diags: %v)", err, diags)
+	}
+	seeded, err := readIncrementalManifest(manifestPath, program)
 	if err != nil || seeded == nil {
 		t.Fatalf("read seeded manifest: %v", err)
 	}
@@ -283,7 +287,7 @@ func TestBuildIncrementalManifestRecomputesAllReferencesAfterSourceChange(t *tes
 	expectedRefs := slices.Clone(sideState.Refs)
 	sideState.Refs = []string{"sentinel"}
 	seeded.Files[sideKey] = sideState
-	if err := writeIncrementalManifest(manifestPath, seeded); err != nil {
+	if err := writeIncrementalManifest(manifestPath, seeded, program); err != nil {
 		t.Fatal(err)
 	}
 
@@ -294,7 +298,7 @@ func TestBuildIncrementalManifestRecomputesAllReferencesAfterSourceChange(t *tes
 		t.Fatalf("second build: %v (diags: %v)", err, diags)
 	}
 
-	rebuilt, err := readIncrementalManifest(manifestPath)
+	rebuilt, err := readIncrementalManifest(manifestPath, program)
 	if err != nil || rebuilt == nil {
 		t.Fatalf("read rebuilt manifest: %v", err)
 	}

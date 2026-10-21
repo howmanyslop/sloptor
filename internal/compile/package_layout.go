@@ -16,10 +16,11 @@ import (
 // packageLayout is one build's package import inputs, shared by both salt
 // computations and emission. It must not survive into the next build.
 type packageLayout struct {
-	resolvers []*rojo.RojoResolver
-	mapping   transformer.NodeModulesPathMapping
-	files     *rojo.ProjectFiles
-	manifests []string
+	resolvers       []*rojo.RojoResolver
+	mapping         transformer.NodeModulesPathMapping
+	portableMapping transformer.NodeModulesPathMapping
+	files           *rojo.ProjectFiles
+	manifests       []string
 }
 
 func isPackageBuild(dir string, opts ProjectOptions) (bool, error) {
@@ -42,13 +43,14 @@ func preparePackageLayout(dir string, options *core.CompilerOptions, opts Projec
 	for _, typeRoot := range options.TypeRoots {
 		layout.resolvers = append(layout.resolvers, rojo.PackageImports(filepath.FromSlash(typeRoot), layout.files))
 	}
-	layout.mapping, layout.manifests = buildNodeModulesPathMapping(options.TypeRoots, osvfs.FS().UseCaseSensitiveFileNames(), options.CustomConditions,
+	mappings := buildNodeModulesPathMappings(options.TypeRoots, osvfs.FS().UseCaseSensitiveFileNames(), options.CustomConditions,
 		func(pkgDir, runtimePath string) string {
 			if rootPath, ok := layout.files.RootPath(filepath.Join(pkgDir, "default.project.json")); ok {
 				return remapRuntimePath(pkgDir, runtimePath, rootPath)
 			}
 			return runtimePath
 		})
+	layout.mapping, layout.portableMapping, layout.manifests = mappings.runtime, mappings.portable, mappings.manifests
 	return layout, nil
 }
 
@@ -73,21 +75,16 @@ func (p *packageLayout) fingerprint(dir string) (string, error) {
 	}
 	resolvers := make([]resolverMapping, 0, len(p.resolvers))
 	for _, resolver := range p.resolvers {
-		state := resolver.GetState()
-		for i := range state.Partitions {
-			state.Partitions[i].FsPath = relative(state.Partitions[i].FsPath)
-		}
-		for i := range state.FilePaths {
-			state.FilePaths[i].Path = relative(state.FilePaths[i].Path)
-		}
+		state := portableIncrementalRojoState(resolver.GetState(), relative)
 		resolvers = append(resolvers, resolverMapping{state.Partitions, state.FilePaths})
 	}
 	mapping := transformer.NodeModulesPathMapping{Exact: make(map[string]string)}
-	for key, value := range p.mapping.Exact {
+	for key, value := range p.portableMapping.Exact {
 		mapping.Exact[relative(key)] = relative(value)
 	}
-	for _, pattern := range p.mapping.Patterns {
+	for _, pattern := range p.portableMapping.Patterns {
 		pattern.TypesPrefix = relative(pattern.TypesPrefix)
+		pattern.TypesSuffix = filepath.ToSlash(pattern.TypesSuffix)
 		pattern.Runtime = relative(pattern.Runtime)
 		mapping.Patterns = append(mapping.Patterns, pattern)
 	}

@@ -120,7 +120,7 @@ func TestBuildProjectFlameworkFailurePreservesArtifactsAndIncrementalState(t *te
 
 func incrementalManifestSalt(t *testing.T, path string) string {
 	t.Helper()
-	manifest, err := readIncrementalManifest(path)
+	manifest, err := readIncrementalManifest(path, nil)
 	if err != nil || manifest == nil {
 		t.Fatalf("read incremental manifest: %v", err)
 	}

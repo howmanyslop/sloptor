@@ -106,7 +106,18 @@ func createNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames 
 }
 
 func buildNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames bool, customConditions []string, remap func(string, string) string) (transformer.NodeModulesPathMapping, []string) {
+	state := buildNodeModulesPathMappings(typeRoots, useCaseSensitiveFileNames, customConditions, remap)
+	return state.runtime, state.manifests
+}
+
+type nodeModulesPathMappings struct {
+	runtime, portable transformer.NodeModulesPathMapping
+	manifests         []string
+}
+
+func buildNodeModulesPathMappings(typeRoots []string, useCaseSensitiveFileNames bool, customConditions []string, remap func(string, string) string) nodeModulesPathMappings {
 	mapping := transformer.NodeModulesPathMapping{Exact: make(map[string]string)}
+	portable := transformer.NodeModulesPathMapping{Exact: make(map[string]string)}
 	var manifests []string
 	for _, typeRoot := range typeRoots {
 		scopePath := filepath.FromSlash(typeRoot)
@@ -123,6 +134,9 @@ func buildNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames b
 			}
 			virtualMappings := packageMappings(pkgDir, pkg, customConditions)
 			addPackageMappings(&mapping, pkgDir, virtualMappings, useCaseSensitiveFileNames, remap)
+			// Fingerprints retain the authored spelling and logical package
+			// paths. Canonical lookup keys and realpath aliases are runtime-only.
+			addPackageMappings(&portable, pkgDir, virtualMappings, true, remap)
 
 			realPkgDir := packageRealPath(pkgDir)
 			if rojo.CanonicalFileName(realPkgDir, useCaseSensitiveFileNames) == rojo.CanonicalFileName(pkgDir, useCaseSensitiveFileNames) {
@@ -132,7 +146,7 @@ func buildNodeModulesPathMapping(typeRoots []string, useCaseSensitiveFileNames b
 			addRealPathAliases(&mapping, pkgDir, realMappings, virtualMappings, useCaseSensitiveFileNames, remap)
 		}
 	}
-	return mapping, manifests
+	return nodeModulesPathMappings{runtime: mapping, portable: portable, manifests: manifests}
 }
 
 func addPackageMappings(mapping *transformer.NodeModulesPathMapping, pkgDir string, mappings []packageExportMapping, useCaseSensitiveFileNames bool, remap func(string, string) string) {
