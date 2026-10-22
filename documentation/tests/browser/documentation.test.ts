@@ -14,6 +14,26 @@ playwrightIt("leads the home page with the full-build time and a way in", async 
 	);
 });
 
+// Catches Discord falling back to a bare title-and-description card.
+playwrightIt("gives Discord a component embed and a card image", async ({ page, request }) => {
+	await page.goto(`${baseUrl}guide/introduction/`);
+
+	await playwrightExpect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#4f6b12");
+	await playwrightExpect(page.locator('meta[property="og:image"]')).toHaveAttribute(
+		"content",
+		"https://docs.howmanysmall.com/sloptor/og/sloptor.png",
+	);
+
+	const json = await page.evaluate(
+		() => document.querySelector(String.raw`#discord\:component-embed`)?.textContent ?? "",
+	);
+	playwrightExpect(JSON.parse(json)).toMatchObject({ component: { type: 17 } });
+
+	const image = await request.get(`${baseUrl}og/sloptor.png`);
+	playwrightExpect(image.ok()).toBe(true);
+	playwrightExpect(image.headers()["content-type"]).toContain("image/png");
+});
+
 // Catches the command reference going missing or losing a command's flags.
 playwrightIt("documents every flag of a command", async ({ page }) => {
 	await page.goto(`${baseUrl}commands/build/`);

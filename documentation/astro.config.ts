@@ -71,6 +71,7 @@ export default defineConfig({
 		ensureAstroIntegration(
 			starlight({
 				components: {
+					Head: "./src/components/overrides/head.astro",
 					Header: "./src/components/overrides/header.astro",
 					PageTitle: "./src/components/overrides/page-title.astro",
 					Sidebar: "./src/components/overrides/sidebar.astro",
