@@ -39,7 +39,7 @@ func benchmarkSourceMap(b *testing.B, statements *luau.List[luau.Statement]) {
 	state, sourceFile, _ := sourceMapLayoutFixture("blocks")
 	// Add real anchors so map encoding is included in these measurements.
 	for node := statements.Head; node != nil; node = node.Next {
-		state.sourcePositionMap[sourcePositionKey(node.Value)] = &SourcePosition{Line: 1}
+		luau.SetOrigin(node.Value, &luau.Origin{Start: luau.Position{Line: 1}})
 	}
 	b.ReportAllocs()
 	b.ResetTimer()

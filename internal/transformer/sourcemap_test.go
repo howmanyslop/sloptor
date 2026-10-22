@@ -35,20 +35,24 @@ func TestSourcePositionAnchorsPrereqsAndStatements(t *testing.T) {
 	tests := []struct {
 		name      string
 		statement luau.Statement
-		start     SourcePosition
-		end       SourcePosition
+		start     luau.Position
+		end       luau.Position
 	}{
-		{name: "first prereq", statement: statements[0], start: SourcePosition{Line: 0, Column: 0}, end: SourcePosition{Line: 0, Column: 7}},
-		{name: "first transformed", statement: statements[1], start: SourcePosition{Line: 0, Column: 0}, end: SourcePosition{Line: 0, Column: 7}},
-		{name: "second prereq", statement: statements[2], start: SourcePosition{Line: 1, Column: 0}, end: SourcePosition{Line: 1, Column: 8}},
-		{name: "second transformed", statement: statements[3], start: SourcePosition{Line: 1, Column: 0}, end: SourcePosition{Line: 1, Column: 8}},
+		{name: "first prereq", statement: statements[0], start: luau.Position{Line: 0, Column: 0}, end: luau.Position{Line: 0, Column: 7}},
+		{name: "first transformed", statement: statements[1], start: luau.Position{Line: 0, Column: 0}, end: luau.Position{Line: 0, Column: 7}},
+		{name: "second prereq", statement: statements[2], start: luau.Position{Line: 1, Column: 0}, end: luau.Position{Line: 1, Column: 8}},
+		{name: "second transformed", statement: statements[3], start: luau.Position{Line: 1, Column: 0}, end: luau.Position{Line: 1, Column: 8}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := state.sourcePositionMap[sourcePositionKey(test.statement)]; got == nil || *got != test.start {
+			origin := test.statement.Origin()
+			if origin == nil {
+				t.Fatal("statement has no origin")
+			}
+			if got := origin.Start; got != test.start {
 				t.Errorf("start = %#v, want %#v", got, test.start)
 			}
-			if got := state.sourceEndPositionMap[sourcePositionKey(test.statement)]; got == nil || *got != test.end {
+			if got := origin.Closing; got == nil || *got != test.end {
 				t.Errorf("end = %#v, want %#v", got, test.end)
 			}
 		})
@@ -69,29 +73,42 @@ func TestSourcePositionUsesUTF16Columns(t *testing.T) {
 }
 
 func TestSourcePositionExportSyntaxAnchors(t *testing.T) {
-	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
-		FileName: "/test.ts",
-		Path:     tspath.Path("/test.ts"),
-	}, "export const value = 1;\nexport { value as alias };\nexport default value;\n", core.ScriptKindTS)
-	variableStatement := sourceFile.Statements.Nodes[0]
-	exportDeclaration := sourceFile.Statements.Nodes[1]
-	exportAssignment := sourceFile.Statements.Nodes[2]
-	exportSpecifier := exportDeclaration.AsExportDeclaration().ExportClause.AsNamedExports().Elements.Nodes[0]
-	variableDeclaration := variableStatement.AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes[0]
+	directory := t.TempDir()
+	writeFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"target":"ESNext"}}`)
+	// The mutable export selects exports-table assignments, which already have
+	// source anchors. Return-map field tagging belongs to the later gap work.
+	writeFixture(t, directory, "input.ts", "export const value = 1;\nexport { value as alias };\nexport default value;\nexport let mutable = 0;\n")
+	state := buildInternalState(t, directory, "input.ts")
+	origins := map[string]*luau.Origin{}
+	TransformSourceFile(state).ForEach(func(statement luau.Statement) {
+		if assignment, ok := statement.(*luau.Assignment); ok {
+			if property, ok := assignment.Left.(*luau.PropertyAccessExpression); ok {
+				origins[property.Name] = assignment.Origin()
+			}
+		}
+	})
 
 	tests := []struct {
-		name   string
-		symbol *ast.Symbol
-		want   *ast.Node
+		name       string
+		exportName string
+		start      luau.Position
+		closing    luau.Position
 	}{
-		{name: "export specifier", symbol: &ast.Symbol{Declarations: []*ast.Node{exportSpecifier}}, want: exportSpecifier},
-		{name: "export assignment", symbol: &ast.Symbol{Declarations: []*ast.Node{exportAssignment}}, want: exportAssignment},
-		{name: "export declaration", symbol: &ast.Symbol{Declarations: []*ast.Node{variableDeclaration}}, want: variableStatement},
+		{name: "export specifier", exportName: "alias", start: luau.Position{Line: 1, Column: 9}, closing: luau.Position{Line: 1, Column: 22}},
+		{name: "export assignment", exportName: "default", start: luau.Position{Line: 2, Column: 0}, closing: luau.Position{Line: 2, Column: 20}},
+		{name: "export declaration", exportName: "value", start: luau.Position{Line: 0, Column: 0}, closing: luau.Position{Line: 0, Column: 22}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := getExportSyntaxAnchor(test.symbol, sourceFile); got != test.want {
-				t.Errorf("anchor = %p, want %p", got, test.want)
+			origin := origins[test.exportName]
+			if origin == nil {
+				t.Fatalf("export %s has no origin", test.exportName)
+			}
+			if got := origin.Start; got != test.start {
+				t.Errorf("start = %#v, want %#v", got, test.start)
+			}
+			if got := origin.Closing; got == nil || *got != test.closing {
+				t.Errorf("closing = %#v, want %#v", got, test.closing)
 			}
 		})
 	}
@@ -106,10 +123,8 @@ func TestRenderSourceMap(t *testing.T) {
 	first := luau.NewVariableDeclaration(luau.ID("a"), luau.Num(1))
 	second := luau.NewVariableDeclaration(luau.ID("b"), luau.Num(2))
 	statements := luau.NewList[luau.Statement](first, second)
-	state.sourcePositionMap[sourcePositionKey(first)] = &SourcePosition{Line: 0, Column: 0}
-	state.sourceEndPositionMap[sourcePositionKey(first)] = &SourcePosition{Line: 0, Column: 11}
-	state.sourcePositionMap[sourcePositionKey(second)] = &SourcePosition{Line: 1, Column: 0}
-	state.sourceEndPositionMap[sourcePositionKey(second)] = &SourcePosition{Line: 1, Column: 11}
+	luau.SetOrigin(first, &luau.Origin{Start: luau.Position{Line: 0, Column: 0}, Closing: &luau.Position{Line: 0, Column: 11}})
+	luau.SetOrigin(second, &luau.Origin{Start: luau.Position{Line: 1, Column: 0}, Closing: &luau.Position{Line: 1, Column: 11}})
 
 	var sourceMap struct {
 		Version        int      `json:"version"`
@@ -154,9 +169,8 @@ func TestRenderSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
 	inner := luau.NewVariableDeclaration(luau.ID("value"), luau.Num(1))
 	condition := luau.NewIf(luau.Bool(true), luau.NewList[luau.Statement](inner), nil)
 	statements := luau.NewList[luau.Statement](condition)
-	state.sourcePositionMap[sourcePositionKey(condition)] = &SourcePosition{Line: 0, Column: 0}
-	state.sourcePositionMap[sourcePositionKey(inner)] = &SourcePosition{Line: 1, Column: 1}
-	state.sourceEndPositionMap[sourcePositionKey(condition)] = &SourcePosition{Line: 2, Column: 0}
+	luau.SetOrigin(condition, &luau.Origin{Start: luau.Position{Line: 0, Column: 0}, Closing: &luau.Position{Line: 2, Column: 0}})
+	luau.SetOrigin(inner, &luau.Origin{Start: luau.Position{Line: 1, Column: 1}})
 
 	var sourceMap struct {
 		Mappings string `json:"mappings"`
@@ -202,8 +216,10 @@ func sourceMapLayoutFixture(name string) (*State, *ast.SourceFile, *luau.List[lu
 	state := NewState(nil, nil, sourceFile, NewDiagService(), NewMultiState())
 	nextLine := 0
 	anchor := func(statement luau.Statement) luau.Statement {
-		state.sourcePositionMap[sourcePositionKey(statement)] = &SourcePosition{Line: nextLine, Column: 1}
-		state.sourceEndPositionMap[sourcePositionKey(statement)] = &SourcePosition{Line: nextLine + 1, Column: 2}
+		luau.SetOrigin(statement, &luau.Origin{
+			Start:   luau.Position{Line: nextLine, Column: 1},
+			Closing: &luau.Position{Line: nextLine + 1, Column: 2},
+		})
 		nextLine += 2
 		return statement
 	}

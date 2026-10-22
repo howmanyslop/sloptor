@@ -70,27 +70,29 @@ func (s *State) addStatementListMappings(mappings *[]sourceMapMapping, statement
 }
 
 func (s *State) addStartMapping(mappings *[]sourceMapMapping, statement luau.Statement, line int) {
-	if position := s.sourcePositionMap[sourcePositionKey(statement)]; position != nil {
+	if origin := statement.Origin(); origin != nil {
 		*mappings = append(*mappings, sourceMapMapping{
 			generatedLine: line,
-			sourceLine:    position.Line,
-			sourceColumn:  position.Column,
+			sourceLine:    origin.Start.Line,
+			sourceColumn:  origin.Start.Column,
 		})
 	}
 }
 
 func (s *State) addEndMapping(mappings *[]sourceMapMapping, statement luau.Statement, line int) {
-	position := s.sourceEndPositionMap[sourcePositionKey(statement)]
+	origin := statement.Origin()
+	if origin == nil {
+		return
+	}
+	position := origin.Closing
 	if position == nil {
-		position = s.sourcePositionMap[sourcePositionKey(statement)]
+		position = &origin.Start
 	}
-	if position != nil {
-		*mappings = append(*mappings, sourceMapMapping{
-			generatedLine: line,
-			sourceLine:    position.Line,
-			sourceColumn:  position.Column,
-		})
-	}
+	*mappings = append(*mappings, sourceMapMapping{
+		generatedLine: line,
+		sourceLine:    position.Line,
+		sourceColumn:  position.Column,
+	})
 }
 
 func (s *State) addInnerMappings(mappings *[]sourceMapMapping, statement luau.Statement, startLine, lineCount int, rendered string) {
