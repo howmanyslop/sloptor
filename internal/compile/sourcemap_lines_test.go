@@ -232,6 +232,19 @@ both(() => {
 14 -       | }
 `,
 		},
+		{
+			name: "concise-arrow",
+			source: `declare function register(callback: () => unknown): number;
+declare function use(value: unknown): unknown;
+register(() => use(1));
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->3:0  | register(function()
+ 3 0->3:15 | 	return use(1)
+ 4 0->3:20 | end)
+ 5 -       | return nil
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
