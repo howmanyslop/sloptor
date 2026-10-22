@@ -245,6 +245,89 @@ register(() => use(1));
  5 -       | return nil
 `,
 		},
+		{
+			name: "loops",
+			source: `export function spin(limit: number) {
+	let i = 0;
+	do {
+		i += 1;
+	} while (i < limit);
+	return i;
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function spin(limit)
+ 3 0->2:1  | 	local i = 0
+ 4 0->3:1  | 	repeat
+ 5 0->3:1  | 		do
+ 6 0->4:2  | 			i += 1
+ 7 0->3:1  | 		end
+ 8 0->5:20 | 	until not (i < limit)
+ 9 0->6:1  | 	return i
+10 0->7:0  | end
+11 -       | return {
+12 0->1:0  | 	spin = spin,
+13 -       | }
+`,
+		},
+		{
+			name: "elseif",
+			source: `export function sign(n: number) {
+	if (n > 0) {
+		return 1;
+	} else if (n < 0) {
+		return -1;
+	} else {
+		return 0;
+	}
+}
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->1:0 | local function sign(n)
+ 3 0->2:1 | 	if n > 0 then
+ 4 0->3:2 | 		return 1
+ 5 0->4:8 | 	elseif n < 0 then
+ 6 0->5:2 | 		return -1
+ 7 0->4:8 | 	else
+ 8 0->7:2 | 		return 0
+ 9 0->8:1 | 	end
+10 0->9:0 | end
+11 -      | return {
+12 0->1:0 | 	sign = sign,
+13 -      | }
+`,
+		},
+		{
+			name: "else-if-prereq",
+			source: `export function label(a: string | undefined, b: string) {
+	if (a === "x") {
+		return 1;
+	} else if ((a ?? b) === "y") {
+		return 2;
+	}
+	return 0;
+}
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->1:0 | local function label(a, b)
+ 3 0->2:1 | 	if a == "x" then
+ 4 0->3:2 | 		return 1
+ 5 0->2:1 | 	else
+ 6 0->4:8 | 		local _condition = a
+ 7 0->4:8 | 		if _condition == nil then
+ 8 0->4:8 | 			_condition = b
+ 9 0->6:1 | 		end
+10 0->4:8 | 		if _condition == "y" then
+11 0->5:2 | 			return 2
+12 0->6:1 | 		end
+13 0->6:1 | 	end
+14 0->7:1 | 	return 0
+15 0->8:0 | end
+16 -      | return {
+17 0->1:0 | 	label = label,
+18 -      | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
