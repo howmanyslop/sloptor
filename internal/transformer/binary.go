@@ -183,7 +183,7 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 		operator, isSimple := getSimpleAssignmentOperator(s, writableType, operatorKind, valueType)
 		assignment := transformWritableAssignment(s, expression.Left, expression.Right, true, !isSimple)
 		if isSimple {
-			return createAssignmentExpression(s, assignment.writable, operator, getAssignableValue(s, operator, assignment.value, valueType))
+			return createAssignmentExpression(s, assignment.writable, operator, getAssignableValue(s, operator, assignment.value, valueType), expression.OperatorToken)
 		}
 		return createCompoundAssignmentExpression(s, assignment.writable, writableType, assignment.readable, operatorKind, assignment.value, valueType)
 	}

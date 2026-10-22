@@ -84,6 +84,17 @@ func TestAssignmentOperatorKeepsStatementOrigin(t *testing.T) {
 	}
 }
 
+func TestCompoundAssignmentExpressionOperator(t *testing.T) {
+	state := expressionOriginState(t, "let x = 0;\nconst value = (x += 1);", true)
+	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+	statement := statements.Head.Next.Value.(*luau.Assignment)
+	origin := statement.Origin()
+	want := luau.Position{Line: 1, Column: 17}
+	if origin == nil || origin.Operator == nil || *origin.Operator != want {
+		t.Fatalf("compound assignment expression origin = %+v, want operator %v", origin, want)
+	}
+}
+
 func TestLogicalAssignmentOperatorOrigins(t *testing.T) {
 	for _, operator := range []string{"??=", "&&=", "||="} {
 		t.Run(operator, func(t *testing.T) {
