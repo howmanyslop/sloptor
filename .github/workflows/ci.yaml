@@ -21,7 +21,6 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-24.04
     outputs:
-      documentation: ${{ steps.filter.outputs.documentation }}
       go: ${{ steps.filter.outputs.go }}
     steps:
       # Pushes are diffed with git; pull requests ask the API instead.
@@ -29,30 +28,21 @@ jobs:
         uses: actions/checkout@v4
 
       - id: filter
-        name: Detect changed areas
+        name: Detect Go-relevant changes
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           predicate-quantifier: some-with-excludes
-          # go fails open: Go reads include/, reference/, testdata/, the
+          # Fails open: Go reads include/, reference/, testdata/, the
           # schemas, and more, so every path runs it except the ones listed
-          # here as Go-free. Workflow files are among them: editing CI alone
-          # does not rerun the Go suites. The site compiles the CLI to
-          # generate the command reference, so cmd/rotor runs documentation
-          # too.
+          # here as Go-free. This file is not among them, so a CI edit always
+          # proves itself; the docs lane lives in ci-documentation.yaml so
+          # editing it does not wake the Go suites.
           filters: |
-            documentation:
-              - cmd/rotor/**
-              - documentation/**
-              - mise.lock
-              - mise.toml
-              - package.json
-              - patches/**
-              - pnpm-lock.yaml
-              - pnpm-workspace.yaml
-              - tsconfig.base.json
             go:
               - "**"
-              - "!.github/workflows/**"
+              - "!.github/workflows/ci-documentation.yaml"
+              - "!.github/workflows/docs.yaml"
+              - "!.github/workflows/release.yaml"
               - "!CHANGELOG.md"
               - "!CONTRIBUTING.md"
               - "!README.md"
@@ -61,54 +51,6 @@ jobs:
               - "!media/**"
 
     timeout-minutes: 5
-
-  # The docs site: type check, build (which regenerates the command
-  # reference from the CLI), and the unit and Chromium browser tests.
-  documentation:
-    needs: changes
-    if: needs.changes.outputs.documentation == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
-        with:
-          install_args: go node pnpm
-          experimental: true
-
-      - name: Restore Go module and build caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-docs-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-docs-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-        working-directory: documentation
-
-      - name: Type check
-        run: node --run check
-        working-directory: documentation
-
-      - name: Unit tests
-        run: node --run test:unit
-        working-directory: documentation
-
-      # Playwright builds the site and serves the preview itself.
-      - name: Browser tests
-        run: node --run test:browser
-        working-directory: documentation
-
-    timeout-minutes: 15
 
   lint:
     needs: changes
