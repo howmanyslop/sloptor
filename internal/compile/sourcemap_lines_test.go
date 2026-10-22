@@ -513,6 +513,23 @@ export function attempt() {
 12 -       | }
 `,
 		},
+		{
+			name: "continuation",
+			source: `const config = {
+	retries: 3,
+	label: "x",
+};
+print(config);
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->1:0 | local config = {
+ 3 0->1:0 | 	retries = 3,
+ 4 0->1:0 | 	label = "x",
+ 5 0->1:0 | }
+ 6 0->5:0 | print(config)
+ 7 -      | return nil
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
