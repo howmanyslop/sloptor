@@ -99,16 +99,21 @@ func (s *State) tagConditionOperator(condition luau.Expression, token *ast.Node)
 
 // mergeInlineExpressions ports mergeInlineExpressions (L108-121): adjacent
 // inline items merge into one binaryExpressionChain item.
-func mergeInlineExpressions(chain []logicalChainItem, binaryOperator luau.BinaryOperator) []logicalChainItem {
+func mergeInlineExpressions(s *State, chain []logicalChainItem, binaryOperator luau.BinaryOperator) []logicalChainItem {
 	for i := 0; i < len(chain); i++ {
 		if chain[i].inline {
 			exps := []luau.Expression{chain[i].expression}
+			var origins []*luau.Origin
 			j := i + 1
 			for j < len(chain) && chain[j].inline {
+				if s.SourceMapEnabled {
+					origins = append(origins, &luau.Origin{StartUnset: true, Operator: s.getOriginalSourcePosition(chain[i].operator, false)})
+				}
 				exps = append(exps, chain[j].expression)
+				chain[i].operator = chain[j].operator
 				chain = append(chain[:j], chain[j+1:]...)
 			}
-			chain[i].expression = binaryExpressionChain(exps, binaryOperator)
+			chain[i].expression = binaryExpressionChain(exps, binaryOperator, origins...)
 		}
 	}
 	return chain
@@ -121,7 +126,7 @@ func mergeInlineExpressions(chain []logicalChainItem, binaryOperator luau.Binary
 func buildInlineConditionExpression(s *State, node *ast.Node, tsBinaryOperator ast.Kind, luaBinaryOperator luau.BinaryOperator, buildCondition conditionBuilder) luau.Expression {
 	chain := getLogicalChain(s, node, tsBinaryOperator, true)
 
-	chain = mergeInlineExpressions(chain, luaBinaryOperator)
+	chain = mergeInlineExpressions(s, chain, luaBinaryOperator)
 
 	// single inline at the end, no temp variable needed
 	if len(chain) == 1 && chain[0].inline {

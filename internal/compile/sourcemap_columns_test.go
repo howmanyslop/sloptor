@@ -5,6 +5,25 @@ import "testing"
 func TestSourceMapColumns(t *testing.T) {
 	tests := []struct{ name, source, want string }{
 		{
+			name: "operators",
+			source: `export function check(a: boolean, b: boolean, c: boolean) {
+	const ok = a &&
+		b ||
+		c;
+	return ok;
+}
+`,
+			want: ` 1 -                                                | -- Compiled with sloptor vX
+ 2 0->1:0                                           | local function check(a, b, c)
+ 3 0->2:1 12->2:12 14->2:14 18->3:2 20->3:4 23->4:2 | 	local ok = a and b or c
+ 4 0->5:1 8->5:8                                    | 	return ok
+ 5 0->6:0                                           | end
+ 6 -                                                | return {
+ 7 0->1:0                                           | 	check = check,
+ 8 -                                                | }
+`,
+		},
+		{
 			name: "nullish",
 			source: `export function pick(a: string | undefined, b: string) {
 	const value = a ?? b;

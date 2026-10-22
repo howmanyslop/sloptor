@@ -73,10 +73,13 @@ func CreateTruthinessChecks(s *State, exp luau.Expression, node *ast.Node, t *ch
 
 // binaryExpressionChain ports util/expressionChain.ts binaryExpressionChain:
 // `[a, b, c]` with `and` -> `a and b and c` (left fold).
-func binaryExpressionChain(expressions []luau.Expression, operator luau.BinaryOperator) luau.Expression {
+func binaryExpressionChain(expressions []luau.Expression, operator luau.BinaryOperator, origins ...*luau.Origin) luau.Expression {
 	result := expressions[0]
-	for _, expression := range expressions[1:] {
+	for index, expression := range expressions[1:] {
 		result = luau.NewBinary(result, operator, expression)
+		if index < len(origins) {
+			luau.SetOrigin(result, origins[index])
+		}
 	}
 	return result
 }

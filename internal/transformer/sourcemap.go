@@ -38,8 +38,10 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 		if _, comment := r.Node.(*luau.Comment); comment {
 			continue
 		}
-		if _, ok := r.Node.(luau.Statement); ok && r.Node.Origin() != nil && positions[r.Start.Line] == nil {
-			positions[r.Start.Line] = &r.Node.Origin().Start
+		if origin := r.Node.Origin(); origin != nil && !origin.StartUnset {
+			if _, ok := r.Node.(luau.Statement); ok && positions[r.Start.Line] == nil {
+				positions[r.Start.Line] = &origin.Start
+			}
 		}
 	}
 	for _, r := range ranges {
@@ -49,8 +51,10 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 	}
 	// Ranges start in text order, with parents before children on a tie.
 	for _, r := range ranges {
-		if _, statement := r.Node.(luau.Statement); !statement && r.Node.Origin() != nil && positions[r.Start.Line] == nil {
-			positions[r.Start.Line] = &r.Node.Origin().Start
+		if origin := r.Node.Origin(); origin != nil && !origin.StartUnset {
+			if _, statement := r.Node.(luau.Statement); !statement && positions[r.Start.Line] == nil {
+				positions[r.Start.Line] = &origin.Start
+			}
 		}
 	}
 	addSourceMapCoverage(text, ranges, positions)
@@ -149,6 +153,9 @@ func addSourceMapCoverage(text string, ranges []render.Range, positions []*luau.
 				stack = stack[:len(stack)-1]
 			}
 			origin := r.Node.Origin()
+			if origin != nil && origin.StartUnset {
+				origin = nil
+			}
 			if origin == nil && len(stack) > 0 {
 				origin = stack[len(stack)-1].origin
 			}
