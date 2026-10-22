@@ -65,3 +65,20 @@ func TestSwitchClauseOrigins(t *testing.T) {
 		t.Error("nested nullish assignment must inherit its enclosing clause origin")
 	}
 }
+
+func TestTryCallbackOrigins(t *testing.T) {
+	function := transformOriginSource(t, "function attempt() {\n\ttry {\n\t\trisky();\n\t} catch (e) {\n\t\tuse(e);\n\t} finally {\n\t\trisky();\n\t}\n}\ndeclare function risky(): void;\ndeclare function use(value: unknown): void;").Tail.Value.(*luau.FunctionDeclaration)
+	call := function.Statements.Head.Value.(*luau.CallStatement).Expression.(*luau.CallExpression)
+	callbacks := call.Args.ToSlice()
+	for index, test := range []struct {
+		name           string
+		start, closing luau.Position
+	}{
+		{"try block", luau.Position{Line: 1, Column: 5}, luau.Position{Line: 3, Column: 1}},
+		{"catch clause", luau.Position{Line: 3, Column: 3}, luau.Position{Line: 5, Column: 1}},
+		{"finally block", luau.Position{Line: 5, Column: 11}, luau.Position{Line: 7, Column: 1}},
+	} {
+		t.Run(test.name, func(t *testing.T) { assertNodeOrigin(t, callbacks[index], test.start, test.closing) })
+	}
+	assertNodeOrigin(t, callbacks[0].(*luau.FunctionExpression).Statements.Head.Value, luau.Position{Line: 2, Column: 2}, luau.Position{Line: 2, Column: 9})
+}
