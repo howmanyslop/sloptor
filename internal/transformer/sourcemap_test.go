@@ -267,6 +267,93 @@ func TestRenderWithSourceMapLeavesTaggedCommentsUnmapped(t *testing.T) {
 	assertSourceMapLines(t, text, mapJSON, []string{"10:0", "-", "-", "-", "-", "-", "-", "10:0", "10:0", "11:0"})
 }
 
+func TestRenderWithSourceMapRulePriority(t *testing.T) {
+	emptyFunction := func(tagStatement bool) *luau.List[luau.Statement] {
+		function := luau.NewFunctionExpression(luau.NewList[luau.AnyIdentifier](), false, luau.NewList[luau.Statement]())
+		luau.SetOrigin(function, &luau.Origin{Start: luau.Position{Line: 7}, Closing: &luau.Position{Line: 8}})
+		statement := luau.NewVariableDeclaration(luau.ID("fn"), function)
+		if tagStatement {
+			luau.SetOrigin(statement, &luau.Origin{Start: luau.Position{Line: 2}})
+		}
+		return luau.NewList[luau.Statement](statement)
+	}
+	repeat := func(tagClosing bool) *luau.List[luau.Statement] {
+		condition := luau.Bool(true)
+		luau.SetOrigin(condition, &luau.Origin{Start: luau.Position{Line: 30}})
+		statement := luau.NewRepeat(condition, luau.NewList[luau.Statement]())
+		origin := &luau.Origin{Start: luau.Position{Line: 20}}
+		if tagClosing {
+			origin.Closing = &luau.Position{Line: 21}
+		}
+		luau.SetOrigin(statement, origin)
+		return luau.NewList[luau.Statement](statement)
+	}
+	tests := []struct {
+		name       string
+		statements *luau.List[luau.Statement]
+		text       string
+		positions  []string
+	}{
+		{"statement before closing and other", emptyFunction(true), "local fn = function() end\n", []string{"2:0"}},
+		{"closing before other", emptyFunction(false), "local fn = function() end\n", []string{"8:0"}},
+		{"until closing before condition start", repeat(true), "repeat\nuntil true\n", []string{"20:0", "21:0"}},
+		{"missing closing allows other before coverage", repeat(false), "repeat\nuntil true\n", []string{"20:0", "30:0"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			state, sourceFile, _ := sourceMapFixture()
+			text, mapJSON := state.RenderWithSourceMap(test.statements, sourceFile)
+			if text != test.text {
+				t.Fatalf("text = %q, want %q", text, test.text)
+			}
+			assertSourceMapLines(t, text, mapJSON, test.positions)
+		})
+	}
+}
+
+func TestRenderWithSourceMapRepeatedOccurrences(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
+	callback := func(start, body, closing int) *luau.FunctionExpression {
+		statement := luau.NewCallStatement(luau.NewCall(luau.ID("same"), luau.NewList[luau.Expression]()))
+		luau.SetOrigin(statement, &luau.Origin{Start: luau.Position{Line: body, Column: 1}})
+		function := luau.NewFunctionExpression(luau.NewList[luau.AnyIdentifier](), false, luau.NewList[luau.Statement](statement))
+		luau.SetOrigin(function, &luau.Origin{Start: luau.Position{Line: start}, Closing: &luau.Position{Line: closing}})
+		return function
+	}
+	expression := luau.NewCall(luau.ID("consume"), luau.NewList[luau.Expression](callback(1, 2, 3), callback(4, 5, 6)))
+	// Reuse the exact same node as a third argument, beyond the identical text
+	// of the first two callbacks. Every occurrence must retain its own range.
+	expression.Args.Push(expression.Args.Head.Value)
+	statement := luau.NewCallStatement(expression)
+	luau.SetOrigin(statement, &luau.Origin{Start: luau.Position{}})
+	text, mapJSON := state.RenderWithSourceMap(luau.NewList[luau.Statement](statement), sourceFile)
+	wantText := "consume(function()\n\tsame()\nend, function()\n\tsame()\nend, function()\n\tsame()\nend)\n"
+	if text != wantText {
+		t.Fatalf("text = %q, want %q", text, wantText)
+	}
+	// Closing the preceding callback outranks the next callback's start.
+	assertSourceMapLines(t, text, mapJSON, []string{"0:0", "2:1", "3:0", "5:1", "6:0", "2:1", "3:0"})
+}
+
+func TestRenderWithSourceMapSolvesCallbackTemporaries(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
+	first, second := luau.TempID("value"), luau.TempID("value")
+	body := luau.NewList[luau.Statement](
+		luau.NewVariableDeclaration(first, luau.Num(1)),
+		luau.NewVariableDeclaration(second, luau.Num(2)),
+		luau.NewCallStatement(luau.NewCall(luau.ID("use"), luau.NewList[luau.Expression](first, second))),
+	)
+	function := luau.NewFunctionExpression(luau.NewList[luau.AnyIdentifier](), false, body)
+	luau.SetOrigin(function, &luau.Origin{Start: luau.Position{Line: 10}, Closing: &luau.Position{Line: 20}})
+	statement := luau.NewVariableDeclaration(luau.ID("handle"), luau.NewMethodCall("consume", luau.ID("object"), luau.NewList[luau.Expression](function)))
+	text, mapJSON := state.RenderWithSourceMap(luau.NewList[luau.Statement](statement), sourceFile)
+	wantText := "local handle = object:consume(function()\n\tlocal _value = 1\n\tlocal _value_1 = 2\n\tuse(_value, _value_1)\nend)\n"
+	if text != wantText {
+		t.Fatalf("text = %q, want %q", text, wantText)
+	}
+	assertSourceMapLines(t, text, mapJSON, []string{"10:0", "10:0", "10:0", "10:0", "20:0"})
+}
+
 func sourceMapFixture() (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts", Path: tspath.Path("/test.ts"),
