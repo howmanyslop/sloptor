@@ -492,6 +492,27 @@ export function attempt() {
 25 -       | }
 `,
 		},
+		{
+			name: "nullish",
+			source: `export function pick(a: string | undefined, b: string) {
+	const value = a ?? b;
+	return value;
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function pick(a, b)
+ 3 0->2:1  | 	local _condition = a
+ 4 0->2:1  | 	if _condition == nil then
+ 5 0->2:1  | 		_condition = b
+ 6 0->2:21 | 	end
+ 7 0->2:1  | 	local value = _condition
+ 8 0->3:1  | 	return value
+ 9 0->4:0  | end
+10 -       | return {
+11 0->1:0  | 	pick = pick,
+12 -       | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
