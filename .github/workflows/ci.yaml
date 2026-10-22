@@ -13,53 +13,48 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The docs site: type check, build (which regenerates the command
-  # reference from the CLI), and the unit and Chromium browser tests.
-  documentation:
+  # Decides which lanes this change needs. A skipped job still satisfies a
+  # required check, so gated lanes never leave a PR waiting.
+  changes:
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-24.04
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
     steps:
+      # Pushes are diffed with git; pull requests ask the API instead.
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+      - id: filter
+        name: Detect Go-relevant changes
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
-          install_args: go node pnpm
-          experimental: true
+          predicate-quantifier: some-with-excludes
+          # Fails open: Go reads include/, reference/, testdata/, the
+          # schemas, and more, so every path runs it except the ones listed
+          # here as Go-free. This file is not among them, so a CI edit always
+          # proves itself; the docs lane lives in ci-documentation.yaml so
+          # editing it does not wake the Go suites.
+          filters: |
+            go:
+              - "**"
+              - "!.github/workflows/ci-documentation.yaml"
+              - "!.github/workflows/docs.yaml"
+              - "!.github/workflows/release.yaml"
+              - "!CHANGELOG.md"
+              - "!CONTRIBUTING.md"
+              - "!README.md"
+              - "!docs/**"
+              - "!documentation/**"
+              - "!media/**"
 
-      - name: Restore Go module and build caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-docs-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-docs-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-        working-directory: documentation
-
-      - name: Type check
-        run: node --run check
-        working-directory: documentation
-
-      - name: Unit tests
-        run: node --run test:unit
-        working-directory: documentation
-
-      # Playwright builds the site and serves the preview itself.
-      - name: Browser tests
-        run: node --run test:browser
-        working-directory: documentation
-
-    timeout-minutes: 15
+    timeout-minutes: 5
 
   lint:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -89,6 +84,8 @@ jobs:
     timeout-minutes: 15
 
   race:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -115,6 +112,8 @@ jobs:
   # heavy four get their own runner in test-heavy. New packages land here by
   # default; move one to test-heavy only if it belongs with the big ones.
   test:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -149,6 +148,8 @@ jobs:
   # The four heavy packages on a dedicated runner; they overlap through the
   # default -p (one lane each on 4 vCPUs) instead of queueing behind vet.
   test-heavy:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -171,6 +172,8 @@ jobs:
   # rotor binary itself (go build in test.before), so it needs the toolchain
   # and module cache too.
   test-node:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -189,6 +192,8 @@ jobs:
     timeout-minutes: 15
 
   vuln:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -217,6 +222,8 @@ jobs:
         run: govulncheck ./...
 
   windows-compile:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -248,6 +255,8 @@ jobs:
     timeout-minutes: 20
 
   windows-conformance:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -267,6 +276,8 @@ jobs:
     timeout-minutes: 20
 
   windows-flamework:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -297,6 +308,8 @@ jobs:
   # into the base lane; move a name into a -run filter only with a measured
   # duration, and keep the -skip pattern in sync with the -run filters.
   windows-flamework-differential:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -318,6 +331,8 @@ jobs:
     timeout-minutes: 20
 
   windows-flamework-pinned:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -337,6 +352,8 @@ jobs:
     timeout-minutes: 20
 
   windows-node:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository

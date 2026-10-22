@@ -14,6 +14,7 @@
 		"astro.config.ts",
 		"playwright.config.ts",
 		"reset.d.ts",
+		"scripts/**/*",
 		"src/**/*",
 		"tests/**/*",
 		"vitest.config.ts"
