@@ -252,6 +252,21 @@ func TestRenderWithSourceMapOtherStarts(t *testing.T) {
 	assertSourceMapLines(t, text, mapJSON, []string{"-", "20:1", "33:2", "30:3", "41:4", "43:5", "-"})
 }
 
+func TestRenderWithSourceMapLeavesTaggedCommentsUnmapped(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
+	single, multiline := luau.NewComment("single"), luau.NewComment("first\r\n\r\nsecond")
+	luau.SetOrigin(single, &luau.Origin{Start: luau.Position{Line: 20}})
+	luau.SetOrigin(multiline, &luau.Origin{Start: luau.Position{Line: 30}})
+	outer := luau.NewDo(luau.NewList[luau.Statement](single, multiline, luau.NewDo(luau.NewList[luau.Statement]())))
+	luau.SetOrigin(outer, &luau.Origin{Start: luau.Position{Line: 10}, Closing: &luau.Position{Line: 11}})
+	text, mapJSON := state.RenderWithSourceMap(luau.NewList[luau.Statement](outer), sourceFile)
+	wantText := "do\n\t--single\n\t--[[\n\t\tfirst\n\t\t\n\t\tsecond\n\t]]\n\tdo\n\tend\nend\n"
+	if text != wantText {
+		t.Fatalf("text = %q, want %q", text, wantText)
+	}
+	assertSourceMapLines(t, text, mapJSON, []string{"10:0", "-", "-", "-", "-", "-", "-", "10:0", "10:0", "11:0"})
+}
+
 func sourceMapFixture() (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts", Path: tspath.Path("/test.ts"),

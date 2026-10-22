@@ -33,6 +33,9 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 	text, ranges := render.RenderASTWithPositions(statements)
 	positions := make([]*luau.Position, strings.Count(text, "\n")+1)
 	for _, r := range ranges {
+		if _, comment := r.Node.(*luau.Comment); comment {
+			continue
+		}
 		if _, ok := r.Node.(luau.Statement); ok && r.Node.Origin() != nil && positions[r.Start.Line] == nil {
 			positions[r.Start.Line] = &r.Node.Origin().Start
 		}
