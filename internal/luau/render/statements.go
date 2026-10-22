@@ -47,7 +47,7 @@ func renderReturnStatement(s *RenderState, node *luau.ReturnStatement) {
 func renderAssignment(s *RenderState, node *luau.Assignment) {
 	s.exprOrList(node.Left)
 	s.write(" ")
-	s.write(string(node.Operator))
+	s.operator(string(node.Operator))
 	s.write(" ")
 	s.exprOrList(node.Right)
 	s.write(getEnding(s, node))

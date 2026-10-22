@@ -91,7 +91,9 @@ func offsetExpr(expression luau.Expression, value float64) luau.Expression {
 			if newRightValue == 0 {
 				return binary.Left
 			}
-			return luau.NewBinary(binary.Left, binary.Operator, luau.Num(newRightValue))
+			adjusted := luau.NewBinary(binary.Left, binary.Operator, luau.Num(newRightValue))
+			luau.SetOrigin(adjusted, binary.Origin())
+			return adjusted
 		}
 	}
 

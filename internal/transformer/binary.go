@@ -183,7 +183,7 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 		operator, isSimple := getSimpleAssignmentOperator(s, writableType, operatorKind, valueType)
 		assignment := transformWritableAssignment(s, expression.Left, expression.Right, true, !isSimple)
 		if isSimple {
-			return createAssignmentExpression(s, assignment.writable, operator, getAssignableValue(s, operator, assignment.value, valueType))
+			return createAssignmentExpression(s, assignment.writable, operator, getAssignableValue(s, operator, assignment.value, valueType), expression.OperatorToken)
 		}
 		return createCompoundAssignmentExpression(s, assignment.writable, writableType, assignment.readable, operatorKind, assignment.value, valueType)
 	}
@@ -197,11 +197,13 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 
 	switch operatorKind {
 	case ast.KindInKeyword:
-		return luau.NewBinary(
+		result := luau.NewBinary(
 			luau.NewComputedIndex(convertToIndexableExpression(right), left),
 			"~=",
 			luau.Nil(),
 		)
+		s.setOperatorSourcePosition(result, expression.OperatorToken)
+		return result
 	case ast.KindInstanceOfKeyword:
 		if IsPossiblyType(s, s.GetType(expression.Right), IsRobloxType(s)) {
 			s.Diags.Add(DiagNoRobloxSymbolInstanceof(expression.Right))
@@ -225,5 +227,9 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 		}
 	}
 
-	return createBinaryFromOperator(s, left, leftType, operatorKind, right, rightType)
+	result := createBinaryFromOperator(s, left, leftType, operatorKind, right, rightType)
+	if _, binary := result.(*luau.BinaryExpression); binary {
+		s.setOperatorSourcePosition(result, expression.OperatorToken)
+	}
+	return result
 }

@@ -62,6 +62,16 @@ func compileWithSourceMap(t *testing.T, name, source string) (luau, mapJSON stri
 // annotateSourceMap uses 1-based lines and 0-based UTF-16 columns. It retains
 // every segment, including generated-only segments and duplicate mappings.
 func annotateSourceMap(luauText, mapJSON string) string {
+	return annotateSourceMapSegments(luauText, mapJSON, false)
+}
+
+// The statement-level fixtures deliberately assert only their column-zero
+// anchors; expression fixtures assert every segment through annotateSourceMap.
+func annotateSourceMapLines(luauText, mapJSON string) string {
+	return annotateSourceMapSegments(luauText, mapJSON, true)
+}
+
+func annotateSourceMapSegments(luauText, mapJSON string, columnZeroOnly bool) string {
 	var sourceMap struct {
 		Mappings string `json:"mappings"`
 	}
@@ -71,6 +81,9 @@ func annotateSourceMap(luauText, mapJSON string) string {
 	segments := map[int][]string{}
 	decoder := sourcemap.DecodeMappings(sourceMap.Mappings)
 	for mapping := range decoder.Values() {
+		if columnZeroOnly && mapping.GeneratedCharacter != 0 {
+			continue
+		}
 		segment := fmt.Sprintf("%d->?", mapping.GeneratedCharacter)
 		if mapping.IsSourceMapping() {
 			segment = fmt.Sprintf("%d->%d:%d", mapping.GeneratedCharacter, mapping.SourceLine+1, mapping.SourceCharacter)
@@ -233,10 +246,10 @@ both(() => {
  4 0->3:2  | 		greet = function(self, name)
  5 0->4:3  | 			return "hi " .. name
  6 0->5:2  | 		end,
- 7 0->6:7  | 		run = function()
+ 7 0->6:2  | 		run = function()
  8 0->7:3  | 			print("run")
  9 0->8:2  | 		end,
-10 0->2:1  | 	}
+10 0->2:8  | 	}
 11 0->10:0 | end
 12 -       | return {
 13 0->1:0  | 	makeApi = makeApi,
@@ -319,24 +332,24 @@ register(() => use(1));
 	return 0;
 }
 `,
-			want: ` 1 -      | -- Compiled with sloptor vX
- 2 0->1:0 | local function label(a, b)
- 3 0->2:1 | 	if a == "x" then
- 4 0->3:2 | 		return 1
- 5 0->2:1 | 	else
- 6 0->4:8 | 		local _condition = a
- 7 0->4:8 | 		if _condition == nil then
- 8 0->4:8 | 			_condition = b
- 9 0->6:1 | 		end
-10 0->4:8 | 		if _condition == "y" then
-11 0->5:2 | 			return 2
-12 0->6:1 | 		end
-13 0->6:1 | 	end
-14 0->7:1 | 	return 0
-15 0->8:0 | end
-16 -      | return {
-17 0->1:0 | 	label = label,
-18 -      | }
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function label(a, b)
+ 3 0->2:1  | 	if a == "x" then
+ 4 0->3:2  | 		return 1
+ 5 0->2:1  | 	else
+ 6 0->4:8  | 		local _condition = a
+ 7 0->4:8  | 		if _condition == nil then
+ 8 0->4:18 | 			_condition = b
+ 9 0->6:1  | 		end
+10 0->4:8  | 		if _condition == "y" then
+11 0->5:2  | 			return 2
+12 0->6:1  | 		end
+13 0->6:1  | 	end
+14 0->7:1  | 	return 0
+15 0->8:0  | end
+16 -       | return {
+17 0->1:0  | 	label = label,
+18 -       | }
 `,
 		},
 		{
@@ -415,7 +428,7 @@ export function attempt() {
 			want: ` 1 -       | -- Compiled with sloptor vX
  2 0->1:0  | local function greet(name, _param)
  3 0->1:22 | 	if name == nil then
- 4 0->1:22 | 		name = "world"
+ 4 0->1:29 | 		name = "world"
  5 0->1:35 | 	end
  6 0->1:38 | 	local loud = _param.loud
  7 0->2:1  | 	print(name, loud)
@@ -453,7 +466,7 @@ export function attempt() {
 16 0->1:0  | 	end
 17 0->3:1  | 	function Counter:increment(step)
 18 0->3:11 | 		if step == nil then
-19 0->3:11 | 			step = 1
+19 0->3:18 | 			step = 1
 20 0->3:18 | 		end
 21 0->4:2  | 		self.count += step
 22 0->5:2  | 		return self.count
@@ -514,7 +527,7 @@ export function attempt() {
  2 0->1:0  | local function pick(a, b)
  3 0->2:1  | 	local _condition = a
  4 0->2:1  | 	if _condition == nil then
- 5 0->2:1  | 		_condition = b
+ 5 0->2:20 | 		_condition = b
  6 0->2:21 | 	end
  7 0->2:1  | 	local value = _condition
  8 0->3:1  | 	return value
@@ -532,13 +545,13 @@ export function attempt() {
 };
 print(config);
 `,
-			want: ` 1 -      | -- Compiled with sloptor vX
- 2 0->1:0 | local config = {
- 3 0->1:0 | 	retries = 3,
- 4 0->1:0 | 	label = "x",
- 5 0->1:0 | }
- 6 0->5:0 | print(config)
- 7 -      | return nil
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local config = {
+ 3 0->2:1  | 	retries = 3,
+ 4 0->3:1  | 	label = "x",
+ 5 0->1:15 | }
+ 6 0->5:0  | print(config)
+ 7 -       | return nil
 `,
 		},
 		{
@@ -579,7 +592,7 @@ use(handle);
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			luau, mapJSON := compileWithSourceMap(t, test.name, test.source)
-			if got := annotateSourceMap(luau, mapJSON); got != test.want {
+			if got := annotateSourceMapLines(luau, mapJSON); got != test.want {
 				t.Errorf("source map lines:\ngot:\n%swant:\n%s", got, test.want)
 			}
 		})

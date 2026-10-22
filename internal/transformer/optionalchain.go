@@ -32,9 +32,11 @@ func createOrSetTempId(s *State, tempId *luau.TemporaryIdentifier, expression lu
 
 // createNilCheck ports createNilCheck (L219-225): `if tempId ~= nil then
 // <statements> end`.
-func createNilCheck(tempId *luau.TemporaryIdentifier, statements *luau.List[luau.Statement]) luau.Statement {
+func createNilCheck(s *State, tempId *luau.TemporaryIdentifier, statements *luau.List[luau.Statement], token *ast.Node) luau.Statement {
+	condition := luau.NewBinary(tempId, "~=", luau.Nil())
+	s.setOperatorSourcePosition(condition, token)
 	return luau.NewIf(
-		luau.NewBinary(tempId, "~=", luau.Nil()),
+		condition,
 		statements,
 		luau.NewList[luau.Statement](),
 	)
@@ -139,7 +141,11 @@ func transformOptionalChainInner(
 				}
 			}
 
-			s.Prereq(createNilCheck(tempId, ifStatements))
+			token := item.node.QuestionDotToken()
+			if isCompoundCall(item) && !item.callOptional {
+				token = item.expression.QuestionDotToken()
+			}
+			s.Prereq(createNilCheck(s, tempId, ifStatements, token))
 
 			if isUsed {
 				return tempId
@@ -150,7 +156,7 @@ func transformOptionalChainInner(
 		if isCompoundCall(item) && item.optional && item.callOptional {
 			// a?.b?.(): a SECOND nil check wraps everything captured above
 			// (including the inner nil check for the call itself).
-			s.Prereq(createNilCheck(tempId, prereqStatements))
+			s.Prereq(createNilCheck(s, tempId, prereqStatements, item.expression.QuestionDotToken()))
 		} else {
 			s.PrereqList(prereqStatements)
 		}

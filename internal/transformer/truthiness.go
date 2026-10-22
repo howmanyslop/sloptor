@@ -68,15 +68,31 @@ func CreateTruthinessChecks(s *State, exp luau.Expression, node *ast.Node, t *ch
 		s.Diags.Add(DiagTruthyChange(node, strings.Join(checkStrs, ", ")))
 	}
 
-	return binaryExpressionChain(checks, "and")
+	var origins []*luau.Origin
+	if s.SourceMapEnabled && len(checks) > 1 {
+		if start := s.getOriginalSourcePosition(node, false); start != nil {
+			origin := &luau.Origin{Start: *start}
+			for _, check := range checks[:len(checks)-1] {
+				luau.SetOrigin(check, origin)
+			}
+			origins = make([]*luau.Origin, len(checks)-1)
+			for i := range origins {
+				origins[i] = origin
+			}
+		}
+	}
+	return binaryExpressionChain(checks, "and", origins...)
 }
 
 // binaryExpressionChain ports util/expressionChain.ts binaryExpressionChain:
 // `[a, b, c]` with `and` -> `a and b and c` (left fold).
-func binaryExpressionChain(expressions []luau.Expression, operator luau.BinaryOperator) luau.Expression {
+func binaryExpressionChain(expressions []luau.Expression, operator luau.BinaryOperator, origins ...*luau.Origin) luau.Expression {
 	result := expressions[0]
-	for _, expression := range expressions[1:] {
+	for index, expression := range expressions[1:] {
 		result = luau.NewBinary(result, operator, expression)
+		if index < len(origins) {
+			luau.SetOrigin(result, origins[index])
+		}
 	}
 	return result
 }

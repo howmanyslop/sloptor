@@ -227,7 +227,9 @@ func transformUnaryExpressionStatement(s *State, expression *ast.Node) luau.Stat
 	if operatorKind == ast.KindMinusMinusToken {
 		operator = "-="
 	}
-	return luau.NewAssignment(writable, operator, luau.Num(1))
+	assignment := luau.NewAssignment(writable, operator, luau.Num(1))
+	s.setUpdateOperatorSourcePosition(assignment, expression)
+	return assignment
 }
 
 // isUnaryAssignmentOperator ports typeGuards.ts isUnaryAssignmentOperator
@@ -259,11 +261,15 @@ func transformExpressionStatementInner(s *State, expression *ast.Node) *luau.Lis
 			// in transformBinaryExpression, which passes true, !isSimple).
 			assignment := transformWritableAssignment(s, binary.Left, binary.Right, !isSimple, !isSimple)
 			if isSimple {
-				return luau.NewList[luau.Statement](luau.NewAssignment(
+				statement := luau.NewAssignment(
 					assignment.writable,
 					operator,
 					getAssignableValue(s, operator, assignment.value, valueType),
-				))
+				)
+				if operatorKind != ast.KindEqualsToken {
+					s.setOperatorSourcePosition(statement, binary.OperatorToken)
+				}
+				return luau.NewList[luau.Statement](statement)
 			}
 			return luau.NewList[luau.Statement](createCompoundAssignmentStatement(
 				s, assignment.writable, writableType, assignment.readable, operatorKind, assignment.value, valueType,

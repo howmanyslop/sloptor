@@ -67,7 +67,7 @@ func TestSourceMapForIteratorFallbackTempOrder(t *testing.T) {
 						sourceLine = 3
 					}
 					if sourceLine >= 0 {
-						if len(mappings[line]) != 1 || !mappings[line][0].IsSourceMapping() || mappings[line][0].SourceLine != sourceLine {
+						if len(mappings[line]) == 0 || mappings[line][0].GeneratedCharacter != 0 || !mappings[line][0].IsSourceMapping() || mappings[line][0].SourceLine != sourceLine {
 							t.Errorf("callback temporary on Luau line %d: want TS line %d, got %v", line+1, sourceLine+1, mappings[line])
 						}
 					}

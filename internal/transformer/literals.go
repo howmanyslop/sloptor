@@ -225,20 +225,31 @@ func transformObjectLiteralExpression(s *State, node *ast.Node) luau.Expression 
 				continue
 			}
 			transformPropertyAssignment(s, ptr, name, property.AsPropertyAssignment().Initializer)
+			s.setMapFieldSourcePosition(ptr, property)
 		case ast.KindShorthandPropertyAssignment:
 			// `{ a }` — the name doubles as the initializer expression.
 			name := property.Name()
 			transformPropertyAssignment(s, ptr, name, name)
+			s.setMapFieldSourcePosition(ptr, property)
 		case ast.KindSpreadAssignment:
 			transformSpreadAssignment(s, ptr, property)
 		case ast.KindMethodDeclaration:
 			s.PrereqList(transformMethodDeclaration(s, property, ptr))
+			s.setMapFieldSourcePosition(ptr, property)
 		default:
 			// must be an AccessorDeclaration, which is banned
 			s.Diags.Add(DiagNoGetterSetter(property))
 		}
 	}
 	return ptr.Value
+}
+
+func (s *State) setMapFieldSourcePosition(ptr *MapPointer, property *ast.Node) {
+	if s.SourceMapEnabled {
+		if table, ok := ptr.Value.(*luau.Map); ok && table.Fields.Tail != nil {
+			s.setSourcePosition(table.Fields.Tail.Value, s.getOriginalSourcePosition(property, false))
+		}
+	}
 }
 
 // transformPropertyAssignment ports transformObjectLiteralExpression.ts

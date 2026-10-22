@@ -35,7 +35,9 @@ func transformPostfixUnaryExpression(s *State, node *ast.Node) luau.Expression {
 	default:
 		panic("transformer: transformPostfixUnaryExpression unknown operator: " + kindName(expression.Operator)) // upstream assertNever
 	}
-	s.Prereq(luau.NewAssignment(writable, operator, luau.Num(1)))
+	assignment := luau.NewAssignment(writable, operator, luau.Num(1))
+	s.setUpdateOperatorSourcePosition(assignment, node)
+	s.Prereq(assignment)
 
 	return origValue
 }
@@ -56,7 +58,9 @@ func transformPrefixUnaryExpression(s *State, node *ast.Node) luau.Expression {
 		if expression.Operator == ast.KindMinusMinusToken {
 			operator = "-="
 		}
-		s.Prereq(luau.NewAssignment(writable, operator, luau.Num(1)))
+		assignment := luau.NewAssignment(writable, operator, luau.Num(1))
+		s.setUpdateOperatorSourcePosition(assignment, node)
+		s.Prereq(assignment)
 		return writable
 	case ast.KindPlusToken:
 		s.Diags.Add(DiagNoUnaryPlus(node))

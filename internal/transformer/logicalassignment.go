@@ -13,7 +13,7 @@ import (
 // evaluate lazily INSIDE the if. No temps for identifier/id-rooted targets
 // (transformWritableExpression with readAfterWrite=true only pins complex
 // bases/indices).
-func transformCoalescingAssignmentExpression(s *State, left, right *ast.Node) luau.WritableExpression {
+func transformCoalescingAssignmentExpression(s *State, left, right, operator *ast.Node) luau.WritableExpression {
 	writable := transformWritableExpression(s, left, true)
 	value, valuePrereqs := s.Capture(func() luau.Expression { return TransformExpression(s, right) })
 
@@ -22,7 +22,7 @@ func transformCoalescingAssignmentExpression(s *State, left, right *ast.Node) lu
 	ifStatements.Push(luau.NewAssignment(writable, "=", value))
 
 	s.Prereq(luau.NewIf(
-		luau.NewBinary(writable, "==", luau.Nil()),
+		s.tagConditionOperator(luau.NewBinary(writable, "==", luau.Nil()), operator),
 		ifStatements,
 		luau.NewList[luau.Statement](),
 	))
@@ -36,7 +36,7 @@ func transformCoalescingAssignmentExpression(s *State, left, right *ast.Node) lu
 // temp), assign the RHS to the temp inside the if, then UNCONDITIONALLY write
 // the temp back (a redundant self-assignment when the branch was not taken —
 // verbatim upstream quirk).
-func transformLogicalAndAssignmentExpression(s *State, left, right *ast.Node) luau.WritableExpression {
+func transformLogicalAndAssignmentExpression(s *State, left, right, operator *ast.Node) luau.WritableExpression {
 	writable := transformWritableExpression(s, left, true)
 	value, valuePrereqs := s.Capture(func() luau.Expression { return TransformExpression(s, right) })
 
@@ -47,7 +47,7 @@ func transformLogicalAndAssignmentExpression(s *State, left, right *ast.Node) lu
 	ifStatements.Push(luau.NewAssignment(conditionID, "=", value))
 
 	s.Prereq(luau.NewIf(
-		CreateTruthinessChecks(s, writable, left, s.GetType(left)),
+		s.tagConditionOperator(CreateTruthinessChecks(s, writable, left, s.GetType(left)), operator),
 		ifStatements,
 		luau.NewList[luau.Statement](),
 	))
@@ -60,7 +60,7 @@ func transformLogicalAndAssignmentExpression(s *State, left, right *ast.Node) lu
 // transformLogicalOrAssignmentExpression ports
 // transformLogicalOrAssignmentExpression (L78-116): identical to `&&=` except
 // the if-condition is `not (<truthiness checks>)`.
-func transformLogicalOrAssignmentExpression(s *State, left, right *ast.Node) luau.WritableExpression {
+func transformLogicalOrAssignmentExpression(s *State, left, right, operator *ast.Node) luau.WritableExpression {
 	writable := transformWritableExpression(s, left, true)
 	value, valuePrereqs := s.Capture(func() luau.Expression { return TransformExpression(s, right) })
 
@@ -71,7 +71,7 @@ func transformLogicalOrAssignmentExpression(s *State, left, right *ast.Node) lua
 	ifStatements.Push(luau.NewAssignment(conditionID, "=", value))
 
 	s.Prereq(luau.NewIf(
-		luau.NewUnary("not", CreateTruthinessChecks(s, writable, left, s.GetType(left))),
+		s.tagConditionOperator(luau.NewUnary("not", CreateTruthinessChecks(s, writable, left, s.GetType(left))), operator),
 		ifStatements,
 		luau.NewList[luau.Statement](),
 	))
@@ -90,11 +90,11 @@ func transformLogicalOrCoalescingAssignmentExpression(s *State, node *ast.Node) 
 	operator := expression.OperatorToken.Kind
 	switch operator {
 	case ast.KindQuestionQuestionEqualsToken:
-		return transformCoalescingAssignmentExpression(s, expression.Left, expression.Right)
+		return transformCoalescingAssignmentExpression(s, expression.Left, expression.Right, expression.OperatorToken)
 	case ast.KindAmpersandAmpersandEqualsToken:
-		return transformLogicalAndAssignmentExpression(s, expression.Left, expression.Right)
+		return transformLogicalAndAssignmentExpression(s, expression.Left, expression.Right, expression.OperatorToken)
 	}
-	return transformLogicalOrAssignmentExpression(s, expression.Left, expression.Right)
+	return transformLogicalOrAssignmentExpression(s, expression.Left, expression.Right, expression.OperatorToken)
 }
 
 // transformLogicalOrCoalescingAssignmentExpressionStatement ports

@@ -59,6 +59,37 @@ func TestRenderASTWithPositions(t *testing.T) {
 	}
 }
 
+func TestOperatorPositions(t *testing.T) {
+	sum := luau.NewBinary(luau.ID("a"), "+", luau.ID("b"))
+	and := luau.NewBinary(luau.ID("a"), "and", luau.ID("b"))
+	or := luau.NewBinary(and, "or", luau.ID("c"))
+	assignment := luau.NewAssignment(luau.ID("x"), "+=", luau.Num(1))
+	inner := luau.NewBinary(luau.ID("a"), "+", luau.ID("b"))
+	outer := luau.NewBinary(inner, "*", luau.ID("c"))
+	ast := stmts(luau.NewVariableDeclaration(luau.ID("x"), sum), luau.NewVariableDeclaration(luau.ID("x"), or), assignment, luau.NewReturn(outer))
+	text, ranges := RenderASTWithPositions(ast)
+	if text != "local x = a + b\nlocal x = a and b or c\nx += 1\nreturn (a + b) * c\n" || text != RenderAST(ast) {
+		t.Fatalf("unexpected rendered bytes: %q", text)
+	}
+	want := map[luau.Node]luau.Position{
+		sum: {Line: 0, Column: 12}, and: {Line: 1, Column: 12}, or: {Line: 1, Column: 18},
+		assignment: {Line: 2, Column: 2}, inner: {Line: 3, Column: 10}, outer: {Line: 3, Column: 15},
+	}
+	for _, r := range ranges {
+		if position, ok := want[r.Node]; ok {
+			if r.Operator == nil || *r.Operator != position {
+				t.Errorf("%T operator = %v, want %v", r.Node, r.Operator, position)
+			}
+			delete(want, r.Node)
+		} else if r.Operator != nil {
+			t.Errorf("%T has unexpected operator marker", r.Node)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing ranges: %v", want)
+	}
+}
+
 func positionCases() []positionCase {
 	var cases []positionCase
 	{
@@ -192,7 +223,7 @@ func positionCases() []positionCase {
 				nodeRange(next, 1, 0, 1, 9),
 				nodeRange(nextCall, 1, 0, 1, 9),
 				nodeRange(parens, 1, 0, 1, 7),
-				nodeRange(binary, 1, 1, 1, 6),
+				{Node: binary, Start: luau.Position{Line: 1, Column: 1}, End: luau.Position{Line: 1, Column: 6}, Operator: &luau.Position{Line: 1, Column: 3}},
 				nodeRange(binary.Left, 1, 1, 1, 2),
 				nodeRange(binary.Right, 1, 5, 1, 6),
 			},

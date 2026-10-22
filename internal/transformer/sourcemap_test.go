@@ -10,6 +10,7 @@ import (
 	"rotor/tsgo/ast"
 	"rotor/tsgo/core"
 	"rotor/tsgo/parser"
+	"rotor/tsgo/scanner"
 	"rotor/tsgo/sourcemap"
 	"rotor/tsgo/tspath"
 )
@@ -65,11 +66,47 @@ func TestSourcePositionUsesUTF16Columns(t *testing.T) {
 		FileName: "/test.ts",
 		Path:     tspath.Path("/test.ts"),
 	}, "const value = \"😀\"; value;", core.ScriptKindTS)
-	state := NewState(nil, nil, sourceFile, NewDiagService(), NewMultiState())
 	secondStatement := sourceFile.Statements.Nodes[1]
+	for _, maps := range []bool{false, true} {
+		state := NewState(nil, nil, sourceFile, NewDiagService(), NewMultiState())
+		state.SourceMapEnabled = maps
+		if got := state.getOriginalSourcePosition(secondStatement, false); got == nil || *got != (SourcePosition{Line: 0, Column: 20}) {
+			t.Errorf("maps=%t: position = %#v, want %#v", maps, got, SourcePosition{Line: 0, Column: 20})
+		}
+	}
+}
 
-	if got := state.getOriginalSourcePosition(secondStatement, false); got == nil || *got != (SourcePosition{Line: 0, Column: 20}) {
-		t.Errorf("position = %#v, want %#v", got, SourcePosition{Line: 0, Column: 20})
+func TestSourcePositionsMatchUTF16Oracle(t *testing.T) {
+	// Query each parent's end before its children to exercise out-of-order
+	// lookups. Reuse the state across files with identical paths and different
+	// text so a cached index must follow source-file identity.
+	sources := []string{
+		"const a = 1; print(a);\r\nconst b = 2;\rprint(b);\n",
+		"\uFEFFconst café = \"😀é中\"; print(café);\r\nconst 𝒜 = café;\u2028print(𝒜);\u2029print(café);",
+		"const text = \"a\xff😀\"; print(text);",
+	}
+	for _, maps := range []bool{false, true} {
+		state := NewTestState()
+		state.SourceMapEnabled = maps
+		for _, source := range sources {
+			file := parser.ParseSourceFile(ast.SourceFileParseOptions{FileName: "/test.ts", Path: "/test.ts"}, source, core.ScriptKindTS)
+			var visit func(*ast.Node)
+			visit = func(node *ast.Node) {
+				for _, useEnd := range []bool{false, true} {
+					position := scanner.GetTokenPosOfNode(node, file, false)
+					if useEnd {
+						position = max(node.Pos(), node.End()-1)
+					}
+					line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, position)
+					want := SourcePosition{Line: line, Column: int(column)}
+					if got, ok := state.getOriginalSourcePositionValue(node, useEnd); !ok || got != want {
+						t.Errorf("maps=%t end=%t position=%d: got %v, want %v", maps, useEnd, position, got, want)
+					}
+				}
+				node.ForEachChild(func(child *ast.Node) bool { visit(child); return false })
+			}
+			visit(file.AsNode())
+		}
 	}
 }
 
@@ -423,7 +460,7 @@ func assertSourceMapLines(t *testing.T, text, mapJSON string, want []string) {
 			t.Fatalf("mapping beyond rendered text: %#v", mapping)
 		}
 		if mapping.GeneratedCharacter != 0 {
-			t.Errorf("generated column = %d, want 0", mapping.GeneratedCharacter)
+			continue // Statement-level fixtures assert their line anchors only.
 		}
 		if !mapping.IsSourceMapping() {
 			t.Errorf("unexpected generated-only mapping: %#v", mapping)

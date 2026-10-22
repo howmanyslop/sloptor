@@ -71,6 +71,13 @@ func rewriteSourceMapWithTrace(raw string, trace *sourceTraceMap) (string, error
 				emitted.hasSource = true
 			}
 		}
+		if len(mappings) > 0 {
+			previous := mappings[len(mappings)-1]
+			if previous.generatedLine == emitted.generatedLine && previous.hasSource == emitted.hasSource &&
+				previous.sourceLine == emitted.sourceLine && previous.sourceColumn == emitted.sourceColumn {
+				continue
+			}
+		}
 		mappings = append(mappings, emitted)
 	}
 	if err := decoder.Error(); err != nil {

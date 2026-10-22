@@ -21,6 +21,41 @@ func TransformExpression(s *State, node *ast.Node) luau.Expression {
 	if s.Checker != nil {
 		validateMethodExpression(s, node)
 	}
+	if s.SourceMapEnabled {
+		expression = s.tagExpressionOrigin(expression, node)
+	}
+	return expression
+}
+
+func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) luau.Expression {
+	if luau.IsNone(expression) {
+		return expression
+	}
+	switch node.Kind {
+	case ast.KindParenthesizedExpression, ast.KindAsExpression, ast.KindSatisfiesExpression,
+		ast.KindNonNullExpression, ast.KindTypeAssertionExpression:
+		return expression
+	}
+	start, ok := s.getOriginalSourcePositionValue(node, false)
+	if !ok {
+		return expression
+	}
+	origin := &luau.Origin{Start: start}
+	if previous := expression.Origin(); previous != nil {
+		origin.Closing = previous.Closing
+		origin.Operator = previous.Operator
+	}
+	_, identifier := expression.(luau.AnyIdentifier)
+	shared := identifier || expression.Parent() != nil || expression.Origin() != nil
+	// The other State caches hold identifiers, covered above. Decorated object
+	// keys may also be literals or compound expressions.
+	if !shared {
+		_, shared = s.sourceMapObjectKeys[expression]
+	}
+	if shared {
+		return luau.WithOrigin(expression, origin).(luau.Expression)
+	}
+	luau.SetOrigin(expression, origin)
 	return expression
 }
 

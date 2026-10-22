@@ -59,8 +59,12 @@ func getAssignableValue(s *State, operator luau.AssignmentOperator, value luau.E
 // createAssignmentExpression ports assignment.ts createAssignmentExpression
 // (L36-50): prereq the assignment, return the writable as the expression's
 // value.
-func createAssignmentExpression(s *State, readable luau.WritableExpression, operator luau.AssignmentOperator, value luau.Expression) luau.Expression {
-	s.Prereq(luau.NewAssignment(readable, operator, value))
+func createAssignmentExpression(s *State, readable luau.WritableExpression, operator luau.AssignmentOperator, value luau.Expression, token *ast.Node) luau.Expression {
+	statement := luau.NewAssignment(readable, operator, value)
+	if operator != "=" {
+		s.setOperatorSourcePosition(statement, token)
+	}
+	s.Prereq(statement)
 	return readable
 }
 
@@ -84,6 +88,7 @@ func createCompoundAssignmentExpression(s *State, writable luau.WritableExpressi
 		writable,
 		"=",
 		createBinaryFromOperator(s, readable, writableType, operatorKind, value, valueType),
+		nil,
 	)
 }
 
@@ -96,6 +101,14 @@ func createCompoundAssignmentExpression(s *State, writable luau.WritableExpressi
 // isUndefinedType predicate inside addOneIfArrayType absorbs the
 // `| undefined` members instead).
 func transformWritableExpression(s *State, node *ast.Node, readAfterWrite bool) luau.WritableExpression {
+	expression := transformWritableExpressionInner(s, node, readAfterWrite)
+	if s.SourceMapEnabled && (ast.IsPropertyAccessExpression(node) || ast.IsElementAccessExpression(node)) {
+		return s.tagExpressionOrigin(expression, node).(luau.WritableExpression)
+	}
+	return expression
+}
+
+func transformWritableExpressionInner(s *State, node *ast.Node, readAfterWrite bool) luau.WritableExpression {
 	if ast.IsPrototypeAccess(node) {
 		s.Diags.Add(DiagNoPrototype(node))
 	}

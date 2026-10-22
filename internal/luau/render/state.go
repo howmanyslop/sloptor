@@ -90,6 +90,13 @@ func (s *RenderState) closing(keyword string) {
 	s.write(keyword)
 }
 
+func (s *RenderState) operator(text string) {
+	if s.positions {
+		s.ranges[s.currentRange].operator = s.writer.Len()
+	}
+	s.write(text)
+}
+
 func (s *RenderState) block(statements *luau.List[luau.Statement]) {
 	s.pushIndent()
 	s.statements(statements)
