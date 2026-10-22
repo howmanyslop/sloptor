@@ -50,12 +50,7 @@ func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) 
 	// The other State caches hold identifiers, covered above. Decorated object
 	// keys may also be literals or compound expressions.
 	if !shared {
-		for _, key := range s.classElementToObjectKeyMap {
-			if key == expression {
-				shared = true
-				break
-			}
-		}
+		_, shared = s.sourceMapObjectKeys[expression]
 	}
 	if shared {
 		return luau.WithOrigin(expression, origin).(luau.Expression)

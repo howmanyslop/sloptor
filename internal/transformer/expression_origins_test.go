@@ -6,6 +6,7 @@ import (
 
 	"rotor/internal/luau"
 	"rotor/internal/luau/render"
+	"rotor/tsgo/ast"
 )
 
 func expressionOriginState(t *testing.T, source string, maps bool) *State {
@@ -45,6 +46,23 @@ func TestExpressionOriginsArePerOccurrence(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCachedObjectKeyOriginsArePerOccurrence(t *testing.T) {
+	state := expressionOriginState(t, "\"key\";\n\"key\";", true)
+	first := state.SourceFile.Statements.Nodes[0].AsExpressionStatement().Expression
+	second := state.SourceFile.Statements.Nodes[1].AsExpressionStatement().Expression
+	key := luau.Str("key")
+	state.SetClassElementObjectKey(first, key)
+	for line, node := range []*ast.Node{first, second} {
+		occurrence := state.tagExpressionOrigin(state.GetClassElementObjectKey(first), node)
+		if occurrence == key || occurrence.Origin() == nil || occurrence.Origin().Start != (luau.Position{Line: line}) {
+			t.Fatalf("cached key occurrence %d has wrong identity or origin: %+v", line, occurrence.Origin())
+		}
+		if key.Origin() != nil || key.Parent() != nil {
+			t.Fatal("tagging an occurrence mutated the cached key")
+		}
 	}
 }
 

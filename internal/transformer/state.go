@@ -250,6 +250,9 @@ type State struct {
 	// element, set by transformMethodDeclaration and read back by the
 	// decorator transforms.
 	classElementToObjectKeyMap map[*ast.Node]luau.Expression
+	// sourceMapObjectKeys supports constant-time clone-on-share checks. It is
+	// populated lazily alongside the decorated-key cache, only with maps on.
+	sourceMapObjectKeys map[luau.Expression]struct{}
 
 	// moduleIDBySymbol maps a module symbol to the luau id holding that
 	// module's exports table (source file symbol -> `exports`; namespaces ->
@@ -776,6 +779,12 @@ func (s *State) SetClassElementObjectKey(classElement *ast.Node, identifier luau
 		panic("transformer: SetClassElementObjectKey: key already set") // upstream assert
 	}
 	s.classElementToObjectKeyMap[classElement] = identifier
+	if s.SourceMapEnabled {
+		if s.sourceMapObjectKeys == nil {
+			s.sourceMapObjectKeys = make(map[luau.Expression]struct{})
+		}
+		s.sourceMapObjectKeys[identifier] = struct{}{}
+	}
 }
 
 // GetClassElementObjectKey ports TransformState.getClassElementObjectKey
