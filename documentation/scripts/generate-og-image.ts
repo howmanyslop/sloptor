@@ -3,10 +3,8 @@
  * show for the docs.
  *
  * The card is a one-off build artefact, not part of `astro build`: rendering
- * needs Chromium, and the docs build should not. Rerun it by hand when the
- * card’s copy, the palette, or the benchmarks change:
- *
- *   node --run og
+ * needs Chromium, and the docs build should not. Rerun it by hand with
+ * `node --run og` when the card’s copy, the palette, or the benchmarks change.
  *
  * The font files come from the same @fontsource packages the site loads, so the
  * card speaks in Newsreader and IBM Plex like every page does. The timings come
@@ -17,6 +15,9 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 import { BENCHMARKS } from "../src/data/benchmarks.ts";
+
+const fullBuild = BENCHMARKS.find(({ label }) => label === "Full build");
+if (fullBuild === undefined) throw new Error("BENCHMARKS has no full build to print.");
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -34,28 +35,27 @@ const FONTS = {
 	serifItalic: new URL("@fontsource-variable/newsreader/files/newsreader-latin-opsz-italic.woff2", fontDirectory),
 };
 
-async function dataUrl(url) {
+async function readFontAsDataUrlAsync(url: URL): Promise<string> {
 	const bytes = await readFile(url);
 	return `data:font/woff2;base64,${bytes.toString("base64")}`;
 }
 
 const [monoMedium, monoRegular, sans, serif, serifItalic] = await Promise.all([
-	dataUrl(FONTS.monoMedium),
-	dataUrl(FONTS.monoRegular),
-	dataUrl(FONTS.sans),
-	dataUrl(FONTS.serif),
-	dataUrl(FONTS.serifItalic),
+	readFontAsDataUrlAsync(FONTS.monoMedium),
+	readFontAsDataUrlAsync(FONTS.monoRegular),
+	readFontAsDataUrlAsync(FONTS.sans),
+	readFontAsDataUrlAsync(FONTS.serif),
+	readFontAsDataUrlAsync(FONTS.serifItalic),
 ]);
 
-const fullBuild = BENCHMARKS.find(({ label }) => label === "Full build");
-if (fullBuild === undefined) throw new Error("BENCHMARKS has no full build to print.");
-
-const readouts = BENCHMARKS.filter((benchmark) => benchmark !== fullBuild)
-	.map(
-		({ files, label, milliseconds }) =>
-			`\t\t\t\t\t<div class="readout"><dt>${label}, ${files} files</dt><dd>${milliseconds}<small>ms</small></dd></div>`,
-	)
-	.join("\n");
+const readoutLines = new Array<string>();
+for (const { files, label, milliseconds } of BENCHMARKS) {
+	if (label === fullBuild.label) continue;
+	readoutLines.push(
+		`\t\t\t\t\t<div class="readout"><dt>${label}, ${files} files</dt><dd>${milliseconds}<small>ms</small></dd></div>`,
+	);
+}
+const readouts = readoutLines.join("\n");
 
 const html = `<!doctype html>
 <html lang="en">
@@ -317,7 +317,9 @@ const browser = await chromium.launch();
 try {
 	const page = await browser.newPage({ deviceScaleFactor: SCALE, viewport: { height: HEIGHT, width: WIDTH } });
 	await page.setContent(html, { waitUntil: "load" });
-	await page.evaluate(() => document.fonts.ready);
+	await page.evaluate(async () => {
+		await document.fonts.ready;
+	});
 	await page.screenshot({ path: output, type: "png" });
 } finally {
 	await browser.close();

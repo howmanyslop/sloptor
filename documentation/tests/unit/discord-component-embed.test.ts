@@ -29,10 +29,9 @@ interface Button {
 	readonly url: string;
 }
 
-interface Section {
-	readonly accessory: Button;
-	readonly components: ReadonlyArray<{ readonly content: string }>;
-	readonly type: 9;
+interface TextDisplay {
+	readonly content: string;
+	readonly type: 10;
 }
 
 interface MediaGallery {
@@ -43,12 +42,16 @@ interface MediaGallery {
 	readonly type: 12;
 }
 
+interface Separator {
+	readonly type: 14;
+}
+
 interface ActionRow {
 	readonly components: ReadonlyArray<Button>;
 	readonly type: 1;
 }
 
-type EmbedComponent = ActionRow | MediaGallery | Section;
+type EmbedComponent = ActionRow | MediaGallery | Separator | TextDisplay;
 
 interface Payload {
 	readonly component: {
@@ -69,11 +72,11 @@ function parse(options: DiscordComponentEmbedOptions): Payload {
 	return value;
 }
 
-function getSection(payload: Payload): Section {
-	const section = payload.component.components.find((component) => component.type === 9);
-	if (section?.type !== 9) throw new Error("Expected a section component.");
+function getText(payload: Payload): string {
+	const text = payload.component.components.find((component) => component.type === 10);
+	if (text?.type !== 10) throw new Error("Expected a text display component.");
 
-	return section;
+	return text.content;
 }
 
 function getGallery(payload: Payload): MediaGallery {
@@ -90,13 +93,6 @@ function getActionRow(payload: Payload): ActionRow {
 	return actionRow;
 }
 
-function getText(section: Section): string {
-	const [text] = section.components;
-	if (text === undefined) throw new Error("Expected a text display component.");
-
-	return text.content;
-}
-
 describe("createDiscordComponentEmbed", () => {
 	it("wraps the page in a single container with the brine accent", ({ expect }) => {
 		expect.assertions(3);
@@ -105,36 +101,35 @@ describe("createDiscordComponentEmbed", () => {
 
 		expect(payload.component.type).toBe(17);
 		expect(payload.component.accent_color).toBe(DISCORD_EMBED_ACCENT_COLOR);
-		expect(payload.component.components).toHaveLength(3);
+		expect(payload.component.components).toHaveLength(4);
 	});
 
-	it("links the page title and keeps the description beneath it", ({ expect }) => {
-		expect.assertions(2);
+	it("names the docs above a linked page title and keeps the description beneath it", ({ expect }) => {
+		expect.assertions(1);
 
-		const section = getSection(parse(OPTIONS));
-
-		expect(getText(section)).toBe(`# **[Introduction](${PAGE_URL})**\nWhat sloptor is and how it matches rbxtsc.`);
-		expect(section.accessory).toStrictEqual({ label: "Open", style: 5, type: 2, url: PAGE_URL });
+		expect(getText(parse(OPTIONS))).toBe(
+			`-# sloptor docs\n## [Introduction](${PAGE_URL})\nWhat sloptor is and how it matches rbxtsc.`,
+		);
 	});
 
 	it("escapes markdown punctuation in the title", ({ expect }) => {
 		expect.assertions(1);
 
-		const section = getSection(parse({ ...OPTIONS, title: "A [bracketed] title" }));
-
-		expect(getText(section)).toContain(String.raw`A \[bracketed\] title`);
+		expect(getText(parse({ ...OPTIONS, title: "A [bracketed] title" }))).toContain(
+			String.raw`A \[bracketed\] title`,
+		);
 	});
 
 	it("leaves the description line out when the page has none", ({ expect }) => {
 		expect.assertions(1);
 
-		const section = getSection(parse({ ...OPTIONS, description: undefined }));
-
-		expect(getText(section)).toBe(`# **[Introduction](${PAGE_URL})**`);
+		expect(getText(parse({ ...OPTIONS, description: undefined }))).toBe(
+			`-# sloptor docs\n## [Introduction](${PAGE_URL})`,
+		);
 	});
 
-	it("shows the card image and three link buttons", ({ expect }) => {
-		expect.assertions(3);
+	it("shows the card image, then a divider, then three link buttons", ({ expect }) => {
+		expect.assertions(4);
 
 		const payload = parse(OPTIONS);
 		const gallery = getGallery(payload);
@@ -142,11 +137,12 @@ describe("createDiscordComponentEmbed", () => {
 
 		expect(gallery.items[0]?.media.url).toBe(IMAGE_URL);
 		expect(actions.components.map(({ label, style }) => ({ label, style }))).toStrictEqual([
-			{ label: "Guide", style: 5 },
+			{ label: "Read the guide", style: 5 },
 			{ label: "Commands", style: 5 },
 			{ label: "GitHub", style: 5 },
 		]);
 		expect(actions.components.every((button) => button.type === 2)).toBe(true);
+		expect(payload.component.components.map(({ type }) => type)).toStrictEqual([10, 12, 14, 1]);
 	});
 
 	it("stays inside Discord's 3,000-byte limit for an oversized page", ({ expect }) => {
@@ -154,7 +150,7 @@ describe("createDiscordComponentEmbed", () => {
 
 		const options = { ...OPTIONS, description: "a".repeat(10_000), title: "t".repeat(10_000) };
 		const json = createDiscordComponentEmbed(options);
-		const text = getText(getSection(parse(options)));
+		const text = getText(parse(options));
 
 		expect(new TextEncoder().encode(json).length).toBeLessThanOrEqual(DISCORD_EMBED_LIMIT_BYTES);
 		expect(text).toContain("…");

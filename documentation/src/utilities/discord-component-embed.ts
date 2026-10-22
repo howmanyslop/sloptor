@@ -17,7 +17,10 @@ export const DISCORD_EMBED_LIMIT_BYTES = 3000;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 280;
 
-/** The small grey line above the title, standing in for an OG card's site name. */
+/**
+ * The small grey line above the title, standing in for an OG card's site
+ * name.
+ */
 const PROVIDER_LINE = "-# sloptor docs";
 
 const COMPONENT_TYPE = {
