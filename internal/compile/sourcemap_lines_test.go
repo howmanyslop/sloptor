@@ -541,6 +541,16 @@ print(config);
  7 -      | return nil
 `,
 		},
+		{
+			name: "unicode",
+			source: `const face = "😀"; print(face);
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local face = "😀"
+ 3 0->1:19 | print(face)
+ 4 -       | return nil
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
