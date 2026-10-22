@@ -55,3 +55,16 @@ func TestOriginSurvivesCloning(t *testing.T) {
 		})
 	}
 }
+
+func TestWithOriginClonesWithoutParent(t *testing.T) {
+	id := TempID("value")
+	parent := NewReturn(id)
+	origin := &Origin{Start: Position{Line: 2, Column: 4}}
+	clone := WithOrigin(id, origin).(*TemporaryIdentifier)
+	if clone == id || clone.ID != id.ID || clone.Parent() != nil || clone.Origin() != origin {
+		t.Fatalf("invalid occurrence clone: %+v", clone)
+	}
+	if id.Parent() != parent || id.Origin() != nil {
+		t.Fatal("cloning mutated the original node")
+	}
+}

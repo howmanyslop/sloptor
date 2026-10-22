@@ -235,6 +235,9 @@ type State struct {
 	// vars).
 	SymbolToID map[*ast.Symbol]*luau.TemporaryIdentifier
 
+	// SourceMapEnabled gates expression origins and occurrence-specific clones.
+	SourceMapEnabled bool
+
 	// ClassIdentifierMap maps a ClassLikeDeclaration node to its INTERNAL luau
 	// identifier (upstream classIdentifierMap, TransformState.ts:28) — for a
 	// named class expression that is the inner name (`Inner`), not the `_class`
@@ -278,6 +281,9 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 	}
 	if sourceFile != nil {
 		s.SourceFileText = sourceFile.Text()
+	}
+	if program != nil {
+		s.SourceMapEnabled = program.Options().SourceMap.IsTrue()
 	}
 	// One MacroManager per compilation pass (upstream constructs it once per
 	// Program); the first checker-bearing State builds it.
@@ -358,7 +364,7 @@ func (s *State) getSourceOrigin(sourceNode *ast.Node) *luau.Origin {
 }
 
 func (s *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
-	if node.Origin() == nil {
+	if origin := node.Origin(); origin == nil || origin.StartUnset || origin.Closing == nil {
 		luau.SetOrigin(node, s.getSourceOrigin(sourceNode))
 	}
 }
@@ -367,7 +373,7 @@ func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*
 	var origin *luau.Origin
 	for _, statements := range lists {
 		for item := statements.Head; item != nil; item = item.Next {
-			if item.Value.Origin() != nil {
+			if existing := item.Value.Origin(); existing != nil && !existing.StartUnset && existing.Closing != nil {
 				continue
 			}
 			if origin == nil {
@@ -379,6 +385,32 @@ func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*
 			luau.SetOrigin(item.Value, origin)
 		}
 	}
+}
+
+func (s *State) setOperatorSourcePosition(node luau.Node, token *ast.Node) {
+	if s.SourceMapEnabled {
+		luau.SetOrigin(node, &luau.Origin{StartUnset: true, Operator: s.getOriginalSourcePosition(token, false)})
+	}
+}
+
+func (s *State) setUpdateOperatorSourcePosition(node luau.Node, update *ast.Node) {
+	if !s.SourceMapEnabled {
+		return
+	}
+	position := s.getOriginalSourcePosition(update, false)
+	if ast.IsPostfixUnaryExpression(update) {
+		// ++ and -- are the last two ASCII bytes, including when comments
+		// separate them from their operand.
+		file := ast.GetSourceFileOfNode(update)
+		if file == nil {
+			file = s.SourceFile
+		}
+		if file != nil {
+			line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, update.End()-2)
+			position = &SourcePosition{Line: line, Column: int(column)}
+		}
+	}
+	luau.SetOrigin(node, &luau.Origin{StartUnset: true, Operator: position})
 }
 
 // SetRojoContext installs the project-level Rojo context and project type,

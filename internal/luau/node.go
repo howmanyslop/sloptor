@@ -10,8 +10,11 @@ type Position struct{ Line, Column int }
 // Origin anchors a generated node to its source start and optional closing token.
 // Shallow clones share the same origin.
 type Origin struct {
-	Start   Position
-	Closing *Position
+	Start    Position
+	Closing  *Position
+	Operator *Position
+	// StartUnset distinguishes an operator-only anchor from the valid start 0:0.
+	StartUnset bool
 }
 
 type Node interface {
@@ -75,11 +78,40 @@ func (b *base) setParent(p Node)    { b.parent = p }
 func (b *base) setOrigin(o *Origin) { b.origin = o }
 func (b *base) nodeOrList()         {}
 
-// SetOrigin tags node only if it has no origin, preserving more precise anchors.
+// SetOrigin fills missing fields, preserving more precise anchors. Existing
+// origins may be shared by shallow clones, so filling never mutates them.
 func SetOrigin(node Node, origin *Origin) {
-	if node.Origin() == nil {
-		node.setOrigin(origin)
+	if origin == nil {
+		return
 	}
+	previous := node.Origin()
+	if previous == nil {
+		node.setOrigin(origin)
+		return
+	}
+	merged := *previous
+	if merged.StartUnset && !origin.StartUnset {
+		merged.Start = origin.Start
+		merged.StartUnset = false
+	}
+	if merged.Closing == nil {
+		merged.Closing = origin.Closing
+	}
+	if merged.Operator == nil {
+		merged.Operator = origin.Operator
+	}
+	if merged != *previous {
+		node.setOrigin(&merged)
+	}
+}
+
+// WithOrigin makes an occurrence-specific shallow clone without changing the
+// original node or its parent. Temporary identifiers retain their rendering ID.
+func WithOrigin(node Node, origin *Origin) Node {
+	clone := node.shallowClone()
+	clone.setParent(nil)
+	clone.setOrigin(origin)
+	return clone
 }
 
 // SetParent reparents node without cloning. Upstream transform code mutates
