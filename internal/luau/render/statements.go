@@ -189,10 +189,6 @@ func renderForStatement(s *RenderState, node *luau.ForStatement) {
 		s.identifiers(node.IDs)
 	}
 	s.write(" in ")
-	// The scoped solver intentionally skips generic-for iterator expressions.
-	// Reserve their fallback names in legacy value-before-index order before
-	// the writer emits map fields in text order.
-	s.reserveFallbackTempNames(node.Expression)
 	s.render(node.Expression)
 	s.write(" do")
 	s.newline()

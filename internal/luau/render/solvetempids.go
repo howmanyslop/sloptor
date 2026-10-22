@@ -164,7 +164,8 @@ func isScopeEdge(node luau.Node, head bool) bool {
 // solveTempIDs ports reference/luau-ast/src/LuauRenderer/solveTempIds.ts:
 // assigns rendered names to TemporaryIdentifier nodes, scope-aware so they
 // never collide with source identifiers or other temps.
-func solveTempIDs(state *RenderState, ast luau.NodeOrList) {
+// Returns iterator subtrees skipped by the scoped walk for fallback handling.
+func solveTempIDs(state *RenderState, ast luau.NodeOrList) (unsolvedIterators []luau.Expression) {
 	var tempIDsToProcess []*luau.TemporaryIdentifier
 	nodesToScopes := map[*luau.TemporaryIdentifier]*tempScope{}
 
@@ -193,6 +194,8 @@ func solveTempIDs(state *RenderState, ast luau.NodeOrList) {
 				push()
 			}
 			switch n := node.(type) {
+			case *luau.ForStatement:
+				unsolvedIterators = append(unsolvedIterators, n.Expression)
 			case *luau.TemporaryIdentifier:
 				nodesToScopes[n] = peek()
 				tempIDsToProcess = append(tempIDsToProcess, n)
@@ -250,4 +253,5 @@ func solveTempIDs(state *RenderState, ast luau.NodeOrList) {
 		}
 		state.seenTempNodes[tempID.ID] = scope.nextID(base, separator)
 	}
+	return unsolvedIterators
 }

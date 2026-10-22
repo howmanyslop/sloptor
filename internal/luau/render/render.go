@@ -13,8 +13,8 @@ func Render(s *RenderState, node luau.Node) string {
 	return s.writer.String()[start:]
 }
 
-func (s *RenderState) reserveFallbackTempNames(node luau.Node) {
-	visitNode(node, &visitor{
+func (s *RenderState) reserveFallbackTempNames(node luau.NodeOrList) {
+	visitNodeOrList(node, &visitor{
 		renderOrder: true,
 		before: func(node luau.Node) {
 			if temp, ok := node.(*luau.TemporaryIdentifier); ok {
@@ -22,6 +22,30 @@ func (s *RenderState) reserveFallbackTempNames(node luau.Node) {
 			}
 		},
 	})
+}
+
+func (s *RenderState) prepareTempNames(ast luau.NodeOrList) {
+	for _, iterator := range solveTempIDs(s, ast) {
+		needsFallback := false
+		visitNode(iterator, &visitor{
+			renderOrder: true,
+			before: func(node luau.Node) {
+				if temp, ok := node.(*luau.TemporaryIdentifier); ok {
+					if _, solved := s.seenTempNodes[temp.ID]; !solved {
+						needsFallback = true
+					}
+				}
+			},
+		})
+		if needsFallback {
+			// Iterator expressions are intentionally outside the scoped solver.
+			// Only ASTs with actual fallback temps need a compatibility pass.
+			// Walk from the root to preserve value-before-index order even
+			// across separate iterators nested in map key/value callbacks.
+			s.reserveFallbackTempNames(ast)
+			return
+		}
+	}
 }
 
 func (s *RenderState) render(node luau.Node) {
@@ -136,7 +160,7 @@ func renderNode(s *RenderState, node luau.Node) {
 // RenderAST mirrors upstream renderAST(): solve temp ids, then render.
 func RenderAST(ast *luau.List[luau.Statement]) string {
 	s := NewRenderState()
-	solveTempIDs(s, ast)
+	s.prepareTempNames(ast)
 	s.statements(ast)
 	return s.writer.String()
 }

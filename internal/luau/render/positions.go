@@ -28,7 +28,7 @@ type byteRange struct {
 func RenderASTWithPositions(ast *luau.List[luau.Statement]) (string, []Range) {
 	s := NewRenderState()
 	s.positions = true
-	solveTempIDs(s, ast)
+	s.prepareTempNames(ast)
 	s.statements(ast)
 	text := s.writer.String()
 	return text, positionsForRanges(text, s.ranges)
