@@ -225,6 +225,33 @@ func TestRenderWithSourceMapCoversNestedSyntheticGaps(t *testing.T) {
 	})
 }
 
+func TestRenderWithSourceMapOtherStarts(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
+	value := luau.Num(1)
+	luau.SetOrigin(value, &luau.Origin{Start: luau.Position{Line: 33, Column: 2}})
+	nested := luau.NewMap(luau.NewList(luau.NewMapField(luau.Str("x"), value)))
+	luau.SetOrigin(nested, &luau.Origin{Start: luau.Position{Line: 30, Column: 3}})
+	key := luau.Str("first")
+	luau.SetOrigin(key, &luau.Origin{Start: luau.Position{Line: 21, Column: 1}})
+	first := luau.NewMapField(key, nested)
+	luau.SetOrigin(first, &luau.Origin{Start: luau.Position{Line: 20, Column: 1}})
+	secondKey, secondValue := luau.Str("second"), luau.Num(2)
+	luau.SetOrigin(secondKey, &luau.Origin{Start: luau.Position{Line: 41, Column: 4}})
+	luau.SetOrigin(secondValue, &luau.Origin{Start: luau.Position{Line: 42, Column: 4}})
+	thirdValue := luau.Num(3)
+	luau.SetOrigin(thirdValue, &luau.Origin{Start: luau.Position{Line: 43, Column: 5}})
+	table := luau.NewMap(luau.NewList(first,
+		luau.NewMapField(secondKey, secondValue), luau.NewMapField(luau.Str("third"), thirdValue)))
+	text, mapJSON := state.RenderWithSourceMap(luau.NewList[luau.Statement](luau.NewReturn(table)), sourceFile)
+	wantText := "return {\n\tfirst = {\n\t\tx = 1,\n\t},\n\tsecond = 2,\n\tthird = 3,\n}\n"
+	if text != wantText {
+		t.Fatalf("text = %q, want %q", text, wantText)
+	}
+	// Field and key share a start column: the outer field wins. The key on
+	// the second line beats its later value; any other start beats coverage.
+	assertSourceMapLines(t, text, mapJSON, []string{"-", "20:1", "33:2", "30:3", "41:4", "43:5", "-"})
+}
+
 func sourceMapFixture() (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts", Path: tspath.Path("/test.ts"),

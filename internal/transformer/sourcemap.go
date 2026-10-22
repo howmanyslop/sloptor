@@ -42,6 +42,12 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 			positions[r.Closing.Line] = origin.Closing
 		}
 	}
+	// Ranges start in text order, with parents before children on a tie.
+	for _, r := range ranges {
+		if _, statement := r.Node.(luau.Statement); !statement && r.Node.Origin() != nil && positions[r.Start.Line] == nil {
+			positions[r.Start.Line] = &r.Node.Origin().Start
+		}
+	}
 	addSourceMapCoverage(text, ranges, positions)
 	mappings := make([]sourceMapMapping, 0, len(positions))
 	for line, position := range positions {
