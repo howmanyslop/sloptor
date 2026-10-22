@@ -34,3 +34,34 @@ func TestElseIfOrigins(t *testing.T) {
 		})
 	}
 }
+
+func TestSwitchClauseOrigins(t *testing.T) {
+	function := transformOriginSource(t, "function f(n: number, a?: number) {\n\tswitch (n) {\n\t\tcase 1:\n\t\t\tn = 2;\n\t\tcase a ?? 2:\n\t\t\tbreak;\n\t}\n}").Head.Value.(*luau.FunctionDeclaration)
+	loop := function.Statements.Tail.Value.(*luau.RepeatStatement)
+	statements := loop.Statements.ToSlice()
+	if len(statements) != 4 {
+		t.Fatalf("switch statements = %d, want flag, case, prereq, case", len(statements))
+	}
+	first := statements[1].(*luau.IfStatement)
+	prereq := statements[2].(*luau.IfStatement)
+	second := statements[3].(*luau.IfStatement)
+	for _, test := range []struct {
+		name           string
+		node           luau.Node
+		start, closing luau.Position
+	}{
+		{"first case", first, luau.Position{Line: 2, Column: 2}, luau.Position{Line: 3, Column: 8}},
+		{"fallthrough update", first.Statements.Tail.Value, luau.Position{Line: 2, Column: 2}, luau.Position{Line: 3, Column: 8}},
+		{"second case", second, luau.Position{Line: 4, Column: 2}, luau.Position{Line: 5, Column: 8}},
+		{"clause prereq", prereq, luau.Position{Line: 4, Column: 2}, luau.Position{Line: 5, Column: 8}},
+		{"fallthrough condition assignment", prereq.Statements.Tail.Value, luau.Position{Line: 4, Column: 2}, luau.Position{Line: 5, Column: 8}},
+	} {
+		t.Run(test.name, func(t *testing.T) { assertNodeOrigin(t, test.node, test.start, test.closing) })
+	}
+	if statements[0].Origin() != nil {
+		t.Error("initial fallthrough flag must inherit the switch origin")
+	}
+	if prereq.Statements.Head.Next.Value.(*luau.IfStatement).Statements.Head.Value.Origin() != nil {
+		t.Error("nested nullish assignment must inherit its enclosing clause origin")
+	}
+}

@@ -41,7 +41,9 @@ func transformCaseClauseExpression(
 		if prereqStatements.IsNonEmpty() {
 			noFallThroughCondition := luau.NewUnary("not", fallThroughFlagID)
 
-			prereqStatements.Push(luau.NewAssignment(fallThroughFlagID, "=", condition))
+			assignment := luau.NewAssignment(fallThroughFlagID, "=", condition)
+			s.setNodeSourcePosition(assignment, caseClauseExpression.Parent)
+			prereqStatements.Push(assignment)
 
 			prereqStatements = luau.NewList[luau.Statement](
 				luau.NewIf(noFallThroughCondition, prereqStatements, nil),
@@ -105,8 +107,10 @@ func transformCaseClause(
 	}
 
 	canFallThroughFrom := statements.Tail == nil || !luau.IsFinalStatement(statements.Tail.Value)
+	var fallThroughAssignment *luau.Assignment
 	if canFallThroughFrom && shouldUpdateFallThroughFlag {
-		statements.Push(luau.NewAssignment(fallThroughFlagID, "=", luau.Bool(true)))
+		fallThroughAssignment = luau.NewAssignment(fallThroughFlagID, "=", luau.Bool(true))
+		statements.Push(fallThroughAssignment)
 	}
 
 	clauseStatements := luau.NewList[luau.Statement]()
@@ -115,7 +119,12 @@ func transformCaseClause(
 		clauseStatements.Push(hoistDeclaration)
 	}
 
-	clauseStatements.Push(luau.NewIf(condition, statements, nil))
+	clauseIf := luau.NewIf(condition, statements, nil)
+	clauseStatements.Push(clauseIf)
+	s.setStatementListSourcePositions(node, prereqStatements, clauseStatements)
+	if fallThroughAssignment != nil {
+		luau.SetOrigin(fallThroughAssignment, clauseIf.Origin())
+	}
 
 	return caseClauseResult{
 		canFallThroughFrom: canFallThroughFrom,
