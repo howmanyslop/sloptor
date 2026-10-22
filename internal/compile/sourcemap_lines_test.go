@@ -328,6 +328,73 @@ register(() => use(1));
 18 -      | }
 `,
 		},
+		{
+			name: "switch",
+			source: `export function kind(n: number) {
+	let result = "none";
+	switch (n) {
+		case 1:
+			result = "one";
+		case 2:
+			result = "low";
+			break;
+		default:
+			result = "high";
+	}
+	return result;
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function kind(n)
+ 3 0->2:1  | 	local result = "none"
+ 4 0->3:1  | 	repeat
+ 5 0->3:1  | 		local _fallthrough = false
+ 6 0->4:2  | 		if n == 1 then
+ 7 0->5:3  | 			result = "one"
+ 8 0->4:2  | 			_fallthrough = true
+ 9 0->5:17 | 		end
+10 0->6:2  | 		if _fallthrough or n == 2 then
+11 0->7:3  | 			result = "low"
+12 0->8:3  | 			break
+13 0->8:8  | 		end
+14 0->10:3 | 		result = "high"
+15 0->11:1 | 	until true
+16 0->12:1 | 	return result
+17 0->13:0 | end
+18 -       | return {
+19 0->1:0  | 	kind = kind,
+20 -       | }
+`,
+		},
+		{
+			name: "try",
+			source: `declare function risky(): void;
+export function attempt() {
+	try {
+		risky();
+	} catch (e) {
+		print(e);
+	} finally {
+		print("done");
+	}
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 -       | local TS = _G[script]
+ 3 0->2:0  | local function attempt()
+ 4 0->3:1  | 	TS.try(function()
+ 5 0->4:2  | 		risky()
+ 6 0->5:1  | 	end, function(e)
+ 7 0->6:2  | 		print(e)
+ 8 0->7:1  | 	end, function()
+ 9 0->8:2  | 		print("done")
+10 0->9:1  | 	end)
+11 0->10:0 | end
+12 -       | return {
+13 0->2:0  | 	attempt = attempt,
+14 -       | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
