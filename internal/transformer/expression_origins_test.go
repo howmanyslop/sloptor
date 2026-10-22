@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"rotor/internal/luau"
+	"rotor/internal/luau/render"
 )
 
 func expressionOriginState(t *testing.T, source string, maps bool) *State {
@@ -79,6 +80,73 @@ func TestAssignmentOperatorKeepsStatementOrigin(t *testing.T) {
 		want := luau.Position{Line: i + 1, Column: column}
 		if origin.Operator == nil || *origin.Operator != want {
 			t.Errorf("statement %d operator = %v, want %v", i+1, origin.Operator, want)
+		}
+	}
+}
+
+func TestLogicalAssignmentOperatorOrigins(t *testing.T) {
+	for _, operator := range []string{"??=", "&&=", "||="} {
+		t.Run(operator, func(t *testing.T) {
+			state := expressionOriginState(t, "let value: boolean | undefined = true;\nvalue "+operator+" false;", true)
+			statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+			found := false
+			statements.ForEach(func(statement luau.Statement) {
+				if branch, ok := statement.(*luau.IfStatement); ok {
+					found = true
+					want := luau.Position{Line: 1, Column: 6}
+					origin := branch.Condition.Origin()
+					if origin == nil || origin.Start != want || origin.Operator == nil || *origin.Operator != want {
+						t.Errorf("condition origin = %+v, want start and operator %v", origin, want)
+					}
+				}
+			})
+			if !found {
+				t.Fatal("logical assignment has no condition")
+			}
+		})
+	}
+}
+
+func TestOptionalChainOperatorOrigins(t *testing.T) {
+	state := expressionOriginState(t, `declare const object: { value: number; method(): number } | undefined;
+const first = object?.value;
+const second = object?.method?.();
+`, true)
+	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+	_, ranges := render.RenderASTWithPositions(statements)
+	want := []luau.Position{{Line: 1, Column: 20}, {Line: 2, Column: 21}, {Line: 2, Column: 29}}
+	var got []luau.Position
+	for _, r := range ranges {
+		if binary, ok := r.Node.(*luau.BinaryExpression); ok && binary.Operator == "~=" {
+			if origin := binary.Origin(); origin != nil && origin.Operator != nil {
+				got = append(got, *origin.Operator)
+			}
+		}
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("optional chain operators = %v, want %v", got, want)
+	}
+}
+
+func TestTernaryOriginsDoNotInventOperators(t *testing.T) {
+	state := expressionOriginState(t, "declare const test: number;\nconst value = test ? 1 : 2;", true)
+	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+	_, ranges := render.RenderASTWithPositions(statements)
+	var ternary *luau.IfExpression
+	for _, r := range ranges {
+		if expression, ok := r.Node.(*luau.IfExpression); ok {
+			ternary = expression
+		}
+		if origin := r.Node.Origin(); origin != nil && origin.Operator != nil {
+			t.Errorf("ternary or truthiness node %T has an invented operator", r.Node)
+		}
+	}
+	if ternary == nil {
+		t.Fatal("missing ternary expression")
+	}
+	for _, expression := range []luau.Expression{ternary.Condition, ternary.Expression, ternary.Alternative} {
+		if expression.Origin() == nil {
+			t.Errorf("ternary operand %T has no source start", expression)
 		}
 	}
 }

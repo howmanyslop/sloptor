@@ -68,7 +68,20 @@ func CreateTruthinessChecks(s *State, exp luau.Expression, node *ast.Node, t *ch
 		s.Diags.Add(DiagTruthyChange(node, strings.Join(checkStrs, ", ")))
 	}
 
-	return binaryExpressionChain(checks, "and")
+	var origins []*luau.Origin
+	if s.SourceMapEnabled && len(checks) > 1 {
+		if start := s.getOriginalSourcePosition(node, false); start != nil {
+			origin := &luau.Origin{Start: *start}
+			for _, check := range checks[:len(checks)-1] {
+				luau.SetOrigin(check, origin)
+			}
+			origins = make([]*luau.Origin, len(checks)-1)
+			for i := range origins {
+				origins[i] = origin
+			}
+		}
+	}
+	return binaryExpressionChain(checks, "and", origins...)
 }
 
 // binaryExpressionChain ports util/expressionChain.ts binaryExpressionChain:
