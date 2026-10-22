@@ -4,11 +4,23 @@ package luau
 // fields typed `luau.X | luau.List<luau.Y>`.
 type NodeOrList interface{ nodeOrList() }
 
+// Position is a 0-based source coordinate with a UTF-16 column.
+type Position struct{ Line, Column int }
+
+// Origin anchors a generated node to its source start and optional closing token.
+// Shallow clones share the same origin.
+type Origin struct {
+	Start   Position
+	Closing *Position
+}
+
 type Node interface {
 	NodeOrList
 	Kind() SyntaxKind
 	Parent() Node
+	Origin() *Origin
 	setParent(Node)
+	setOrigin(*Origin)
 	shallowClone() Node
 }
 
@@ -52,11 +64,23 @@ type HasParameters interface {
 }
 
 // base is embedded in every node struct.
-type base struct{ parent Node }
+type base struct {
+	parent Node
+	origin *Origin
+}
 
-func (b *base) Parent() Node     { return b.parent }
-func (b *base) setParent(p Node) { b.parent = p }
-func (b *base) nodeOrList()      {}
+func (b *base) Parent() Node        { return b.parent }
+func (b *base) Origin() *Origin     { return b.origin }
+func (b *base) setParent(p Node)    { b.parent = p }
+func (b *base) setOrigin(o *Origin) { b.origin = o }
+func (b *base) nodeOrList()         {}
+
+// SetOrigin tags node only if it has no origin, preserving more precise anchors.
+func SetOrigin(node Node, origin *Origin) {
+	if node.Origin() == nil {
+		node.setOrigin(origin)
+	}
+}
 
 // SetParent reparents node without cloning. Upstream transform code mutates
 // `.parent` directly in places (e.g. transformForStatement.ts addFinalizers
