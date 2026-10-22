@@ -1,8 +1,10 @@
 package transformer
 
 import (
+	"cmp"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -62,6 +64,39 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 			})
 		}
 	}
+	// Parents precede children at a shared start, so the last start wins.
+	// Operator anchors are appended last and take priority on a tie.
+	for _, r := range ranges {
+		origin := r.Node.Origin()
+		if _, statement := r.Node.(luau.Statement); !statement && origin != nil && !origin.StartUnset && r.Start.Column > 0 {
+			mappings = append(mappings, sourceMapMapping{r.Start.Line, r.Start.Column, origin.Start.Line, origin.Start.Column})
+		}
+	}
+	for _, r := range ranges {
+		if origin := r.Node.Origin(); origin != nil && origin.Operator != nil && r.Operator != nil && r.Operator.Column > 0 {
+			mappings = append(mappings, sourceMapMapping{r.Operator.Line, r.Operator.Column, origin.Operator.Line, origin.Operator.Column})
+		}
+	}
+	slices.SortStableFunc(mappings, func(a, b sourceMapMapping) int {
+		if order := cmp.Compare(a.generatedLine, b.generatedLine); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.generatedColumn, b.generatedColumn)
+	})
+	kept := mappings[:0]
+	for i, mapping := range mappings {
+		if i+1 < len(mappings) && mappings[i+1].generatedLine == mapping.generatedLine && mappings[i+1].generatedColumn == mapping.generatedColumn {
+			continue
+		}
+		if len(kept) > 0 {
+			previous := kept[len(kept)-1]
+			if previous.generatedLine == mapping.generatedLine && previous.sourceLine == mapping.sourceLine && previous.sourceColumn == mapping.sourceColumn {
+				continue
+			}
+		}
+		kept = append(kept, mapping)
+	}
+	mappings = kept
 	fileName := sourceFile.FileName()
 	outputFileName := strings.TrimSuffix(fileName, filepath.Ext(fileName)) + ".luau"
 	encoded, err := json.Marshal(sourceMapV3{

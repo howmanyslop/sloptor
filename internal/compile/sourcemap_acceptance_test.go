@@ -68,8 +68,17 @@ func assertSourceMapContract(t *testing.T, text, mapJSON, source string) {
 			t.Errorf("segment on nonexistent Luau line %d", line+1)
 			continue
 		}
-		if len(mappings) != 1 || mappings[0].GeneratedCharacter != 0 {
-			t.Errorf("Luau line %d: want one column-zero segment, got %+v", line+1, mappings)
+		if mappings[0].GeneratedCharacter != 0 {
+			t.Errorf("Luau line %d: missing column-zero segment: %+v", line+1, mappings)
+		}
+		for i := 1; i < len(mappings); i++ {
+			previous, current := mappings[i-1], mappings[i]
+			if current.GeneratedCharacter <= previous.GeneratedCharacter {
+				t.Errorf("Luau line %d: duplicate or unordered generated columns: %+v", line+1, mappings)
+			}
+			if current.SourceLine == previous.SourceLine && current.SourceCharacter == previous.SourceCharacter {
+				t.Errorf("Luau line %d: redundant adjacent source positions: %+v", line+1, mappings)
+			}
 		}
 		// Only top-level wrappers are excluded; a nested return/table close is
 		// executable output that must keep its mapping.
