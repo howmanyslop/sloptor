@@ -51,9 +51,11 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 		if parameter.DotDotDotToken != nil && ast.IsArrayBindingPattern(name) && !arrayLikeExpressionContainsSpread(name) {
 			// `...[a, b]: [A, B]` flattens the pattern elements into real
 			// parameters (no `...` capture).
-			statements.PushList(s.CaptureStatements(func() {
+			parameterStatements := s.CaptureStatements(func() {
 				optimizeArraySpreadParameter(s, parameters, name)
-			}))
+			})
+			s.setStatementListSourcePositions(parameterStatements, parameterNode)
+			statements.PushList(parameterStatements)
 			continue
 		}
 
@@ -95,6 +97,7 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 				}
 			}))
 		}
+		s.setStatementListSourcePositions(statements, parameterNode)
 	}
 
 	return parameters, statements, hasDotDotDot, varArgsData

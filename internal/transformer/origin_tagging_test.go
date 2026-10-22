@@ -9,7 +9,7 @@ import (
 func transformOriginSource(t *testing.T, source string) *luau.List[luau.Statement] {
 	t.Helper()
 	directory := t.TempDir()
-	writeFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"target":"ESNext","strict":true,"types":[]}}`)
+	writeFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"target":"ESNext","strict":true,"types":[],"moduleDetection":"force"}}`)
 	writeFixture(t, directory, "input.ts", source)
 	state := buildInternalState(t, directory, "input.ts")
 	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
