@@ -341,6 +341,20 @@ func (s *State) setSourceEndPosition(node luau.Node, position *SourcePosition) {
 	}
 }
 
+func (s *State) getSourceOrigin(sourceNode *ast.Node) *luau.Origin {
+	start := s.getOriginalSourcePosition(sourceNode, false)
+	if start == nil {
+		return nil
+	}
+	return &luau.Origin{Start: *start, Closing: s.getOriginalSourcePosition(sourceNode, true)}
+}
+
+func (s *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
+	if node.Origin() == nil {
+		luau.SetOrigin(node, s.getSourceOrigin(sourceNode))
+	}
+}
+
 func (s *State) setStatementListSourcePositions(statements *luau.List[luau.Statement], sourceNode *ast.Node) {
 	start := s.getOriginalSourcePosition(sourceNode, false)
 	if start == nil {
