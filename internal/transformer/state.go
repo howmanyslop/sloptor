@@ -237,6 +237,10 @@ type State struct {
 
 	// SourceMapEnabled gates expression origins and occurrence-specific clones.
 	SourceMapEnabled bool
+	// sourceMapColumnIndexes stores sparse UTF-8/UTF-16 corrections by source
+	// file identity. ASCII files have a cached nil slice; maps-off builds do
+	// not allocate an index.
+	sourceMapColumnIndexes map[*ast.SourceFile][]sourceColumnCheckpoint
 
 	// ClassIdentifierMap maps a ClassLikeDeclaration node to its INTERNAL luau
 	// identifier (upstream classIdentifierMap, TransformState.ts:28) — for a
@@ -342,8 +346,7 @@ func (s *State) getOriginalSourcePositionValue(node *ast.Node, useEnd bool) (Sou
 			position = node.Pos()
 		}
 	}
-	line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(sourceFile, position)
-	return SourcePosition{Line: line, Column: int(column)}, true
+	return s.sourcePositionAt(sourceFile, position), true
 }
 
 func (s *State) setSourcePosition(node luau.Node, position *SourcePosition) {
@@ -409,8 +412,8 @@ func (s *State) setUpdateOperatorSourcePosition(node luau.Node, update *ast.Node
 			file = s.SourceFile
 		}
 		if file != nil {
-			line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, update.End()-2)
-			position = &SourcePosition{Line: line, Column: int(column)}
+			value := s.sourcePositionAt(file, update.End()-2)
+			position = &value
 		}
 	}
 	luau.SetOrigin(node, &luau.Origin{StartUnset: true, Operator: position})
