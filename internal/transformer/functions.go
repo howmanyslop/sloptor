@@ -106,6 +106,7 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 		prereqs := s.CaptureStatements(func() {
 			returnStatements = transformReturnStatementInner(s, body)
 		})
+		s.setStatementListSourcePositions(body, prereqs, returnStatements)
 		statements.PushList(prereqs)
 		statements.PushList(returnStatements)
 	}

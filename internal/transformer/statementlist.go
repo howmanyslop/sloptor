@@ -80,8 +80,8 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 			result.Push(hoist)
 		}
 
-		s.setStatementListSourcePositions(prereqs, statement)
-		s.setStatementListSourcePositions(transformed, statement)
+		s.setStatementListSourcePositions(statement, prereqs)
+		s.setStatementListSourcePositions(statement, transformed)
 		result.PushList(prereqs)
 		lastNode := transformed.Tail
 		result.PushList(transformed)

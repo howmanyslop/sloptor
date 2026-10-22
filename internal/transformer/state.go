@@ -355,18 +355,22 @@ func (s *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
 	}
 }
 
-func (s *State) setStatementListSourcePositions(statements *luau.List[luau.Statement], sourceNode *ast.Node) {
-	start := s.getOriginalSourcePosition(sourceNode, false)
-	if start == nil {
-		return
+func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*luau.List[luau.Statement]) {
+	var origin *luau.Origin
+	for _, statements := range lists {
+		for item := statements.Head; item != nil; item = item.Next {
+			if item.Value.Origin() != nil {
+				continue
+			}
+			if origin == nil {
+				origin = s.getSourceOrigin(sourceNode)
+				if origin == nil {
+					return
+				}
+			}
+			luau.SetOrigin(item.Value, origin)
+		}
 	}
-	origin := &luau.Origin{
-		Start:   *start,
-		Closing: s.getOriginalSourcePosition(sourceNode, true),
-	}
-	statements.ForEach(func(statement luau.Statement) {
-		luau.SetOrigin(statement, origin)
-	})
 }
 
 // SetRojoContext installs the project-level Rojo context and project type,

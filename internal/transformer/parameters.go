@@ -54,7 +54,7 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 			parameterStatements := s.CaptureStatements(func() {
 				optimizeArraySpreadParameter(s, parameters, name)
 			})
-			s.setStatementListSourcePositions(parameterStatements, parameterNode)
+			s.setStatementListSourcePositions(parameterNode, parameterStatements)
 			statements.PushList(parameterStatements)
 			continue
 		}
@@ -97,7 +97,7 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 				}
 			}))
 		}
-		s.setStatementListSourcePositions(statements, parameterNode)
+		s.setStatementListSourcePositions(parameterNode, statements)
 	}
 
 	return parameters, statements, hasDotDotDot, varArgsData
