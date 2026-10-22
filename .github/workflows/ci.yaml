@@ -189,6 +189,11 @@ jobs:
         run: node --test test/*.test.js
         working-directory: tools/sidecar
 
+      - name: Package map resolution tests (Node 24)
+        run: |
+          mise install node@24
+          mise exec node@24 -- node --test tools/sidecar/test/package-map.test.js
+
     timeout-minutes: 15
 
   vuln:

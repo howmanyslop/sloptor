@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const readline = require("node:readline");
 const { createInternalDiagnostic, createRequestDiagnostic } = require("./lib/diagnostics");
 const { createTransformerList, flattenIntoTransformers, getPluginConfigs, validatePluginConfigs } = require("./lib/plugins");
+const { resolveFromPaths } = require("./lib/resolve");
 const { SidecarProjectSession, SidecarServer } = require("./lib/session");
 
 // resolveTypeScript loads the same `typescript` module instance the project's
@@ -14,7 +15,7 @@ function resolveTypeScriptPath(projectDir) {
     paths.push(projectDir);
   }
   paths.push(__dirname);
-  const modulePath = require.resolve("typescript", { paths });
+  const modulePath = resolveFromPaths("typescript", paths);
   return fs.realpathSync.native?.(modulePath) ?? fs.realpathSync(modulePath);
 }
 

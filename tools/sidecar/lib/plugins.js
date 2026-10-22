@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { createPluginNotFoundDiagnostic, createProtocolDiagnostic } = require("./diagnostics");
+const { resolveFromPaths } = require("./resolve");
 
 // getPluginConfigs reads the transformer list off the RESOLVED compiler
 // options — the value `tsc --showConfig` reports — rather than walking the
@@ -68,7 +69,7 @@ function realpath(fileName) {
 // request even when the request asks for its factories twice. Node caches only
 // modules that loaded.
 function loadPluginDefinition(config, baseDir, tsModulePath, loads) {
-  const modulePath = require.resolve(config.transform, { paths: [baseDir] });
+  const modulePath = resolveFromPaths(config.transform, [baseDir]);
   const requiredModule = requirePluginModule(modulePath, loads);
   const factoryModule = typeof requiredModule === "function"
     ? Object.assign({ default: requiredModule }, requiredModule)
@@ -82,7 +83,7 @@ function loadPluginDefinition(config, baseDir, tsModulePath, loads) {
   if (tsModulePath) {
     let pluginTypeScriptPath;
     try {
-      pluginTypeScriptPath = realpath(require.resolve("typescript", { paths: [path.dirname(modulePath)] }));
+      pluginTypeScriptPath = realpath(resolveFromPaths("typescript", [path.dirname(modulePath)]));
     } catch (error) {
       if (error?.code !== "MODULE_NOT_FOUND") {
         throw error;
