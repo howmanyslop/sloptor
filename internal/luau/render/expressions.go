@@ -160,7 +160,7 @@ func renderBinaryExpression(s *RenderState, node *luau.BinaryExpression) {
 	}
 	s.render(node.Left)
 	s.write(" ")
-	s.write(string(node.Operator))
+	s.operator(string(node.Operator))
 	s.write(" ")
 	s.render(node.Right)
 	if parens {

@@ -15,11 +15,12 @@ type Range struct {
 	Node       luau.Node
 	Start, End luau.Position
 	Closing    *luau.Position
+	Operator   *luau.Position
 }
 
 type byteRange struct {
-	node                luau.Node
-	start, end, closing int
+	node                          luau.Node
+	start, end, closing, operator int
 }
 
 // RenderASTWithPositions renders the same text as RenderAST and returns ranges
@@ -36,7 +37,7 @@ func RenderASTWithPositions(ast *luau.List[luau.Statement]) (string, []Range) {
 
 func (s *RenderState) beginRange(node luau.Node) int {
 	index := len(s.ranges)
-	s.ranges = append(s.ranges, byteRange{node: node, start: s.writer.Len(), closing: -1})
+	s.ranges = append(s.ranges, byteRange{node: node, start: s.writer.Len(), closing: -1, operator: -1})
 	return index
 }
 
@@ -56,6 +57,10 @@ func positionsForRanges(text string, offsets []byteRange) []Range {
 		if offset.closing >= 0 {
 			r.Closing = new(luau.Position)
 			coordinates = append(coordinates, coordinate{offset.closing, r.Closing})
+		}
+		if offset.operator >= 0 {
+			r.Operator = new(luau.Position)
+			coordinates = append(coordinates, coordinate{offset.operator, r.Operator})
 		}
 	}
 	slices.SortFunc(coordinates, func(a, b coordinate) int { return cmp.Compare(a.offset, b.offset) })
