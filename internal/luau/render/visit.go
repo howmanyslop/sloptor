@@ -5,8 +5,8 @@ import "rotor/internal/luau"
 type visitor struct {
 	before func(luau.Node)
 	after  func(luau.Node)
-	// Standalone Render historically evaluated map-field values first and
-	// allocated fallback temporary names in that order.
+	// Rendering historically evaluated map-field values first and allocated
+	// fallback temporary names in that order, including in unsolved iterators.
 	renderOrder bool
 }
 
