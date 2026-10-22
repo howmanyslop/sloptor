@@ -16,7 +16,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 const (
@@ -170,13 +169,18 @@ func copyInternal(srcRoot, dstRoot string) (int, error) {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "testdata" {
+			// These upstream tools have no compiler consumers. Keep shared
+			// ls/lsutil and lsp protocol packages used by the transformer.
+			if d.Name() == "testdata" || excludedMirrorTree(rel) {
 				return filepath.SkipDir
 			}
 			return os.MkdirAll(filepath.Join(dstRoot, rel), 0o755)
 		}
 		if strings.HasSuffix(d.Name(), "_test.go") {
 			return nil
+		}
+		if filepath.Dir(rel) == "ls" || filepath.Dir(rel) == "lsp" {
+			return nil // servers depend on the omitted project and API tools
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -191,20 +195,31 @@ func copyInternal(srcRoot, dstRoot string) (int, error) {
 	return nFiles, err
 }
 
+func excludedMirrorTree(rel string) bool {
+	switch filepath.ToSlash(rel) {
+	case "api", "execute", "format", "fourslash", "pprof", "project", "testrunner", "testutil", "ls/autoimport", "ls/change":
+		return true
+	}
+	return false
+}
+
 func writeMirrorMetadata(destination, repo, sha string) error {
 	mirrorMD := fmt.Sprintf(`# Mirror of microsoft/typescript-go internals
 
 - Source: %s
 - Commit: %s
-- Vendored: %s
 - Changes: files copied from internal/ with import paths rewritten
   ("%s" -> "%s"); *_test.go files and testdata/ directories omitted.
+  Unused upstream api, execute, format, fourslash, pprof, project,
+  testrunner, and testutil trees are omitted. Shared ls/lsp dependencies stay.
+  The unused ls/lsp server entry points, ls/autoimport, and ls/change are
+  omitted too; ls/lsutil and lsp/lsproto remain compiler dependencies.
   Rotor-owned edits are re-applied from tools/mirror/patches after
   import rewriting. Overlay shims from tools/mirror/overlay
   (e.g. checker/rotor_exports.go) are applied automatically.
   Regenerate a pinned ref with:
   go run ./tools/mirror -ref <sha>
-`, repo, sha, time.Now().UTC().Format(time.RFC3339), srcModule, dstModule)
+`, repo, sha, srcModule, dstModule)
 	return os.WriteFile(filepath.Join(destination, "MIRROR.md"), []byte(mirrorMD), 0o644)
 }
 

@@ -1,0 +1,181 @@
+--- a/tsgo/ast/diagnostic.go
++++ b/tsgo/ast/diagnostic.go
+@@ -45,6 +45,9 @@
+ 	reportsDeprecated  bool
+ 	skippedOnNoEmit    bool
+ 	repopulateInfo     *RepopulateDiagnosticInfo
++	stringCode         string
++	rawMessage         string
++	hasStringCode      bool
+ }
+
+ func (d *Diagnostic) File() *SourceFile                         { return d.file }
+@@ -62,6 +65,7 @@
+ func (d *Diagnostic) ReportsDeprecated() bool                   { return d.reportsDeprecated }
+ func (d *Diagnostic) SkippedOnNoEmit() bool                     { return d.skippedOnNoEmit }
+ func (d *Diagnostic) RepopulateInfo() *RepopulateDiagnosticInfo { return d.repopulateInfo }
++func (d *Diagnostic) StringCode() (string, bool)                { return d.stringCode, d.hasStringCode }
+
+ func (d *Diagnostic) SetFile(file *SourceFile)                         { d.file = file }
+ func (d *Diagnostic) SetLocation(loc core.TextRange)                   { d.loc = loc }
+@@ -99,12 +103,29 @@
+ }
+
+ func (d *Diagnostic) Localize(locale locale.Locale) string {
++	if d.hasStringCode {
++		return d.rawMessage
++	}
+ 	return diagnostics.Localize(locale, d.message, d.messageKey, d.messageArgs...)
+ }
+
+ // For debugging only.
+ func (d *Diagnostic) String() string {
++	if d.hasStringCode {
++		return d.rawMessage
++	}
+ 	return diagnostics.Localize(locale.Default, d.message, d.messageKey, d.messageArgs...)
++}
++
++func NewDiagnosticWithStringCode(file *SourceFile, loc core.TextRange, code string, category diagnostics.Category, text string) *Diagnostic {
++	return &Diagnostic{
++		file:          file,
++		loc:           loc,
++		category:      category,
++		stringCode:    code,
++		rawMessage:    text,
++		hasStringCode: true,
++	}
+ }
+
+ func NewDiagnosticFromSerialized(
+@@ -269,8 +290,15 @@
+ 	return getDiagnosticPath(d1) == getDiagnosticPath(d2) &&
+ 		d1.Loc() == d2.Loc() &&
+ 		d1.Code() == d2.Code() &&
++		d1.Category() == d2.Category() &&
++		equalDiagnosticRepresentation(d1, d2) &&
+ 		slices.Equal(d1.MessageArgs(), d2.MessageArgs()) &&
+ 		slices.EqualFunc(d1.MessageChain(), d2.MessageChain(), equalMessageChain)
++}
++
++func equalDiagnosticRepresentation(d1, d2 *Diagnostic) bool {
++	return d1.hasStringCode == d2.hasStringCode &&
++		(!d1.hasStringCode || d1.stringCode == d2.stringCode && d1.rawMessage == d2.rawMessage)
+ }
+
+ func equalMessageChain(c1, c2 *Diagnostic) bool {
+@@ -278,10 +306,28 @@
+ 		return true
+ 	}
+ 	return c1.Code() == c2.Code() &&
++		c1.Category() == c2.Category() &&
++		equalDiagnosticRepresentation(c1, c2) &&
+ 		slices.Equal(c1.MessageArgs(), c2.MessageArgs()) &&
+ 		slices.EqualFunc(c1.MessageChain(), c2.MessageChain(), equalMessageChain)
+ }
+
++func compareDiagnosticRepresentation(d1, d2 *Diagnostic) int {
++	if d1.hasStringCode != d2.hasStringCode {
++		if d1.hasStringCode {
++			return 1
++		}
++		return -1
++	}
++	if !d1.hasStringCode {
++		return 0
++	}
++	if c := strings.Compare(d1.stringCode, d2.stringCode); c != 0 {
++		return c
++	}
++	return strings.Compare(d1.rawMessage, d2.rawMessage)
++}
++
+ func compareMessageChainSize(c1, c2 []*Diagnostic) int {
+ 	c := len(c2) - len(c1)
+ 	if c != 0 {
+@@ -298,7 +344,19 @@
+
+ func compareMessageChainContent(c1, c2 []*Diagnostic) int {
+ 	for i := range c1 {
+-		c := slices.Compare(c1[i].MessageArgs(), c2[i].MessageArgs())
++		c := int(c1[i].Code()) - int(c2[i].Code())
++		if c != 0 {
++			return c
++		}
++		c = int(c1[i].Category()) - int(c2[i].Category())
++		if c != 0 {
++			return c
++		}
++		c = compareDiagnosticRepresentation(c1[i], c2[i])
++		if c != 0 {
++			return c
++		}
++		c = slices.Compare(c1[i].MessageArgs(), c2[i].MessageArgs())
+ 		if c != 0 {
+ 			return c
+ 		}
+@@ -346,6 +404,14 @@
+ 	if c != 0 {
+ 		return c
+ 	}
++	c = int(d1.Category()) - int(d2.Category())
++	if c != 0 {
++		return c
++	}
++	c = compareDiagnosticRepresentation(d1, d2)
++	if c != 0 {
++		return c
++	}
+ 	c = slices.Compare(d1.MessageArgs(), d2.MessageArgs())
+ 	if c != 0 {
+ 		return c
+--- a/tsgo/checker/emitresolver.go
++++ b/tsgo/checker/emitresolver.go
+@@ -56,9 +56,17 @@
+ 	return r.checker.getJsxFactoryEntity(location)
+ }
+
++func (r *EmitResolver) GetJsxFactoryEntityUnsafe(location *ast.Node) *ast.Node {
++	return r.checker.getJsxFactoryEntity(location)
++}
++
+ func (r *EmitResolver) GetJsxFragmentFactoryEntity(location *ast.Node) *ast.Node {
+ 	r.checkerMu.Lock()
+ 	defer r.checkerMu.Unlock()
++	return r.checker.getJsxFragmentFactoryEntity(location)
++}
++
++func (r *EmitResolver) GetJsxFragmentFactoryEntityUnsafe(location *ast.Node) *ast.Node {
+ 	return r.checker.getJsxFragmentFactoryEntity(location)
+ }
+
+@@ -711,6 +719,29 @@
+ 	return false
+ }
+
++func (r *EmitResolver) IsReferencedAliasDeclarationUnsafe(node *ast.Node) bool {
++	c := r.checker
++	if !c.canCollectSymbolAliasAccessibilityData || !ast.IsParseTreeNode(node) {
++		return true
++	}
++
++	if ast.IsAliasSymbolDeclaration(node) {
++		if symbol := c.getSymbolOfDeclaration(node); symbol != nil {
++			aliasLinks := c.aliasSymbolLinks.Get(symbol)
++			if aliasLinks.referenced {
++				return true
++			}
++			target := aliasLinks.aliasTarget
++			if target != nil && node.ModifierFlags()&ast.ModifierFlagsExport != 0 &&
++				c.getSymbolFlags(target)&ast.SymbolFlagsValue != 0 &&
++				(c.compilerOptions.ShouldPreserveConstEnums() || !isConstEnumOrConstEnumOnlyModule(target)) {
++				return true
++			}
++		}
++	}
++	return false
++}
++
+ func (r *EmitResolver) IsValueAliasDeclaration(node *ast.Node) bool {
+ 	c := r.checker
+ 	if !c.canCollectSymbolAliasAccessibilityData || !ast.IsParseTreeNode(node) {

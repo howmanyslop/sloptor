@@ -2,6 +2,9 @@
 *.go text eol=lf
 *.go.tmpl text eol=lf
 *.patch text eol=lf
+# Patch context and the verbatim upstream notice contain intentional whitespace.
+tools/mirror/patches/*.patch -whitespace
+tools/mirror/overlay/NOTICE.tmpl -whitespace
 *.lua text eol=lf
 *.luau text eol=lf
 *.ts text eol=lf
