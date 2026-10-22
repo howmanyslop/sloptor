@@ -3,7 +3,6 @@ package transformer
 import (
 	"encoding/json"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"rotor/internal/luau"
@@ -28,17 +27,30 @@ type sourceMapMapping struct {
 	sourceColumn    int
 }
 
-// RenderSourceMap returns the deterministic V3 source map for statements.
-func (s *State) RenderSourceMap(statements *luau.List[luau.Statement], sourceFile *ast.SourceFile) string {
-	mappings := []sourceMapMapping{}
-	s.addStatementListMappings(&mappings, statements, 0)
-	sort.SliceStable(mappings, func(left, right int) bool {
-		if mappings[left].generatedLine != mappings[right].generatedLine {
-			return mappings[left].generatedLine < mappings[right].generatedLine
+// RenderWithSourceMap renders statements once and returns their deterministic V3 source map.
+func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourceFile *ast.SourceFile) (text, mapJSON string) {
+	text, ranges := render.RenderASTWithPositions(statements)
+	positions := make([]*luau.Position, strings.Count(text, "\n")+1)
+	for _, r := range ranges {
+		if _, ok := r.Node.(luau.Statement); ok && r.Node.Origin() != nil && positions[r.Start.Line] == nil {
+			positions[r.Start.Line] = &r.Node.Origin().Start
 		}
-		return mappings[left].generatedColumn < mappings[right].generatedColumn
-	})
-
+	}
+	for _, r := range ranges {
+		if origin := r.Node.Origin(); origin != nil && r.Closing != nil && origin.Closing != nil && positions[r.Closing.Line] == nil {
+			positions[r.Closing.Line] = origin.Closing
+		}
+	}
+	mappings := make([]sourceMapMapping, 0, len(positions))
+	for line, position := range positions {
+		if position != nil {
+			mappings = append(mappings, sourceMapMapping{
+				generatedLine: line,
+				sourceLine:    position.Line,
+				sourceColumn:  position.Column,
+			})
+		}
+	}
 	fileName := sourceFile.FileName()
 	outputFileName := strings.TrimSuffix(fileName, filepath.Ext(fileName)) + ".luau"
 	encoded, err := json.Marshal(sourceMapV3{
@@ -51,125 +63,7 @@ func (s *State) RenderSourceMap(statements *luau.List[luau.Statement], sourceFil
 	if err != nil {
 		panic(err)
 	}
-	return string(encoded)
-}
-
-func (s *State) addStatementListMappings(mappings *[]sourceMapMapping, statements *luau.List[luau.Statement], startLine int) int {
-	// Reuse each standalone render for its end anchor, callback matching, and
-	// the enclosing if body's total. No layout survives this traversal.
-	line := startLine
-	for listNode := statements.Head; listNode != nil; listNode = listNode.Next {
-		statement := listNode.Value
-		s.addStartMapping(mappings, statement, line)
-		rendered := renderSourceMapStatement(statement)
-		lineCount := strings.Count(rendered, "\n")
-		s.addInnerMappings(mappings, statement, line, lineCount, rendered)
-		line += lineCount
-	}
-	return line - startLine
-}
-
-func (s *State) addStartMapping(mappings *[]sourceMapMapping, statement luau.Statement, line int) {
-	if origin := statement.Origin(); origin != nil {
-		*mappings = append(*mappings, sourceMapMapping{
-			generatedLine: line,
-			sourceLine:    origin.Start.Line,
-			sourceColumn:  origin.Start.Column,
-		})
-	}
-}
-
-func (s *State) addEndMapping(mappings *[]sourceMapMapping, statement luau.Statement, line int) {
-	origin := statement.Origin()
-	if origin == nil {
-		return
-	}
-	position := origin.Closing
-	if position == nil {
-		position = &origin.Start
-	}
-	*mappings = append(*mappings, sourceMapMapping{
-		generatedLine: line,
-		sourceLine:    position.Line,
-		sourceColumn:  position.Column,
-	})
-}
-
-func (s *State) addInnerMappings(mappings *[]sourceMapMapping, statement luau.Statement, startLine, lineCount int, rendered string) {
-	switch node := statement.(type) {
-	case *luau.DoStatement:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.WhileStatement:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.RepeatStatement:
-		s.addStatementListMappings(mappings, node.Statements, startLine+1)
-	case *luau.IfStatement:
-		s.addIfMappings(mappings, node, startLine, lineCount, false)
-	case *luau.NumericForStatement:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.ForStatement:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.FunctionDeclaration:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.MethodDeclaration:
-		s.addBlockMappings(mappings, statement, node.Statements, startLine, lineCount)
-	case *luau.CallStatement:
-		s.addCallMappings(mappings, node, startLine, rendered)
-	}
-}
-
-func (s *State) addBlockMappings(mappings *[]sourceMapMapping, statement luau.Statement, statements *luau.List[luau.Statement], startLine, lineCount int) {
-	s.addStatementListMappings(mappings, statements, startLine+1)
-	if lineCount > 0 {
-		s.addEndMapping(mappings, statement, startLine+lineCount-1)
-	}
-}
-
-func (s *State) addIfMappings(mappings *[]sourceMapMapping, statement *luau.IfStatement, startLine, lineCount int, isElseIf bool) {
-	bodyLines := s.addStatementListMappings(mappings, statement.Statements, startLine+1)
-	switch elseBody := statement.ElseBody.(type) {
-	case *luau.List[luau.Statement]:
-		if elseBody.IsNonEmpty() {
-			s.addStatementListMappings(mappings, elseBody, startLine+bodyLines+2)
-		}
-	case *luau.IfStatement:
-		elseIfLine := startLine + bodyLines + 1
-		s.addStartMapping(mappings, elseBody, elseIfLine)
-		s.addIfMappings(mappings, elseBody, elseIfLine, 0, true)
-	}
-	if !isElseIf {
-		if lineCount > 0 {
-			s.addEndMapping(mappings, statement, startLine+lineCount-1)
-		}
-	}
-}
-
-func (s *State) addCallMappings(mappings *[]sourceMapMapping, statement *luau.CallStatement, startLine int, fullRendered string) {
-	call, ok := statement.Expression.(*luau.CallExpression)
-	if !ok {
-		return
-	}
-	for argument := call.Args.Head; argument != nil; argument = argument.Next {
-		function, ok := argument.Value.(*luau.FunctionExpression)
-		if !ok {
-			continue
-		}
-		functionRendered := render.Render(render.NewRenderState(), function)
-		beforeFunction, _, found := strings.Cut(fullRendered, functionRendered)
-		if !found {
-			continue
-		}
-		linesBeforeFunction := strings.Count(beforeFunction, "\n")
-		s.addStatementListMappings(mappings, function.Statements, startLine+linesBeforeFunction+1)
-		functionLines := strings.Count(functionRendered, "\n")
-		if functionLines > 0 {
-			s.addEndMapping(mappings, statement, startLine+linesBeforeFunction+functionLines)
-		}
-	}
-}
-
-func renderSourceMapStatement(statement luau.Statement) string {
-	return render.RenderAST(luau.NewList(statement))
+	return text, string(encoded)
 }
 
 func encodeSourceMapMappings(mappings []sourceMapMapping) string {

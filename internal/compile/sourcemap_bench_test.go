@@ -75,8 +75,7 @@ func BenchmarkSourceMapLarge(b *testing.B) {
 	if state.Diags.HasErrors() {
 		b.Fatalf("transform diagnostics: %v", state.Diags.Flush())
 	}
-	text := render.RenderAST(statements)
-	mapJSON := state.RenderSourceMap(statements, sourceFile)
+	text, mapJSON := state.RenderWithSourceMap(statements, sourceFile)
 	var sourceMap struct {
 		Mappings string `json:"mappings"`
 	}
@@ -120,8 +119,7 @@ func BenchmarkSourceMapLarge(b *testing.B) {
 	b.Run("render_with_map", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
-			render.RenderAST(statements)
-			state.RenderSourceMap(statements, sourceFile)
+			state.RenderWithSourceMap(statements, sourceFile)
 		}
 	})
 }

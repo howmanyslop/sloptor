@@ -2,10 +2,11 @@ package transformer
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"rotor/internal/luau"
-	"rotor/internal/luau/render"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/core"
 	"rotor/tsgo/parser"
@@ -114,11 +115,11 @@ func TestSourcePositionExportSyntaxAnchors(t *testing.T) {
 	}
 }
 
-func TestRenderSourceMap(t *testing.T) {
+func TestRenderWithSourceMap(t *testing.T) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts",
 		Path:     tspath.Path("/test.ts"),
-	}, "const a = 1;\nconst b = 2;\n", core.ScriptKindTS)
+	}, "const a = 1;\r\nconst b = 2;\r\n", core.ScriptKindTS)
 	state := NewState(nil, nil, sourceFile, NewDiagService(), NewMultiState())
 	first := luau.NewVariableDeclaration(luau.ID("a"), luau.Num(1))
 	second := luau.NewVariableDeclaration(luau.ID("b"), luau.Num(2))
@@ -133,8 +134,19 @@ func TestRenderSourceMap(t *testing.T) {
 		SourcesContent []string `json:"sourcesContent"`
 		Mappings       string   `json:"mappings"`
 	}
-	if err := json.Unmarshal([]byte(state.RenderSourceMap(statements, sourceFile)), &sourceMap); err != nil {
+	text, mapJSON := state.RenderWithSourceMap(statements, sourceFile)
+	if text != "local a = 1\nlocal b = 2\n" {
+		t.Errorf("text = %q, want two declarations", text)
+	}
+	if err := json.Unmarshal([]byte(mapJSON), &sourceMap); err != nil {
 		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(mapJSON), &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 5 {
+		t.Errorf("map fields = %v, want exactly version, file, sources, sourcesContent, mappings", fields)
 	}
 
 	if sourceMap.Version != 3 {
@@ -160,7 +172,7 @@ func TestRenderSourceMap(t *testing.T) {
 	}
 }
 
-func TestRenderSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
+func TestRenderWithSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts",
 		Path:     tspath.Path("/test.ts"),
@@ -175,7 +187,11 @@ func TestRenderSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
 	var sourceMap struct {
 		Mappings string `json:"mappings"`
 	}
-	if err := json.Unmarshal([]byte(state.RenderSourceMap(statements, sourceFile)), &sourceMap); err != nil {
+	text, mapJSON := state.RenderWithSourceMap(statements, sourceFile)
+	if text != "if true then\n\tlocal value = 1\nend\n" {
+		t.Errorf("text = %q, want if block", text)
+	}
+	if err := json.Unmarshal([]byte(mapJSON), &sourceMap); err != nil {
 		t.Fatal(err)
 	}
 	if sourceMap.Mappings != "AAAA;AACC;AACD" {
@@ -183,118 +199,91 @@ func TestRenderSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
 	}
 }
 
-// These exact outputs were captured before reusing source-map layout renders.
-// In particular, callback matching keeps its existing first-substring behavior.
-func TestRenderSourceMapLayoutParity(t *testing.T) {
-	tests := []struct {
-		name    string
-		text    string
-		mapJSON string
-	}{
-		{name: "blocks", text: "do\n\tif true then\n\t\t--[[\n\t\t\tfirst\n\t\t\tsecond\n\t\t\tthird\n\t\t]]\n\t\tlocal value = [[😀\nsecond]]\n\telseif false then\n\telse\n\t\tfallback()\n\tend\n\twhile true do\n\t\trepeat\n\t\t\tstep()\n\t\tuntil false\n\tend\n\tfor i = 1, 3 do\n\tend\n\tfor item in items do\n\t\tvisit()\n\tend\n\tlocal function work()\n\t\trun()\n\tend\n\tfunction object:work(...)\n\tend\nend\nlocal fn = work;\n(fn or work)()\n", mapJSON: "{\"version\":3,\"file\":\"/layout.luau\",\"sources\":[\"/layout.ts\"],\"sourcesContent\":[\"// layout oracle 😀\\n\"],\"mappings\":\"AA4BC;AApBA;AARA;;;;;AAEA;;AAIA;;AAFA;AAKC;AAKD;AAFA;AAFA;;AAKC;AACD;AACC;AAGD;AAFA;AAGC;AAGD;AAFA;AAGC;AACD;AACC;AAEA;AACD;AAEA\"}"},
-		{name: "callbacks", text: "consume(function()\n\tsame()\nend, function()\n\tsame()\nend, function() end)\nconsume(function()\n\tlocal _value = 1\n\tlocal _value_1 = 2\n\tuse(_value, _value_1)\nend)\ndo\n\tconsume(function()\n\t\tnested()\n\tend)\nend\nobject:consume(function()\n\tmethod()\nend)\n", mapJSON: "{\"version\":3,\"file\":\"/layout.luau\",\"sources\":[\"/layout.ts\"],\"sourcesContent\":[\"// layout oracle 😀\\n\"],\"mappings\":\"AAIC;AAJA,AAEA;AAGC,AAAA;;;AAOD;;;;;AAMA;AAFA;AAFA;AAGC;AAEA;AAGD\"}"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			state, sourceFile, statements := sourceMapLayoutFixture(test.name)
-			text := render.RenderAST(statements)
-			mapJSON := state.RenderSourceMap(statements, sourceFile)
-			if text != test.text || mapJSON != test.mapJSON {
-				t.Fatalf("%s text=%q map=%q", test.name, text, mapJSON)
-			}
-			if got := state.RenderSourceMap(statements, sourceFile); got != mapJSON {
-				t.Fatalf("repeated source map = %q, want %q", got, mapJSON)
-			}
-		})
-	}
-}
-
-func sourceMapLayoutFixture(name string) (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
+func sourceMapFixture() (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
-		FileName: "/layout.ts", Path: tspath.Path("/layout.ts"),
-	}, "// layout oracle 😀\n", core.ScriptKindTS)
+		FileName: "/test.ts", Path: tspath.Path("/test.ts"),
+	}, "if (true) {\n\tuse(1);\n}\n", core.ScriptKindTS)
 	state := NewState(nil, nil, sourceFile, NewDiagService(), NewMultiState())
-	nextLine := 0
-	anchor := func(statement luau.Statement) luau.Statement {
-		luau.SetOrigin(statement, &luau.Origin{
-			Start:   luau.Position{Line: nextLine, Column: 1},
-			Closing: &luau.Position{Line: nextLine + 1, Column: 2},
-		})
-		nextLine += 2
-		return statement
-	}
-	list := func(statements ...luau.Statement) *luau.List[luau.Statement] { return luau.NewList(statements...) }
-	call := func(name string) luau.Statement {
-		return anchor(luau.NewCallStatement(luau.NewCall(luau.ID(name), luau.NewList[luau.Expression]())))
-	}
-	empty := func() *luau.List[luau.Statement] { return list() }
-	if name == "blocks" {
-		comment := anchor(luau.NewComment("first\r\nsecond\rthird"))
-		value := anchor(luau.NewVariableDeclaration(luau.ID("value"), luau.Str("😀\nsecond")))
-		elseBody := luau.NewIf(luau.Bool(false), empty(), list(call("fallback")))
-		anchor(elseBody)
-		condition := anchor(luau.NewIf(luau.Bool(true), list(comment, value), elseBody))
-		loop := anchor(luau.NewWhile(luau.Bool(true), list(anchor(luau.NewRepeat(luau.Bool(false), list(call("step")))))))
-		numeric := anchor(luau.NewNumericFor(luau.ID("i"), luau.Num(1), luau.Num(3), luau.Num(1), empty()))
-		generic := anchor(luau.NewFor(luau.NewList[luau.AnyIdentifier](luau.ID("item")), luau.ID("items"), list(call("visit"))))
-		function := anchor(luau.NewFunctionDeclaration(true, luau.ID("work"), luau.NewList[luau.AnyIdentifier](), false, list(call("run"))))
-		method := anchor(luau.NewMethodDeclaration(luau.ID("object"), "work", luau.NewList[luau.AnyIdentifier](), true, empty()))
-		block := anchor(luau.NewDo(list(condition, loop, numeric, generic, function, method)))
-		// A following parenthesized call adds a semicolon to the full render;
-		// the source-map line counter still renders each statement independently.
-		declaration := anchor(luau.NewVariableDeclaration(luau.ID("fn"), luau.ID("work")))
-		parenthesized := anchor(luau.NewCallStatement(luau.NewCall(luau.NewParenthesized(luau.NewBinary(luau.ID("fn"), "or", luau.ID("work"))), luau.NewList[luau.Expression]())))
-		return state, sourceFile, list(block, declaration, parenthesized)
-	}
-	callback := func(body *luau.List[luau.Statement]) *luau.FunctionExpression {
-		return luau.NewFunctionExpression(luau.NewList[luau.AnyIdentifier](), false, body)
-	}
-	first := callback(list(call("same")))
-	second := callback(list(call("same")))
-	duplicate := anchor(luau.NewCallStatement(luau.NewCall(luau.ID("consume"), luau.NewList[luau.Expression](first, second, callback(empty())))))
-	temp := luau.TempID("value")
-	otherTemp := luau.TempID("value")
-	tempBody := list(
-		anchor(luau.NewVariableDeclaration(temp, luau.Num(1))),
-		anchor(luau.NewVariableDeclaration(otherTemp, luau.Num(2))),
-		anchor(luau.NewCallStatement(luau.NewCall(luau.ID("use"), luau.NewList[luau.Expression](temp, otherTemp)))),
-	)
-	// Standalone fallback names fail the legacy callback substring match.
-	tempCall := anchor(luau.NewCallStatement(luau.NewCall(luau.ID("consume"), luau.NewList[luau.Expression](callback(tempBody)))))
-	nestedBody := callback(list(call("nested")))
-	nestedCall := anchor(luau.NewCallStatement(luau.NewCall(luau.ID("consume"), luau.NewList[luau.Expression](nestedBody))))
-	nested := anchor(luau.NewDo(list(nestedCall)))
-	methodCall := anchor(luau.NewCallStatement(luau.NewMethodCall("consume", luau.ID("object"), luau.NewList[luau.Expression](callback(list(call("method")))))))
-	return state, sourceFile, list(duplicate, tempCall, nested, methodCall)
+	inner := luau.NewCallStatement(luau.NewCall(luau.ID("use"), luau.NewList[luau.Expression](luau.Num(1))))
+	luau.SetOrigin(inner, &luau.Origin{Start: luau.Position{Line: 1, Column: 1}})
+	block := luau.NewIf(luau.Bool(true), luau.NewList[luau.Statement](inner), nil)
+	luau.SetOrigin(block, &luau.Origin{Start: luau.Position{}, Closing: &luau.Position{Line: 2}})
+	return state, sourceFile, luau.NewList[luau.Statement](block)
 }
 
-func TestRenderSourceMapRecomputesMutatedLayout(t *testing.T) {
-	state, sourceFile, statements := sourceMapLayoutFixture("blocks")
-	before := state.RenderSourceMap(statements, sourceFile)
-	statements.Head.Value.(*luau.DoStatement).Statements.Unshift(luau.NewComment("added\nlines"))
-	got := state.RenderSourceMap(statements, sourceFile)
+func TestRenderWithSourceMapRecomputesMutatedLayout(t *testing.T) {
+	state, sourceFile, statements := sourceMapFixture()
+	_, before := state.RenderWithSourceMap(statements, sourceFile)
+	statements.Head.Value.(*luau.IfStatement).Statements.Unshift(luau.NewComment("added\nlines"))
+	text, got := state.RenderWithSourceMap(statements, sourceFile)
 	if got == before {
 		t.Fatal("adding multiline output must move the following source-map anchors")
 	}
-	freshState, freshSourceFile, freshStatements := sourceMapLayoutFixture("blocks")
-	freshStatements.Head.Value.(*luau.DoStatement).Statements.Unshift(luau.NewComment("added\nlines"))
-	if want := freshState.RenderSourceMap(freshStatements, freshSourceFile); got != want {
-		t.Fatalf("mutated map = %q, fresh map = %q", got, want)
+	freshState, freshSourceFile, freshStatements := sourceMapFixture()
+	freshStatements.Head.Value.(*luau.IfStatement).Statements.Unshift(luau.NewComment("added\nlines"))
+	wantText, want := freshState.RenderWithSourceMap(freshStatements, freshSourceFile)
+	if text != wantText || got != want {
+		t.Fatalf("mutated render = %q, map = %q; fresh render = %q, map = %q", text, got, wantText, want)
 	}
+	assertSourceMapLines(t, text, got, []string{"0:0", "-", "-", "-", "-", "1:1", "2:0"})
 }
 
-func TestRenderSourceMapNestedAllocationBudget(t *testing.T) {
-	state, sourceFile, _ := sourceMapLayoutFixture("blocks")
+func TestRenderWithSourceMapNestedAllocationBudget(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
 	var statement luau.Statement = luau.NewVariableDeclaration(luau.ID("value"), luau.Num(1))
 	for range 24 {
 		statement = luau.NewDo(luau.NewList(statement))
 	}
+	luau.SetOrigin(statement, &luau.Origin{Start: luau.Position{Line: 1}})
 	statements := luau.NewList(statement)
-	allocations := testing.AllocsPerRun(3, func() { state.RenderSourceMap(statements, sourceFile) })
-	// The duplicate subtree renders required 5,048 allocations at this depth.
+	allocations := testing.AllocsPerRun(3, func() { state.RenderWithSourceMap(statements, sourceFile) })
+	// The old subtree re-renders required 5,048 allocations at this depth.
 	// Leave room for runtime changes while still detecting their return.
 	t.Logf("nested source-map allocations = %.0f", allocations)
 	if allocations > 3200 {
 		t.Fatalf("nested source-map allocations = %.0f, want at most 3200", allocations)
+	}
+}
+
+// Expected coordinates use zero-based lines and UTF-16 columns, like Origin.
+func assertSourceMapLines(t *testing.T, text, mapJSON string, want []string) {
+	t.Helper()
+	var sourceMap struct {
+		Mappings string `json:"mappings"`
+	}
+	if err := json.Unmarshal([]byte(mapJSON), &sourceMap); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+	if len(lines) != len(want) {
+		t.Fatalf("rendered %d lines, want %d:\n%s", len(lines), len(want), text)
+	}
+	got := make([]string, len(lines))
+	for i := range got {
+		got[i] = "-"
+	}
+	decoder := sourcemap.DecodeMappings(sourceMap.Mappings)
+	for mapping := range decoder.Values() {
+		if mapping.GeneratedLine >= len(lines) {
+			t.Fatalf("mapping beyond rendered text: %#v", mapping)
+		}
+		if mapping.GeneratedCharacter != 0 {
+			t.Errorf("generated column = %d, want 0", mapping.GeneratedCharacter)
+		}
+		if !mapping.IsSourceMapping() {
+			t.Errorf("unexpected generated-only mapping: %#v", mapping)
+		}
+		if got[mapping.GeneratedLine] != "-" {
+			t.Errorf("multiple segments on line %d", mapping.GeneratedLine)
+		}
+		got[mapping.GeneratedLine] = fmt.Sprintf("%d:%d", mapping.SourceLine, mapping.SourceCharacter)
+	}
+	if err := decoder.Error(); err != nil {
+		t.Fatal(err)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("line %d %q: source = %s, want %s", i+1, lines[i], got[i], want[i])
+		}
 	}
 }

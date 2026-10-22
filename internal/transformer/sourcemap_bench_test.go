@@ -7,7 +7,7 @@ import (
 	"rotor/internal/luau"
 )
 
-func BenchmarkRenderSourceMap(b *testing.B) {
+func BenchmarkRenderWithSourceMap(b *testing.B) {
 	for _, depth := range []int{16, 64, 128} {
 		b.Run(fmt.Sprintf("nested_%d", depth), func(b *testing.B) {
 			var statement luau.Statement = luau.NewVariableDeclaration(luau.ID("value"), luau.Num(1))
@@ -36,7 +36,7 @@ func BenchmarkRenderSourceMap(b *testing.B) {
 }
 
 func benchmarkSourceMap(b *testing.B, statements *luau.List[luau.Statement]) {
-	state, sourceFile, _ := sourceMapLayoutFixture("blocks")
+	state, sourceFile, _ := sourceMapFixture()
 	// Add real anchors so map encoding is included in these measurements.
 	for node := statements.Head; node != nil; node = node.Next {
 		luau.SetOrigin(node.Value, &luau.Origin{Start: luau.Position{Line: 1}})
@@ -44,6 +44,6 @@ func benchmarkSourceMap(b *testing.B, statements *luau.List[luau.Statement]) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for range b.N {
-		state.RenderSourceMap(statements, sourceFile)
+		state.RenderWithSourceMap(statements, sourceFile)
 	}
 }
