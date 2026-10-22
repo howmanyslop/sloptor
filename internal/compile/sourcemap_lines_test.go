@@ -116,6 +116,93 @@ export function isBase(value: unknown) {
  9 -      | return exports
 `,
 		},
+		{
+			name: "call-args",
+			source: `declare function register(callback: () => void): number;
+declare function use(value: unknown): void;
+
+register(() => {
+	use(1);
+});
+const handle = register(() => {
+	use(2);
+});
+use(handle);
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->4:0  | register(function()
+ 3 0->5:1  | 	use(1)
+ 4 0->6:0  | end)
+ 5 0->7:0  | local handle = register(function()
+ 6 0->8:1  | 	use(2)
+ 7 0->9:0  | end)
+ 8 0->10:0 | use(handle)
+ 9 -       | return nil
+`,
+		},
+		{
+			name: "method-call",
+			source: `declare const signal: { Connect(callback: () => void): void };
+declare function wrap(callback: () => void): () => void;
+
+signal.Connect(() => {
+	print("fired");
+});
+print(wrap(() => {
+	print("inner");
+}));
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->4:0 | signal:Connect(function()
+ 3 0->5:1 | 	print("fired")
+ 4 0->6:0 | end)
+ 5 0->7:0 | print(wrap(function()
+ 6 0->8:1 | 	print("inner")
+ 7 0->9:0 | end))
+ 8 -      | return nil
+`,
+		},
+		{
+			name: "duplicate-callbacks",
+			source: `declare function both(first: () => void, second: () => void): void;
+both(() => {
+	print("same");
+}, () => {
+	print("same");
+});
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->2:0 | both(function()
+ 3 0->3:1 | 	print("same")
+ 4 0->4:0 | end, function()
+ 5 0->5:1 | 	print("same")
+ 6 0->6:0 | end)
+ 7 -      | return nil
+`,
+		},
+		{
+			name: "returned-function",
+			source: `export function makeCounter() {
+	let count = 0;
+	return () => {
+		count += 1;
+		return count;
+	};
+}
+`,
+			want: ` 1 -      | -- Compiled with sloptor vX
+ 2 0->1:0 | local function makeCounter()
+ 3 0->2:1 | 	local count = 0
+ 4 0->3:1 | 	return function()
+ 5 0->4:2 | 		count += 1
+ 6 0->5:2 | 		return count
+ 7 0->6:1 | 	end
+ 8 0->7:0 | end
+ 9 -      | return {
+10 0->1:0 | 	makeCounter = makeCounter,
+11 -      | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
