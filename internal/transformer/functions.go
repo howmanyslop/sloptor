@@ -253,6 +253,7 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 				luau.NewPropertyAccess(ptr.Value.(luau.IndexableExpression), nameStr.Value),
 				parameters, hasDotDotDot, statements))
 		}
+		s.setNodeSourcePosition(result.Tail.Value, node)
 		return result
 	}
 
