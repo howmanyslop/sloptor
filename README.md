@@ -1,6 +1,6 @@
 <h1 align="center">sloptor</h1>
 
-<p align="center"><em>TypeScript in, Roblox out — at native speed.</em></p>
+<p align="center"><em>TypeScript to Luau, at native speed.</em></p>
 
 <p align="center">
   <a href="https://github.com/howmanyslop/sloptor/releases/latest"><img src="https://img.shields.io/github/v/release/howmanyslop/sloptor" alt="latest release"></a>
@@ -24,11 +24,14 @@ Release archives, source builds, and every other option: [Install](https://docs.
 ## What it does
 
 ```sh
-sloptor check ./my-game -w     # native full-strictness typecheck: 222 files in 161 ms
-sloptor build ./my-game -w     # parity Luau, watch mode, incremental rebuilds
+sloptor check ./my-game -w     # native TypeScript checking in watch mode
+sloptor build ./my-game -w     # compile to Luau with incremental rebuilds
 ```
 
-- **Compile and check**: the same `tsconfig.json`, `@rbxts/*` packages, and transformer plugins as `rbxtsc`, plus compile-time [macros](https://docs.howmanysmall.com/sloptor/macros/) like `$env`, `$file`, and `$keys`. [Migrate from rbxtsc](https://docs.howmanysmall.com/sloptor/guide/migrate/).
+- **Compile and check**: compile TypeScript and TSX to Luau using your existing `tsconfig.json`, `@rbxts/*` packages, and supported transformer plugins. [Migrate from rbxtsc](https://docs.howmanysmall.com/sloptor/guide/migrate/).
+- **Incremental builds**: watch source files, rebuild affected outputs, and build project references in dependency order.
+- **Compiler outputs**: emit Luau, TypeScript declarations, and source maps. Integrate builds through the typed JavaScript `createBuildSession()` API.
+- **Compiler extensions**: native Flamework and JECS transforms, plus compile-time [macros](https://docs.howmanysmall.com/sloptor/macros/) such as `$env`, `$file`, and `$keys`.
 
 The public commands are `build`, `check`, `diagnostics`, `clean`, `schema`, `completion`, and `version`. Every command and flag: [Commands](https://docs.howmanysmall.com/sloptor/commands/).
 
