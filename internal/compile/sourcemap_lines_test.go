@@ -203,6 +203,35 @@ both(() => {
 11 -      | }
 `,
 		},
+		{
+			name: "object-methods",
+			source: `export function makeApi() {
+	return {
+		greet(name: string) {
+			return "hi " + name;
+		},
+		run: () => {
+			print("run");
+		},
+	};
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function makeApi()
+ 3 0->2:1  | 	return {
+ 4 0->3:2  | 		greet = function(self, name)
+ 5 0->4:3  | 			return "hi " .. name
+ 6 0->5:2  | 		end,
+ 7 0->6:7  | 		run = function()
+ 8 0->7:3  | 			print("run")
+ 9 0->8:2  | 		end,
+10 0->2:1  | 	}
+11 0->10:0 | end
+12 -       | return {
+13 0->1:0  | 	makeApi = makeApi,
+14 -       | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
