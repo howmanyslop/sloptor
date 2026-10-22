@@ -161,3 +161,38 @@ func TestTernaryOriginsDoNotInventOperators(t *testing.T) {
 		}
 	}
 }
+
+func TestInOperatorOriginOnContinuationLine(t *testing.T) {
+	state := expressionOriginState(t, "declare const object: { key: number };\nconst present = \"key\"\n\tin object;", true)
+	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+	expression := statements.Head.Value.(*luau.VariableDeclaration).Right.(*luau.BinaryExpression)
+	origin := expression.Origin()
+	want := luau.Position{Line: 2, Column: 1}
+	if origin == nil || origin.Operator == nil || *origin.Operator != want {
+		t.Fatalf("in comparison origin = %+v, want operator %v", origin, want)
+	}
+	_, ranges := render.RenderASTWithPositions(statements)
+	for _, r := range ranges {
+		if r.Node == expression && r.Operator != nil {
+			return
+		}
+	}
+	t.Fatal("in comparison has no generated operator marker")
+}
+
+func TestArrayIndexAdjustmentKeepsOperatorOrigin(t *testing.T) {
+	state := expressionOriginState(t, "declare const array: number[];\ndeclare const index: number;\nconst value = array[index\n\t+ 2];", true)
+	statements := TransformStatementList(state, state.SourceFile.AsNode(), state.SourceFile.Statements.Nodes, nil)
+	_, ranges := render.RenderASTWithPositions(statements)
+	for _, r := range ranges {
+		if binary, ok := r.Node.(*luau.BinaryExpression); ok && binary.Operator == "+" {
+			origin := binary.Origin()
+			want := luau.Position{Line: 3, Column: 1}
+			if origin == nil || origin.Operator == nil || *origin.Operator != want {
+				t.Fatalf("adjusted index origin = %+v, want operator %v", origin, want)
+			}
+			return
+		}
+	}
+	t.Fatal("array index has no addition operator")
+}

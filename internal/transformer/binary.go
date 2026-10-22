@@ -197,11 +197,13 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 
 	switch operatorKind {
 	case ast.KindInKeyword:
-		return luau.NewBinary(
+		result := luau.NewBinary(
 			luau.NewComputedIndex(convertToIndexableExpression(right), left),
 			"~=",
 			luau.Nil(),
 		)
+		s.setOperatorSourcePosition(result, expression.OperatorToken)
+		return result
 	case ast.KindInstanceOfKeyword:
 		if IsPossiblyType(s, s.GetType(expression.Right), IsRobloxType(s)) {
 			s.Diags.Add(DiagNoRobloxSymbolInstanceof(expression.Right))
