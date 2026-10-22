@@ -4,8 +4,8 @@
  *
  * Discord caps the payload at 3,000 bytes and rejects the whole embed when a
  * component carries a key it does not know, so the shape here is deliberately
- * smaller than what Components V2 allows: a container, one section with the
- * page title and description, the card image, and three link buttons.
+ * smaller than what Components V2 allows: a container holding the page title
+ * and description, the card image, a divider, and three link buttons.
  */
 
 /** Brine, the focus color, as the decimal integer `accent_color` wants. */
@@ -17,12 +17,15 @@ export const DISCORD_EMBED_LIMIT_BYTES = 3000;
 const MAX_TITLE_LENGTH = 100;
 const MAX_DESCRIPTION_LENGTH = 280;
 
+/** The small grey line above the title, standing in for an OG card's site name. */
+const PROVIDER_LINE = "-# sloptor docs";
+
 const COMPONENT_TYPE = {
 	actionRow: 1,
 	button: 2,
 	container: 17,
 	mediaGallery: 12,
-	section: 9,
+	separator: 14,
 	textDisplay: 10,
 } as const;
 
@@ -48,9 +51,7 @@ interface DiscordMediaGallery {
 	readonly type: number;
 }
 
-interface DiscordSection {
-	readonly accessory: DiscordButton;
-	readonly components: ReadonlyArray<DiscordTextDisplay>;
+interface DiscordSeparator {
 	readonly type: number;
 }
 
@@ -59,7 +60,7 @@ interface DiscordTextDisplay {
 	readonly type: number;
 }
 
-type DiscordComponent = DiscordActionRow | DiscordMediaGallery | DiscordSection;
+type DiscordComponent = DiscordActionRow | DiscordMediaGallery | DiscordSeparator | DiscordTextDisplay;
 
 export interface DiscordComponentEmbedOptions {
 	readonly commandsUrl: string;
@@ -75,7 +76,7 @@ export interface DiscordComponentEmbedOptions {
 export function createDiscordComponentEmbed(options: DiscordComponentEmbedOptions): string {
 	const title = truncate(escapeMarkdown(options.title.trim()), MAX_TITLE_LENGTH);
 	const pageUrl = escapeMarkdownUrl(options.pageUrl);
-	const heading = `# **[${title}](${pageUrl})**`;
+	const heading = `${PROVIDER_LINE}\n## [${title}](${pageUrl})`;
 
 	let description = truncate(options.description?.trim() ?? "", MAX_DESCRIPTION_LENGTH);
 	let payload = buildPayload(heading, description, options);
@@ -94,16 +95,7 @@ function buildPayload(heading: string, description: string, options: DiscordComp
 	const content = description.length === 0 ? heading : `${heading}\n${description}`;
 
 	const components: ReadonlyArray<DiscordComponent> = [
-		{
-			accessory: {
-				label: "Open",
-				style: BUTTON_STYLE_LINK,
-				type: COMPONENT_TYPE.button,
-				url: options.pageUrl,
-			},
-			components: [{ content, type: COMPONENT_TYPE.textDisplay }],
-			type: COMPONENT_TYPE.section,
-		},
+		{ content, type: COMPONENT_TYPE.textDisplay },
 		{
 			items: [
 				{
@@ -113,9 +105,15 @@ function buildPayload(heading: string, description: string, options: DiscordComp
 			],
 			type: COMPONENT_TYPE.mediaGallery,
 		},
+		{ type: COMPONENT_TYPE.separator },
 		{
 			components: [
-				{ label: "Guide", style: BUTTON_STYLE_LINK, type: COMPONENT_TYPE.button, url: options.guideUrl },
+				{
+					label: "Read the guide",
+					style: BUTTON_STYLE_LINK,
+					type: COMPONENT_TYPE.button,
+					url: options.guideUrl,
+				},
 				{
 					label: "Commands",
 					style: BUTTON_STYLE_LINK,
