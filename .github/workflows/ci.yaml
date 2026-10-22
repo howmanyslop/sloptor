@@ -35,11 +35,12 @@ jobs:
           predicate-quantifier: some-with-excludes
           # go fails open: Go reads include/, reference/, testdata/, the
           # schemas, and more, so every path runs it except the ones listed
-          # here as docs-only. The site compiles the CLI to generate the
-          # command reference, so cmd/rotor runs documentation too.
+          # here as Go-free. Workflow files are among them: editing CI alone
+          # does not rerun the Go suites. The site compiles the CLI to
+          # generate the command reference, so cmd/rotor runs documentation
+          # too.
           filters: |
             documentation:
-              - .github/workflows/ci.yaml
               - cmd/rotor/**
               - documentation/**
               - mise.lock
@@ -51,8 +52,7 @@ jobs:
               - tsconfig.base.json
             go:
               - "**"
-              - "!.github/workflows/docs.yaml"
-              - "!.github/workflows/release.yaml"
+              - "!.github/workflows/**"
               - "!CHANGELOG.md"
               - "!CONTRIBUTING.md"
               - "!README.md"
