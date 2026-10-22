@@ -45,7 +45,18 @@ func compileWithSourceMap(t *testing.T, name, source string) (luau, mapJSON stri
 		}
 		return string(text)
 	}
-	return read(".luau"), read(".luau.map")
+	luau, mapJSON = read(".luau"), read(".luau.map")
+	assertSourceMapContract(t, luau, mapJSON, source)
+	if err := os.WriteFile(tsconfigPath, tsconfig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil || len(diags) != 0 {
+		t.Fatalf("build without maps: %v (diagnostics: %v)", err, diags)
+	}
+	if withoutMap := read(".luau"); luau != withoutMap {
+		t.Errorf("enabling source maps changed Luau bytes:\nwith maps:\n%swithout maps:\n%s", luau, withoutMap)
+	}
+	return luau, mapJSON
 }
 
 // annotateSourceMap uses 1-based lines and 0-based UTF-16 columns. It retains
