@@ -5,6 +5,23 @@ import "testing"
 func TestSourceMapColumns(t *testing.T) {
 	tests := []struct{ name, source, want string }{
 		{
+			name: "continuation",
+			source: `const config = {
+	retries: 3,
+	label: "x",
+};
+print(config);
+`,
+			want: ` 1 -               | -- Compiled with sloptor vX
+ 2 0->1:0 15->1:15 | local config = {
+ 3 0->2:1 11->2:10 | 	retries = 3,
+ 4 0->3:1 9->3:8   | 	label = "x",
+ 5 0->1:15         | }
+ 6 0->5:0 6->5:6   | print(config)
+ 7 -               | return nil
+`,
+		},
+		{
 			name: "call-index",
 			source: `declare const store: { get(key: string): number; nested: { value: number } };
 export function read(key: string) {
