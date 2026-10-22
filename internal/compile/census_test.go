@@ -8,16 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
-	"strings"
-	"testing"
-
-	"rotor/internal/assetresolve"
-	"rotor/internal/cloud"
 	"rotor/internal/transformer"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/vfs/osvfs"
+	"sort"
+	"strings"
+	"testing"
 )
 
 // writeCensusProject lays down a package-type project (no Rojo file needed)
@@ -136,9 +132,7 @@ func transformStateForFile(t *testing.T, dir, relPath string) *transformer.State
 	state := transformer.NewState(program, chk, sourceFile, transformer.NewDiagService(), transformer.NewMultiState())
 	state.SetRojoContext(pctx.rojoContext, pctx.projectType)
 	state.Env = pctx.env
-	state.Assets = pctx.assets
 	state.Files = pctx.files
-	state.Stamps = pctx.stamps
 	return state
 }
 
@@ -713,69 +707,5 @@ func TestCensusCollectorAccumulatesProjectDiagnostics(t *testing.T) {
 		if collector.diagnostics[i].Message != message {
 			t.Errorf("diagnostics[%d] = %q, want %q", i, collector.diagnostics[i].Message, message)
 		}
-	}
-}
-
-// assetResolverClientIsNil reads the resolver's unexported cloud client. It is
-// the only observable difference between an offline and an online resolver, and
-// the whole point of the census wiring.
-func assetResolverClientIsNil(resolver *assetresolve.Resolver) bool {
-	return reflect.ValueOf(resolver).Elem().FieldByName("client").IsNil()
-}
-
-func TestProjectContextGivesTheCensusAnOfflineAssetResolver(t *testing.T) {
-	// Given an Open Cloud key and a configured creator — the setup where a
-	// cache-missing $asset would upload
-	t.Setenv("ROBLOX_API_KEY", "not-a-real-key")
-	dir := writeCensusProject(t, map[string]string{"clean.ts": censusFiles["clean.ts"]})
-	if err := os.WriteFile(filepath.Join(dir, "rotor.toml"),
-		[]byte("[assets.creator]\ntype = \"user\"\nid = 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	absDir, program, diags, err := newProjectProgram(dir, "")
-	if err != nil {
-		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
-	}
-
-	// When a project context is built for a census and for a build
-	censusCtx, diags, err := newProjectContext(absDir, program, ProjectOptions{census: &censusCollector{}})
-	if err != nil {
-		t.Fatalf("newProjectContext (census): %v (diags: %v)", err, diags)
-	}
-	buildCtx, diags, err := newProjectContext(absDir, program, ProjectOptions{})
-	if err != nil {
-		t.Fatalf("newProjectContext (build): %v (diags: %v)", err, diags)
-	}
-
-	// Then only the build one can reach the cloud. The lockfile persist lives
-	// only on the Build path, so a census upload would be forgotten and
-	// repeated on every run.
-	if !assetResolverClientIsNil(censusCtx.assets) {
-		t.Error("the census project context got a cloud client")
-	}
-	if assetResolverClientIsNil(buildCtx.assets) {
-		t.Error("the build project context lost its cloud client")
-	}
-}
-
-func TestCensusAssetResolverNeverUploads(t *testing.T) {
-	// Given an Open Cloud key in the environment and a configured creator —
-	// the setup where a cache-missing $asset would upload
-	t.Setenv("ROBLOX_API_KEY", "not-a-real-key")
-	creator := cloud.Creator{UserID: 1}
-
-	// When the asset cloud client is built for a census run
-	censusClient := assetCloudClient(creator, true)
-
-	// Then it is absent, so a census can never upload. The lockfile persist
-	// lives only on the Build path, so an upload here would be forgotten and
-	// repeated on the next run.
-	if censusClient != nil {
-		t.Error("census asset resolver got a cloud client")
-	}
-	// And an ordinary build still gets one.
-	if assetCloudClient(creator, false) == nil {
-		t.Error("non-census asset resolver lost its cloud client")
 	}
 }

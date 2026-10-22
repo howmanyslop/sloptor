@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Carry structured source location (file + byte offset + length) through the compile/build pipeline so `rotor build`, watch, and `rotor dev` render TypeScript and transformer/macro errors as `diagframe` code frames, with `--max-errors`, `--json` line/col, and watch transition cues.
+**Goal:** Carry structured source location (file + byte offset + length) through the compile/build pipeline so `rotor build` and watch render TypeScript and transformer/macro errors as `diagframe` code frames, with `--max-errors`, `--json` line/col, and watch transition cues.
 
 **Architecture:** Extend `compile.DiagnosticInfo` with location and resolve it from tsgo `*ast.Diagnostic` and transformer `*ast.Node`. Surface structured diagnostics on `BuildResult` while keeping the existing `[]string` accessors for back-compat. The build CLI groups by file, reads each file's source, and renders via `diagframe.RenderGroups`. Watch reuses that path and adds clear-on-rebuild + a persistent error banner + an optional bell.
 

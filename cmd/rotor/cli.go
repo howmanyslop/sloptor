@@ -120,7 +120,7 @@ func renderError(streams cliStreams, commandPath string, cause error, usage bool
 func newRootCommand(streams cliStreams) *cobra.Command {
 	root := &cobra.Command{
 		Use:                   "sloptor <command> [flags]",
-		Short:                 "an all-in-one Roblox toolchain (rbxtsc-parity compiler, Luau tools, assets, deploy)",
+		Short:                 "a native TypeScript-to-Luau compiler for Roblox",
 		SilenceErrors:         true,
 		SilenceUsage:          true,
 		DisableFlagsInUseLine: true,
@@ -146,22 +146,11 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 	root.AddCommand(
 		newAPIServerCommand(streams),
 		newGenDocsCommand(),
-		newAddCommand(streams),
-		newAssetCommand(streams),
 		newBuildCommand(streams),
-		newBundleCommand(streams),
 		newCheckCommand(streams),
 		newCleanCommand(streams),
-		newDeployCommand(streams),
-		newDevCommand(streams),
 		newDiagnosticsCommand(streams),
-		newDoctorCommand(streams),
-		newInitCommand(streams),
-		newMigrateCommand(streams),
-		newMinifyCommand(streams),
-		newPackCommand(streams),
 		newSchemaCommand(streams),
-		newSourcemapCommand(streams),
 		newCompletionCommand(),
 		newVersionCommand(),
 	)
@@ -203,8 +192,8 @@ func normalizeCompilerInvocation(args []string) []string {
 }
 
 // resolveCommandChain walks args to the deepest command they name, so the
-// legacy normalizer and error hints can target the right flag set. Only
-// asset/deploy have children, and their subcommand is always the first
+// legacy normalizer and error hints can target the right flag set. The
+// subcommand is the first
 // non-flag token, so the walk is unambiguous; tokens after `--` are never
 // commands.
 func resolveCommandChain(root *cobra.Command, args []string) *cobra.Command {
@@ -444,17 +433,15 @@ func useHouseHelpFlagUsage(cmd *cobra.Command) {
 // the last group so nothing ever vanishes from help.
 var rootCommandGroups = []struct {
 	heading string
-	note    string // dim trailing note on the heading, e.g. "needs ROBLOX_API_KEY"
+	note    string // optional trailing note on the heading
 	names   []string
 }{
-	{"Compile & check", "", []string{"build", "check", "diagnostics", "dev", "bundle", "pack", "minify"}},
-	{"Project & deps", "", []string{"init", "add", "doctor", "migrate", "clean", "sourcemap", "schema"}},
-	{"Cloud", "needs ROBLOX_API_KEY", []string{"asset", "deploy"}},
-	{"Other", "", []string{"completion", "version"}},
+	{"Compile & check", "", []string{"build", "check", "diagnostics"}},
+	{"Other", "", []string{"clean", "schema", "completion", "version"}},
 }
 
 // renderRootCommandGroups renders the root help's command list as headed
-// sections (Compile & check / Project & deps / Cloud / Other) instead of one
+// sections (Compile & check / Other) instead of one
 // flat list, sharing a single name column so every group aligns identically.
 func renderRootCommandGroups(b *strings.Builder, s *term.Styler, children []*cobra.Command) {
 	byName := make(map[string]*cobra.Command, len(children))

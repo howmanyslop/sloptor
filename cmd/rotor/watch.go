@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"rotor/internal/assets"
 	"rotor/internal/compile"
 	"rotor/internal/term"
 )
@@ -80,9 +79,10 @@ func (s *watchStats) record(d time.Duration) {
 // editor junk files are ignored, so the walk stays proportional to the
 // project's own sources.
 type treeWatcher struct {
-	root     string
-	skipDirs []string      // absolute dirs pruned from the walk (out/, include/)
-	walkCost time.Duration // last snapshot duration; drives the adaptive interval
+	root       string
+	extraFiles []string
+	skipDirs   []string      // absolute dirs pruned from the walk (out/, include/)
+	walkCost   time.Duration // last snapshot duration; drives the adaptive interval
 }
 
 func newTreeWatcher(root string, skipDirs ...string) *treeWatcher {
@@ -104,6 +104,9 @@ func (w *treeWatcher) snapshot() map[string]fileStamp {
 	start := time.Now()
 	stamps := make(map[string]fileStamp)
 	w.walk(w.root, stamps)
+	for path, stamp := range snapshotFiles(w.extraFiles) {
+		stamps[path] = stamp
+	}
 	w.walkCost = time.Since(start)
 	return stamps
 }
@@ -129,7 +132,6 @@ func (w *treeWatcher) walk(dir string, stamps map[string]fileStamp) {
 		if strings.EqualFold(name, "flamework.build") ||
 			strings.EqualFold(name, compile.RotorTypesFileName) ||
 			strings.EqualFold(name, compile.EnvDeclFileName) ||
-			strings.EqualFold(name, compile.AssetDeclFileName) ||
 			strings.EqualFold(name, compile.MacroDeclFileName) {
 			continue
 		}
@@ -362,6 +364,7 @@ func runBuildWatch(dir, tsConfigPath string, opts projectOptions, wopts watchOpt
 // project tree until ctx is done.
 func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts projectOptions, rep buildWatchReporter) {
 	w := newTreeWatcher(dir)
+	w.extraFiles = compile.MacroWatchFiles(tsConfigPath)
 	w.setSkipDirs(guessedOutputDir(dir, nil), watchIncludeDir(dir, opts))
 
 	// The baseline snapshot is taken BEFORE the build, so a file saved while
@@ -378,6 +381,12 @@ func runBuildWatchLoop(ctx context.Context, dir, tsConfigPath string, opts proje
 		// baseline to match the refreshed skip set, or the now-unwalked entries
 		// would read as deletions and trigger a spurious rebuild.
 		w.setSkipDirs(guessedOutputDir(dir, result), watchIncludeDir(dir, opts))
+		w.extraFiles = compile.MacroWatchFiles(tsConfigPath)
+		for path, stamp := range snapshotFiles(w.extraFiles) {
+			if _, exists := baseline[path]; !exists {
+				baseline[path] = stamp
+			}
+		}
 		pruneStamps(baseline, w.skipDirs)
 		if changed == nil {
 			count := len(baseline)
@@ -471,9 +480,6 @@ func reportBuildPass(u *ui, result *compile.BuildResult, diags []compile.Diagnos
 		if result.WroteRotorTypes {
 			u.noteLine(compile.RotorTypesFileName + "  (generated — editor types for sloptor macros)")
 		}
-		if result.WroteLockfile {
-			u.noteLine(assets.LockfileName + "  (updated — uploaded new $asset assets)")
-		}
 		u.buildSuccess(len(result.Outputs), len(result.EmittedFiles), len(result.Outputs)-len(result.EmittedFiles), elapsed)
 	}
 	u.watchIdle(stats)
@@ -528,4 +534,10 @@ func watchContentSensitive(path string) bool {
 	default:
 		return false
 	}
+}
+
+// isTerminal reports whether the output is an interactive terminal.
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

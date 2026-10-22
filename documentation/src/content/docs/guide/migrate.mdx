@@ -11,13 +11,13 @@ Install sloptor (see [Install](/sloptor/guide/install/)), then replace `rbxtsc` 
 
 ```sh
 # before
-rbxtsc -p default.project.json -w
+rbxtsc -p tsconfig.json -w
 
 # after
-sloptor build -p default.project.json -w
+sloptor build -p tsconfig.json -w
 ```
 
-`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--minify`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
 
 TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
 
@@ -38,13 +38,13 @@ The verified `@isentinel/roblox-ts@4.0.11` fork archive in `roblox-ts.zip` is au
 
 ## Move Flamework to the native pipeline
 
-`sloptor migrate flamework [tsconfig-file] [--remove-package]` opts a project into native Flamework from the sidecar-backed `rbxts-transformer-flamework` plugin. The positional file defaults to `tsconfig.json`. The migration removes that plugin from the effective tsconfig plugin list, writes an opt-in `[flamework]` table to the owning `rotor.toml`, and keeps any other transformer plugins in place. If another plugin preceded Flamework, the generated table includes the optional `after` value so native Flamework stays after that plugin.
+Remove `rbxts-transformer-flamework` from the effective tsconfig plugin list and add a `[flamework]` table to `rotor.toml`. If other plugins must run first, use `after` to name the preceding plugin. Keep the runtime `flamework.json` configuration.
 
 Native Flamework reprints and re-parses every source by default, matching the upstream transformer's fresh source-file update per file. `[flamework] skipUnchangedFiles = true` (or the same key under a `[flamework.profiles.<tsconfig>]` entry) opts back into reusing sources the transform leaves unchanged, skipping the print/overlay/reparse pass for them.
 
-Without an effective `[flamework]` configuration, sloptor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive; configuring both is a hard error. Keep `flamework.json` in either mode: it remains the runtime configuration and the migration does not remove it.
+Without an effective `[flamework]` configuration, sloptor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive; configuring both is a hard error. Keep `flamework.json` in either mode: it remains the runtime configuration.
 
-Package cleanup is optional. With `--remove-package`, sloptor resolves the owning workspace and runs its declared or lockfile-detected pnpm, npm, Yarn, or Bun command with the appropriate workspace selector; without the flag, it prints the exact cleanup command for review. Native-Flamework-only builds and `sloptor doctor` do not require Node.js.
+Remove the old transformer package with your package manager when it is no longer used. Native Flamework builds do not require Node.js.
 
 External tsconfig transformer plugins still require Node.js, the bundled sidecar, and the project's `typescript` package.
 
@@ -59,10 +59,10 @@ sloptor has built-in macros for several popular transformer plugins, so you can 
 
 See [Macros and extensions](/sloptor/macros/) for the details, including how the modern `import { $env } from "rbxts-transform-env"` form keeps working through the sidecar.
 
-## Legacy sloptor config
+## Upgrading from earlier Sloptor toolchains
 
-Upgrading from a 1.x `rotor.config.ts`? Convert it with:
+Sloptor now exposes seven compiler commands: `build`, `check`, `diagnostics`, `clean`, `schema`, `completion`, and `version`. Bundling, minification, model packaging, project scaffolding, cloud assets, and deployment are outside the compiler. Run Rojo or deployment tools separately when your project needs them.
 
-```sh
-sloptor migrate config [path] [--force]
-```
+Keep only native Flamework and experimental `parallelTransformers` settings in `rotor.toml`. Executable `rotor.config.ts` and `.js` files are no longer loaded. Replace asset IDs and build/VCS stamps with explicit environment values or generated TypeScript inputs. Refresh or remove old generated editor declarations after upgrading.
+
+Compiler `.luau.map` files and declaration maps remain supported. RuntimeLib, Promise, and local Lua/JSON output copying remain part of normal builds. The JavaScript `createBuildSession()` client and external before/after transformer plugins are retained; custom `afterDeclarations` transformers warn and are skipped.

@@ -60,7 +60,7 @@ func TestProjectContextSelectionOmitsOnlyTransformImports(t *testing.T) {
 			if len(empty.rojoContext.PkgRojoResolvers) != 0 || empty.rojoContext.NodeModulesPathMapping.Exact != nil || len(empty.rojoContext.NodeModulesPathMapping.Patterns) != 0 {
 				t.Fatal("empty selection constructed transform import context")
 			}
-			if empty.dir != full.dir || empty.projectType != full.projectType || empty.env == nil || empty.assets == nil || empty.files == nil || empty.stamps == nil {
+			if empty.dir != full.dir || empty.projectType != full.projectType || empty.env == nil || empty.files == nil {
 				t.Fatal("empty selection lost project identity or macro services")
 			}
 			got, want := empty.rojoContext, full.rojoContext

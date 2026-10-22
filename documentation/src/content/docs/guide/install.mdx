@@ -65,11 +65,6 @@ git clone https://github.com/howmanyslop/sloptor && cd sloptor
 go build ./cmd/rotor
 ```
 
-## Check the setup
+## Check the project
 
-```sh
-sloptor --version
-sloptor doctor
-```
-
-`sloptor doctor` checks your tsconfig, `@rbxts` packages, native Flamework or external plugins, Rojo wiring, and cloud setup. Native-Flamework-only builds and `sloptor doctor` don't need Node.js; external tsconfig transformer plugins do.
+Run `sloptor check` for TypeScript diagnostics and `sloptor build` to validate the compiler's Rojo import layout. Native builds do not require Node.js; external transformer plugins require Node.js and the project's own `typescript` package.

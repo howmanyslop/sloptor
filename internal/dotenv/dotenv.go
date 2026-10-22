@@ -24,14 +24,11 @@ import (
 // live at Lookup time (it cannot change between Setenv-free goroutines of a
 // single compile pass, so a pass stays internally consistent).
 //
-// Determinism/caching: rotor loads a fresh Env on every compile pass
-// (newProjectContext runs once per CompileProject/CompileFile/Build pass), so
-// watch rebuilds pick up .env edits on the next build. NOTE the incremental
-// build manifest hashes source files only — a changed .env value does not by
-// itself re-select files that inlined the old value; use a non-incremental
-// (clean) build after editing .env, or touch the affected sources.
+// Each build reloads the environment. Macro values are fingerprinted by
+// the compiler and the loaded files are exposed to watch mode.
 type Env struct {
 	fileVars map[string]string
+	files    []string
 }
 
 // Load reads `.env` and `.env.<NODE_ENV>` from dir (the directory containing
@@ -40,7 +37,8 @@ type Env struct {
 func Load(dir string) *Env {
 	fileVars := make(map[string]string)
 
-	base := readEnvFile(filepath.Join(dir, ".env"))
+	files := []string{filepath.Join(dir, ".env")}
+	base := readEnvFile(files[0])
 	for k, v := range base {
 		fileVars[k] = v
 	}
@@ -52,12 +50,13 @@ func Load(dir string) *Env {
 	}
 	if nodeEnv != "" {
 		// .env.<NODE_ENV> values override .env values.
-		for k, v := range readEnvFile(filepath.Join(dir, ".env."+nodeEnv)) {
+		files = append(files, filepath.Join(dir, ".env."+nodeEnv))
+		for k, v := range readEnvFile(files[len(files)-1]) {
 			fileVars[k] = v
 		}
 	}
 
-	return &Env{fileVars: fileVars}
+	return &Env{fileVars: fileVars, files: files}
 }
 
 // Lookup resolves name with the documented priority: process environment,
@@ -116,3 +115,6 @@ func Parse(src string) map[string]string {
 	}
 	return vars
 }
+
+// Files lists environment inputs, including absent files that may be created.
+func (e *Env) Files() []string { return append([]string(nil), e.files...) }

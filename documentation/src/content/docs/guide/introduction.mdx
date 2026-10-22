@@ -3,7 +3,7 @@ title: "Introduction"
 description: "What sloptor is, why it exists, and how it stays byte-for-byte compatible with rbxtsc."
 ---
 
-sloptor is an all-in-one Roblox toolchain, written in Go. At its core is a native-speed rewrite of the [roblox-ts](https://roblox-ts.com) compiler — built on TypeScript's own native compiler — alongside a native Luau bundler, minifier, dev loop, and packer (`bundle`, `minify`, `dev`, `pack`).
+sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Go. It ports the roblox-ts emit layer onto the native TypeScript compiler.
 
 sloptor targets `rbxtsc` compatibility: upstream-parity Luau output on unaffected surfaces, the same `@rbxts/*` npm ecosystem, and the same CLI shape, at roughly **10x the speed** on the native TypeScript compiler. For fork-changed surfaces, the verified `@isentinel/roblox-ts@4.0.11` archive in `roblox-ts.zip` is the authority.
 

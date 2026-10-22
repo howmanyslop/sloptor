@@ -85,8 +85,8 @@ function collect(schema: JsonSchema, path: string, tables: Array<SchemaTable>): 
 /**
  * Flattens a JSON schema into TOML-style tables, one per object, in the order
  * the schema declares them. Map-shaped objects (`additionalProperties` with a
- * schema) get a `<name>` placeholder segment, so `deploy.environments` becomes
- * `deploy.environments.<environment>`.
+ * schema) get a `<name>` placeholder segment, so `flamework.profiles` becomes
+ * `flamework.profiles.<profile>`.
  *
  * @param schema - The root JSON schema.
  * @returns Every table that has keys or a description.

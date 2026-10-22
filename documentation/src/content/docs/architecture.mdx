@@ -29,7 +29,6 @@ your-game/src/**/*.ts
 - `tsgo/` — generated mirror of [microsoft/typescript-go](https://github.com/microsoft/typescript-go) internals (its packages are `internal/`-only upstream; the mirror rewrites import paths). Regenerate with `go run ./tools/mirror`. **Never edit by hand.**
 - `reference/` — pinned roblox-ts v3.0.0 + luau-ast 2.0.0 sources: the porting reference and differential-test oracle.
 - `internal/luau`, `internal/luau/render` — the Luau AST and renderer.
-- `internal/luau/lex`, `internal/luau/cst` — the Luau lexer and lossless CST/parser powering `minify`, `bundle`, and `pack`.
 - `internal/version` — the single source of truth for sloptor's release version.
 - `cmd/rotor` — the CLI.
 

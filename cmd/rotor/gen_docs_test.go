@@ -22,7 +22,7 @@ func TestGenDocsWritesPagePerVisibleCommand(t *testing.T) {
 	if !strings.HasPrefix(index, "---\ntitle: Commands\n") {
 		t.Errorf("index.mdx frontmatter:\n%s", index)
 	}
-	for _, name := range []string{"build", "check", "deploy", "asset", "completion", "version"} {
+	for _, name := range []string{"build", "check", "diagnostics", "clean", "schema", "completion", "version"} {
 		page := readDocsPage(t, dir, name)
 		if !strings.HasPrefix(page, "---\ntitle: "+name+"\n") {
 			t.Errorf("%s.mdx does not open with its frontmatter title:\n%s", name, page)
@@ -53,9 +53,8 @@ func TestGenDocsPageSections(t *testing.T) {
 		want []string
 	}{
 		{"build", []string{"## Options", "| `-w, --watch` | enable watch mode |", "| `--max-errors <n>` |", "| `50` |"}},
-		{"deploy", []string{"## Subcommands", "### apply", "### plan", "#### Options", "`-e, --env <env>`"}},
 		{"completion", []string{"## Examples", "sloptor completion fish"}},
-		{"index", []string{"(sync \\| list)"}},
+		{"index", []string{"[`diagnostics`](./diagnostics/)", "[`schema`](./schema/)"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.page, func(t *testing.T) {

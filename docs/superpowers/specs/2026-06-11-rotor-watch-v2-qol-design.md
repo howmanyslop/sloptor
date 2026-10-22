@@ -9,7 +9,7 @@ Post-v1.1.0 quality-of-life pass with three thrusts:
 1. **Watch mode v2** — make `rotor build -w` / `rotor check -w` dramatically cheaper
    while idle, faster to react, and correct around mid-build edits.
 2. **CLI/logging QOL** — batched change reporting, rebuild stats, a build-time
-   sparkline, and a new `rotor doctor` environment checker.
+   sparkline.
 3. **Security hardening** — output-path containment, private sidecar cache
    permissions, and a `govulncheck` job in CI.
 
@@ -75,17 +75,6 @@ Byte-parity contract is untouched: no transformer, logservice, or emit changes.
   — the sparkline (`term.Spark`, unicode ramp with ASCII fallback) shows the last
   12 build durations. This is the "special touch": you can *see* incremental
   builds getting faster.
-- `rotor doctor` — a new command that diagnoses the environment and project setup
-  with ✓ / ! / ✗ rows and actionable hints; exit 1 only on hard failures:
-  - tsconfig.json found (upward search, same as build)
-  - package.json + node_modules present
-  - `typescript`, `@rbxts/compiler-types`, `@rbxts/types` resolved with versions
-  - Node.js on PATH + version (hard requirement only when transformer plugins are
-    configured; informational otherwise)
-  - transformer plugins listed in tsconfig resolve in node_modules; embedded
-    sidecar extraction works
-  - a `*.project.json` Rojo project exists (warn if absent); `rojo` on PATH (info)
-- `usage()` documents `doctor`.
 
 `internal/logservice` stays byte-stable (differential-test channel). All chrome
 lives in `cmd/rotor/ui.go` + `internal/term`.

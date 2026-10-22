@@ -31,15 +31,12 @@ func TestWriteRotorTypes(t *testing.T) {
 		t.Error("written content differs from RotorTypesFileText")
 	}
 
-	// One file, every macro: $env, $asset, $nameof, $keys, $file, $git, $buildTime.
+	// The companion declares the compiler extensions; compiler-types supplies $getModuleTree.
 	for _, want := range []string{
 		"declare const $env",
-		"declare function $asset(",
 		"declare function $nameof(",
 		"declare function $keys<",
 		"declare function $file(",
-		"declare function $git(",
-		"declare function $buildTime(",
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("rotor.d.ts missing declaration %q", want)
@@ -47,7 +44,7 @@ func TestWriteRotorTypes(t *testing.T) {
 	}
 	// Parity guard: each synthetic in-memory body must appear verbatim, so the
 	// on-disk companion and the injected declarations never diverge.
-	for _, body := range []string{envDeclBody, assetDeclBody, macroDeclBody} {
+	for _, body := range []string{envDeclBody, macroDeclBody} {
 		if !strings.Contains(string(data), body) {
 			t.Error("rotor.d.ts no longer contains a synthetic declaration body verbatim")
 		}

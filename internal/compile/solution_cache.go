@@ -130,7 +130,6 @@ func solutionCacheFS(cache *solutionCompileCache, configPath string, overlays ma
 func syntheticDeclSkip(configPath string) map[string]struct{} {
 	return map[string]struct{}{
 		normalizeSourceFilePath(envDeclPath(configPath)):   {},
-		normalizeSourceFilePath(assetDeclPath(configPath)): {},
 		normalizeSourceFilePath(macroDeclPath(configPath)): {},
 	}
 }

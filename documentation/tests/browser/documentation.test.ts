@@ -53,7 +53,7 @@ playwrightIt("keeps double hyphens in flag descriptions", async ({ page }) => {
 
 // Catches the header nav pointing nowhere or failing to show where the reader is.
 playwrightIt("marks the current section in the header", async ({ page }) => {
-	await page.goto(`${baseUrl}commands/deploy/`);
+	await page.goto(`${baseUrl}commands/build/`);
 
 	const current = page.locator('.site-nav a[aria-current="page"]');
 	await playwrightExpect(current).toHaveText("Commands");
@@ -61,13 +61,14 @@ playwrightIt("marks the current section in the header", async ({ page }) => {
 });
 
 // Catches the deploy reference dropping the tables users name themselves.
-playwrightIt("lists place settings under a named environment", async ({ page }) => {
+playwrightIt("lists native Flamework configuration", async ({ page }) => {
 	await page.goto(`${baseUrl}configuration/rotor-toml/`);
 
-	await playwrightExpect(
-		page.getByRole("heading", { name: "[deploy.environments.<environment>.places.<place>]" }),
-	).toBeVisible();
-	await playwrightExpect(page.getByRole("cell", { name: "placeId", exact: true })).toBeVisible();
+	await playwrightExpect(page.getByRole("heading", { name: "[flamework]" })).toBeVisible();
+	const flamework = page.locator("section.schema-table").filter({
+		has: page.getByRole("heading", { name: "[flamework]", exact: true }),
+	});
+	await playwrightExpect(flamework.getByRole("cell", { name: "idGenerationMode", exact: true })).toBeVisible();
 });
 
 // Catches "View as Markdown" serving an empty or HTML response.

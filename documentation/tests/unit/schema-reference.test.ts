@@ -4,45 +4,39 @@ import { toSchemaTables } from "$utilities/schema-reference";
 
 import type { JsonSchema } from "$utilities/schema-reference";
 
-const deploySchema: JsonSchema = {
+const compilerSchema: JsonSchema = {
 	properties: {
-		deploy: {
-			description: "Deployment.",
+		flamework: {
 			properties: {
-				environments: {
+				profiles: {
 					additionalProperties: {
 						properties: {
-							places: {
-								additionalProperties: {
-									properties: { placeId: { description: "The place id.", type: "integer" } },
-									type: "object",
-								},
+							optimizations: {
+								properties: { guardGenerationDedupLimit: { type: "integer" } },
 								type: "object",
 							},
-							universeId: { description: "The universe id.", type: "integer" },
+							skipUnchangedFiles: { type: "boolean" },
 						},
 						type: "object",
 					},
-					description: "Environments by name.",
 					type: "object",
 				},
 			},
 			type: "object",
 		},
 	},
-	type: "object",
 };
 
 describe("schemaTables", () => {
-	// Catches a user-named table (an environment, a place) vanishing from the
+	// Catches a user-named Flamework profile vanishing from the
 	// configuration reference, so its keys are documented nowhere.
 	it("documents keys of tables the user names, under a placeholder", ({ expect }) => {
 		expect.assertions(2);
 
-		const paths = toSchemaTables(deploySchema).map((table) => table.path);
+		const paths = toSchemaTables(compilerSchema).map((table) => table.path);
 
-		expect(paths).toContain("deploy.environments.<environment>");
-		expect(paths).toContain("deploy.environments.<environment>.places.<place>");
+		expect(paths).toContain("flamework.profiles.<profile>");
+		expect(paths).toContain("flamework.profiles.<profile>.optimizations");
 	});
 
 	// Catches a nested table's keys being listed under its parent, which would
@@ -50,12 +44,12 @@ describe("schemaTables", () => {
 	it("lists each key under the table it belongs to", ({ expect }) => {
 		expect.assertions(2);
 
-		const tables = toSchemaTables(deploySchema);
-		const place = tables.find((table) => table.path === "deploy.environments.<environment>.places.<place>");
-		const environment = tables.find((table) => table.path === "deploy.environments.<environment>");
+		const tables = toSchemaTables(compilerSchema);
+		const optimization = tables.find((table) => table.path === "flamework.profiles.<profile>.optimizations");
+		const profile = tables.find((table) => table.path === "flamework.profiles.<profile>");
 
-		expect(place?.keys.map((key) => key.name)).toStrictEqual(["placeId"]);
-		expect(environment?.keys.map((key) => key.name)).toStrictEqual(["universeId"]);
+		expect(optimization?.keys.map((key) => key.name)).toStrictEqual(["guardGenerationDedupLimit"]);
+		expect(profile?.keys.map((key) => key.name)).toStrictEqual(["skipUnchangedFiles"]);
 	});
 
 	// Catches an enum option being shown as a bare "string", hiding the
@@ -65,10 +59,13 @@ describe("schemaTables", () => {
 
 		const [table] = toSchemaTables({
 			properties: {
-				assets: { properties: { mode: { enum: ["module", "macro"], type: "string" } }, type: "object" },
+				flamework: {
+					properties: { idGenerationMode: { enum: ["full", "short", "obfuscated"], type: "string" } },
+					type: "object",
+				},
 			},
 		});
 
-		expect(table?.keys[0]?.type).toBe('"module" | "macro"');
+		expect(table?.keys[0]?.type).toBe('"full" | "short" | "obfuscated"');
 	});
 });

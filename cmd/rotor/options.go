@@ -29,11 +29,6 @@ type projectOptions struct {
 	allowCommentDirectives bool
 	luau                   bool
 
-	// minify is a rotor extension (no rbxtsc analog): pass every emitted
-	// .luau/.lua source through the Luau minifier before writing. Set from
-	// --minify; never merged from the rbxts tsconfig key.
-	minify bool
-
 	emitDeclarationOnly bool
 
 	// argv is the command-line layer of the merge. A --build solution replays

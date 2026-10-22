@@ -621,7 +621,6 @@ func mergeSolutionBuildResult(result *BuildResult, project SolutionProject, buil
 	result.EmittedFiles = append(result.EmittedFiles, built.EmittedFiles...)
 	result.Diagnostics = append(result.Diagnostics, built.Diagnostics...)
 	result.WroteRotorTypes = result.WroteRotorTypes || built.WroteRotorTypes
-	result.WroteLockfile = result.WroteLockfile || built.WroteLockfile
 }
 
 func (d *solutionBuildDrainer) Drain(project SolutionProject) (*BuildResult, []string, error) {

@@ -147,14 +147,6 @@ type State struct {
 	// (dotenv.Env.Lookup is nil-receiver safe).
 	Env *dotenv.Env
 
-	// Assets is the project-level asset resolver consumed by the rotor $asset
-	// macro (assetmacro.go) — constructed once per compile pass by
-	// compile.newProjectContext (lockfile + optional cloud client) and shared
-	// by every file's State. nil in mechanics tests and checker-light states;
-	// the macro then emits a clear diagnostic (DiagRotorAssetNoResolver)
-	// rather than panicking.
-	Assets AssetResolver
-
 	// Files is the project-level data-file reader consumed by the rotor $file
 	// macro (filemacro.go) — constructed once per compile pass by
 	// compile.newProjectContext (rooted at the project dir) and shared by every
@@ -162,14 +154,6 @@ type State struct {
 	// then emits a clear diagnostic (DiagRotorFileNoResolver) rather than
 	// panicking.
 	Files FileResolver
-
-	// Stamps is the project-level build/VCS provider consumed by the rotor $git
-	// and $buildTime macros (gitmacro.go) — constructed once per compile pass by
-	// compile.newProjectContext (reads .git natively + time.Now) and shared by
-	// every file's State. nil in mechanics tests and checker-light states; the
-	// macros then fall back to a no-op provider (empty/false) so they never
-	// panic.
-	Stamps StampProvider
 
 	// OptimizedLoops plumbs the `optimizedLoops` project option into
 	// transformForStatement (upstream gate: transformForStatement.ts L492;

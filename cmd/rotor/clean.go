@@ -17,7 +17,7 @@ import (
 // newCleanCommand removes a project's build outputs — the tsconfig outDir and
 // the runtime-library include folder — and, with --types, the generated editor
 // type companion in the project root (rotor.d.ts, plus the legacy
-// rotor-env.d.ts / rotor-asset.d.ts / rotor-macros.d.ts / rotor-config.d.ts
+// rotor-env.d.ts / rotor-macros.d.ts
 // when present). It never touches source: only the resolved output/include
 // directories and the named generated files are removed.
 //
@@ -74,9 +74,9 @@ func runCleanCommand(streams cliStreams, path string, types, dryRun bool) error 
 	}
 	if types {
 		// Generated editor companions in the project root: the consolidated
-		// rotor.d.ts plus the legacy per-macro names (and rotor-config.d.ts),
+		// rotor.d.ts plus the legacy per-macro names,
 		// removed only when present.
-		for _, name := range []string{compile.RotorTypesFileName, compile.EnvDeclFileName, compile.AssetDeclFileName, compile.MacroDeclFileName, "rotor-config.d.ts"} {
+		for _, name := range []string{compile.RotorTypesFileName, compile.EnvDeclFileName, compile.MacroDeclFileName} {
 			targets = append(targets, filepath.Join(dir, name))
 		}
 	}

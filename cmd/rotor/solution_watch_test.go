@@ -264,6 +264,24 @@ func startArtifactSolutionWatch(t *testing.T, root string) (*fakeSolutionWatcher
 	return watcher, events
 }
 
+func TestSolutionWatchRebuildsMacroDataOutsideSourceRoots(t *testing.T) {
+	root := writeArtifactWatchSolution(t)
+	mustWrite(t, filepath.Join(root, "left/src/main.ts"), "export const value = $file('../data.txt');\n")
+	dataPath := filepath.Join(root, "left/data.txt")
+	mustWrite(t, dataPath, "first")
+	watcher, events := startArtifactSolutionWatch(t, root)
+	mustWrite(t, dataPath, "second")
+	watcher.deliver(t, dataPath, []fswatch.Event{{Kind: fswatch.EventUpdate, Path: dataPath}}, nil)
+	nextWatchEvent(t, events, "buildStart")
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true {
+		t.Fatalf("macro rebuild failed: %v", end)
+	}
+	output, err := os.ReadFile(filepath.Join(root, "left/out/main.luau"))
+	if err != nil || !strings.Contains(string(output), "second") {
+		t.Fatalf("macro data left stale output: %s, %v", output, err)
+	}
+}
+
 func TestSolutionWatchDoesNotWatchReferencedOutputs(t *testing.T) {
 	root := writeArtifactWatchSolution(t)
 	mustWrite(t, filepath.Join(root, "left/src/default.project.json"), `{"name":"nested","tree":{"main":{"$path":"main.luau"}}}`)

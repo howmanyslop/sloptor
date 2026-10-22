@@ -88,18 +88,7 @@ func TransformIdentifier(s *State, node *ast.Node) luau.Expression {
 		}
 	}
 
-	// rotor extension: a bare `$asset` outside a call has no runtime value
-	// (the call position is consumed earlier, by interceptAssetChain — see
-	// assetmacro.go); emitting the identifier itself would produce invalid
-	// Luau.
-	if node.Text() == "$asset" {
-		if assetSymbol := assetMacroSymbol(s); assetSymbol != nil && symbol == assetSymbol {
-			s.Diags.Add(DiagRotorAssetBadUsage(node))
-			return luau.NewNone()
-		}
-	}
-
-	// rotor extension: bare $nameof / $keys / $file / $git / $buildTime outside
+	// rotor extension: bare $nameof / $keys / $file outside
 	// a call have no runtime value (the call position is consumed earlier by the
 	// respective interceptors in transformOptionalChain). Emitting the macro
 	// identifier itself would produce invalid Luau.
@@ -117,16 +106,6 @@ func TransformIdentifier(s *State, node *ast.Node) luau.Expression {
 	case "$file":
 		if sym := fileMacroSymbol(s); sym != nil && symbol == sym {
 			s.Diags.Add(DiagRotorFileBadUsage(node))
-			return luau.NewNone()
-		}
-	case "$git":
-		if sym := gitMacroSymbol(s); sym != nil && symbol == sym {
-			s.Diags.Add(DiagRotorGitBadUsage(node))
-			return luau.NewNone()
-		}
-	case "$buildTime":
-		if sym := buildTimeMacroSymbol(s); sym != nil && symbol == sym {
-			s.Diags.Add(DiagRotorBuildTimeBadUsage(node))
 			return luau.NewNone()
 		}
 	}

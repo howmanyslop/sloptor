@@ -13,10 +13,6 @@ import (
 	"sort"
 	"strings"
 
-	"rotor/internal/assetresolve"
-	"rotor/internal/assets"
-	"rotor/internal/cloud"
-	"rotor/internal/config"
 	"rotor/internal/dotenv"
 	"rotor/internal/logservice"
 	"rotor/internal/rojo"
@@ -56,34 +52,13 @@ type projectContext struct {
 	projectType transformer.ProjectType
 	rojoContext *transformer.RojoContext
 
-	// env is the compile-time environment snapshot for the rotor $env macro,
-	// loaded once per compile pass from the tsconfig directory (process env >
-	// .env.<NODE_ENV> > .env; see internal/dotenv). Watch/incremental rebuilds
-	// construct a fresh projectContext per pass, so .env edits are picked up
-	// on the next build — but note the incremental manifest hashes sources
-	// only, so files that inlined a stale value are not re-selected by an env
-	// change alone (documented on dotenv.Env).
+	// env is reloaded per pass; macro inputs also participate in the
+	// incremental salt and watch set.
 	env *dotenv.Env
-
-	// assets is the build-time resolver for the rotor $asset macro, built once
-	// per compile pass from rotor-lock.json + the [assets] config (creator) +
-	// an optional Open Cloud client (cloud.FromEnv; nil offline). Shared by
-	// every file's State (concurrency-safe). After a successful build the
-	// pipeline persists rotor-lock.json when the resolver is Dirty (see
-	// compileProjectSourceFiles' callers). nil only when construction itself
-	// fails (it never does — a missing config/lockfile yields an offline
-	// resolver that errors clearly on a $asset miss).
-	assets *assetresolve.Resolver
 
 	// files is the build-time data-file reader for the rotor $file macro, rooted
 	// at the project dir; shared by every file's State.
 	files *fileResolver
-
-	// stamps is the build/VCS provider for the rotor $git / $buildTime macros,
-	// built once per pass with a fixed build timestamp; shared by every file's
-	// State (concurrency-safe; reads memoized). The interface type lets tests
-	// inject a deterministic fake via stampProviderOverride.
-	stamps transformer.StampProvider
 
 	// sourceTraces maps each file the transformer sidecar reprinted back to the
 	// text on disk. Every position this pass produces is an index into the
@@ -359,9 +334,7 @@ func newProjectContextWithImportContext(dir string, program *compiler.Program, o
 		dir:         dir,
 		projectType: projectType,
 		env:         dotenv.Load(envDir),
-		assets:      newAssetResolver(envDir, opts.census != nil),
 		files:       newFileResolver(envDir),
-		stamps:      resolveStampProvider(envDir),
 		rojoContext: &transformer.RojoContext{
 			Resolver:          rojoResolver,
 			PathTranslator:    pathTranslator,
@@ -457,61 +430,6 @@ func createProjectReferencePathMap(program *compiler.Program, opts ProjectOption
 		visit(reference)
 	}
 	return result
-}
-
-// newAssetResolver builds the build-time $asset resolver for one compile pass
-// (mirroring how dotenv.Load builds the $env snapshot). It loads
-// rotor-lock.json from projectDir (a missing/corrupt lockfile yields an empty
-// one — corrupt is tolerated here so a bad lockfile cannot abort an otherwise
-// valid build; the $asset macro then errors clearly per-reference), reads the
-// [assets].creator from rotor.toml (ErrNotFound tolerated → no creator), and
-// constructs an Open Cloud client via cloud.FromEnv (nil when ROBLOX_API_KEY
-// is unset). With no client/creator the resolver is deterministic and offline:
-// a $asset cache hit inlines, a cache miss errors with rotorAssetNotCached.
-// offline suppresses the cloud client so a compile can never upload. A census
-// run must not: the lockfile persist lives only on the Build path
-// (output.go), so an upload here would be forgotten and repeated every run.
-func newAssetResolver(projectDir string, offline bool) *assetresolve.Resolver {
-	lock, err := assets.LoadLockfile(projectDir)
-	if err != nil {
-		// A corrupt lockfile shouldn't abort the build; start empty so every
-		// $asset reference surfaces a clear miss diagnostic instead.
-		lock = assets.NewLockfile()
-	}
-
-	var creator cloud.Creator
-	var base string
-	if cfg, err := config.Load(projectDir); err == nil && cfg.Assets != nil {
-		base = cfg.Assets.Base
-		switch cfg.Assets.Creator.Type {
-		case "user":
-			creator.UserID = cfg.Assets.Creator.ID
-		case "group":
-			creator.GroupID = cfg.Assets.Creator.ID
-		}
-	}
-
-	return assetresolve.New(assetresolve.Options{
-		ProjectDir: projectDir,
-		Base:       base,
-		Lockfile:   lock,
-		Client:     assetCloudClient(creator, offline),
-		Creator:    creator,
-	})
-}
-
-// assetCloudClient builds the Open Cloud client for $asset cache misses. Only
-// build one when a creator is configured (uploads need an owner anyway);
-// cloud.FromEnv returns nil without ROBLOX_API_KEY. offline returns nil
-// unconditionally.
-func assetCloudClient(creator cloud.Creator, offline bool) assets.Cloud {
-	if offline || (creator.UserID == 0 && creator.GroupID == 0) {
-		return nil
-	}
-	if c, err := cloud.FromEnv(); err == nil {
-		return c
-	}
-	return nil
 }
 
 // resolveAgainst mirrors Node path.resolve(base, p) for the two-argument
@@ -638,14 +556,6 @@ type ProjectOptions struct {
 	// skip: unchanged compiled outputs and copied passthrough files are left
 	// untouched on disk.
 	WriteOnlyChanged bool
-
-	// MinifyOutput is a rotor extension (no rbxtsc analog): when set, every
-	// emitted `.luau`/`.lua` source is passed through the Luau minifier
-	// (internal/luau/cst) before it is written, stripping comments + whitespace
-	// and collapsing string indexing to field access. Semantics-preserving; the
-	// default (false) leaves output byte-identical to rbxtsc. Declaration
-	// (`.d.ts`) and include files are never minified.
-	MinifyOutput bool
 
 	EmitDeclarationOnly bool
 
@@ -1098,9 +1008,7 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 		}
 		state.SetRojoContext(pctx.rojoContext, pctx.projectType)
 		state.Env = pctx.env
-		state.Assets = pctx.assets
 		state.Files = pctx.files
-		state.Stamps = pctx.stamps
 		state.LogTruthyChanges = opts.LogTruthyChanges
 		state.OptimizedArrayAppends = opts.OptimizedArrayAppends
 		state.OptimizedLoops = !opts.NoOptimizedLoops

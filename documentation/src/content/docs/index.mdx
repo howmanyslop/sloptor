@@ -1,6 +1,6 @@
 ---
 title: "sloptor"
-description: "TypeScript in, Roblox out, at native speed. A native roblox-ts toolchain, written in Go."
+description: "TypeScript in, Roblox out, at native speed. A native roblox-ts compiler, written in Go."
 template: splash
 tableOfContents: false
 editUrl: false
@@ -14,13 +14,13 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 <section class="hero-splash note-row note-row--readouts not-content">
 	<div class="note-margin">
 		<h2>sloptor</h2>
-		<p>A native roblox-ts toolchain, written in Go. Version 2.8.3.</p>
+		<p>A native roblox-ts compiler, written in Go. Version 2.8.3.</p>
 	</div>
 	<div class="note-body">
 		<h1 class="hero-title">TypeScript in, Roblox out, at native speed.</h1>
 		<p class="hero-subtitle">
 			sloptor compiles roblox-ts projects with the native TypeScript compiler and writes the same Luau as rbxtsc.
-			It also bundles Luau, syncs assets, and deploys places.
+			It supports incremental solution builds, native declarations, and compiler source maps.
 		</p>
 		<pre class="hero-install">
 			<code>mise use github:howmanyslop/sloptor</code>
@@ -107,19 +107,13 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 		<li>
 			<a class="link-row" href="/sloptor/commands/">
 				<span class="link-row-title">Commands</span>
-				<span class="link-row-desc">build, check, dev, bundle, pack, deploy, and the rest.</span>
+				<span class="link-row-desc">build, check, diagnostics, clean, schema, completion, and version.</span>
 			</a>
 		</li>
 		<li>
 			<a class="link-row" href="/sloptor/configuration/rotor-toml/">
 				<span class="link-row-title">Configuration</span>
 				<span class="link-row-desc">rotor.toml, the rbxts key in tsconfig, and environment files.</span>
-			</a>
-		</li>
-		<li>
-			<a class="link-row" href="/sloptor/deploy/">
-				<span class="link-row-title">Deploy</span>
-				<span class="link-row-desc">Sync assets and ship places with Open Cloud.</span>
 			</a>
 		</li>
 	</ul>
