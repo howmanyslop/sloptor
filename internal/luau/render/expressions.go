@@ -6,57 +6,65 @@ import (
 	"rotor/internal/luau"
 )
 
-// renderIdentifier.ts
-func renderIdentifier(s *RenderState, node *luau.Identifier) string {
+func renderIdentifier(s *RenderState, node *luau.Identifier) {
 	if !luau.IsValidIdentifier(node.Name) {
 		panic("Invalid Luau Identifier: \"" + node.Name + "\"")
 	}
-	return node.Name
+	s.write(node.Name)
 }
 
-// renderTemporaryIdentifier.ts
-func renderTemporaryIdentifier(s *RenderState, node *luau.TemporaryIdentifier) string {
+func renderTemporaryIdentifier(s *RenderState, node *luau.TemporaryIdentifier) {
 	name := s.getTempName(node)
 	if !luau.IsValidIdentifier(name) {
 		panic("Invalid Temporary Identifier: \"" + name + "\"")
 	}
-	return name
+	s.write(name)
 }
 
-// renderComputedIndexExpression.ts
-func renderComputedIndexExpression(s *RenderState, node *luau.ComputedIndexExpression) string {
-	expStr := Render(s, node.Expression)
+func renderComputedIndexExpression(s *RenderState, node *luau.ComputedIndexExpression) {
+	s.render(node.Expression)
 	if str, ok := node.Index.(*luau.StringLiteral); ok && luau.IsValidIdentifier(str.Value) {
-		return expStr + "." + str.Value
+		s.write(".")
+		s.identifierKey(str)
+		return
 	}
-	return expStr + "[" + Render(s, node.Index) + "]"
+	s.write("[")
+	s.render(node.Index)
+	s.write("]")
 }
 
-// renderPropertyAccessExpression.ts
-func renderPropertyAccessExpression(s *RenderState, node *luau.PropertyAccessExpression) string {
-	expStr := Render(s, node.Expression)
+func renderPropertyAccessExpression(s *RenderState, node *luau.PropertyAccessExpression) {
+	s.render(node.Expression)
 	if luau.IsValidIdentifier(node.Name) {
-		return expStr + "." + node.Name
+		s.write(".")
+		s.write(node.Name)
+		return
 	}
-	return expStr + "[\"" + node.Name + "\"]"
+	s.write("[\"")
+	s.write(node.Name)
+	s.write("\"]")
 }
 
-// renderCallExpression.ts
-func renderCallExpression(s *RenderState, node *luau.CallExpression) string {
-	return Render(s, node.Expression) + "(" + renderArguments(s, node.Args) + ")"
+func renderCallExpression(s *RenderState, node *luau.CallExpression) {
+	s.render(node.Expression)
+	s.write("(")
+	s.arguments(node.Args)
+	s.write(")")
 }
 
-// renderMethodCallExpression.ts
-func renderMethodCallExpression(s *RenderState, node *luau.MethodCallExpression) string {
+func renderMethodCallExpression(s *RenderState, node *luau.MethodCallExpression) {
 	if !luau.IsValidIdentifier(node.Name) {
 		panic("invalid method name: " + node.Name)
 	}
-	return Render(s, node.Expression) + ":" + node.Name + "(" + renderArguments(s, node.Args) + ")"
+	s.render(node.Expression)
+	s.write(":")
+	s.write(node.Name)
+	s.write("(")
+	s.arguments(node.Args)
+	s.write(")")
 }
 
-// renderParenthesizedExpression.ts
-func renderParenthesizedExpression(s *RenderState, node *luau.ParenthesizedExpression) string {
-	// skip nested parentheses
+func renderParenthesizedExpression(s *RenderState, node *luau.ParenthesizedExpression) {
 	expression := node.Expression
 	for {
 		if p, ok := expression.(*luau.ParenthesizedExpression); ok {
@@ -66,32 +74,29 @@ func renderParenthesizedExpression(s *RenderState, node *luau.ParenthesizedExpre
 		}
 	}
 	if luau.IsSimple(expression) {
-		return Render(s, node.Expression)
+		s.render(node.Expression)
+		return
 	}
-	return "(" + Render(s, node.Expression) + ")"
+	s.write("(")
+	s.render(node.Expression)
+	s.write(")")
 }
 
-// renderNumberLiteral.ts
-func renderNumberLiteral(s *RenderState, node *luau.NumberLiteral) string {
+func renderNumberLiteral(s *RenderState, node *luau.NumberLiteral) {
 	if luau.IsValidNumberLiteral(node.Value) {
-		return node.Value
+		s.write(node.Value)
+		return
 	}
-	// upstream: String(Number(node.value.replace(/_/g, "")))
 	f, err := luau.JSNumberParse(node.Value)
 	if err != nil {
-		// JS Number(garbage) is NaN, and String(NaN) renders as "NaN".
-		return "NaN"
+		s.write("NaN")
+		return
 	}
-	return luau.JSNumberString(f)
+	s.write(luau.JSNumberString(f))
 }
 
-// renderStringLiteral.ts
 func needsBracketSpacing(node *luau.StringLiteral) bool {
-	parent := node.Parent()
-	if parent == nil {
-		return false
-	}
-	switch p := parent.(type) {
+	switch p := node.Parent().(type) {
 	case *luau.MapField:
 		return luau.Node(node) == luau.Node(p.Index)
 	case *luau.ComputedIndexExpression:
@@ -102,158 +107,208 @@ func needsBracketSpacing(node *luau.StringLiteral) bool {
 	return false
 }
 
-func renderStringLiteral(s *RenderState, node *luau.StringLiteral) string {
+func renderStringLiteral(s *RenderState, node *luau.StringLiteral) {
 	isMultiline := strings.Contains(node.Value, "\n")
 	if !isMultiline && !strings.Contains(node.Value, "\"") {
-		return "\"" + node.Value + "\""
+		s.write("\"")
+		s.write(node.Value)
+		s.write("\"")
+		return
 	}
 	if !isMultiline && !strings.Contains(node.Value, "'") {
-		return "'" + node.Value + "'"
+		s.write("'")
+		s.write(node.Value)
+		s.write("'")
+		return
 	}
 	eqStr := getSafeBracketEquals(node.Value)
-	spacing := ""
-	if needsBracketSpacing(node) {
-		spacing = " "
+	spacing := needsBracketSpacing(node)
+	if spacing {
+		s.write(" ")
 	}
-	return spacing + "[" + eqStr + "[" + node.Value + "]" + eqStr + "]" + spacing
+	s.write("[")
+	s.write(eqStr)
+	s.write("[")
+	s.write(node.Value)
+	s.write("]")
+	s.write(eqStr)
+	s.write("]")
+	if spacing {
+		s.write(" ")
+	}
 }
 
-// renderFunctionExpression.ts
-func renderFunctionExpression(s *RenderState, node *luau.FunctionExpression) string {
+func renderFunctionExpression(s *RenderState, node *luau.FunctionExpression) {
+	s.write("function(")
+	s.parameters(node)
+	s.write(")")
 	if node.Statements.IsEmpty() {
-		return "function(" + renderParameters(s, node) + ") end"
+		s.write(" ")
+		s.closing("end")
+		return
 	}
-	result := "function(" + renderParameters(s, node) + ")\n"
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Indented("end")
-	return result
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
 }
 
-// renderBinaryExpression.ts
-func renderBinaryExpression(s *RenderState, node *luau.BinaryExpression) string {
-	result := Render(s, node.Left) + " " + string(node.Operator) + " " + Render(s, node.Right)
-	if needsParentheses(node) {
-		result = "(" + result + ")"
+func renderBinaryExpression(s *RenderState, node *luau.BinaryExpression) {
+	parens := needsParentheses(node)
+	if parens {
+		s.write("(")
 	}
-	return result
+	s.render(node.Left)
+	s.write(" ")
+	s.write(string(node.Operator))
+	s.write(" ")
+	s.render(node.Right)
+	if parens {
+		s.write(")")
+	}
 }
 
-// renderUnaryExpression.ts
 func unaryNeedsSpace(node *luau.UnaryExpression) bool {
-	// not always needs a space
 	if node.Operator == "not" {
 		return true
 	}
-	// "--" will create a comment!
 	if inner, ok := node.Expression.(*luau.UnaryExpression); ok && inner.Operator == "-" {
 		return true
 	}
 	return false
 }
 
-func renderUnaryExpression(s *RenderState, node *luau.UnaryExpression) string {
-	opStr := string(node.Operator)
+func renderUnaryExpression(s *RenderState, node *luau.UnaryExpression) {
+	parens := needsParentheses(node)
+	if parens {
+		s.write("(")
+	}
+	s.write(string(node.Operator))
 	if unaryNeedsSpace(node) {
-		opStr += " "
+		s.write(" ")
 	}
-	result := opStr + Render(s, node.Expression)
-	if needsParentheses(node) {
-		result = "(" + result + ")"
+	s.render(node.Expression)
+	if parens {
+		s.write(")")
 	}
-	return result
 }
 
-// renderIfExpression.ts
-func renderIfExpression(s *RenderState, node *luau.IfExpression) string {
-	result := "if " + Render(s, node.Condition) + " then " + Render(s, node.Expression) + " "
-	currentAlternative := node.Alternative
-	for {
-		ifExp, ok := currentAlternative.(*luau.IfExpression)
-		if !ok {
-			break
-		}
-		result += "elseif " + Render(s, ifExp.Condition) + " then " + Render(s, ifExp.Expression) + " "
-		currentAlternative = ifExp.Alternative
+func renderIfExpression(s *RenderState, node *luau.IfExpression) {
+	parens := needsParentheses(node)
+	if parens {
+		s.write("(")
 	}
-	result += "else " + Render(s, currentAlternative)
-	if needsParentheses(node) {
-		result = "(" + result + ")"
+	s.ifExpression(node, "if ")
+	if parens {
+		s.write(")")
 	}
-	return result
 }
 
-// renderInterpolatedString.ts
-func renderInterpolatedString(s *RenderState, node *luau.InterpolatedString) string {
-	var b strings.Builder
-	b.WriteString("`")
-	node.Parts.ForEach(func(part luau.Node) {
-		expressionStr := Render(s, part)
-		if _, isPart := part.(*luau.InterpolatedStringPart); isPart {
-			b.WriteString(expressionStr)
+func (s *RenderState) ifExpression(node *luau.IfExpression, keyword string) {
+	s.write(keyword)
+	s.render(node.Condition)
+	s.write(" then ")
+	s.render(node.Expression)
+	s.write(" ")
+	if alternative, ok := node.Alternative.(*luau.IfExpression); ok {
+		if s.positions {
+			index := s.beginRange(alternative)
+			s.ifExpression(alternative, "elseif ")
+			s.endRange(index)
 		} else {
-			b.WriteString("{")
-			// `{{}}` is invalid, so we wrap it in parenthesis
-			if luau.IsTable(part) {
-				expressionStr = "(" + expressionStr + ")"
-			}
-			b.WriteString(expressionStr)
-			b.WriteString("}")
+			s.ifExpression(alternative, "elseif ")
 		}
-	})
-	b.WriteString("`")
-	return b.String()
+		return
+	}
+	s.write("else ")
+	s.render(node.Alternative)
 }
 
-// renderArray.ts
-func renderArray(s *RenderState, node *luau.Array) string {
+func renderInterpolatedString(s *RenderState, node *luau.InterpolatedString) {
+	s.write("`")
+	for part := node.Parts.Head; part != nil; part = part.Next {
+		if _, isPart := part.Value.(*luau.InterpolatedStringPart); isPart {
+			s.render(part.Value)
+			continue
+		}
+		s.write("{")
+		table := luau.IsTable(part.Value)
+		if table {
+			s.write("(")
+		}
+		s.render(part.Value)
+		if table {
+			s.write(")")
+		}
+		s.write("}")
+	}
+	s.write("`")
+}
+
+func renderArray(s *RenderState, node *luau.Array) {
 	if node.Members.IsEmpty() {
-		return "{}"
+		s.write("{}")
+		return
 	}
-	parts := []string{}
-	node.Members.ForEach(func(m luau.Expression) { parts = append(parts, Render(s, m)) })
-	return "{ " + strings.Join(parts, ", ") + " }"
+	s.write("{ ")
+	s.arguments(node.Members)
+	s.write(" }")
 }
 
-// renderMap.ts
-func renderMap(s *RenderState, node *luau.Map) string {
+func renderMap(s *RenderState, node *luau.Map) {
 	if node.Fields.IsEmpty() {
-		return "{}"
+		s.write("{}")
+		return
 	}
-	result := "{\n"
-	s.Block(func() string {
-		node.Fields.ForEach(func(f *luau.MapField) { result += s.Line(Render(s, f) + ",") })
-		return ""
-	})
-	result += s.Indented("}")
-	return result
+	s.write("{")
+	s.newline()
+	s.pushIndent()
+	for field := node.Fields.Head; field != nil; field = field.Next {
+		s.writeIndent()
+		s.render(field.Value)
+		s.write(",")
+		s.newline()
+	}
+	s.popIndent()
+	s.writeIndent()
+	s.write("}")
 }
 
-// renderSet.ts
-func renderSet(s *RenderState, node *luau.Set) string {
+func renderSet(s *RenderState, node *luau.Set) {
 	if node.Members.IsEmpty() {
-		return "{}"
+		s.write("{}")
+		return
 	}
-	result := "{\n"
-	s.Block(func() string {
-		node.Members.ForEach(func(m luau.Expression) {
-			result += s.Line("[" + Render(s, m) + "] = true,")
-		})
-		return ""
-	})
-	result += s.Indented("}")
-	return result
+	s.write("{")
+	s.newline()
+	s.pushIndent()
+	for member := node.Members.Head; member != nil; member = member.Next {
+		s.writeIndent()
+		s.write("[")
+		s.render(member.Value)
+		s.write("] = true,")
+		s.newline()
+	}
+	s.popIndent()
+	s.writeIndent()
+	s.write("}")
 }
 
-// renderMixedTable.ts
-func renderMixedTable(s *RenderState, node *luau.MixedTable) string {
+func renderMixedTable(s *RenderState, node *luau.MixedTable) {
 	if node.Fields.IsEmpty() {
-		return "{}"
+		s.write("{}")
+		return
 	}
-	result := "{\n"
-	s.Block(func() string {
-		node.Fields.ForEach(func(f luau.Node) { result += s.Line(Render(s, f) + ",") })
-		return ""
-	})
-	result += s.Indented("}")
-	return result
+	s.write("{")
+	s.newline()
+	s.pushIndent()
+	for field := node.Fields.Head; field != nil; field = field.Next {
+		s.writeIndent()
+		s.render(field.Value)
+		s.write(",")
+		s.newline()
+	}
+	s.popIndent()
+	s.writeIndent()
+	s.write("}")
 }

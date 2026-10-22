@@ -18,24 +18,42 @@ func getSafeBracketEquals(str string) string {
 	return strings.Repeat("=", amtEquals)
 }
 
-func renderArguments(s *RenderState, expressions *luau.List[luau.Expression]) string {
-	parts := []string{}
-	expressions.ForEach(func(v luau.Expression) { parts = append(parts, Render(s, v)) })
-	return strings.Join(parts, ", ")
+func (s *RenderState) arguments(expressions *luau.List[luau.Expression]) {
+	for current := expressions.Head; current != nil; current = current.Next {
+		if current != expressions.Head {
+			s.write(", ")
+		}
+		s.render(current.Value)
+	}
 }
 
-func renderParameters(s *RenderState, node luau.HasParameters) string {
-	params, hasDotDotDot := node.ParamData()
-	parts := []string{}
-	params.ForEach(func(p luau.AnyIdentifier) { parts = append(parts, Render(s, p)) })
-	if hasDotDotDot {
-		parts = append(parts, "...")
+func (s *RenderState) identifiers(identifiers *luau.List[luau.AnyIdentifier]) {
+	for current := identifiers.Head; current != nil; current = current.Next {
+		if current != identifiers.Head {
+			s.write(", ")
+		}
+		s.render(current.Value)
 	}
-	return strings.Join(parts, ", ")
+}
+
+func (s *RenderState) parameters(node luau.HasParameters) {
+	params, hasDotDotDot := node.ParamData()
+	s.identifiers(params)
+	if hasDotDotDot {
+		if params.IsNonEmpty() {
+			s.write(", ")
+		}
+		s.write("...")
+	}
 }
 
 func renderStatements(s *RenderState, statements *luau.List[luau.Statement]) string {
-	var b strings.Builder
+	start := s.writer.Len()
+	s.statements(statements)
+	return s.writer.String()[start:]
+}
+
+func (s *RenderState) statements(statements *luau.List[luau.Statement]) {
 	hasFinalStatement := false
 	for listNode := statements.Head; listNode != nil; listNode = listNode.Next {
 		if hasFinalStatement {
@@ -45,8 +63,7 @@ func renderStatements(s *RenderState, statements *luau.List[luau.Statement]) str
 		}
 		hasFinalStatement = hasFinalStatement || luau.IsFinalStatement(listNode.Value)
 		s.pushListNode(listNode)
-		b.WriteString(Render(s, listNode.Value))
+		s.render(listNode.Value)
 		s.popListNode()
 	}
-	return b.String()
 }

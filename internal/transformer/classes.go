@@ -214,18 +214,18 @@ func transformPropertyInitializers(s *State, node *ast.Node) *luau.List[luau.Sta
 		index, indexPrereqs := s.Capture(func() luau.Expression {
 			return transformPropertyName(s, name)
 		})
-		statements.PushList(indexPrereqs)
 
 		right, rightPrereqs := s.Capture(func() luau.Expression {
 			return TransformExpression(s, initializer)
 		})
-		statements.PushList(rightPrereqs)
-
-		statements.Push(luau.NewAssignment(
+		rightPrereqs.Push(luau.NewAssignment(
 			luau.NewComputedIndex(luau.GlobalID("self"), index),
 			"=",
 			right,
 		))
+		s.setStatementListSourcePositions(member, indexPrereqs, rightPrereqs)
+		statements.PushList(indexPrereqs)
+		statements.PushList(rightPrereqs)
 	}
 	return statements
 }
@@ -285,11 +285,13 @@ func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier
 	for _, parameter := range node.Parameters() {
 		if ast.IsParameterPropertyDeclaration(parameter, parameter.Parent) {
 			paramID := TransformIdentifierDefined(s, parameter.Name())
-			statements.Push(luau.NewAssignment(
+			assignment := luau.NewAssignment(
 				luau.NewPropertyAccess(luau.GlobalID("self"), anyIdentifierName(paramID)),
 				"=",
 				paramID,
-			))
+			)
+			s.setNodeSourcePosition(assignment, parameter)
+			statements.Push(assignment)
 		}
 	}
 
@@ -300,8 +302,9 @@ func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier
 		s.unregisterOptimizableVarArgs(restParam)
 	}
 
-	return luau.NewList[luau.Statement](luau.NewMethodDeclaration(
-		name, constructorMethodName, parameters, hasDotDotDot, statements))
+	constructor := luau.NewMethodDeclaration(name, constructorMethodName, parameters, hasDotDotDot, statements)
+	s.setNodeSourcePosition(constructor, node)
+	return luau.NewList[luau.Statement](constructor)
 }
 
 // anyIdentifierName returns the rendered-name field of an Identifier or
@@ -490,14 +493,16 @@ func transformClassLikeDeclaration(s *State, node *ast.Node) (*luau.List[luau.St
 	}
 
 	for _, declaration := range staticDeclarations {
+		var declarationStatements *luau.List[luau.Statement]
 		if ast.IsClassStaticBlockDeclaration(declaration) {
-			statementsInner.PushList(transformBlock(s, declaration.AsClassStaticBlockDeclaration().Body))
+			declarationStatements = transformBlock(s, declaration.AsClassStaticBlockDeclaration().Body)
 		} else {
-			declarationStatements := s.CaptureStatements(func() {
+			declarationStatements = s.CaptureStatements(func() {
 				s.PrereqList(transformClassPropertyDeclaration(s, declaration, internalName))
 			})
-			statementsInner.PushList(declarationStatements)
 		}
+		s.setStatementListSourcePositions(declaration, declarationStatements)
+		statementsInner.PushList(declarationStatements)
 	}
 
 	// if using internal name, assign to return var

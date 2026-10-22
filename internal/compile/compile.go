@@ -196,9 +196,10 @@ func transformAndRenderSourceMapDetailed(state *transformer.State, sourceFile *a
 		return "", "", diags, nil
 	}
 
-	text = render.RenderAST(luauAST)
 	if sourceFile != nil {
-		sourceMap = state.RenderSourceMap(luauAST, sourceFile)
+		text, sourceMap = state.RenderWithSourceMap(luauAST, sourceFile)
+	} else {
+		text = render.RenderAST(luauAST)
 	}
 	return text, sourceMap, diags, nil
 }

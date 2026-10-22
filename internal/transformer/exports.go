@@ -129,7 +129,11 @@ func handleExports(s *State, sourceFile *ast.SourceFile, symbol *ast.Symbol, sta
 	case ExportShapeReturnMap:
 		fields := luau.NewList[*luau.MapField]()
 		for _, pair := range exportPairs {
-			fields.Push(luau.NewMapField(luau.Str(pair.name), pair.id))
+			field := luau.NewMapField(luau.Str(pair.name), pair.id)
+			if anchor := getExportSyntaxAnchor(pair.symbol, sourceFile); anchor != nil {
+				s.setNodeSourcePosition(field, anchor)
+			}
+			fields.Push(field)
 		}
 		statements.Push(luau.NewReturn(luau.NewMap(fields)))
 	}
