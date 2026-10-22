@@ -6,132 +6,161 @@ import (
 	"rotor/internal/luau"
 )
 
-func renderExprOrList(s *RenderState, v luau.NodeOrList) string {
+func (s *RenderState) exprOrList(v luau.NodeOrList) {
 	switch x := v.(type) {
 	case *luau.List[luau.Expression]:
 		if x.IsEmpty() {
 			panic("empty expression list")
 		}
-		parts := []string{}
-		x.ForEach(func(e luau.Expression) { parts = append(parts, Render(s, e)) })
-		return strings.Join(parts, ", ")
+		s.arguments(x)
 	case *luau.List[luau.WritableExpression]:
 		if x.IsEmpty() {
 			panic("empty writable expression list")
 		}
-		parts := []string{}
-		x.ForEach(func(e luau.WritableExpression) { parts = append(parts, Render(s, e)) })
-		return strings.Join(parts, ", ")
+		for current := x.Head; current != nil; current = current.Next {
+			if current != x.Head {
+				s.write(", ")
+			}
+			s.render(current.Value)
+		}
 	case *luau.List[luau.AnyIdentifier]:
 		if x.IsEmpty() {
 			panic("empty identifier list")
 		}
-		parts := []string{}
-		x.ForEach(func(e luau.AnyIdentifier) { parts = append(parts, Render(s, e)) })
-		return strings.Join(parts, ", ")
+		s.identifiers(x)
 	case luau.Node:
-		return Render(s, x)
+		s.render(x)
+	default:
+		panic("renderExprOrList: unsupported value")
 	}
-	panic("renderExprOrList: unsupported value")
 }
 
-// renderReturnStatement.ts
-func renderReturnStatement(s *RenderState, node *luau.ReturnStatement) string {
-	// `return $tuple()` produces an EMPTY expression list; upstream's
-	// unconditional `return ${join(", ")}` renders it as `return ` (trailing
-	// space preserved for byte parity).
-	if list, ok := node.Expression.(*luau.List[luau.Expression]); ok && list.IsEmpty() {
-		return s.Line("return ")
+func renderReturnStatement(s *RenderState, node *luau.ReturnStatement) {
+	// Empty tuple returns preserve upstream's trailing space.
+	s.write("return ")
+	if list, ok := node.Expression.(*luau.List[luau.Expression]); !ok || list.IsNonEmpty() {
+		s.exprOrList(node.Expression)
 	}
-	return s.Line("return " + renderExprOrList(s, node.Expression))
+	s.newline()
 }
 
-// renderAssignment.ts
-func renderAssignment(s *RenderState, node *luau.Assignment) string {
-	leftStr := renderExprOrList(s, node.Left)
-	rightStr := renderExprOrList(s, node.Right)
-	return s.LineWithEnd(leftStr+" "+string(node.Operator)+" "+rightStr, node)
+func renderAssignment(s *RenderState, node *luau.Assignment) {
+	s.exprOrList(node.Left)
+	s.write(" ")
+	s.write(string(node.Operator))
+	s.write(" ")
+	s.exprOrList(node.Right)
+	s.write(getEnding(s, node))
+	s.newline()
 }
 
-// renderCallStatement.ts
-func renderCallStatement(s *RenderState, node *luau.CallStatement) string {
-	return s.LineWithEnd(Render(s, node.Expression), node)
+func renderCallStatement(s *RenderState, node *luau.CallStatement) {
+	s.render(node.Expression)
+	s.write(getEnding(s, node))
+	s.newline()
 }
 
-// renderComment.ts
-func renderComment(s *RenderState, node *luau.Comment) string {
+func renderComment(s *RenderState, node *luau.Comment) {
 	text := strings.ReplaceAll(node.Text, "\r\n", "\n")
 	text = strings.ReplaceAll(text, "\r", "\n")
-	lines := strings.Split(text, "\n")
-	if len(lines) > 1 {
+	if strings.Contains(text, "\n") {
 		eqStr := getSafeBracketEquals(text)
-		result := s.Line("--[" + eqStr + "[")
-		result += s.Block(func() string {
-			var b strings.Builder
-			for _, line := range lines {
-				b.WriteString(s.Line(line))
-			}
-			return b.String()
-		})
-		result += s.Line("]" + eqStr + "]")
-		return result
-	}
-	return s.Line("--" + text)
-}
-
-// renderDoStatement.ts
-func renderDoStatement(s *RenderState, node *luau.DoStatement) string {
-	result := s.Line("do")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
-}
-
-// renderWhileStatement.ts
-func renderWhileStatement(s *RenderState, node *luau.WhileStatement) string {
-	result := s.Line("while " + Render(s, node.Condition) + " do")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
-}
-
-// renderRepeatStatement.ts
-func renderRepeatStatement(s *RenderState, node *luau.RepeatStatement) string {
-	result := s.Line("repeat")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("until " + Render(s, node.Condition))
-	return result
-}
-
-// renderIfStatement.ts
-func renderIfStatement(s *RenderState, node *luau.IfStatement) string {
-	result := s.Line("if " + Render(s, node.Condition) + " then")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-
-	currentElseBody := node.ElseBody
-	for {
-		ifStmt, ok := currentElseBody.(*luau.IfStatement)
-		if !ok {
-			break
+		s.write("--[")
+		s.write(eqStr)
+		s.write("[")
+		s.newline()
+		s.pushIndent()
+		for _, line := range strings.Split(text, "\n") {
+			s.writeIndent()
+			s.write(line)
+			s.newline()
 		}
-		statements := ifStmt.Statements
-		result += s.Line("elseif " + Render(s, ifStmt.Condition) + " then")
-		result += s.Block(func() string { return renderStatements(s, statements) })
-		currentElseBody = ifStmt.ElseBody
+		s.popIndent()
+		s.writeIndent()
+		s.write("]")
+		s.write(eqStr)
+		s.write("]")
+		s.newline()
+		return
 	}
-
-	if elseList, ok := currentElseBody.(*luau.List[luau.Statement]); ok && elseList.IsNonEmpty() {
-		result += s.Line("else")
-		result += s.Block(func() string { return renderStatements(s, elseList) })
-	}
-
-	result += s.Line("end")
-	return result
+	s.write("--")
+	s.write(text)
+	s.newline()
 }
 
-// renderNumericForStatement.ts
-func renderNumericForStatement(s *RenderState, node *luau.NumericForStatement) string {
-	predicateStr := Render(s, node.ID) + " = " + Render(s, node.Start) + ", " + Render(s, node.End)
+func renderDoStatement(s *RenderState, node *luau.DoStatement) {
+	s.write("do")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
+}
+
+func renderWhileStatement(s *RenderState, node *luau.WhileStatement) {
+	s.write("while ")
+	s.render(node.Condition)
+	s.write(" do")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
+}
+
+func renderRepeatStatement(s *RenderState, node *luau.RepeatStatement) {
+	s.write("repeat")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("until ")
+	s.render(node.Condition)
+	s.newline()
+}
+
+func renderIfStatement(s *RenderState, node *luau.IfStatement) {
+	s.ifStatement(node, "if ")
+}
+
+func (s *RenderState) ifStatement(node *luau.IfStatement, keyword string) {
+	s.write(keyword)
+	s.render(node.Condition)
+	s.write(" then")
+	s.newline()
+	s.block(node.Statements)
+	if link, ok := node.ElseBody.(*luau.IfStatement); ok {
+		s.writeIndent()
+		if s.positions {
+			parent := s.currentRange
+			index := s.beginRange(link)
+			s.currentRange = index
+			s.ifStatement(link, "elseif ")
+			s.endRange(index)
+			s.currentRange = parent
+			s.ranges[parent].closing = s.ranges[index].closing
+		} else {
+			s.ifStatement(link, "elseif ")
+		}
+		return
+	}
+	if elseList, ok := node.ElseBody.(*luau.List[luau.Statement]); ok && elseList.IsNonEmpty() {
+		s.writeIndent()
+		s.write("else")
+		s.newline()
+		s.block(elseList)
+	}
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
+}
+
+func renderNumericForStatement(s *RenderState, node *luau.NumericForStatement) {
+	s.write("for ")
+	s.render(node.ID)
+	s.write(" = ")
+	s.render(node.Start)
+	s.write(", ")
+	s.render(node.End)
 	if node.Step != nil {
 		isOne := false
 		if lit, ok := node.Step.(*luau.NumberLiteral); ok {
@@ -140,61 +169,76 @@ func renderNumericForStatement(s *RenderState, node *luau.NumericForStatement) s
 			}
 		}
 		if !isOne {
-			predicateStr += ", " + Render(s, node.Step)
+			s.write(", ")
+			s.render(node.Step)
 		}
 	}
-	result := s.Line("for " + predicateStr + " do")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
+	s.write(" do")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
 }
 
-// renderForStatement.ts
-func renderForStatement(s *RenderState, node *luau.ForStatement) string {
-	parts := []string{}
-	node.IDs.ForEach(func(id luau.AnyIdentifier) { parts = append(parts, Render(s, id)) })
-	idsStr := strings.Join(parts, ", ")
-	if idsStr == "" {
-		idsStr = "_"
+func renderForStatement(s *RenderState, node *luau.ForStatement) {
+	s.write("for ")
+	if node.IDs.IsEmpty() {
+		s.write("_")
+	} else {
+		s.identifiers(node.IDs)
 	}
-	result := s.Line("for " + idsStr + " in " + Render(s, node.Expression) + " do")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
+	s.write(" in ")
+	s.render(node.Expression)
+	s.write(" do")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
 }
 
-// renderFunctionDeclaration.ts
-func renderFunctionDeclaration(s *RenderState, node *luau.FunctionDeclaration) string {
+func renderFunctionDeclaration(s *RenderState, node *luau.FunctionDeclaration) {
 	if node.Localize {
 		if _, ok := node.Name.(luau.AnyIdentifier); !ok {
 			panic("local function cannot be a property")
 		}
+		s.write("local ")
 	}
-	nameStr := Render(s, node.Name)
-	localStr := ""
-	if node.Localize {
-		localStr = "local "
-	}
-	result := s.Line(localStr + "function " + nameStr + "(" + renderParameters(s, node) + ")")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
+	s.write("function ")
+	s.render(node.Name)
+	s.write("(")
+	s.parameters(node)
+	s.write(")")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
 }
 
-// renderMethodDeclaration.ts
-func renderMethodDeclaration(s *RenderState, node *luau.MethodDeclaration) string {
-	result := s.Line("function " + Render(s, node.Expression) + ":" + node.Name + "(" + renderParameters(s, node) + ")")
-	result += s.Block(func() string { return renderStatements(s, node.Statements) })
-	result += s.Line("end")
-	return result
+func renderMethodDeclaration(s *RenderState, node *luau.MethodDeclaration) {
+	s.write("function ")
+	s.render(node.Expression)
+	s.write(":")
+	s.write(node.Name)
+	s.write("(")
+	s.parameters(node)
+	s.write(")")
+	s.newline()
+	s.block(node.Statements)
+	s.writeIndent()
+	s.closing("end")
+	s.newline()
 }
 
-// renderVariableDeclaration.ts
-func renderVariableDeclaration(s *RenderState, node *luau.VariableDeclaration) string {
-	leftStr := renderExprOrList(s, node.Left)
+func renderVariableDeclaration(s *RenderState, node *luau.VariableDeclaration) {
+	s.write("local ")
+	s.exprOrList(node.Left)
 	if node.Right != nil {
-		rightStr := renderExprOrList(s, node.Right)
-		return s.LineWithEnd("local "+leftStr+" = "+rightStr, node)
+		s.write(" = ")
+		s.exprOrList(node.Right)
 	}
-	return s.LineWithEnd("local "+leftStr, node)
+	s.write(getEnding(s, node))
+	s.newline()
 }

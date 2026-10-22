@@ -177,7 +177,7 @@ func TestTempIdsOverlappingHints(t *testing.T) {
 				statements.Push(luau.NewCallStatement(luau.NewCall(tmp, luau.NewList[luau.Expression]())))
 				want += "local " + tc.want[i] + " = 1\n" + tc.want[i] + "()\n"
 			}
-			if got := RenderAST(statements); got != want {
+			if got := renderAST(t, statements); got != want {
 				t.Fatalf("rendered names:\n%s\nwant:\n%s", got, want)
 			}
 		})
@@ -198,7 +198,7 @@ func TestTempIdsAncestorAndSiblingReservations(t *testing.T) {
 	)
 	want := "local _foo = 1\ndo\n\tlocal _foo_1 = 1\n\tlocal _foo_3 = 1\nend\n" +
 		"local _foo_1 = 1\ndo\n\tlocal _foo_3 = 1\n\tlocal _foo_4 = 1\nend\nlocal _foo_2 = 0\n"
-	if got := RenderAST(statements); got != want {
+	if got := renderAST(t, statements); got != want {
 		t.Fatalf("rendered names:\n%s\nwant:\n%s", got, want)
 	}
 }
@@ -274,7 +274,7 @@ func TestTempIdsMixedHintsMatchLegacy(t *testing.T) {
 		for _, entry := range pending {
 			oracle.seenTempNodes[entry.tmp.ID] = entry.scope.name(entry.tmp)
 		}
-		if got, want := RenderAST(statements), renderStatements(oracle, statements); got != want {
+		if got, want := renderAST(t, statements), renderStatements(oracle, statements); got != want {
 			t.Fatalf("scenario %d differs from legacy naming:\n%s\nwant:\n%s", scenario, got, want)
 		}
 	}

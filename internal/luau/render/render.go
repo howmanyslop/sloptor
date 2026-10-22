@@ -4,98 +4,135 @@ import "rotor/internal/luau"
 
 // Render dispatches on node type — ports upstream render.ts KIND_TO_RENDERER.
 func Render(s *RenderState, node luau.Node) string {
+	// Unlike RenderAST, standalone Render does not solve scoped temporary names.
+	// Reserve its fallback names in the old evaluation order before emitting
+	// map-field indices before values. AST rendering bypasses this prepass.
+	visitNode(node, &visitor{
+		renderOrder: true,
+		before: func(node luau.Node) {
+			if temp, ok := node.(*luau.TemporaryIdentifier); ok {
+				s.getTempName(temp)
+			}
+		},
+	})
+	start := s.writer.Len()
+	s.render(node)
+	return s.writer.String()[start:]
+}
+
+func (s *RenderState) render(node luau.Node) {
+	if _, ok := node.(luau.Statement); ok {
+		s.writeIndent()
+	}
+	if !s.positions {
+		renderNode(s, node)
+		return
+	}
+	parent := s.currentRange
+	index := s.beginRange(node)
+	s.currentRange = index
+	renderNode(s, node)
+	s.endRange(index)
+	s.currentRange = parent
+}
+
+func renderNode(s *RenderState, node luau.Node) {
 	switch n := node.(type) {
 	// indexable expressions
 	case *luau.Identifier:
-		return renderIdentifier(s, n)
+		renderIdentifier(s, n)
 	case *luau.TemporaryIdentifier:
-		return renderTemporaryIdentifier(s, n)
+		renderTemporaryIdentifier(s, n)
 	case *luau.ComputedIndexExpression:
-		return renderComputedIndexExpression(s, n)
+		renderComputedIndexExpression(s, n)
 	case *luau.PropertyAccessExpression:
-		return renderPropertyAccessExpression(s, n)
+		renderPropertyAccessExpression(s, n)
 	case *luau.CallExpression:
-		return renderCallExpression(s, n)
+		renderCallExpression(s, n)
 	case *luau.MethodCallExpression:
-		return renderMethodCallExpression(s, n)
+		renderMethodCallExpression(s, n)
 	case *luau.ParenthesizedExpression:
-		return renderParenthesizedExpression(s, n)
+		renderParenthesizedExpression(s, n)
 	// expressions
 	case *luau.None:
 		panic("Cannot render None")
 	case *luau.NilLiteral:
-		return "nil"
+		s.write("nil")
 	case *luau.FalseLiteral:
-		return "false"
+		s.write("false")
 	case *luau.TrueLiteral:
-		return "true"
+		s.write("true")
 	case *luau.NumberLiteral:
-		return renderNumberLiteral(s, n)
+		renderNumberLiteral(s, n)
 	case *luau.StringLiteral:
-		return renderStringLiteral(s, n)
+		renderStringLiteral(s, n)
 	case *luau.VarArgsLiteral:
-		return "..."
+		s.write("...")
 	case *luau.FunctionExpression:
-		return renderFunctionExpression(s, n)
+		renderFunctionExpression(s, n)
 	case *luau.BinaryExpression:
-		return renderBinaryExpression(s, n)
+		renderBinaryExpression(s, n)
 	case *luau.UnaryExpression:
-		return renderUnaryExpression(s, n)
+		renderUnaryExpression(s, n)
 	case *luau.IfExpression:
-		return renderIfExpression(s, n)
+		renderIfExpression(s, n)
 	case *luau.InterpolatedString:
-		return renderInterpolatedString(s, n)
+		renderInterpolatedString(s, n)
 	case *luau.Array:
-		return renderArray(s, n)
+		renderArray(s, n)
 	case *luau.Map:
-		return renderMap(s, n)
+		renderMap(s, n)
 	case *luau.Set:
-		return renderSet(s, n)
+		renderSet(s, n)
 	case *luau.MixedTable:
-		return renderMixedTable(s, n)
+		renderMixedTable(s, n)
 	// statements
 	case *luau.Assignment:
-		return renderAssignment(s, n)
+		renderAssignment(s, n)
 	case *luau.BreakStatement:
-		return s.Line("break")
+		s.write("break")
+		s.newline()
 	case *luau.CallStatement:
-		return renderCallStatement(s, n)
+		renderCallStatement(s, n)
 	case *luau.ContinueStatement:
-		return s.Line("continue")
+		s.write("continue")
+		s.newline()
 	case *luau.DoStatement:
-		return renderDoStatement(s, n)
+		renderDoStatement(s, n)
 	case *luau.WhileStatement:
-		return renderWhileStatement(s, n)
+		renderWhileStatement(s, n)
 	case *luau.RepeatStatement:
-		return renderRepeatStatement(s, n)
+		renderRepeatStatement(s, n)
 	case *luau.IfStatement:
-		return renderIfStatement(s, n)
+		renderIfStatement(s, n)
 	case *luau.NumericForStatement:
-		return renderNumericForStatement(s, n)
+		renderNumericForStatement(s, n)
 	case *luau.ForStatement:
-		return renderForStatement(s, n)
+		renderForStatement(s, n)
 	case *luau.FunctionDeclaration:
-		return renderFunctionDeclaration(s, n)
+		renderFunctionDeclaration(s, n)
 	case *luau.MethodDeclaration:
-		return renderMethodDeclaration(s, n)
+		renderMethodDeclaration(s, n)
 	case *luau.VariableDeclaration:
-		return renderVariableDeclaration(s, n)
+		renderVariableDeclaration(s, n)
 	case *luau.ReturnStatement:
-		return renderReturnStatement(s, n)
+		renderReturnStatement(s, n)
 	case *luau.Comment:
-		return renderComment(s, n)
+		renderComment(s, n)
 	// fields
 	case *luau.MapField:
-		return renderMapField(s, n)
+		renderMapField(s, n)
 	case *luau.InterpolatedStringPart:
-		return renderInterpolatedStringPart(s, n)
+		renderInterpolatedStringPart(s, n)
+	default:
+		panic("render: no renderer for " + node.Kind().String())
 	}
-	panic("render: no renderer for " + node.Kind().String())
 }
 
 // RenderAST mirrors upstream renderAST(): solve temp ids, then render.
 func RenderAST(ast *luau.List[luau.Statement]) string {
 	s := NewRenderState()
 	solveTempIDs(s, ast)
-	return renderStatements(s, ast)
+	s.statements(ast)
+	return s.writer.String()
 }

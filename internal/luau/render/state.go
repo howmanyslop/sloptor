@@ -2,6 +2,7 @@ package render
 
 import (
 	"strconv"
+	"strings"
 
 	"rotor/internal/luau"
 )
@@ -13,6 +14,11 @@ type RenderState struct {
 	seenTempNodes  map[int]string
 	tempIDFallback int
 	listNodesStack []*luau.ListNode[luau.Statement]
+	writer         strings.Builder
+	positions      bool
+	ranges         []byteRange
+	contentEnd     int
+	currentRange   int
 }
 
 func NewRenderState() *RenderState {
@@ -64,4 +70,28 @@ func (s *RenderState) Block(callback func() string) string {
 	result := callback()
 	s.popIndent()
 	return result
+}
+
+// Layout writes do not extend a node's content range.
+func (s *RenderState) writeIndent() { s.writer.WriteString(s.indent) }
+func (s *RenderState) newline()     { s.writer.WriteByte('\n') }
+
+func (s *RenderState) write(text string) {
+	s.writer.WriteString(text)
+	if s.positions {
+		s.contentEnd = s.writer.Len()
+	}
+}
+
+func (s *RenderState) closing(keyword string) {
+	if s.positions {
+		s.ranges[s.currentRange].closing = s.writer.Len()
+	}
+	s.write(keyword)
+}
+
+func (s *RenderState) block(statements *luau.List[luau.Statement]) {
+	s.pushIndent()
+	s.statements(statements)
+	s.popIndent()
 }

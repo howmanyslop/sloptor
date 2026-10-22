@@ -10,7 +10,9 @@ func renderExpr(t *testing.T, e luau.Expression) string {
 	t.Helper()
 	s := NewRenderState()
 	solveTempIDs(s, e)
-	return Render(s, e)
+	text := Render(s, e)
+	renderAST(t, stmts(luau.NewReturn(e)))
+	return text
 }
 
 func exprList(es ...luau.Expression) *luau.List[luau.Expression] {

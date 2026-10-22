@@ -5,6 +5,9 @@ import "rotor/internal/luau"
 type visitor struct {
 	before func(luau.Node)
 	after  func(luau.Node)
+	// Standalone Render historically evaluated map-field values first and
+	// allocated fallback temporary names in that order.
+	renderOrder bool
 }
 
 func visitNodeOrList(v luau.NodeOrList, vis *visitor) {
@@ -94,6 +97,9 @@ func visitNode(node luau.Node, vis *visitor) {
 		visitNodeOrList(n.Statements, vis)
 	case *luau.ForStatement:
 		visitNodeOrList(n.IDs, vis)
+		if vis.renderOrder {
+			visitNode(n.Expression, vis)
+		}
 		visitNodeOrList(n.Statements, vis)
 	case *luau.FunctionDeclaration:
 		visitNode(n.Name, vis)
@@ -109,8 +115,13 @@ func visitNode(node luau.Node, vis *visitor) {
 	case *luau.ReturnStatement:
 		visitNodeOrList(n.Expression, vis)
 	case *luau.MapField:
-		visitNode(n.Index, vis)
-		visitNode(n.Value, vis)
+		if vis.renderOrder {
+			visitNode(n.Value, vis)
+			visitNode(n.Index, vis)
+		} else {
+			visitNode(n.Index, vis)
+			visitNode(n.Value, vis)
+		}
 	}
 	if vis.after != nil {
 		vis.after(node)
