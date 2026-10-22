@@ -307,15 +307,23 @@ func (s *State) getArrayAppendTarget(call *ast.Node) *arrayAppendTarget {
 type SourcePosition = luau.Position
 
 func (s *State) getOriginalSourcePosition(node *ast.Node, useEnd bool) *SourcePosition {
-	if node == nil {
+	position, ok := s.getOriginalSourcePositionValue(node, useEnd)
+	if !ok {
 		return nil
+	}
+	return &position
+}
+
+func (s *State) getOriginalSourcePositionValue(node *ast.Node, useEnd bool) (SourcePosition, bool) {
+	if node == nil {
+		return SourcePosition{}, false
 	}
 	sourceFile := ast.GetSourceFileOfNode(node)
 	if sourceFile == nil {
 		sourceFile = s.SourceFile
 	}
 	if sourceFile == nil {
-		return nil
+		return SourcePosition{}, false
 	}
 
 	position := scanner.GetTokenPosOfNode(node, sourceFile, false)
@@ -326,7 +334,7 @@ func (s *State) getOriginalSourcePosition(node *ast.Node, useEnd bool) *SourcePo
 		}
 	}
 	line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(sourceFile, position)
-	return &SourcePosition{Line: line, Column: int(column)}
+	return SourcePosition{Line: line, Column: int(column)}, true
 }
 
 func (s *State) setSourcePosition(node luau.Node, position *SourcePosition) {
@@ -341,18 +349,36 @@ func (s *State) setSourceEndPosition(node luau.Node, position *SourcePosition) {
 	}
 }
 
-func (s *State) setStatementListSourcePositions(statements *luau.List[luau.Statement], sourceNode *ast.Node) {
-	start := s.getOriginalSourcePosition(sourceNode, false)
-	if start == nil {
-		return
+func (s *State) getSourceOrigin(sourceNode *ast.Node) *luau.Origin {
+	start, ok := s.getOriginalSourcePositionValue(sourceNode, false)
+	if !ok {
+		return nil
 	}
-	origin := &luau.Origin{
-		Start:   *start,
-		Closing: s.getOriginalSourcePosition(sourceNode, true),
+	return &luau.Origin{Start: start, Closing: s.getOriginalSourcePosition(sourceNode, true)}
+}
+
+func (s *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
+	if node.Origin() == nil {
+		luau.SetOrigin(node, s.getSourceOrigin(sourceNode))
 	}
-	statements.ForEach(func(statement luau.Statement) {
-		luau.SetOrigin(statement, origin)
-	})
+}
+
+func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*luau.List[luau.Statement]) {
+	var origin *luau.Origin
+	for _, statements := range lists {
+		for item := statements.Head; item != nil; item = item.Next {
+			if item.Value.Origin() != nil {
+				continue
+			}
+			if origin == nil {
+				origin = s.getSourceOrigin(sourceNode)
+				if origin == nil {
+					return
+				}
+			}
+			luau.SetOrigin(item.Value, origin)
+		}
+	}
 }
 
 // SetRojoContext installs the project-level Rojo context and project type,

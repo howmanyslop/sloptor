@@ -315,6 +315,7 @@ func transformIfStatementInner(s *State, node *ast.Node) *luau.IfStatement {
 		if elseIfPrereqs.IsEmpty() {
 			elseBody = elseIf
 		} else {
+			s.setStatementListSourcePositions(elseStatement, elseIfPrereqs)
 			elseIfStatements := luau.NewList[luau.Statement]()
 			elseIfStatements.PushList(elseIfPrereqs)
 			elseIfStatements.Push(elseIf)
@@ -324,7 +325,9 @@ func transformIfStatementInner(s *State, node *ast.Node) *luau.IfStatement {
 		elseBody = TransformStatementList(s, elseStatement, getStatements(elseStatement), nil)
 	}
 
-	return luau.NewIf(condition, statements, elseBody)
+	result := luau.NewIf(condition, statements, elseBody)
+	s.setNodeSourcePosition(result, node)
+	return result
 }
 
 // transformIfStatement ports transformIfStatement.ts transformIfStatement

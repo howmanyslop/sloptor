@@ -56,7 +56,9 @@ func transformCatchClause(s *State, node *ast.Node) *luau.FunctionExpression {
 
 	statements.PushList(TransformStatementList(s, clause.Block, clause.Block.AsBlock().Statements.Nodes, nil))
 
-	return luau.NewFunctionExpression(parameters, false, statements)
+	callback := luau.NewFunctionExpression(parameters, false, statements)
+	s.setNodeSourcePosition(callback, node)
+	return callback
 }
 
 // transformIntoTryCall ports transformTryStatement.ts transformIntoTryCall
@@ -70,11 +72,13 @@ func transformIntoTryCall(s *State, node *ast.Node, exitTypeID, returnsID *luau.
 	try := node.AsTryStatement()
 	tryCallArgs := luau.NewList[luau.Expression]()
 
-	tryCallArgs.Push(luau.NewFunctionExpression(
+	tryCallback := luau.NewFunctionExpression(
 		luau.NewList[luau.AnyIdentifier](),
 		false,
 		TransformStatementList(s, try.TryBlock, try.TryBlock.AsBlock().Statements.Nodes, nil),
-	))
+	)
+	s.setNodeSourcePosition(tryCallback, try.TryBlock)
+	tryCallArgs.Push(tryCallback)
 
 	if try.CatchClause != nil {
 		tryCallArgs.Push(transformCatchClause(s, try.CatchClause))
@@ -86,11 +90,13 @@ func transformIntoTryCall(s *State, node *ast.Node, exitTypeID, returnsID *luau.
 	}
 
 	if try.FinallyBlock != nil {
-		tryCallArgs.Push(luau.NewFunctionExpression(
+		finallyCallback := luau.NewFunctionExpression(
 			luau.NewList[luau.AnyIdentifier](),
 			false,
 			TransformStatementList(s, try.FinallyBlock, try.FinallyBlock.AsBlock().Statements.Nodes, nil),
-		))
+		)
+		s.setNodeSourcePosition(finallyCallback, try.FinallyBlock)
+		tryCallArgs.Push(finallyCallback)
 	}
 
 	if !tryUses.UsesReturn && !tryUses.UsesBreak && !tryUses.UsesContinue {

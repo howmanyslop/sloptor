@@ -40,6 +40,7 @@ func emitNamedFunctionExpression(
 			body.statements,
 		),
 	)
+	s.setNodeSourcePosition(statements.Head.Value, node)
 	if isAsync {
 		statements.Push(luau.NewAssignment(
 			name,

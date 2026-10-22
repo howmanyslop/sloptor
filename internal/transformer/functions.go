@@ -80,8 +80,10 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 	// DECLARATIONS stay real FunctionDeclarations whose body is the
 	// TS.generator return.
 	if isAsync {
+		callback := luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
+		s.setNodeSourcePosition(callback, node)
 		right := luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](
-			luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)))
+			callback))
 		if localize {
 			return luau.NewList[luau.Statement](luau.NewVariableDeclaration(name, right))
 		}
@@ -104,6 +106,7 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 		prereqs := s.CaptureStatements(func() {
 			returnStatements = transformReturnStatementInner(s, body)
 		})
+		s.setStatementListSourcePositions(body, prereqs, returnStatements)
 		statements.PushList(prereqs)
 		statements.PushList(returnStatements)
 	}
@@ -162,6 +165,7 @@ func transformFunctionExpression(s *State, node *ast.Node) luau.Expression {
 	}
 
 	var expression luau.Expression = luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
+	s.setNodeSourcePosition(expression, node)
 
 	if isAsync {
 		expression = luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](expression))
@@ -249,10 +253,12 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 				luau.NewPropertyAccess(ptr.Value.(luau.IndexableExpression), nameStr.Value),
 				parameters, hasDotDotDot, statements))
 		}
+		s.setNodeSourcePosition(result.Tail.Value, node)
 		return result
 	}
 
 	var expression luau.Expression = luau.NewFunctionExpression(parameters, hasDotDotDot, statements)
+	s.setNodeSourcePosition(expression, node)
 
 	if isAsync {
 		expression = luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](expression))
