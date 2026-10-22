@@ -96,6 +96,14 @@ func createCompoundAssignmentExpression(s *State, writable luau.WritableExpressi
 // isUndefinedType predicate inside addOneIfArrayType absorbs the
 // `| undefined` members instead).
 func transformWritableExpression(s *State, node *ast.Node, readAfterWrite bool) luau.WritableExpression {
+	expression := transformWritableExpressionInner(s, node, readAfterWrite)
+	if s.SourceMapEnabled && (ast.IsPropertyAccessExpression(node) || ast.IsElementAccessExpression(node)) {
+		return s.tagExpressionOrigin(expression, node).(luau.WritableExpression)
+	}
+	return expression
+}
+
+func transformWritableExpressionInner(s *State, node *ast.Node, readAfterWrite bool) luau.WritableExpression {
 	if ast.IsPrototypeAccess(node) {
 		s.Diags.Add(DiagNoPrototype(node))
 	}

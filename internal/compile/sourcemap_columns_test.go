@@ -5,6 +5,25 @@ import "testing"
 func TestSourceMapColumns(t *testing.T) {
 	tests := []struct{ name, source, want string }{
 		{
+			name: "temporaries",
+			source: `export function bump(state: { value: number }) {
+	const previous = state.value++;
+	return previous;
+}
+`,
+			want: ` 1 -                       | -- Compiled with sloptor vX
+ 2 0->1:0                  | local function bump(state)
+ 3 0->2:1 19->2:18         | 	local _original = state.value
+ 4 0->2:1 1->2:18 13->2:29 | 	state.value += 1
+ 5 0->2:1 18->2:18         | 	local previous = _original
+ 6 0->3:1 8->3:8           | 	return previous
+ 7 0->4:0                  | end
+ 8 -                       | return {
+ 9 0->1:0                  | 	bump = bump,
+10 -                       | }
+`,
+		},
+		{
 			name: "continuation",
 			source: `const config = {
 	retries: 3,
