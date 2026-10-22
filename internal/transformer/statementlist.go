@@ -77,11 +77,10 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 		}
 
 		if hoist := createHoistDeclaration(s, statement); hoist != nil {
-			result.Push(hoist)
+			prereqs.Unshift(hoist)
 		}
 
-		s.setStatementListSourcePositions(statement, prereqs)
-		s.setStatementListSourcePositions(statement, transformed)
+		s.setStatementListSourcePositions(statement, prereqs, transformed)
 		result.PushList(prereqs)
 		lastNode := transformed.Tail
 		result.PushList(transformed)
