@@ -14,7 +14,7 @@ func TestRenderReturnWithEmptyExpressionList(t *testing.T) {
 	// `return $tuple()` reaches the renderer with an EMPTY expression list;
 	// upstream's unconditional `return ${join(", ")}` renders `return ` with
 	// a trailing space.
-	got := RenderAST(stmts(luau.NewReturn(luau.NewList[luau.Expression]())))
+	got := renderAST(t, stmts(luau.NewReturn(luau.NewList[luau.Expression]())))
 	if want := "return \n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -46,7 +46,7 @@ func TestRenderVariableDeclarationAndAssignment(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		if got := RenderAST(c.ast); got != c.want {
+		if got := renderAST(t, c.ast); got != c.want {
 			t.Errorf("got %q, want %q", got, c.want)
 		}
 	}
@@ -57,7 +57,7 @@ func TestRenderIfStatement(t *testing.T) {
 	elseInner := stmts(luau.NewCallStatement(luau.NewCall(luau.ID("print"), exprList(luau.Str("small")))))
 	ast := stmts(luau.NewIf(luau.NewBinary(luau.ID("x"), ">", luau.Num(3)), inner, elseInner))
 	want := "if x > 3 then\n\tprint(\"big\")\nelse\n\tprint(\"small\")\nend\n"
-	if got := RenderAST(ast); got != want {
+	if got := renderAST(t, ast); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -66,7 +66,7 @@ func TestRenderElseIfChain(t *testing.T) {
 	elseif := luau.NewIf(luau.ID("b"), stmts(luau.NewCallStatement(luau.NewCall(luau.ID("g"), exprList()))), nil)
 	ast := stmts(luau.NewIf(luau.ID("a"), stmts(luau.NewCallStatement(luau.NewCall(luau.ID("f"), exprList()))), elseif))
 	want := "if a then\n\tf()\nelseif b then\n\tg()\nend\n"
-	if got := RenderAST(ast); got != want {
+	if got := renderAST(t, ast); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -115,7 +115,7 @@ func TestRenderLoops(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		if got := RenderAST(c.ast); got != c.want {
+		if got := renderAST(t, c.ast); got != c.want {
 			t.Errorf("got %q, want %q", got, c.want)
 		}
 	}
@@ -126,33 +126,33 @@ func TestRenderFunctions(t *testing.T) {
 	params := luau.NewList[luau.AnyIdentifier](luau.ID("x"))
 	ast := stmts(luau.NewFunctionDeclaration(true, luau.ID("f"), params, false, body))
 	want := "local function f(x)\n\treturn x\nend\n"
-	if got := RenderAST(ast); got != want {
+	if got := renderAST(t, ast); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 
 	mBody := stmts(luau.NewReturn(luau.Nil()))
 	m := luau.NewMethodDeclaration(luau.ID("Class"), "method", luau.NewList[luau.AnyIdentifier](), false, mBody)
 	wantM := "function Class:method()\n\treturn nil\nend\n"
-	if got := RenderAST(stmts(m)); got != wantM {
+	if got := renderAST(t, stmts(m)); got != wantM {
 		t.Errorf("got %q, want %q", got, wantM)
 	}
 }
 
 func TestRenderComment(t *testing.T) {
-	if got := RenderAST(stmts(luau.NewComment("hello"))); got != "--hello\n" {
+	if got := renderAST(t, stmts(luau.NewComment("hello"))); got != "--hello\n" {
 		t.Errorf("got %q", got)
 	}
 	want := "--[[\n\tline1\n\tline2\n]]\n"
-	if got := RenderAST(stmts(luau.NewComment("line1\nline2"))); got != want {
+	if got := renderAST(t, stmts(luau.NewComment("line1\nline2"))); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 	// text containing "]]" forces the bracket padding up to "=" (--[=[ ... ]=])
 	wantEq := "--[=[\n\ta]]b\n\tc\n]=]\n"
-	if got := RenderAST(stmts(luau.NewComment("a]]b\nc"))); got != wantEq {
+	if got := renderAST(t, stmts(luau.NewComment("a]]b\nc"))); got != wantEq {
 		t.Errorf("got %q, want %q", got, wantEq)
 	}
 	wantCRLF := "--[[\n\tline1\n\tline2\n]]\n"
-	if got := RenderAST(stmts(luau.NewComment("line1\r\nline2"))); got != wantCRLF {
+	if got := renderAST(t, stmts(luau.NewComment("line1\r\nline2"))); got != wantCRLF {
 		t.Errorf("got %q, want %q", got, wantCRLF)
 	}
 }
@@ -164,7 +164,7 @@ func TestSemicolonAmbiguity(t *testing.T) {
 	access := luau.NewPropertyAccess(paren, "e")
 	stmt2 := luau.NewAssignment(access, "=", luau.ID("f"))
 	want := "local a = b;\n(c + d).e = f\n"
-	if got := RenderAST(stmts(stmt1, stmt2)); got != want {
+	if got := renderAST(t, stmts(stmt1, stmt2)); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
@@ -176,7 +176,7 @@ func TestTempIdsEndToEnd(t *testing.T) {
 		luau.NewCallStatement(luau.NewCall(luau.ID("print"), exprList(tmp))),
 	)
 	want := "local _result = 1\nprint(_result)\n"
-	if got := RenderAST(ast); got != want {
+	if got := renderAST(t, ast); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }

@@ -88,7 +88,7 @@ end
 `
 
 func TestGoldenProgram(t *testing.T) {
-	got := RenderAST(buildGoldenAST())
+	got := renderAST(t, buildGoldenAST())
 	if got != goldenWant {
 		t.Errorf("golden mismatch:\n--- got ---\n%s\n--- want ---\n%s", got, goldenWant)
 		// first-diff helper
