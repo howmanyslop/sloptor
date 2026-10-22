@@ -251,6 +251,64 @@ func positionCases() []positionCase {
 			},
 		})
 	}
+	{
+		index := luau.NewCall(luau.ID("key"), exprList())
+		value := luau.NewCall(luau.ID("value"), exprList())
+		field := luau.NewMapField(index, value)
+		table := luau.NewMap(luau.NewList(field))
+		ret := luau.NewReturn(table)
+		cases = append(cases, positionCase{
+			name: "map field index precedes value",
+			ast:  stmts(ret),
+			text: "return {\n\t[key()] = value(),\n}\n",
+			ranges: []Range{
+				nodeRange(ret, 0, 0, 2, 1),
+				nodeRange(table, 0, 7, 2, 1),
+				nodeRange(field, 1, 1, 1, 18),
+				nodeRange(index, 1, 2, 1, 7),
+				nodeRange(index.Expression, 1, 2, 1, 5),
+				nodeRange(value, 1, 11, 1, 18),
+				nodeRange(value.Expression, 1, 11, 1, 16),
+			},
+		})
+	}
+	{
+		field := luau.NewMapField(luau.Str("x"), luau.Num(1))
+		table := luau.NewMap(luau.NewList(field))
+		ret := luau.NewReturn(table)
+		cases = append(cases, positionCase{
+			name: "identifier map field key",
+			ast:  stmts(ret),
+			text: "return {\n\tx = 1,\n}\n",
+			ranges: []Range{
+				nodeRange(ret, 0, 0, 2, 1),
+				nodeRange(table, 0, 7, 2, 1),
+				nodeRange(field, 1, 1, 1, 6),
+				nodeRange(field.Index, 1, 1, 1, 2),
+				nodeRange(field.Value, 1, 5, 1, 6),
+			},
+		})
+	}
+	{
+		alternative := luau.NewIfExpression(luau.ID("b"), luau.Num(2), luau.Num(3))
+		expression := luau.NewIfExpression(luau.ID("a"), luau.Num(1), alternative)
+		ret := luau.NewReturn(expression)
+		cases = append(cases, positionCase{
+			name: "elseif expression link",
+			ast:  stmts(ret),
+			text: "return if a then 1 elseif b then 2 else 3\n",
+			ranges: []Range{
+				nodeRange(ret, 0, 0, 0, 41),
+				nodeRange(expression, 0, 7, 0, 41),
+				nodeRange(expression.Condition, 0, 10, 0, 11),
+				nodeRange(expression.Expression, 0, 17, 0, 18),
+				nodeRange(alternative, 0, 19, 0, 41),
+				nodeRange(alternative.Condition, 0, 26, 0, 27),
+				nodeRange(alternative.Expression, 0, 33, 0, 34),
+				nodeRange(alternative.Alternative, 0, 40, 0, 41),
+			},
+		})
+	}
 	return cases
 }
 
@@ -263,4 +321,17 @@ func renderAST(t *testing.T, ast *luau.List[luau.Statement]) string {
 		t.Fatalf("position text = %q, plain text = %q", positioned, plain)
 	}
 	return plain
+}
+
+func TestRenderMapFieldFallbackTempOrder(t *testing.T) {
+	index, value := luau.TempID("key"), luau.TempID("value")
+	field := luau.NewMapField(index, value)
+	state := NewRenderState()
+	// Standalone Render retains its historical fallback names: the map field's
+	// value receives a name before its index, although the index appears first.
+	for range 2 {
+		if got := Render(state, field); got != "[_1] = _0" {
+			t.Fatalf("standalone field = %q, want %q", got, "[_1] = _0")
+		}
+	}
 }

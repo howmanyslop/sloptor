@@ -4,6 +4,17 @@ import "rotor/internal/luau"
 
 // Render dispatches on node type — ports upstream render.ts KIND_TO_RENDERER.
 func Render(s *RenderState, node luau.Node) string {
+	// Unlike RenderAST, standalone Render does not solve scoped temporary names.
+	// Reserve its fallback names in the old evaluation order before emitting
+	// map-field indices before values. AST rendering bypasses this prepass.
+	visitNode(node, &visitor{
+		renderOrder: true,
+		before: func(node luau.Node) {
+			if temp, ok := node.(*luau.TemporaryIdentifier); ok {
+				s.getTempName(temp)
+			}
+		},
+	})
 	start := s.writer.Len()
 	s.render(node)
 	return s.writer.String()[start:]
