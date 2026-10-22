@@ -41,6 +41,10 @@ func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) 
 		return expression
 	}
 	origin := &luau.Origin{Start: start}
+	if previous := expression.Origin(); previous != nil {
+		origin.Closing = previous.Closing
+		origin.Operator = previous.Operator
+	}
 	_, identifier := expression.(luau.AnyIdentifier)
 	shared := identifier || expression.Parent() != nil || expression.Origin() != nil
 	// The other State caches hold identifiers, covered above. Decorated object

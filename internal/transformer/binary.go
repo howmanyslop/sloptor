@@ -225,5 +225,9 @@ func transformBinaryExpression(s *State, node *ast.Node) luau.Expression {
 		}
 	}
 
-	return createBinaryFromOperator(s, left, leftType, operatorKind, right, rightType)
+	result := createBinaryFromOperator(s, left, leftType, operatorKind, right, rightType)
+	if _, binary := result.(*luau.BinaryExpression); binary {
+		s.setOperatorSourcePosition(result, expression.OperatorToken)
+	}
+	return result
 }

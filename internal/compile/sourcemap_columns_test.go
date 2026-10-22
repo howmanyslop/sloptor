@@ -5,6 +5,23 @@ import "testing"
 func TestSourceMapColumns(t *testing.T) {
 	tests := []struct{ name, source, want string }{
 		{
+			name: "call-index",
+			source: `declare const store: { get(key: string): number; nested: { value: number } };
+export function read(key: string) {
+	return store.get(key) +
+		store.nested.value;
+}
+`,
+			want: ` 1 -                                       | -- Compiled with sloptor vX
+ 2 0->2:0                                  | local function read(key)
+ 3 0->3:1 8->3:8 18->3:18 23->3:23 25->4:2 | 	return store:get(key) + store.nested.value
+ 4 0->5:0                                  | end
+ 5 -                                       | return {
+ 6 0->2:0                                  | 	read = read,
+ 7 -                                       | }
+`,
+		},
+		{
 			name:   "unicode-columns",
 			source: "const face = \"😀\"; print(\"😀\", face);\n",
 			want: ` 1 -                        | -- Compiled with sloptor vX
