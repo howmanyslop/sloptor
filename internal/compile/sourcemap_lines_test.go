@@ -551,6 +551,30 @@ print(config);
  4 -       | return nil
 `,
 		},
+		{
+			name: "crlf",
+			source: strings.ReplaceAll(`declare function register(callback: () => void): number;
+declare function use(value: unknown): void;
+
+register(() => {
+	use(1);
+});
+const handle = register(() => {
+	use(2);
+});
+use(handle);
+`, "\n", "\r\n"),
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->4:0  | register(function()
+ 3 0->5:1  | 	use(1)
+ 4 0->6:0  | end)
+ 5 0->7:0  | local handle = register(function()
+ 6 0->8:1  | 	use(2)
+ 7 0->9:0  | end)
+ 8 0->10:0 | use(handle)
+ 9 -       | return nil
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
