@@ -13,9 +13,60 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides which lanes this change needs. A skipped job still satisfies a
+  # required check, so gated lanes never leave a PR waiting.
+  changes:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    outputs:
+      documentation: ${{ steps.filter.outputs.documentation }}
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+      # Pushes are diffed with git; pull requests ask the API instead.
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - id: filter
+        name: Detect changed areas
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: some-with-excludes
+          # go fails open: Go reads include/, reference/, testdata/, the
+          # schemas, and more, so every path runs it except the ones listed
+          # here as docs-only. The site compiles the CLI to generate the
+          # command reference, so cmd/rotor runs documentation too.
+          filters: |
+            documentation:
+              - .github/workflows/ci.yaml
+              - cmd/rotor/**
+              - documentation/**
+              - mise.lock
+              - mise.toml
+              - package.json
+              - patches/**
+              - pnpm-lock.yaml
+              - pnpm-workspace.yaml
+              - tsconfig.base.json
+            go:
+              - "**"
+              - "!.github/workflows/docs.yaml"
+              - "!.github/workflows/release.yaml"
+              - "!CHANGELOG.md"
+              - "!CONTRIBUTING.md"
+              - "!README.md"
+              - "!docs/**"
+              - "!documentation/**"
+              - "!media/**"
+
+    timeout-minutes: 5
+
   # The docs site: type check, build (which regenerates the command
   # reference from the CLI), and the unit and Chromium browser tests.
   documentation:
+    needs: changes
+    if: needs.changes.outputs.documentation == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -60,6 +111,8 @@ jobs:
     timeout-minutes: 15
 
   lint:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -89,6 +142,8 @@ jobs:
     timeout-minutes: 15
 
   race:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -115,6 +170,8 @@ jobs:
   # heavy four get their own runner in test-heavy. New packages land here by
   # default; move one to test-heavy only if it belongs with the big ones.
   test:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -149,6 +206,8 @@ jobs:
   # The four heavy packages on a dedicated runner; they overlap through the
   # default -p (one lane each on 4 vCPUs) instead of queueing behind vet.
   test-heavy:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -171,6 +230,8 @@ jobs:
   # rotor binary itself (go build in test.before), so it needs the toolchain
   # and module cache too.
   test-node:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -189,6 +250,8 @@ jobs:
     timeout-minutes: 15
 
   vuln:
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
 
     steps:
@@ -217,6 +280,8 @@ jobs:
         run: govulncheck ./...
 
   windows-compile:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -248,6 +313,8 @@ jobs:
     timeout-minutes: 20
 
   windows-conformance:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -267,6 +334,8 @@ jobs:
     timeout-minutes: 20
 
   windows-flamework:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -297,6 +366,8 @@ jobs:
   # into the base lane; move a name into a -run filter only with a measured
   # duration, and keep the -skip pattern in sync with the -run filters.
   windows-flamework-differential:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -318,6 +389,8 @@ jobs:
     timeout-minutes: 20
 
   windows-flamework-pinned:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
@@ -337,6 +410,8 @@ jobs:
     timeout-minutes: 20
 
   windows-node:
+    if: needs.changes.outputs.go == 'true'
+    needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
