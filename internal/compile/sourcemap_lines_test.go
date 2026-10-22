@@ -395,6 +395,103 @@ export function attempt() {
 14 -       | }
 `,
 		},
+		{
+			name: "parameters",
+			source: `export function greet(name = "world", { loud }: { loud: boolean }) {
+	print(name, loud);
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local function greet(name, _param)
+ 3 0->1:22 | 	if name == nil then
+ 4 0->1:22 | 		name = "world"
+ 5 0->1:35 | 	end
+ 6 0->1:38 | 	local loud = _param.loud
+ 7 0->2:1  | 	print(name, loud)
+ 8 0->3:0  | end
+ 9 -       | return {
+10 0->1:0  | 	greet = greet,
+11 -       | }
+`,
+		},
+		{
+			name: "class-methods",
+			source: `export class Counter {
+	private count = 0;
+	increment(step = 1) {
+		this.count += step;
+		return this.count;
+	}
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local Counter
+ 3 0->1:0  | do
+ 4 0->1:0  | 	Counter = setmetatable({}, {
+ 5 0->1:0  | 		__tostring = function()
+ 6 0->1:0  | 			return "Counter"
+ 7 0->1:0  | 		end,
+ 8 0->1:0  | 	})
+ 9 0->1:0  | 	Counter.__index = Counter
+10 0->1:0  | 	function Counter.new(...)
+11 0->1:0  | 		local self = setmetatable({}, Counter)
+12 0->1:0  | 		return self:constructor(...) or self
+13 0->1:0  | 	end
+14 0->1:0  | 	function Counter:constructor()
+15 0->2:1  | 		self.count = 0
+16 0->1:0  | 	end
+17 0->3:1  | 	function Counter:increment(step)
+18 0->3:11 | 		if step == nil then
+19 0->3:11 | 			step = 1
+20 0->3:18 | 		end
+21 0->4:2  | 		self.count += step
+22 0->5:2  | 		return self.count
+23 0->6:1  | 	end
+24 0->7:0  | end
+25 -       | return {
+26 0->1:0  | 	Counter = Counter,
+27 -       | }
+`,
+		},
+		{
+			name: "class-ctor-static",
+			source: `export class Point {
+	static origin = 0;
+	static {
+		print("init");
+	}
+	constructor(public x: number) {
+		print(x);
+	}
+}
+`,
+			want: ` 1 -       | -- Compiled with sloptor vX
+ 2 0->1:0  | local Point
+ 3 0->1:0  | do
+ 4 0->1:0  | 	Point = setmetatable({}, {
+ 5 0->1:0  | 		__tostring = function()
+ 6 0->1:0  | 			return "Point"
+ 7 0->1:0  | 		end,
+ 8 0->1:0  | 	})
+ 9 0->1:0  | 	Point.__index = Point
+10 0->1:0  | 	function Point.new(...)
+11 0->1:0  | 		local self = setmetatable({}, Point)
+12 0->1:0  | 		return self:constructor(...) or self
+13 0->1:0  | 	end
+14 0->6:1  | 	function Point:constructor(x)
+15 0->6:13 | 		self.x = x
+16 0->7:2  | 		print(x)
+17 0->8:1  | 	end
+18 0->2:1  | 	Point.origin = 0
+19 0->3:1  | 	do
+20 0->4:2  | 		print("init")
+21 0->5:1  | 	end
+22 0->9:0  | end
+23 -       | return {
+24 0->1:0  | 	Point = Point,
+25 -       | }
+`,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
