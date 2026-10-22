@@ -5,6 +5,27 @@ import "testing"
 func TestSourceMapColumns(t *testing.T) {
 	tests := []struct{ name, source, want string }{
 		{
+			name: "nullish",
+			source: `export function pick(a: string | undefined, b: string) {
+	const value = a ?? b;
+	return value;
+}
+`,
+			want: ` 1 -               | -- Compiled with sloptor vX
+ 2 0->1:0          | local function pick(a, b)
+ 3 0->2:1 20->2:15 | 	local _condition = a
+ 4 0->2:1 4->2:17  | 	if _condition == nil then
+ 5 0->2:20         | 		_condition = b
+ 6 0->2:21         | 	end
+ 7 0->2:1 15->2:15 | 	local value = _condition
+ 8 0->3:1 8->3:8   | 	return value
+ 9 0->4:0          | end
+10 -               | return {
+11 0->1:0          | 	pick = pick,
+12 -               | }
+`,
+		},
+		{
 			name: "temporaries",
 			source: `export function bump(state: { value: number }) {
 	const previous = state.value++;
