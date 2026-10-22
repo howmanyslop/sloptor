@@ -71,6 +71,7 @@ func BenchmarkSourceMapLarge(b *testing.B) {
 		return transformer.NewState(program, checker, sourceFile, transformer.NewDiagService(), transformer.NewMultiState())
 	}
 	state := newState()
+	state.SourceMapEnabled = true
 	statements := transformer.TransformSourceFile(state)
 	if state.Diags.HasErrors() {
 		b.Fatalf("transform diagnostics: %v", state.Diags.Flush())

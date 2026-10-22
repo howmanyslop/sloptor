@@ -1,1 +1,1 @@
-{"version":3,"file":"alpha.luau","sources":["../src/alpha.ts"],"sourcesContent":["import type { Beta } from \"@performance/beta\";\r\n\r\nexport const alpha: Beta = { label: \"alpha\", weight: 1 };\r\n"],"mappings":";AAEA;AAAA;AAAA;AAAA;;AAAA"}
+{"version":3,"file":"alpha.luau","sources":["../src/alpha.ts"],"sourcesContent":["import type { Beta } from \"@performance/beta\";\r\n\r\nexport const alpha: Beta = { label: \"alpha\", weight: 1 };\r\n"],"mappings":";AAEA,cAA2B;AAAE,SAAO;AAAS,UAAQ;AAA1B;;AAA3B"}

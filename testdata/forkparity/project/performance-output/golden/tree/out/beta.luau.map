@@ -1,1 +1,1 @@
-{"version":3,"file":"beta.luau","sources":["../src/beta.ts"],"sourcesContent":["export interface Beta {\r\n  label: string;\r\n  weight: number;\r\n}\r\n\r\nexport const beta: Beta = { label: \"beta\", weight: 2 };\r\n"],"mappings":";AAKA;AAAA;AAAA;AAAA;;AAAA"}
+{"version":3,"file":"beta.luau","sources":["../src/beta.ts"],"sourcesContent":["export interface Beta {\r\n  label: string;\r\n  weight: number;\r\n}\r\n\r\nexport const beta: Beta = { label: \"beta\", weight: 2 };\r\n"],"mappings":";AAKA,aAA0B;AAAE,SAAO;AAAQ,UAAQ;AAAzB;;AAA1B"}

@@ -136,7 +136,7 @@ func TestSourceMapRuntimeHeaders(t *testing.T) {
 				mappings := decodeSourceMapLines(t, string(mapBytes))
 				for line, content := range strings.Split(text, "\n") {
 					if strings.Contains(content, "exports.current = nil") || strings.TrimSpace(content) == "value = value," {
-						if len(mappings[line]) != 1 || !mappings[line][0].IsSourceMapping() {
+						if len(mappings[line]) == 0 || mappings[line][0].GeneratedCharacter != 0 || !mappings[line][0].IsSourceMapping() {
 							t.Errorf("export value at line %d lost its source mapping", line+1)
 						}
 					}

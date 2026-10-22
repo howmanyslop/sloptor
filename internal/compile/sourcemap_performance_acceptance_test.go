@@ -16,23 +16,23 @@ func TestSourceMapPerformanceGoldens(t *testing.T) {
 		t.Fatalf("build: %v (diagnostics: %v)", err, diags)
 	}
 	for _, test := range []struct{ name, want string }{
-		{"alpha", ` 1 -      | -- Compiled with sloptor vX
- 2 0->3:0 | local alpha = {
- 3 0->3:0 | 	label = "alpha",
- 4 0->3:0 | 	weight = 1,
- 5 0->3:0 | }
- 6 -      | return {
- 7 0->3:0 | 	alpha = alpha,
- 8 -      | }
+		{"alpha", ` 1 -                | -- Compiled with sloptor vX
+ 2 0->3:0 14->3:27  | local alpha = {
+ 3 0->3:29 9->3:36  | 	label = "alpha",
+ 4 0->3:45 10->3:53 | 	weight = 1,
+ 5 0->3:27          | }
+ 6 -                | return {
+ 7 0->3:0           | 	alpha = alpha,
+ 8 -                | }
 `},
-		{"beta", ` 1 -      | -- Compiled with sloptor vX
- 2 0->6:0 | local beta = {
- 3 0->6:0 | 	label = "beta",
- 4 0->6:0 | 	weight = 2,
- 5 0->6:0 | }
- 6 -      | return {
- 7 0->6:0 | 	beta = beta,
- 8 -      | }
+		{"beta", ` 1 -                | -- Compiled with sloptor vX
+ 2 0->6:0 13->6:26  | local beta = {
+ 3 0->6:28 9->6:35  | 	label = "beta",
+ 4 0->6:43 10->6:51 | 	weight = 2,
+ 5 0->6:26          | }
+ 6 -                | return {
+ 7 0->6:0           | 	beta = beta,
+ 8 -                | }
 `},
 	} {
 		t.Run(test.name, func(t *testing.T) {

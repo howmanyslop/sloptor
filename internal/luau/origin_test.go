@@ -68,3 +68,20 @@ func TestWithOriginClonesWithoutParent(t *testing.T) {
 		t.Fatal("cloning mutated the original node")
 	}
 }
+
+func TestOriginFieldsFillIndependently(t *testing.T) {
+	node := NewAssignment(ID("x"), "+=", Num(1))
+	operator := &Position{Column: 2}
+	partial := &Origin{Operator: operator, StartUnset: true}
+	SetOrigin(node, partial)
+	closing := &Position{Column: 6}
+	SetOrigin(node, &Origin{Start: Position{}, Closing: closing})
+	SetOrigin(node, &Origin{Start: Position{Line: 9}, Operator: &Position{Line: 9}})
+	got := node.Origin()
+	if got.StartUnset || got.Start != (Position{}) || got.Closing != closing || got.Operator != operator {
+		t.Fatalf("per-field anchors = %+v; want start 0:0 and original operator/closing", got)
+	}
+	if !partial.StartUnset || partial.Closing != nil {
+		t.Fatal("filling mutated a shared partial origin")
+	}
+}

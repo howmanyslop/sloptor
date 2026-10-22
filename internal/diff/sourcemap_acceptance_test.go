@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"rotor/internal/compile"
 	"rotor/internal/forkparity"
@@ -25,6 +26,7 @@ type sourceMapCorpusFile struct {
 	spans   []sourceStatementSpan
 	exports map[string]sourceStatementSpan
 	marked  string
+	source  string
 }
 
 const sourceMapGroupMarker = "__source_map_statement_"
@@ -42,7 +44,7 @@ func markSourceMapStatements(t *testing.T, path, text string) sourceMapCorpusFil
 	if len(file.Diagnostics()) != 0 {
 		t.Fatalf("parse %s: %v", path, file.Diagnostics())
 	}
-	result := sourceMapCorpusFile{exports: map[string]sourceStatementSpan{}}
+	result := sourceMapCorpusFile{exports: map[string]sourceStatementSpan{}, source: text}
 	var marked strings.Builder
 	previous := 0
 	for index, statement := range file.Statements.Nodes {
@@ -235,6 +237,7 @@ func TestDifferentialSourceMapCoverage(t *testing.T) {
 				t.Fatal(err)
 			}
 			lines := strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+			sourceLines := strings.Split(files[name].source, "\n")
 			exportWrapper := false
 			for line, content := range lines {
 				trimmed := strings.TrimSpace(content)
@@ -252,16 +255,37 @@ func TestDifferentialSourceMapCoverage(t *testing.T) {
 					}
 					continue
 				}
-				if len(mappings) != 1 || mappings[0].GeneratedCharacter != 0 || !mappings[0].IsSourceMapping() {
-					t.Errorf("Luau line %d needs one sourced column-zero segment: %q, got %+v", line+1, content, mappings)
+				if len(mappings) == 0 || mappings[0].GeneratedCharacter != 0 || !mappings[0].IsSourceMapping() {
+					t.Errorf("Luau line %d needs a sourced column-zero segment: %q, got %+v", line+1, content, mappings)
 					continue
 				}
 				mappedLines++
 				span, found := groups[line]
 				if !found {
 					t.Errorf("no independently derived TS statement for Luau line %d: %q", line+1, content)
-				} else if original := mappings[0].SourceLine; original < span.first || original > span.last {
-					t.Errorf("Luau line %d (%q) maps to TS %d, outside producing statement %d..%d", line+1, content, original+1, span.first+1, span.last+1)
+				}
+				for index, mapping := range mappings {
+					if !mapping.IsSourceMapping() || mapping.SourceIndex != 0 {
+						t.Errorf("Luau line %d has an invalid source reference: %+v", line+1, mapping)
+						continue
+					}
+					if found && (mapping.SourceLine < span.first || mapping.SourceLine > span.last) {
+						t.Errorf("Luau line %d column %d (%q) maps to TS %d, outside producing statement %d..%d", line+1, mapping.GeneratedCharacter, content, mapping.SourceLine+1, span.first+1, span.last+1)
+					}
+					if int(mapping.GeneratedCharacter) > len(utf16.Encode([]rune(content))) ||
+						mapping.SourceLine < 0 || mapping.SourceLine >= len(sourceLines) ||
+						int(mapping.SourceCharacter) > len(utf16.Encode([]rune(sourceLines[mapping.SourceLine]))) {
+						t.Errorf("segment exceeds UTF-16 line bounds: %+v", mapping)
+					}
+					if index > 0 {
+						previous := mappings[index-1]
+						if mapping.GeneratedCharacter <= previous.GeneratedCharacter {
+							t.Errorf("expression/operator segment overlaps column zero or a previous segment: %+v", mapping)
+						}
+						if mapping.SourceLine == previous.SourceLine && mapping.SourceCharacter == previous.SourceCharacter {
+							t.Errorf("redundant adjacent source positions: %+v, %+v", previous, mapping)
+						}
+					}
 				}
 			}
 			for line := range segments {

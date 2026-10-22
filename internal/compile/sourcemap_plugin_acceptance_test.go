@@ -29,6 +29,24 @@ func TestSourceMapTraceRetainsGeneratedOnlyLines(t *testing.T) {
 	assertSourceMapContract(t, "injected()\nfirst()\nlast()\n", rewritten, "first();\nlast();\n")
 }
 
+func TestSourceMapTraceDeduplicatesComposedPositions(t *testing.T) {
+	trace, err := newSourceTraceMap(`{"version":3,"mappings":"AAAA;AACA"}`, "/authored.ts", "first();\nlast();\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := `{"version":3,"file":"main.luau","sources":["/printed.ts"],"sourcesContent":["first();\nlast();\n"],"mappings":"AAAA,KAAK,KAAK;AACV"}`
+	rewritten, err := rewriteSourceMapWithTrace(raw, trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const want = ` 1 0->1:0 | first()
+ 2 0->2:0 | last()
+`
+	if got := annotateSourceMap("first()\nlast()\n", rewritten); got != want {
+		t.Errorf("composed source map:\ngot:\n%swant:\n%s", got, want)
+	}
+}
+
 func TestSourceMapFlameworkNestedCallbacks(t *testing.T) {
 	// Use the real legacy plugin project, copied to a temporary directory with
 	// its installed dependencies linked, just as the plugin integration suite does.
@@ -109,8 +127,8 @@ export class TestService implements OnStart {
 			t.Errorf("callback line %d = %q, want %q", offset+1, got, expected.text)
 		}
 		segments := mappings[line]
-		if len(segments) != 1 {
-			t.Errorf("callback Luau line %d has %d segments, want one", line+1, len(segments))
+		if len(segments) == 0 || segments[0].GeneratedCharacter != 0 {
+			t.Errorf("callback Luau line %d has no column-zero segment", line+1)
 			continue
 		}
 		if !segments[0].IsSourceMapping() || segments[0].SourceLine+1 != expected.line {
