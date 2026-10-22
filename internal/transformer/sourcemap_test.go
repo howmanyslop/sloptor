@@ -199,6 +199,32 @@ func TestRenderWithSourceMapUsesEndAnchorForBlockEnd(t *testing.T) {
 	}
 }
 
+func TestRenderWithSourceMapCoversNestedSyntheticGaps(t *testing.T) {
+	state, sourceFile, _ := sourceMapFixture()
+	call := func() luau.Statement {
+		return luau.NewCallStatement(luau.NewCall(luau.ID("fallback"), luau.NewList[luau.Expression]()))
+	}
+	table := luau.NewMap(luau.NewList(luau.NewMapField(luau.Str("x"), luau.Num(1))))
+	condition := luau.NewIf(luau.Bool(true), luau.NewList[luau.Statement](
+		luau.NewVariableDeclaration(luau.ID("record"), table),
+		luau.NewVariableDeclaration(luau.ID("text"), luau.Str("first\ncontinuation")),
+		luau.NewDo(luau.NewList(call())),
+	), luau.NewList(call()))
+	luau.SetOrigin(condition, &luau.Origin{Start: luau.Position{Line: 20, Column: 4}})
+	outer := luau.NewDo(luau.NewList[luau.Statement](luau.NewDo(luau.NewList[luau.Statement](condition))))
+	luau.SetOrigin(outer, &luau.Origin{Start: luau.Position{Line: 10, Column: 2}, Closing: &luau.Position{Line: 90, Column: 1}})
+	statements := luau.NewList[luau.Statement](outer, luau.NewReturn(luau.Nil()))
+	text, mapJSON := state.RenderWithSourceMap(statements, sourceFile)
+	wantText := "do\n\tdo\n\t\tif true then\n\t\t\tlocal record = {\n\t\t\t\tx = 1,\n\t\t\t}\n\t\t\tlocal text = [[first\ncontinuation]]\n\t\t\tdo\n\t\t\t\tfallback()\n\t\t\tend\n\t\telse\n\t\t\tfallback()\n\t\tend\n\tend\nend\nreturn nil\n"
+	if text != wantText {
+		t.Fatalf("text = %q, want %q", text, wantText)
+	}
+	assertSourceMapLines(t, text, mapJSON, []string{
+		"10:2", "10:2", "20:4", "20:4", "20:4", "20:4", "20:4", "20:4",
+		"20:4", "20:4", "20:4", "20:4", "20:4", "20:4", "10:2", "90:1", "-",
+	})
+}
+
 func sourceMapFixture() (*State, *ast.SourceFile, *luau.List[luau.Statement]) {
 	sourceFile := parser.ParseSourceFile(ast.SourceFileParseOptions{
 		FileName: "/test.ts", Path: tspath.Path("/test.ts"),

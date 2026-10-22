@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"rotor/internal/luau"
 	"rotor/internal/luau/render"
@@ -41,6 +42,7 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 			positions[r.Closing.Line] = origin.Closing
 		}
 	}
+	addSourceMapCoverage(text, ranges, positions)
 	mappings := make([]sourceMapMapping, 0, len(positions))
 	for line, position := range positions {
 		if position != nil {
@@ -64,6 +66,60 @@ func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourc
 		panic(err)
 	}
 	return text, string(encoded)
+}
+
+func sourceMapPositionBefore(a, b luau.Position) bool {
+	return a.Line < b.Line || a.Line == b.Line && a.Column < b.Column
+}
+
+func addSourceMapCoverage(text string, ranges []render.Range, positions []*luau.Position) {
+	type openRange struct {
+		end     luau.Position
+		origin  *luau.Origin
+		comment bool
+	}
+	stack := []openRange{}
+	nextRange, lineNumber := 0, 0
+	for line := range strings.SplitSeq(text, "\n") {
+		lineIndex := lineNumber
+		lineNumber++
+		if positions[lineIndex] != nil {
+			continue
+		}
+		column, nonBlank := 0, false
+		for _, r := range line {
+			if !unicode.IsSpace(r) {
+				nonBlank = true
+				break
+			}
+			column++
+		}
+		if !nonBlank {
+			continue
+		}
+		point := luau.Position{Line: lineIndex, Column: column}
+		for nextRange < len(ranges) && !sourceMapPositionBefore(point, ranges[nextRange].Start) {
+			r := ranges[nextRange]
+			nextRange++
+			for len(stack) > 0 && !sourceMapPositionBefore(r.Start, stack[len(stack)-1].end) {
+				stack = stack[:len(stack)-1]
+			}
+			origin := r.Node.Origin()
+			if origin == nil && len(stack) > 0 {
+				origin = stack[len(stack)-1].origin
+			}
+			_, comment := r.Node.(*luau.Comment)
+			stack = append(stack, openRange{end: r.End, origin: origin, comment: comment})
+		}
+		for len(stack) > 0 && !sourceMapPositionBefore(point, stack[len(stack)-1].end) {
+			stack = stack[:len(stack)-1]
+		}
+		if len(stack) > 0 && !stack[len(stack)-1].comment {
+			if origin := stack[len(stack)-1].origin; origin != nil {
+				positions[lineIndex] = &origin.Start
+			}
+		}
+	}
 }
 
 func encodeSourceMapMappings(mappings []sourceMapMapping) string {
