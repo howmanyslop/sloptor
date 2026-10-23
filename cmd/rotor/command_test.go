@@ -13,16 +13,8 @@ import (
 func cmdBuild(args []string) int       { return run(append([]string{"build"}, args...)) }
 func cmdCheck(args []string) int       { return run(append([]string{"check"}, args...)) }
 func cmdDiagnostics(args []string) int { return run(append([]string{"diagnostics"}, args...)) }
-func cmdMinify(args []string) int      { return run(append([]string{"minify"}, args...)) }
-func cmdBundle(args []string) int      { return run(append([]string{"bundle"}, args...)) }
-func cmdPack(args []string) int        { return run(append([]string{"pack"}, args...)) }
-func cmdInit(args []string) int        { return run(append([]string{"init"}, args...)) }
 func cmdSchema(args []string) int      { return run(append([]string{"schema"}, args...)) }
-func cmdSourcemap(args []string) int   { return run(append([]string{"sourcemap"}, args...)) }
-func cmdAsset(args []string) int       { return run(append([]string{"asset"}, args...)) }
-func cmdDeploy(args []string) int      { return run(append([]string{"deploy"}, args...)) }
 func cmdClean(args []string) int       { return run(append([]string{"clean"}, args...)) }
-func cmdAdd(args []string) int         { return run(append([]string{"add"}, args...)) }
 
 // parseCommandFlags runs Cobra's flag parsing (including legacy --no-*
 // normalization) against a bare command and returns the positional args.

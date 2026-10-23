@@ -169,8 +169,6 @@ func TestRuntimePolicyWatchInvocations(t *testing.T) {
 		{"check", []string{"check", "-w"}, true},
 		{"check json", []string{"check", "-w", "--json"}, true},
 		{"check watch false", []string{"check", "--watch=false"}, false},
-		{"dev", []string{"dev", "--no-serve"}, true},
-		{"dev forces watch", []string{"dev", "--no-serve", "--watch=false"}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			runtimePolicyTestBaseline(t)

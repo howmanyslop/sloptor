@@ -488,60 +488,6 @@ func DiagRotorEnvBadUsage(node *ast.Node) Diagnostic {
 	)
 }
 
-// DiagRotorAssetNonLiteralArg rejects a dynamic $asset path — the macro
-// resolves and inlines the asset id at compile time, so the path must be a
-// string literal (rotor extension; see assetmacro.go).
-func DiagRotorAssetNonLiteralArg(node *ast.Node) Diagnostic {
-	return errorDiag("rotorAssetNonLiteralArg", node,
-		"rotor: $asset path must be a string literal — the asset id is resolved and inlined at compile time",
-		suggestion("Use `$asset(\"assets/logo.png\")`."),
-	)
-}
-
-// DiagRotorAssetBadUsage rejects $asset in any position other than a direct
-// call (e.g. `const x = $asset`) — the macro identifier has no runtime value
-// to emit (rotor extension).
-func DiagRotorAssetBadUsage(node *ast.Node) Diagnostic {
-	return errorDiag("rotorAssetBadUsage", node,
-		"rotor: $asset must be called as `$asset(\"path/to/file.png\")`",
-	)
-}
-
-// DiagRotorAssetNotCached rejects a $asset reference whose file has no entry
-// in rotor-lock.json and could not be uploaded (no ROBLOX_API_KEY at build
-// time). The id cannot be inlined offline (rotor extension).
-func DiagRotorAssetNotCached(node *ast.Node, path string) Diagnostic {
-	return errorDiag("rotorAssetNotCached", node,
-		fmt.Sprintf("rotor: asset %q is not synced and cannot be uploaded offline", path),
-		suggestion("Run `rotor asset sync`, or set ROBLOX_API_KEY so the build can upload it."),
-	)
-}
-
-// DiagRotorAssetFileNotFound rejects a $asset reference to a file that does
-// not exist on disk (rotor extension).
-func DiagRotorAssetFileNotFound(node *ast.Node, path string) Diagnostic {
-	return errorDiag("rotorAssetFileNotFound", node,
-		fmt.Sprintf("rotor: asset file %q does not exist", path),
-	)
-}
-
-// DiagRotorAssetResolveFailed carries a non-sentinel resolver error (e.g. an
-// Open Cloud upload failure) as a clear $asset diagnostic (rotor extension).
-func DiagRotorAssetResolveFailed(node *ast.Node, path string, message string) Diagnostic {
-	return errorDiag("rotorAssetResolveFailed", node,
-		fmt.Sprintf("rotor: could not resolve asset %q: %s", path, message),
-	)
-}
-
-// DiagRotorAssetNoResolver guards $asset use in a State without an attached
-// asset resolver (transformer-level unit tests, or a single-file path that
-// never set State.Assets). Upstream has no $asset macro, so no counterpart.
-func DiagRotorAssetNoResolver(node *ast.Node) Diagnostic {
-	return errorDiag("rotorAssetNoResolver", node,
-		"rotor: $asset requires project context (no asset resolver attached)",
-	)
-}
-
 // $nameof (rotor extension; see nameofmacro.go)
 
 // DiagRotorNameofInvalid rejects a $nameof argument that has no statically-
@@ -622,41 +568,6 @@ func DiagRotorFileInvalidJSON(node *ast.Node, path string, message string) Diagn
 func DiagRotorFileNoResolver(node *ast.Node) Diagnostic {
 	return errorDiag("rotorFileNoResolver", node,
 		"rotor: $file requires project context (no file resolver attached)",
-	)
-}
-
-// $git / $buildTime (rotor extension; see gitmacro.go)
-
-// DiagRotorGitNonLiteralArg rejects a dynamic $git field — the macro inlines a
-// build-time value, so the field must be a string literal.
-func DiagRotorGitNonLiteralArg(node *ast.Node) Diagnostic {
-	return errorDiag("rotorGitNonLiteralArg", node,
-		"rotor: $git field must be a string literal — the value is inlined at compile time",
-		suggestion("Use `$git(\"sha\")`, `$git(\"branch\")`, `$git(\"tag\")`, or `$git(\"dirty\")`."),
-	)
-}
-
-// DiagRotorGitBadField rejects a $git field name outside the supported set
-// (defensive — the ambient overloads already restrict it).
-func DiagRotorGitBadField(node *ast.Node, field string) Diagnostic {
-	return errorDiag("rotorGitBadField", node,
-		fmt.Sprintf("rotor: unknown $git field %q", field),
-		suggestion("Valid fields: \"sha\", \"branch\", \"tag\", \"dirty\"."),
-	)
-}
-
-// DiagRotorGitBadUsage rejects $git in any position other than a direct call.
-func DiagRotorGitBadUsage(node *ast.Node) Diagnostic {
-	return errorDiag("rotorGitBadUsage", node,
-		"rotor: $git must be called as `$git(\"sha\"|\"branch\"|\"tag\"|\"dirty\")`",
-	)
-}
-
-// DiagRotorBuildTimeBadUsage rejects $buildTime in any position other than a
-// direct zero-argument call.
-func DiagRotorBuildTimeBadUsage(node *ast.Node) Diagnostic {
-	return errorDiag("rotorBuildTimeBadUsage", node,
-		"rotor: $buildTime must be called as `$buildTime()`",
 	)
 }
 

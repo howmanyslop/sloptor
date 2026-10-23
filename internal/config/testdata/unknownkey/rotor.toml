@@ -1,8 +1,0 @@
-#:schema ./rotor.schema.json
-
-# "analytics" is not a known section; it must warn (forward-compat), not fail.
-analytics = "enabled"
-
-[assets.creator]
-type = "user"
-id = 1

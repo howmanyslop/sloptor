@@ -83,6 +83,7 @@ const (
 	solutionWatchConfig
 	solutionWatchPackageFile
 	solutionWatchPackageDirectory
+	solutionWatchMacro
 )
 
 // solutionWatchKey names one watch: a project's root or Rojo directory, or
@@ -103,7 +104,7 @@ func (key solutionWatchKey) directory() (string, bool) {
 }
 
 func (key solutionWatchKey) fileWatch() bool {
-	return key.kind == solutionWatchConfig || key.kind == solutionWatchPackageFile
+	return key.kind == solutionWatchConfig || key.kind == solutionWatchPackageFile || key.kind == solutionWatchMacro
 }
 
 // addWatchError records paths and watch errors, and reports whether the
@@ -258,6 +259,9 @@ func solutionWatchKeys(sets []compile.SolutionWatchSet) []solutionWatchKey {
 	keys := []solutionWatchKey{}
 	artifacts := solutionArtifactDirectories(sets)
 	for _, set := range sets {
+		for _, path := range set.MacroFiles {
+			keys = append(keys, solutionWatchKey{kind: solutionWatchMacro, project: set.ProjectPath, path: path})
+		}
 		if set.PackageInputs != nil {
 			for _, path := range set.PackageInputs.Files {
 				keys = append(keys, solutionWatchKey{kind: solutionWatchPackageFile, project: set.ProjectPath, path: path})
@@ -423,6 +427,9 @@ func runBuildSolutionWatchLoop(ctx context.Context, tsConfigPath string, opts pr
 				s.addRojo(key, events, watchErr)
 			case solutionWatchPackageFile, solutionWatchPackageDirectory:
 				s.addPackageInputs(key, events, watchErr)
+			case solutionWatchMacro:
+				s.addWatchError(key, events, watchErr)
+				s.projects[key.project] = struct{}{}
 			default:
 				s.addConfig(key, events, watchErr)
 			}

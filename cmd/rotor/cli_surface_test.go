@@ -17,6 +17,31 @@ func runCLI(t *testing.T, args ...string) (int, string, string) {
 	return code, out.String(), errOut.String()
 }
 
+func TestCompilerOnlyCommands(t *testing.T) {
+	root := newRootCommand(cliStreams{})
+	var commands []string
+	for _, cmd := range root.Commands() {
+		if !cmd.Hidden {
+			commands = append(commands, cmd.Name())
+		}
+	}
+	if got := strings.Join(commands, ","); got != "build,check,clean,completion,diagnostics,schema,version" {
+		t.Fatalf("public commands = %s", got)
+	}
+	for _, name := range []string{"bundle", "minify", "pack", "dev", "sourcemap", "asset", "deploy", "init", "add", "doctor", "migrate"} {
+		t.Run(name, func(t *testing.T) {
+			code, out, errOut := runCLI(t, name)
+			if code != 1 || out != "" || !strings.Contains(errOut, "unknown command") {
+				t.Fatalf("removed command = (%d, %q, %q)", code, out, errOut)
+			}
+		})
+	}
+	code, _, errOut := runCLI(t, "build", "--minify")
+	if code != 1 || !strings.Contains(errOut, "unknown flag: --minify") {
+		t.Fatalf("removed build flag = (%d, %q)", code, errOut)
+	}
+}
+
 // TestRootHelpRendersCargoStyleLayout pins the custom help renderer: a
 // sloptor identity line, grouped command sections, an aligned Environment
 // table, and no stock Cobra blocks.
@@ -26,10 +51,10 @@ func TestRootHelpRendersCargoStyleLayout(t *testing.T) {
 		t.Fatalf("--help exit = %d, stderr: %s", code, errOut)
 	}
 	for _, want := range []string{
-		"sloptor — an all-in-one Roblox toolchain",
+		"sloptor — a native TypeScript-to-Luau compiler for Roblox",
 		"Usage:",
 		"Options:",
-		"Compile & check", "Project & deps", "Cloud", "Other",
+		"Compile & check", "Other",
 		"build", "check", "completion", "version",
 		"Environment:",
 		"RBXTSC_WRITE_CONCURRENCY",
@@ -47,27 +72,6 @@ func TestRootHelpRendersCargoStyleLayout(t *testing.T) {
 		if strings.Contains(out, banned) {
 			t.Errorf("root help contains stock Cobra text %q:\n%s", banned, out)
 		}
-	}
-	// Groups render in defined order with their commands: the first command
-	// under Compile & check is build (marquee command first), and the Cloud
-	// group lists asset before deploy.
-	compile := out[strings.Index(out, "Compile & check"):]
-	compile = compile[:strings.Index(compile, "Project & deps")]
-	lines := strings.Split(compile, "\n")
-	var firstCmd string
-	for _, line := range lines {
-		if strings.HasPrefix(line, "    ") { // command rows, not the group heading
-			firstCmd, _, _ = strings.Cut(strings.TrimSpace(line), " ")
-			break
-		}
-	}
-	if firstCmd != "build" {
-		t.Errorf("first command under Compile & check = %q, want build:\n%s", firstCmd, compile)
-	}
-	cloud := out[strings.Index(out, "Cloud"):]
-	cloud = cloud[:strings.Index(cloud, "Options:")]
-	if strings.Index(cloud, "asset") > strings.Index(cloud, "deploy") {
-		t.Errorf("Cloud group does not list asset before deploy:\n%s", cloud)
 	}
 }
 

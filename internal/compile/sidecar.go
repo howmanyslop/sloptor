@@ -1356,12 +1356,7 @@ func parseProjectCommandLine(dir, configPath string, fs vfs.FS, checkers *int, s
 	declPath := envDeclPath(configPath)
 	fs = injectEnvDeclFS(fs, declPath)
 
-	// ... and likewise the synthetic $asset ambient declaration (assetdecl.go).
-	assetDecl := assetDeclPath(configPath)
-	fs = injectAssetDeclFS(fs, assetDecl)
-
-	// ... and the shared synthetic declaration for the $nameof / $keys / $file /
-	// $git / $buildTime macros (macrodecl.go).
+	// ... and the shared $nameof / $keys / $file declaration (macrodecl.go).
 	macroDecl := macroDeclPath(configPath)
 	fs = injectMacroDeclFS(fs, macroDecl)
 
@@ -1394,12 +1389,7 @@ func parseProjectCommandLine(dir, configPath string, fs vfs.FS, checkers *int, s
 	if !projectDeclaresEnvOnDisk(fs, parsed.ParsedConfig.FileNames) {
 		parsed.ParsedConfig.FileNames = append(parsed.ParsedConfig.FileNames, declPath)
 	}
-	// Likewise for $asset (skipped when an identical on-disk rotor-asset.d.ts
-	// is already a root file — see projectDeclaresAssetOnDisk).
-	if !projectDeclaresAssetOnDisk(fs, parsed.ParsedConfig.FileNames) {
-		parsed.ParsedConfig.FileNames = append(parsed.ParsedConfig.FileNames, assetDecl)
-	}
-	// Likewise for the shared $nameof / $keys / $file / $git / $buildTime
+	// Likewise for the shared $nameof / $keys / $file
 	// declaration (skipped when an identical on-disk rotor-macros.d.ts is
 	// already a root file — see projectDeclaresMacrosOnDisk).
 	if !projectDeclaresMacrosOnDisk(fs, parsed.ParsedConfig.FileNames) {

@@ -339,24 +339,6 @@ func (u *ui) statusWord(s eventStatus) string {
 	}
 }
 
-// okLine prints a generic success row: ✓ + bold headline + muted detail.
-// The shared shape for every command's "work done" summary line.
-func (u *ui) okLine(headline, detail string) {
-	g := u.s.Glyphs()
-	line := fmt.Sprintf("  %s  %s", u.s.SuccessBold(g.Check), u.s.Bold(headline))
-	if detail != "" {
-		line += "  " + u.s.Muted(detail)
-	}
-	fmt.Fprintln(u.w, line)
-}
-
-// failLine prints a generic failure row: ✗ + bold message. The shared shape
-// for every command's operational-error rendering (callers still exit 1).
-func (u *ui) failLine(msg string) {
-	g := u.s.Glyphs()
-	fmt.Fprintf(u.w, "  %s  %s\n", u.s.ErrorBold(g.Cross), u.s.Bold(msg))
-}
-
 // noteLine prints a muted arrow row for secondary facts (generated files,
 // artifact paths).
 func (u *ui) noteLine(msg string) {
@@ -365,18 +347,6 @@ func (u *ui) noteLine(msg string) {
 }
 
 // --- small formatting helpers ---
-
-// formatBytes renders a byte count compactly (B / KB / MB, one decimal).
-func formatBytes(n int) string {
-	switch {
-	case n >= 1<<20:
-		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
-	case n >= 1<<10:
-		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
-	default:
-		return fmt.Sprintf("%d B", n)
-	}
-}
 
 func plural(n int, noun string) string {
 	if n == 1 {

@@ -1,9 +1,8 @@
 {
 	"name": "@rotor-rbx/rotor",
 	"version": "2.9.0-beta.1",
-	"description": "All-in-one Roblox toolchain with a typed JavaScript client and native roblox-ts compiler.",
+	"description": "Native TypeScript-to-Luau compiler for Roblox with a typed JavaScript client.",
 	"keywords": [
-		"bundler",
 		"compiler",
 		"luau",
 		"roblox",

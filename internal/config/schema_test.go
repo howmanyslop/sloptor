@@ -1,10 +1,40 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestSchemaOnlyAdvertisesCompilerSettings(t *testing.T) {
+	var schema struct {
+		Properties           map[string]json.RawMessage `json:"properties"`
+		AdditionalProperties bool                       `json:"additionalProperties"`
+	}
+	if err := json.Unmarshal([]byte(Schema), &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.AdditionalProperties || len(schema.Properties) != 2 || schema.Properties["flamework"] == nil || schema.Properties["parallelTransformers"] == nil {
+		t.Fatalf("unexpected compiler schema: %s", Schema)
+	}
+}
+
+func TestLoadCompilerSettingsAndWarnOnRemovedSections(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, ConfigFileName, "[flamework]\nidGenerationMode = 'full'\n[parallelTransformers]\nworkers = 2\n[assets]\nmode = 'macro'\n[deploy]\nunused = true\n")
+	cfg, err := Load(dir)
+	if err != nil || cfg.Flamework == nil || cfg.ParallelTransformers == nil || len(cfg.Warnings) == 0 {
+		t.Fatalf("load = (%+v, %v)", cfg, err)
+	}
+	writeConfigFile(t, dir, "rotor.config.js", "throw new Error('must never execute');")
+	if err := os.Remove(filepath.Join(dir, ConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(dir); err != ErrNotFound {
+		t.Fatalf("legacy executable config = %v, want ErrNotFound", err)
+	}
+}
 
 // writeConfigFile writes content to dir/name, creating parent dirs.
 func writeConfigFile(t *testing.T, dir, name, content string) {

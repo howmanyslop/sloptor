@@ -46,6 +46,10 @@ local BINARY_FILES =
     "**/*.{pdf,zip}",
   )
 
+// Patch context and upstream overlay payloads must survive byte-for-byte.
+// In particular, spelling fixes must not rewrite third-party license notices.
+local MIRROR_INPUTS = List("tools/mirror/patches/**", "tools/mirror/overlay/**")
+
 // Windows runs these hooks under cmd.exe, which shapes two choices below:
 // - Builtins whose commands are `sh` snippets (gitleaks, typos, shfmt) run through
 //   scripts/check-hook-tools.ts instead, which also keeps gitleaks scans parallel.
@@ -55,10 +59,10 @@ local BINARY_FILES =
 local fileChecks = new Mapping<String, Step> {
   // Hygiene.
   ["trailing-whitespace"] = (Builtins.trailing_whitespace) {
-    exclude = BINARY_FILES
+    exclude = BINARY_FILES + MIRROR_INPUTS
   }
   ["final-newline"] = (Builtins.newlines) {
-    exclude = BINARY_FILES
+    exclude = BINARY_FILES + MIRROR_INPUTS
   }
   ["merge-conflicts"] = Builtins.check_merge_conflict
   ["private-keys"] = Builtins.detect_private_key
@@ -74,7 +78,7 @@ local fileChecks = new Mapping<String, Step> {
     }
   }
   ["typos"] = (Builtins.typos) {
-    exclude = BINARY_FILES
+    exclude = BINARY_FILES + MIRROR_INPUTS
     check = new CommandSpec {
       command = new Command {
         argv = List("bun", "run", "scripts/check-hook-tools.ts", "typos", "{{files}}")

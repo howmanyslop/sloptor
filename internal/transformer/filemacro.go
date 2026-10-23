@@ -16,7 +16,7 @@ import (
 //	$file("config.json")  -> { Volume = 0.8, Name = "Game" }   (a Luau table)
 //	$file("./notes.txt")  -> "raw text contents"               (a Luau string)
 //
-// The single string-literal argument is a path resolved like $asset: relative
+// The single string-literal argument is a path resolved from the project or importer: relative
 // to the project root, or relative to the importing file when it begins with
 // `./` or `../`. The file's contents are parsed at compile time and inlined as
 // a Luau VALUE expression: `.json` becomes a table/array/scalar literal,
@@ -28,7 +28,7 @@ import (
 // through the importing .ts file's own dependency tracking (the macro reads the
 // data file only at transform time).
 //
-// INTERCEPTION POINT (why here): same rationale as $env/$asset (see
+// INTERCEPTION POINT (why here): same rationale as $env (see
 // envmacro.go) — the `$file` identifier has no runtime value, so the leading
 // call link is consumed before TransformExpression sees the base identifier.
 // Dispatch keys on the IDENTIFIER's symbol, exact and shadowing-safe.

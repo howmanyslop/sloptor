@@ -203,6 +203,30 @@ func TestBuildWatchJSONEmitsPairedEventsPerBuild(t *testing.T) {
 	nextWatchEvent(t, events, "buildEnd")
 }
 
+func TestBuildWatchRebuildsImporterRelativeMacroData(t *testing.T) {
+	dir := writeBuildableProject(t, "export const value = $file('../data.txt');\n")
+	dataPath := filepath.Join(dir, "data.txt")
+	mustWrite(t, dataPath, "first")
+	config := filepath.Join(dir, "tsconfig.json")
+	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {
+		runBuildWatchLoop(ctx, dir, config, defaultProjectOptions, newBuildWatchJSONReporter(out, dir))
+	})
+	nextWatchEvent(t, events, "buildStart")
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true {
+		t.Fatalf("initial build: %v", end)
+	}
+	nextWatchEvent(t, events, "watching")
+	mustWrite(t, dataPath, "second")
+	nextWatchEvent(t, events, "buildStart")
+	if end := nextWatchEvent(t, events, "buildEnd"); end["ok"] != true {
+		t.Fatalf("rebuild: %v", end)
+	}
+	output, err := os.ReadFile(filepath.Join(dir, "out/main.luau"))
+	if err != nil || !strings.Contains(string(output), "second") {
+		t.Fatalf("stale macro output: %s, %v", output, err)
+	}
+}
+
 func TestCheckWatchJSONEmitsPairedEventsPerCheck(t *testing.T) {
 	dir := writeBuildableProject(t, "")
 	events := watchEventStream(t, func(ctx context.Context, out io.Writer) {

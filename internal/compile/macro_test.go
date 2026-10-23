@@ -8,7 +8,7 @@ import (
 )
 
 // ----------------------------------------------------------------------------
-// $nameof / $keys / $file / $git / $buildTime compile-time macros — rotor
+// $nameof / $keys / $file compile-time macros — rotor
 // extensions (no rbxtsc counterpart).
 //
 // The fixtures deliberately do NOT declare these macros in their globals.d.ts:
@@ -16,28 +16,13 @@ import (
 // that parseProjectCommandLine injects (macrodecl.go), so these tests cover
 // both the declaration injection and the transformer inlining.
 //
-// $git / $buildTime vary per checkout/build, so the golden injects a stable
-// fake StampProvider via stampProviderOverride (the test seam on State.Stamps).
 // ----------------------------------------------------------------------------
-
-// fakeStamps is a deterministic StampProvider for the $git / $buildTime golden.
-type fakeStamps struct{}
-
-func (fakeStamps) GitSHA() string    { return "a1b2c3d" }
-func (fakeStamps) GitBranch() string { return "main" }
-func (fakeStamps) GitTag() string    { return "v1.2.0" }
-func (fakeStamps) GitDirty() bool    { return true }
-func (fakeStamps) BuildTime() string { return "2026-06-13T09:41:05Z" }
 
 // TestMacrosModel is the end-to-end golden: every macro inlined into main.luau.
 // $nameof(a.b.c) -> "c"; $keys<{x,y}>() -> { "x", "y" }; $file(config.json) ->
 // the exact Luau table (sorted keys, null member dropped, int/float preserved);
-// $file(./notes.txt) -> a Luau string; $git / $buildTime -> the fake values.
+// $file(./notes.txt) -> a Luau string.
 func TestMacrosModel(t *testing.T) {
-	old := stampProviderOverride
-	stampProviderOverride = fakeStamps{}
-	t.Cleanup(func() { stampProviderOverride = old })
-
 	files := compileRuntimeLibProject(t, "macros_model")
 
 	want := "-- Compiled with sloptor v2.9.0-beta.1\n" +
@@ -61,13 +46,6 @@ func TestMacrosModel(t *testing.T) {
 		"})\n" +
 		"print([[hello from a text file\n" +
 		"]])\n" +
-		"-- $git / $buildTime: build/VCS stamping (values supplied by the injected fake\n" +
-		"-- provider in the test so the golden is stable).\n" +
-		"print(\"a1b2c3d\")\n" +
-		"print(\"main\")\n" +
-		"print(\"v1.2.0\")\n" +
-		"print(true)\n" +
-		"print(\"2026-06-13T09:41:05Z\")\n" +
 		"return nil\n"
 	if got := files["out/main.luau"]; got != want {
 		t.Errorf("out/main.luau:\ngot:\n%s\nwant:\n%s", got, want)
@@ -108,11 +86,6 @@ func TestNameofMacroBareUsageDiagnostic(t *testing.T) {
 	assertMacroDiag(t, "src/nameofbare.ts", "rotorNameofBadUsage")
 }
 
-// A non-literal $git field cannot be inlined at compile time.
-func TestGitMacroNonLiteralArgDiagnostic(t *testing.T) {
-	assertMacroDiag(t, "src/gitnonliteral.ts", "rotorGitNonLiteralArg")
-}
-
 // $file of a path with no file on disk is a clear diagnostic.
 func TestFileMacroNotFoundDiagnostic(t *testing.T) {
 	assertMacroDiag(t, "src/missing.ts", "rotorFileNotFound")
@@ -127,10 +100,6 @@ func TestFileMacroInvalidJSONDiagnostic(t *testing.T) {
 // consolidated rotor.d.ts editor companion (and report the macro usage on the
 // result); a project that never mentions a macro must NOT gain the file.
 func TestBuildWritesMacroTypesForMacroProjects(t *testing.T) {
-	old := stampProviderOverride
-	stampProviderOverride = fakeStamps{}
-	t.Cleanup(func() { stampProviderOverride = old })
-
 	t.Run("macro project", func(t *testing.T) {
 		dir := t.TempDir()
 		copyDir(t, filepath.Join("testdata", "macros_model"), dir)
@@ -190,10 +159,6 @@ func TestBuildWritesMacroTypesForMacroProjects(t *testing.T) {
 // duplicate-identifier error (the injector skips the synthetic declaration) and
 // produce byte-identical output to the baseline.
 func TestMacrosCoexistWithOnDiskDeclaration(t *testing.T) {
-	old := stampProviderOverride
-	stampProviderOverride = fakeStamps{}
-	t.Cleanup(func() { stampProviderOverride = old })
-
 	baseline := compileRuntimeLibProject(t, "macros_model")
 
 	dir := t.TempDir()

@@ -16,7 +16,7 @@ import (
 // expressions and other non-named forms have no statically-knowable trailing
 // name and surface a clear diagnostic.
 //
-// INTERCEPTION POINT (why here): same rationale as $env/$asset (see
+// INTERCEPTION POINT (why here): same rationale as $env (see
 // envmacro.go). The `$nameof` identifier has no runtime value, so it must be
 // consumed before the regular identifier transform emits the invalid Luau
 // identifier `$nameof`. transformOptionalChain flattens the chain FIRST and

@@ -260,7 +260,7 @@ func runCheckCore(dir string, checkers *int) checkCore {
 		formatOpts: formatOpts,
 		fileCount:  len(program.GetSourceFiles()),
 		elapsed:    time.Since(start),
-		watchFiles: append([]string{configPath}, parsed.FileNames()...),
+		watchFiles: append(append([]string{configPath}, parsed.FileNames()...), compile.MacroInputFiles(dir, program.GetSourceFiles())...),
 	}
 }
 
@@ -311,7 +311,7 @@ func severityName(d *ast.Diagnostic) string {
 
 // refreshRotorTypesForCheck (re)writes the consolidated rotor.d.ts editor
 // companion when any non-declaration project file references one of rotor's
-// macros ($env / $asset / $nameof / $keys / $file / $git / $buildTime). The
+// macros ($env / $nameof / $keys / $file). The
 // on-disk file is written only when missing or stale. Failures only warn on
 // stderr — they never affect the check result or its stdout shape.
 func refreshRotorTypesForCheck(dir string, fileNames []string, program *compiler.Program) {
@@ -324,7 +324,7 @@ func refreshRotorTypesForCheck(dir string, fileNames []string, program *compiler
 			continue
 		}
 		text := sf.Text()
-		if !strings.Contains(text, "$env") && !strings.Contains(text, "$asset") && !compile.SourceUsesMacros(text) {
+		if !strings.Contains(text, "$env") && !compile.SourceUsesMacros(text) {
 			continue
 		}
 		if _, err := compile.WriteRotorTypes(dir); err != nil {

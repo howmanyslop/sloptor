@@ -41,8 +41,7 @@ sloptor diagnostics --project tsconfig.json --json
 - Note that `files` means something different here than it does for `build`:
   for `build` it counts files **written**, for `diagnostics` it counts files
   **censused** (nothing is written).
-- It is **read-only**: no `outDir`, no `include/`, no `rotor.d.ts`, and `$asset`
-  resolution runs offline so a census can never upload.
+- It is **read-only**: no `outDir`, `include/`, or `rotor.d.ts` writes.
 - The tsconfig `rbxts` key still sets the project's shape (`type`, `rojo`,
   `includePath`), but `allowCommentDirectives` is forced off. That does **not**
   stop `@ts-ignore` from hiding type errors — a directive suppresses them

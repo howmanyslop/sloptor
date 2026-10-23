@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"rotor/internal/assets"
 	"rotor/internal/compile"
 	"rotor/internal/logservice"
 	"rotor/internal/transformer"
@@ -46,11 +45,10 @@ type buildArgs struct {
 	maxErrors           int  // rotor DX extension: cap the number of rendered code frames (0 = unlimited; default 50)
 	bell                bool // rotor DX extension (watch): ring the bell on a fail<->pass flip
 	clearScreen         bool // rotor DX extension (watch): clear the screen before each rebuild (default true)
-	minify              bool // rotor DX extension: minify emitted Luau before writing
 }
 
 // buildFlags is the parsed flag destination shared by `sloptor build` and
-// `sloptor dev`: every registered flag binds here, and collectBuildArgs turns
+// build integrations: every registered flag binds here, and collectBuildArgs turns
 // the Changed subset into a buildArgs (the yargs Object.assign semantics —
 // absent CLI booleans never clobber the tsconfig `rbxts` layer).
 type buildFlags struct {
@@ -79,7 +77,6 @@ type buildFlags struct {
 	optimizedLoops         bool
 	allowCommentDirectives bool
 	luau                   bool
-	minify                 bool
 	jsonOut                bool
 	bell                   bool
 	clear                  bool
@@ -147,8 +144,6 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 		"write a heap profile after the build (diagnostics)")
 	addStringFlag(cmd, &flags.timings, "timings", "", "", "<path>",
 		"write aggregate one-shot build timings as JSON (not with --watch)")
-	addBoolFlag(cmd, &flags.minify, "minify", "", false,
-		"minify emitted Luau (strip comments/whitespace, t[\"x\"] -> t.x)")
 	f.VarP(newNonNegativeIntValue(&flags.maxErrors), "max-errors", "",
 		"cap the rendered code frames on failure (default 50; 0 = all)")
 	setFlagPlaceholder(cmd, "max-errors", "<n>")
@@ -214,7 +209,6 @@ func collectBuildArgs(f *pflag.FlagSet, argv []string, flags *buildFlags, ba *bu
 	}
 	ba.bell, _ = f.GetBool("bell")
 	ba.jsonOut, _ = f.GetBool("json")
-	ba.minify, _ = f.GetBool("minify")
 	ba.maxErrors = flags.maxErrors
 	ba.cpuprofile, _ = f.GetString("cpuprofile")
 	ba.traceOut, _ = f.GetString("trace-out")
@@ -339,7 +333,6 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	}
 	opts := mergeProjectOptions(defaultProjectOptions, rbxtsOptions, &parsed.opts)
 	opts.argv = &parsed.opts
-	opts.minify = parsed.minify // rotor extension: CLI-only, outside the rbxts merge
 	opts.emitDeclarationOnly = parsed.emitDeclarationOnly
 	opts.builders = parsed.builders
 	opts.checkers = parsed.checkers
@@ -467,9 +460,6 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 	if result.WroteRotorTypes {
 		out.noteLine(compile.RotorTypesFileName + "  (generated — editor types for sloptor macros)")
 	}
-	if result.WroteLockfile {
-		out.noteLine(assets.LockfileName + "  (updated — uploaded new $asset assets)")
-	}
 	copiedFiles := len(result.Outputs) - len(result.EmittedFiles)
 	if copiedFiles < 0 {
 		copiedFiles = 0
@@ -563,7 +553,6 @@ func newBuildOptionsReload(tsConfigPath string, parsed *buildArgs) func() (proje
 		}
 		next := mergeProjectOptions(defaultProjectOptions, declared, &parsed.opts)
 		next.argv = &parsed.opts
-		next.minify = parsed.minify
 		next.emitDeclarationOnly = parsed.emitDeclarationOnly
 		next.builders = parsed.builders
 		next.checkers = parsed.checkers
@@ -617,7 +606,6 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		NoOptimizedLoops:       !opts.optimizedLoops,
 		LuaExtension:           !opts.luau,
 		WriteOnlyChanged:       opts.writeOnlyChanged,
-		MinifyOutput:           opts.minify,
 		EmitDeclarationOnly:    opts.emitDeclarationOnly,
 		Builders:               opts.builders,
 		Checkers:               opts.checkers,

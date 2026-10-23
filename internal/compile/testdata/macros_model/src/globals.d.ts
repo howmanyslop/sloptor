@@ -1,7 +1,7 @@
 declare function print(...params: Array<unknown>): void;
 
 // noLib fundamental stubs (see asset_model/src/globals.d.ts). The $nameof,
-// $keys, $file, $git, and $buildTime macros are provided by the compiler's
+// $keys and $file macros are provided by the compiler's
 // synthetic __rotor_macros.d.ts injection — deliberately NOT declared here, so
 // this fixture also exercises that injection.
 interface Array<T> {}

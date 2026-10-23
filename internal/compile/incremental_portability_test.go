@@ -74,7 +74,7 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 			if fixture.name == "rojo-files" {
 				// Linux golden: A/x.lua sorts before AB.lua with slash
 				// separators, but the native Windows order is reversed.
-				const wantSalt = "4bd28dd0f0a7b11315597de050b72c5a0db05f89f98451cec7d2609af2e001bf"
+				const wantSalt = "9e1336ec612dbb61d6b398072bdc840c8b624d738102ec98d1bf975acc386d68"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("Rojo salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -82,7 +82,7 @@ func TestBuildProjectIncrementalManifestSurvivesCheckoutMove(t *testing.T) {
 			if fixture.name == "source-root" {
 				// Windows golden: /sources is URL metadata, not an absolute
 				// filesystem path to relativize on Unix.
-				const wantSalt = "de6a3d8ec4fc6ef9503e167d3a56a7c4f32df26cd102adddd7c45874707f9320"
+				const wantSalt = "f1fdfbd71a85dcfba3aaa419fb323b303e59c37fe262a58ecfd68f2f52cd6b0a"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("sourceRoot salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -268,7 +268,7 @@ module.exports = () => () => sourceFile => {
 			if mode == "runtime-package" {
 				// Linux golden includes a wildcard suffix with a mixed-case
 				// filename; native lookup canonicalization must not leak in.
-				const wantSalt = "c1940f3de4c7190bee08eb27d70d24d83c5a9fc43ff77a073aebcf71ff1e1a9b"
+				const wantSalt = "9641a34feda1634d4e968fda1c9d64316d90940198b902b43976047ad3d97081"
 				if got := portabilityManifestSalt(t, manifests[0]); got != wantSalt {
 					t.Errorf("package salt = %s, want portable salt %s", got, wantSalt)
 				}
@@ -360,7 +360,7 @@ func TestBuildSolutionIncrementalManifestsSurviveCheckoutMove(t *testing.T) {
 				t.Logf("%s portable salt: %s", project, portabilityManifestSalt(t, manifest))
 				if project == "game" {
 					// Linux golden retains the SomeModule.ts spelling.
-					const wantSalt = "4b405655afe700a89ede29f9c1e1ea85eadfcdc8f07f4c45582b6fbc19cae1d8"
+					const wantSalt = "5905463aa1a43803b2844578a584cfbcc31549f41b15afc2b87ddf20971708ca"
 					if got := portabilityManifestSalt(t, manifest); got != wantSalt {
 						t.Errorf("reference salt = %s, want portable salt %s", got, wantSalt)
 					}

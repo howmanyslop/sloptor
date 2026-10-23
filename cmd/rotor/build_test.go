@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"rotor/internal/compile"
-	"rotor/internal/luau/cst"
 )
 
 // TestParseBuildArgs covers the rbxtsc-compatible flag surface
@@ -1132,74 +1131,6 @@ func TestParseBuildArgsWatchDXFlags(t *testing.T) {
 			t.Error("--no-clear did not disable clearScreen")
 		}
 	})
-}
-
-// TestCmdBuildMinify verifies that `sloptor build --minify` produces smaller,
-// still-valid Luau with the header comment stripped, while a normal build keeps
-// it — i.e. the flag is what minifies, and only when set.
-func TestCmdBuildMinify(t *testing.T) {
-	src := "export const greeting = \"hi\";\nexport function greet() {\n\treturn greeting;\n}\n"
-	normalDir := writeBuildableProject(t, src)
-	minDir := writeBuildableProject(t, src)
-
-	if _, code := captureStdout(t, func() int { return cmdBuild([]string{normalDir}) }); code != 0 {
-		t.Fatalf("normal build exit = %d", code)
-	}
-	if _, code := captureStdout(t, func() int { return cmdBuild([]string{"--minify", minDir}) }); code != 0 {
-		t.Fatalf("--minify build exit = %d", code)
-	}
-
-	normalLuau := collectLuau(t, filepath.Join(normalDir, "out"))
-	minLuau := collectLuau(t, filepath.Join(minDir, "out"))
-	if len(normalLuau) == 0 || len(minLuau) == 0 {
-		t.Fatal("expected .luau outputs in both builds")
-	}
-
-	var normalSize, minSize int
-	for _, c := range normalLuau {
-		normalSize += len(c)
-	}
-	for p, c := range minLuau {
-		minSize += len(c)
-		if strings.Contains(c, "-- Compiled with sloptor") {
-			t.Errorf("%s still carries the header comment (not minified)", p)
-		}
-		// Minified output must still be valid Luau.
-		if _, diags := cst.Parse(c); len(diags) != 0 {
-			t.Errorf("%s minified output does not parse: %v", p, diags)
-		}
-	}
-	// A normal build keeps the header comment (proves the flag is the cause).
-	keptHeader := false
-	for _, c := range normalLuau {
-		if strings.Contains(c, "-- Compiled with sloptor") {
-			keptHeader = true
-		}
-	}
-	if !keptHeader {
-		t.Error("normal build should keep the header comment")
-	}
-	if minSize >= normalSize {
-		t.Errorf("minified total (%d B) not smaller than normal (%d B)", minSize, normalSize)
-	}
-}
-
-// collectLuau reads every .luau file under dir into a path->content map.
-func collectLuau(t *testing.T, dir string) map[string]string {
-	t.Helper()
-	out := map[string]string{}
-	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".luau") {
-			return nil
-		}
-		data, readErr := os.ReadFile(p)
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		out[p] = string(data)
-		return nil
-	})
-	return out
 }
 
 // TestCmdBuildFailureCodeFrame verifies that a build failure renders code frames

@@ -9,11 +9,3 @@ print($keys<{ x: number; y: string }>());
 // text file -> a Luau string.
 print($file("config.json"));
 print($file("./notes.txt"));
-
-// $git / $buildTime: build/VCS stamping (values supplied by the injected fake
-// provider in the test so the golden is stable).
-print($git("sha"));
-print($git("branch"));
-print($git("tag"));
-print($git("dirty"));
-print($buildTime());

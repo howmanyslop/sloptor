@@ -57,7 +57,6 @@ The tag triggers the `release` GitHub Actions workflow, which verifies the tag, 
 - User documentation: [docs.howmanysmall.com/sloptor](https://docs.howmanysmall.com/sloptor/), built from [`documentation/`](https://github.com/howmanyslop/sloptor/blob/main/documentation/)
 - Transformer sidecar protocol: [`docs/sidecar-protocol.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/sidecar-protocol.md)
 - Design doc: [`docs/superpowers/specs/2026-06-05-rotor-design.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/superpowers/specs/2026-06-05-rotor-design.md)
-- Luau toolchain design: [`docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md`](https://github.com/howmanyslop/sloptor/blob/main/docs/superpowers/specs/2026-06-12-rotor-luau-toolchain-design.md)
 - Full roadmap with every phase and task: [Roadmap](https://docs.howmanysmall.com/sloptor/roadmap/)
 - Phase plans: `docs/superpowers/plans/` · porting digests (the transformer's source of truth): `docs/superpowers/research/`
 

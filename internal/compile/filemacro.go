@@ -10,8 +10,8 @@ import (
 )
 
 // fileResolver is the build-time data-file reader for the rotor $file macro
-// (mirroring newAssetResolver for $asset). It is rooted at the project dir and
-// resolves the macro argument the same way $asset does: project-relative, or
+// rooted at the project directory. It
+// resolves the macro argument project-relative, or
 // relative to the importing source file when the path begins with `./` or `../`.
 //
 // Reads are bounded to a sane maximum so a stray huge file cannot blow up the
@@ -55,7 +55,7 @@ func (r *fileResolver) Read(importerPath, path string) ([]byte, error) {
 }
 
 // resolvePath turns the macro argument into an absolute filesystem path,
-// matching the assetresolve resolver's rules.
+// relative to the project or the importing source.
 func (r *fileResolver) resolvePath(importerPath, path string) (string, error) {
 	p := strings.TrimSpace(path)
 	if p == "" {

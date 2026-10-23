@@ -29,7 +29,7 @@ func writeCleanProject(t *testing.T, outDir string) string {
 	mustWrite(t, filepath.Join(dir, "include", "RuntimeLib.luau"), "return {}\n")
 	mustWrite(t, filepath.Join(dir, compile.RotorTypesFileName), "// generated\n")
 	mustWrite(t, filepath.Join(dir, compile.EnvDeclFileName), "// generated\n")
-	mustWrite(t, filepath.Join(dir, "rotor-asset.d.ts"), "// generated\n")
+	mustWrite(t, filepath.Join(dir, compile.MacroDeclFileName), "// generated\n")
 	return dir
 }
 
@@ -85,7 +85,7 @@ func TestCmdCleanTypesRemovesCompanions(t *testing.T) {
 	if fileExists(filepath.Join(dir, compile.EnvDeclFileName)) {
 		t.Error("rotor-env.d.ts still present after --types clean")
 	}
-	if fileExists(filepath.Join(dir, "rotor-asset.d.ts")) {
+	if fileExists(filepath.Join(dir, compile.MacroDeclFileName)) {
 		t.Error("rotor-asset.d.ts still present after --types clean")
 	}
 	if dirExists(filepath.Join(dir, "out")) {
@@ -105,7 +105,7 @@ func TestCmdCleanDryRunRemovesNothing(t *testing.T) {
 		filepath.Join(dir, "include", "RuntimeLib.luau"),
 		filepath.Join(dir, compile.RotorTypesFileName),
 		filepath.Join(dir, compile.EnvDeclFileName),
-		filepath.Join(dir, "rotor-asset.d.ts"),
+		filepath.Join(dir, compile.MacroDeclFileName),
 	} {
 		if !fileExists(p) {
 			t.Errorf("%s removed by --dry-run", p)

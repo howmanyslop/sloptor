@@ -23,6 +23,7 @@ type SolutionWatchSet struct {
 	RojoDirectories     []string
 	ArtifactDirectories []string
 	PackageInputs       *PackageWatchInputs
+	MacroFiles          []string
 }
 
 type WatchAssetEvent struct {
@@ -131,6 +132,7 @@ func (c *SolutionCoordinator) projectWatchSet(project SolutionProject, rojoState
 	if layout, err := preparePackageLayout(dir, config.Options(), project.Options); err == nil {
 		set.PackageInputs = layout.watchInputs(dir, config.Options().TypeRoots)
 	}
+	set.MacroFiles = MacroWatchFiles(project.ConfigPath)
 	return set
 }
 

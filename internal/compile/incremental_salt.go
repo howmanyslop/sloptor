@@ -74,6 +74,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		return "", err
 	}
 	payload, err := tsjson.Marshal(struct {
+		MacroInputs           map[string]string              `json:"macroInputs,omitempty"`
 		Version               string                         `json:"version"`
 		CompilerOptions       *core.CompilerOptions          `json:"compilerOptions"`
 		ConfigFilePath        string                         `json:"configFilePath"`
@@ -88,14 +89,14 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		EmitDeclarationOnly   bool                           `json:"emitDeclarationOnly"`
 		OptimizedArrayAppends bool                           `json:"optimizedArrayAppends"`
 		NoOptimizedLoops      bool                           `json:"noOptimizedLoops"`
-		MinifyOutput          bool                           `json:"minifyOutput"`
 		FlameworkSalt         string                         `json:"flameworkSalt,omitempty"`
 		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
 		ProjectReferencePaths map[string]string              `json:"projectReferencePaths,omitempty"`
 		RojoResolver          string                         `json:"rojoResolver,omitempty"`
 		PackageLayout         string                         `json:"packageLayout,omitempty"`
 	}{
-		Version:               "rotor-incremental-v4",
+		MacroInputs:           macroInputValues(dir, program),
+		Version:               "rotor-incremental-v5",
 		CompilerOptions:       options,
 		ConfigFilePath:        options.ConfigFilePath,
 		OutDir:                options.OutDir,
@@ -109,7 +110,6 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		EmitDeclarationOnly:   opts.EmitDeclarationOnly,
 		OptimizedArrayAppends: opts.OptimizedArrayAppends,
 		NoOptimizedLoops:      opts.NoOptimizedLoops,
-		MinifyOutput:          opts.MinifyOutput,
 		FlameworkSalt:         flameworkSalt,
 		TransformerPlugins:    plugins,
 		ProjectReferencePaths: portableReferences,

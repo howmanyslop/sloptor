@@ -18,7 +18,7 @@ import (
 // enumerable string keys (e.g. `{}`) yields an empty array — that is a valid,
 // useful result, not an error. A MISSING type argument is the only diagnostic.
 //
-// INTERCEPTION POINT (why here): same rationale as $env/$asset/$nameof (see
+// INTERCEPTION POINT (why here): same rationale as $env/$nameof (see
 // envmacro.go). The `$keys` identifier has no runtime value, so it must be
 // consumed before the regular identifier transform emits the invalid Luau
 // identifier `$keys`. transformOptionalChain flattens the chain FIRST, then

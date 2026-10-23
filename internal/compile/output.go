@@ -11,11 +11,9 @@ import (
 	"sort"
 	"strings"
 
-	"rotor/internal/assets"
 	"rotor/internal/fsutil"
 	"rotor/internal/includefiles"
 	"rotor/internal/logservice"
-	"rotor/internal/luau/cst"
 	"rotor/internal/rojo"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/compiler"
@@ -23,10 +21,6 @@ import (
 	"rotor/tsgo/tspath"
 	"rotor/tsgo/vfs/osvfs"
 )
-
-// assetsLockfileName is the lockfile the $asset pipeline persists (aliased so
-// error text stays in sync with internal/assets).
-const assetsLockfileName = assets.LockfileName
 
 // BuildResult is the disk-writing sibling of CompileProject's pure text map.
 // Outputs contains the compiled Luau sources keyed by project-relative output
@@ -43,20 +37,14 @@ type BuildResult struct {
 	// UsesEnvMacro reports whether any project source file references the
 	// rotor $env macro (cheap text scan over the already-loaded sources).
 	UsesEnvMacro bool
-	// UsesAssetMacro reports whether any project source file references the
-	// rotor $asset macro (cheap text scan).
-	UsesAssetMacro bool
 	// UsesMacros reports whether any project source file references one of the
-	// rotor $nameof / $keys / $file / $git / $buildTime macros (cheap text scan).
+	// rotor $nameof / $keys / $file macros (cheap text scan).
 	UsesMacros bool
 
 	// WroteRotorTypes reports whether the consolidated rotor.d.ts editor
 	// companion was (re)written this pass (true when the project references any
 	// macro and the on-disk file was missing or stale; see rotortypes.go).
 	WroteRotorTypes bool
-	// WroteLockfile reports whether rotor-lock.json was persisted this pass
-	// (true only when $asset uploaded a new asset on a cache miss).
-	WroteLockfile bool
 
 	// Diagnostics holds the structured diagnostics from this build (populated
 	// even when the build fails on diagnostics). Empty on success.
@@ -295,15 +283,11 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	// plugin's MODULE export (which shadows the global per-file), so rotor's
 	// macro never fires there and no editor companion is needed.
 	usesEnvMacro := false
-	usesAssetMacro := false
 	usesMacros := false
 	for _, sourceFile := range sourceFiles {
 		text := sourceFile.Text()
 		if strings.Contains(text, "$env") && !strings.Contains(text, "rbxts-transform-env") {
 			usesEnvMacro = true
-		}
-		if strings.Contains(text, "$asset") {
-			usesAssetMacro = true
 		}
 		if SourceUsesMacros(text) {
 			usesMacros = true
@@ -359,16 +343,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 	outputs, sourceMaps, infos, err := compileProjectSourceFiles(dir, program, pctx, selectedFiles, opts)
 	if err != nil {
 		return &BuildResult{Diagnostics: infos}, diagnosticInfoMessages(infos), err
-	}
-
-	// rotor extension: --minify post-processes each compiled Luau source through
-	// the minifier before write + manifest. The incremental manifest hashes
-	// SOURCE files (not output content), so this never desyncs incremental
-	// builds; semantics are preserved (see ProjectOptions.MinifyOutput).
-	if opts.MinifyOutput {
-		if err := minifyOutputs(outputs); err != nil {
-			return nil, nil, err
-		}
 	}
 
 	if err := joinNonCompiledCopy(); err != nil {
@@ -505,12 +479,12 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		pruneMissingOutputs(currentPresence, currentManifest.Outputs)
 	}
 	// rotor extension: keep the consolidated on-disk rotor.d.ts editor companion
-	// fresh for projects that reference any macro ($env / $asset / $nameof /
-	// $keys / $file / $git / $buildTime). Editors never see the synthetic
+	// fresh for projects that reference any macro ($env / $nameof /
+	// $keys / $file). Editors never see the synthetic
 	// in-memory declarations, so this single file is what stops the macros from
 	// red-squiggling in VS Code. Written only when missing or stale (rotortypes.go).
 	wroteRotorTypes := false
-	if usesEnvMacro || usesAssetMacro || usesMacros {
+	if usesEnvMacro || usesMacros {
 		wroteRotorTypes, err = WriteRotorTypes(filepath.FromSlash(dir))
 		if err != nil {
 			stopPersistence()
@@ -518,19 +492,6 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		}
 	}
 
-	// rotor extension: the $asset lockfile flush. The transformer never writes
-	// files/network beyond the upload inside Resolve; the lockfile PERSIST
-	// happens HERE, after a successful build, so a cache-hit build does zero IO
-	// beyond reading the lockfile (deterministic/parity-safe) and only a genuine
-	// upload-on-miss rewrites rotor-lock.json atomically.
-	wroteLockfile := false
-	if pctx.assets != nil && pctx.assets.Dirty() {
-		if err := pctx.assets.Lockfile().Save(filepath.FromSlash(dir)); err != nil {
-			stopPersistence()
-			return nil, nil, fmt.Errorf("compile: writing %s: %w", assetsLockfileName, err)
-		}
-		wroteLockfile = true
-	}
 	persist := func() error {
 		if rojoCache != nil {
 			rojoCache.Persist()
@@ -564,10 +525,8 @@ func BuildProjectWithOptions(projectDir string, opts ProjectOptions) (*BuildResu
 		EmittedFiles:    emittedFiles,
 		OutputDir:       pathTranslator.OutDir,
 		UsesEnvMacro:    usesEnvMacro,
-		UsesAssetMacro:  usesAssetMacro,
 		UsesMacros:      usesMacros,
 		WroteRotorTypes: wroteRotorTypes,
-		WroteLockfile:   wroteLockfile,
 	}, nil, nil
 }
 
@@ -862,26 +821,6 @@ func typeReferenceEdits(text string) []textEdit {
 		edits = append(edits, textEdit{start: index, end: index + len(bare), text: scoped})
 		offset = index + len(bare)
 	}
-}
-
-// minifyOutputs rewrites every compiled .luau/.lua entry in outputs to its
-// minified form in place (rotor's --minify build flag). A minifier diagnostic
-// on rotor-generated Luau is an internal error — the compiler emits Luau the
-// minifier's parser handles — so it fails the build loudly rather than writing
-// truncated output.
-func minifyOutputs(outputs map[string]string) error {
-	for rel, text := range outputs {
-		lower := strings.ToLower(rel)
-		if !strings.HasSuffix(lower, ".luau") && !strings.HasSuffix(lower, ".lua") {
-			continue
-		}
-		minified, diags := cst.Minify(text)
-		if len(diags) != 0 {
-			return fmt.Errorf("compile: --minify: internal error minifying %s: %s", rel, diags[0].Message)
-		}
-		outputs[rel] = minified
-	}
-	return nil
 }
 
 // assertLocalOutputPath rejects project-relative output paths that are

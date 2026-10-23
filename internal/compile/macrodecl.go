@@ -8,11 +8,9 @@ import (
 	"rotor/tsgo/vfs/wrapvfs"
 )
 
-// Synthetic ambient declaration for the four rotor compile-time stamping/
-// introspection macros — SUPERSET extensions with no rbxtsc counterpart (see
-// internal/transformer/{nameofmacro,keysmacro,filemacro,gitmacro}.go). One
-// shared declaration covers all of them, injected exactly like the $env and
-// $asset declarations (envdecl.go / assetdecl.go), with the same coexistence
+// Synthetic ambient declaration for three compile-time introspection macros
+// (see internal/transformer/{nameofmacro,keysmacro,filemacro}.go). It is
+// injected like the $env declaration (envdecl.go), with the same coexistence
 // guard so a project carrying the generated on-disk companion does not collide
 // with the in-memory one.
 //
@@ -24,37 +22,34 @@ import (
 // strict superset.
 const macroDeclFileName = "__rotor_macros.d.ts"
 
-// macroDeclBody is the one true declaration for the four macros. The synthetic
+// macroDeclBody is the one true declaration for the three macros. The synthetic
 // in-memory file (macroDeclText) and the generated on-disk editor companion
 // (MacroDeclFileText) must carry EXACTLY this declaration so the two are
 // interchangeable — only their leading comments differ.
 const macroDeclBody = `declare function $nameof(item: unknown): string;
 declare function $keys<T>(): string[];
 declare function $file(path: string): any;
-declare function $git(field: "sha" | "branch" | "tag"): string;
-declare function $git(field: "dirty"): boolean;
-declare function $buildTime(): string;
 `
 
-const macroDeclText = `// rotor compiler extension (synthetic, in-memory): the $nameof, $keys, $file,
-// $git, and $buildTime compile-time macros. This file is injected by the rotor
+const macroDeclText = `// rotor compiler extension (synthetic, in-memory): $nameof, $keys, and $file.
+// This file is injected by the rotor
 // compiler and does not exist on disk.
 ` + macroDeclBody
 
 // MacroDeclFileName is the legacy editor companion for the $nameof / $keys /
-// $file / $git / $buildTime macros, superseded by the consolidated rotor.d.ts
+// $file macros, superseded by the consolidated rotor.d.ts
 // (rotortypes.go). The name is still recognised so a project that carries it
 // keeps type-checking those macros (the coexistence guard suppresses the
 // synthetic declaration) and `rotor clean --types` removes it.
 const MacroDeclFileName = "rotor-macros.d.ts"
 
 // macroDeclSubstrings are the cheap substring sentinels used to detect whether
-// any project source references one of the four macros (the same kind of scan
-// build/check use for $env / $asset). A hit on any one drives the on-disk
+// any project source references one of the three macros (the same kind of scan
+// build/check use for $env). A hit on any one drives the on-disk
 // rotor-macros.d.ts refresh.
-var macroDeclSubstrings = []string{"$nameof", "$keys", "$file", "$git", "$buildTime"}
+var macroDeclSubstrings = []string{"$nameof", "$keys", "$file"}
 
-// SourceUsesMacros reports whether text references any of the four macros.
+// SourceUsesMacros reports whether text references any of the three macros.
 func SourceUsesMacros(text string) bool {
 	for _, sub := range macroDeclSubstrings {
 		if strings.Contains(text, sub) {
@@ -92,7 +87,7 @@ func macroDeclPath(configPath string) string {
 }
 
 // injectMacroDeclFS wraps fs so the synthetic declaration file exists at
-// declPath. Same two-interception shape as injectEnvDeclFS / injectAssetDeclFS.
+// declPath. Same two-interception shape as injectEnvDeclFS.
 func injectMacroDeclFS(inner vfs.FS, declPath string) vfs.FS {
 	matches := func(path string) bool {
 		if inner.UseCaseSensitiveFileNames() {

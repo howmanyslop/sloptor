@@ -157,7 +157,7 @@ func TestNativeOverlayHostPreservesProjectCacheExclusions(t *testing.T) {
 	host := newNativeOverlayHost(program.Host(), map[string]string{"/project/unrelated.ts": "export {};"})
 	hits, misses := cache.hits.Load(), cache.misses.Load()
 	for fileName, text := range map[string]string{
-		envDeclPath(configPath): envDeclText, assetDeclPath(configPath): assetDeclText,
+		envDeclPath(configPath):   envDeclText,
 		macroDeclPath(configPath): macroDeclText, callerPath: callerText,
 	} {
 		source := program.GetSourceFile(fileName)
