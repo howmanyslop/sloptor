@@ -21,6 +21,9 @@ type cliStreams struct {
 	in  io.Reader
 	out io.Writer
 	err io.Writer
+	// admit is set only for the real process, so in-process callers never
+	// take a machine-wide build slot.
+	admit bool
 }
 
 // commandFailure is the single error type command RunE bodies return. It is
@@ -64,7 +67,7 @@ func reportedFailure(err error) *commandFailure {
 // real process streams. main stays `os.Exit(run(os.Args[1:]))`.
 func run(args []string) int {
 	defer applyRuntimePolicy(false)()
-	return execute(args, cliStreams{in: os.Stdin, out: os.Stdout, err: os.Stderr})
+	return execute(args, cliStreams{in: os.Stdin, out: os.Stdout, err: os.Stderr, admit: true})
 }
 
 // execute is the single exit-code owner. Every failure — Cobra parse errors,

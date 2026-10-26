@@ -24,7 +24,11 @@ func newAPIServerCommand(streams cliStreams) *cobra.Command {
 			logservice.Output = streams.err
 			defer func() { logservice.Output = previousLog }()
 
-			server := buildapi.NewServer(version, runAPIBuild)
+			// Each request is a one-shot build, admitted like `sloptor build`.
+			server := buildapi.NewServer(version, func(ctx context.Context, request buildapi.BuildRequest) (buildapi.BuildResult, error) {
+				defer admitBuild(ctx, streams)()
+				return runAPIBuild(ctx, request)
+			})
 			if err := server.Run(streams.in, streams.out); err != nil {
 				return runtimeFailure(err)
 			}

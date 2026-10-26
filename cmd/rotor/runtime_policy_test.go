@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"runtime/metrics"
 	"testing"
@@ -205,5 +206,46 @@ func TestRuntimePolicyWatchInvocations(t *testing.T) {
 			}()
 			assertRuntimePolicy(t, 137, 2<<30)
 		})
+	}
+}
+
+// Catches concurrent builds together claiming more memory than one build
+// alone would, and a crowded machine starving a build below the floor.
+func TestSharedRuntimePolicySplitsTheBudget(t *testing.T) {
+	runtimePolicyTestBaseline(t)
+	t.Setenv("GOMAXPROCS", "")
+	os.Unsetenv("GOMAXPROCS")
+	procs := runtime.GOMAXPROCS(0)
+	alone := automaticMemoryLimit(effectiveMemory())
+	func() {
+		defer applySharedRuntimePolicy(4)()
+		if got := debug.SetMemoryLimit(-1); got*4 > alone {
+			t.Errorf("4 builds × %d exceeds the single-build limit %d", got, alone)
+		}
+		if got := runtime.GOMAXPROCS(0); got*4 > max(8, runtime.NumCPU()) {
+			t.Errorf("4 builds × GOMAXPROCS %d oversubscribes %d CPUs", got, runtime.NumCPU())
+		}
+	}()
+	func() {
+		defer applySharedRuntimePolicy(1000)()
+		if got := debug.SetMemoryLimit(-1); got < minimumLimit {
+			t.Errorf("limit %d below floor %d", got, minimumLimit)
+		}
+	}()
+	assertRuntimePolicy(t, 137, 2<<30)
+	if got := runtime.GOMAXPROCS(0); got != procs {
+		t.Errorf("GOMAXPROCS not restored: %d, want %d", got, procs)
+	}
+}
+
+// Catches the build overriding a caller's explicit GOMAXPROCS.
+func TestSharedRuntimePolicyKeepsCallerGOMAXPROCS(t *testing.T) {
+	runtimePolicyTestBaseline(t)
+	t.Setenv("GOMAXPROCS", "3")
+	previous := runtime.GOMAXPROCS(3)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+	defer applySharedRuntimePolicy(8)()
+	if got := runtime.GOMAXPROCS(0); got != 3 {
+		t.Fatalf("GOMAXPROCS = %d, want caller's 3", got)
 	}
 }
