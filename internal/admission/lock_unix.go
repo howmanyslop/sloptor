@@ -16,7 +16,7 @@ func tryLock(path string) (*os.File, error) {
 		return nil, err
 	}
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		file.Close()
+		_ = file.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) {
 			return nil, nil
 		}
@@ -27,5 +27,5 @@ func tryLock(path string) (*os.File, error) {
 
 func unlock(file *os.File) {
 	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	file.Close()
+	_ = file.Close()
 }

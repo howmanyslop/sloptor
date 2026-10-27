@@ -214,7 +214,9 @@ func TestRuntimePolicyWatchInvocations(t *testing.T) {
 func TestSharedRuntimePolicySplitsTheBudget(t *testing.T) {
 	runtimePolicyTestBaseline(t)
 	t.Setenv("GOMAXPROCS", "")
-	os.Unsetenv("GOMAXPROCS")
+	if err := os.Unsetenv("GOMAXPROCS"); err != nil {
+		t.Fatal(err)
+	}
 	procs := runtime.GOMAXPROCS(0)
 	alone := automaticMemoryLimit(effectiveMemory())
 	func() {

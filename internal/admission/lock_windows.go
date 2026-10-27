@@ -18,7 +18,7 @@ func tryLock(path string) (*os.File, error) {
 	overlapped := new(windows.Overlapped)
 	flags := uint32(windows.LOCKFILE_EXCLUSIVE_LOCK | windows.LOCKFILE_FAIL_IMMEDIATELY)
 	if err := windows.LockFileEx(windows.Handle(file.Fd()), flags, 0, 1, 0, overlapped); err != nil {
-		file.Close()
+		_ = file.Close()
 		if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
 			return nil, nil
 		}
@@ -29,5 +29,5 @@ func tryLock(path string) (*os.File, error) {
 
 func unlock(file *os.File) {
 	_ = windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, new(windows.Overlapped))
-	file.Close()
+	_ = file.Close()
 }

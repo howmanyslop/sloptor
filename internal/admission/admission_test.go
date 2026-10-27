@@ -79,7 +79,9 @@ func TestKilledHolderFreesItsSlot(t *testing.T) {
 		if err != nil {
 			os.Exit(2)
 		}
-		os.Stdout.WriteString("held\n")
+		if _, err := os.Stdout.WriteString("held\n"); err != nil {
+			os.Exit(2)
+		}
 		time.Sleep(time.Minute)
 		lease.Release()
 		os.Exit(0)
@@ -95,14 +97,17 @@ func TestKilledHolderFreesItsSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || line != "held\n" {
-		holder.Process.Kill()
+		_ = holder.Process.Kill()
 		t.Fatalf("holder did not take the slot: %q, %v", line, err)
 	}
 	if _, err := acquireWithin(t, dir, 1, 300*time.Millisecond); err == nil {
 		t.Fatal("slot admitted while another process holds it")
 	}
-	holder.Process.Kill()
-	holder.Wait()
+	if err := holder.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	// Wait reports the kill as an error; only the exit matters here.
+	_ = holder.Wait()
 	lease, err := acquireWithin(t, dir, 1, 5*time.Second)
 	if err != nil {
 		t.Fatalf("slot still held after its process was killed: %v", err)
@@ -121,7 +126,9 @@ func TestSlots(t *testing.T) {
 	if got := Slots(8<<30, 2); got != 7 {
 		t.Fatalf("%s=7: Slots = %d, want 7", MaxBuildsEnv, got)
 	}
-	os.Unsetenv(MaxBuildsEnv)
+	if err := os.Unsetenv(MaxBuildsEnv); err != nil {
+		t.Fatal(err)
+	}
 	if got := Slots(24<<30, 14); got != 4 {
 		t.Fatalf("24 GiB, 14 CPUs: Slots = %d, want 4", got)
 	}
