@@ -218,7 +218,7 @@ func TestSharedRuntimePolicySplitsTheBudget(t *testing.T) {
 	procs := runtime.GOMAXPROCS(0)
 	alone := automaticMemoryLimit(effectiveMemory())
 	func() {
-		defer applySharedRuntimePolicy(4)()
+		defer applySharedRuntimePolicy(effectiveMemory(), 4)()
 		if got := debug.SetMemoryLimit(-1); got*4 > alone {
 			t.Errorf("4 builds × %d exceeds the single-build limit %d", got, alone)
 		}
@@ -227,7 +227,7 @@ func TestSharedRuntimePolicySplitsTheBudget(t *testing.T) {
 		}
 	}()
 	func() {
-		defer applySharedRuntimePolicy(1000)()
+		defer applySharedRuntimePolicy(effectiveMemory(), 1000)()
 		if got := debug.SetMemoryLimit(-1); got < minimumLimit {
 			t.Errorf("limit %d below floor %d", got, minimumLimit)
 		}
@@ -244,8 +244,29 @@ func TestSharedRuntimePolicyKeepsCallerGOMAXPROCS(t *testing.T) {
 	t.Setenv("GOMAXPROCS", "3")
 	previous := runtime.GOMAXPROCS(3)
 	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
-	defer applySharedRuntimePolicy(8)()
+	defer applySharedRuntimePolicy(effectiveMemory(), 8)()
 	if got := runtime.GOMAXPROCS(0); got != 3 {
 		t.Fatalf("GOMAXPROCS = %d, want caller's 3", got)
+	}
+}
+
+// Catches a build sizing its heap past the memory the machine has free,
+// which pushes other work into swap.
+func TestSharedMemoryLimitStaysWithinFreeMemory(t *testing.T) {
+	available := availableMemory()
+	if available < 0 {
+		t.Skip("free memory unknown on this platform")
+	}
+	limit := sharedMemoryLimit(effectiveMemory(), 1)
+	if ceiling := max(minimumLimit, processMemory()+available); limit > ceiling {
+		t.Fatalf("limit %d exceeds held + free memory %d", limit, ceiling)
+	}
+}
+
+func TestSharedMemoryLimitTracksTheLiveHeap(t *testing.T) {
+	// The test binary's live heap is tiny, so a build sized like it gets the
+	// floor, not three quarters of a large machine.
+	if limit := sharedMemoryLimit(64<<30, 1); limit > liveHeapFloor {
+		t.Fatalf("limit %d exceeds the %d floor for a small live heap", limit, liveHeapFloor)
 	}
 }
