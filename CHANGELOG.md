@@ -1,5 +1,35 @@
 All notable changes to sloptor are documented here.
 
+## [v3.0.0-beta.1] - 2026-10-27
+
+Sloptor is now the native compiler only: the bundler, asset and deploy pipelines, scaffolding commands, and the `$asset`, `$git`, and `$buildTime` macros are removed. One-shot builds now share the machine through slots, API sessions transform in sidecars by default, and source maps cover more of the output.
+
+### ⚠️ Breaking Changes
+
+- **sloptor bundle**: `sloptor bundle`, `sloptor minify`, `sloptor pack`, and `sloptor sourcemap` are removed, so scripts that call them fail. Previously they bundled, minified, packed, and generated Rojo sourcemaps; run those steps with separate tools. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **sloptor dev**: `sloptor dev` is removed, so scripts that call it fail. Previously it ran watch, incremental compile, and `rojo serve`; run `sloptor build -w` for the compile loop and start Rojo separately. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **sloptor asset**: `sloptor asset` and `sloptor deploy` are removed along with the Open Cloud upload and deploy pipelines. Previously `asset sync` uploaded files and wrote `rotor-lock.json`, and `deploy` planned and applied changes to live resources. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **sloptor init**: `sloptor init`, `sloptor add`, `sloptor doctor`, and `sloptor migrate` are removed, so remove them from scripts and CI. Previously they scaffolded projects, edited `package.json`, checked setup, and migrated rbxtsc project configuration. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **sloptor build**: `--minify` is removed, so `sloptor build --minify` fails; drop the flag. Previously it stripped comments and whitespace and rewrote `t["x"]` to `t.x`. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **$asset**: `$asset` is removed, so replace each call with a value from `$env` or generated source. Previously it expanded to an asset ID from `rotor-lock.json`. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **$git**: `$git` is removed, so replace each call with a value from `$env` or generated source. Previously it read Git values during the build. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **$buildTime**: `$buildTime` is removed, so replace each call with a value from `$env` or generated source. Previously it expanded to the build timestamp. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **rotor.toml [assets]**: `rotor.toml` now defines only `parallelTransformers` and `flamework`, and the schema rejects other keys, so delete `[assets]` and the other removed sections. Previously `[assets]` configured `sloptor asset sync`. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **rotor.toml**: `rotor.config.ts` and `rotor.config.js` are no longer loaded. Move any supported settings into `rotor.toml`. Previously they were evaluated as executable config. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **@rotor-rbx/rotor**: API sessions now transform in the server's sidecar workers by default. To keep transforms in the client process, pass `createBuildSession({ transformerCallbacks: true })`; previously every transform ran there, one at a time. - by @howmanysmall in [#171](https://github.com/howmanyslop/sloptor/pull/171)
+
+### 🐞 Fixed
+
+- **@rotor-rbx/rotor**: API builds under Node's `--experimental-package-map` now resolve the project's TypeScript and transformer packages from each project and its ancestors. Previously those lookups failed with missing-package errors. - by @christopher-buss in [#166](https://github.com/howmanyslop/sloptor/pull/166)
+- **$env**: Changing a `$env` value or a `$file` target now rebuilds files that use it in incremental and watch builds. Previously those builds kept stale output. - by @christopher-buss and @howmanysmall in [#168](https://github.com/howmanyslop/sloptor/pull/168)
+- **sloptor build**: With `compilerOptions.sourceMap`, `.luau.map` now maps callback bodies, function expressions, object methods, class members, and continuation lines to TypeScript, and runtime header and comment lines stay unmapped. Previously only statement starts had mappings, leaving 3,603 of 6,003 non-blank lines in a 300-function fixture unmapped. - by @christopher-buss in [#167](https://github.com/howmanyslop/sloptor/pull/167)
+
+### 🔧 Changed
+
+- **sloptor build**: One-shot `sloptor build` and `sloptor check` runs now take one of several machine-wide slots (one per 6 GiB of memory, at most one per two CPUs), and split memory and sidecar workers among the runs holding slots. Previously each run sized itself as if it owned the machine; set `ROTOR_MAX_BUILDS=0` to disable slots. - by @howmanysmall in [#171](https://github.com/howmanyslop/sloptor/pull/171)
+- **sloptor build**: One-shot builds now cap the Go memory limit at the larger of 8 GiB or twice the live heap, and at held memory plus three quarters of free memory. Previously the limit was 75% of memory up to 16 GiB, so the heap could grow to about five times the live set. - by @howmanysmall in [#171](https://github.com/howmanyslop/sloptor/pull/171)
+- **sloptor build**: `.luau.map` now carries segments for expressions, object fields, and operators, mapped to their exact TypeScript columns in UTF-16. Previously each Luau line had one column-zero statement segment; generated Luau is unchanged. - by @christopher-buss in [#169](https://github.com/howmanyslop/sloptor/pull/169)
+
 ## [v2.9.0-beta.1] - 2026-10-21
 
 This beta changes how `sloptor build` resolves package imports and restores incremental state, adds opt-in transformer paths, and makes `@rotor-rbx/rotor` ES-module only. Incremental projects rebuild once after upgrading because the manifest format changed.
@@ -291,6 +321,7 @@ No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/
 
 No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/tag/v2.2.1-fork.4).
 
+[v3.0.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.9.0-beta.1...v3.0.0-beta.1
 [v2.9.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.8.3...v2.9.0-beta.1
 [v2.8.3]: https://github.com/howmanyslop/sloptor/compare/v2.8.2...v2.8.3
 [v2.8.2]: https://github.com/howmanyslop/sloptor/compare/v2.8.1...v2.8.2
