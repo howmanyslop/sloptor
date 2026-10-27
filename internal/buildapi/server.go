@@ -92,14 +92,12 @@ type Server struct {
 	callbackMu   sync.Mutex
 	callbackNext uint64
 	callbacks    map[string]chan callbackResult
-	callbackBase context.Context
+	buildBase    context.Context
 }
 
 // NewServer creates a native build server behind a small build function seam.
 func NewServer(version string, build BuildFunc) *Server {
-	server := &Server{version: version, build: build, callbacks: map[string]chan callbackResult{}}
-	server.callbackBase = compile.WithTransformerCallback(context.Background(), server.callTransformer)
-	return server
+	return &Server{version: version, build: build, callbacks: map[string]chan callbackResult{}, buildBase: context.Background()}
 }
 
 // Run serves one JSON-RPC connection until shutdown or EOF. Requests are
@@ -288,6 +286,11 @@ type responseError struct {
 type initializeParams struct {
 	ProtocolVersion int    `json:"protocolVersion"`
 	ClientVersion   string `json:"clientVersion"`
+	// TransformerCallbacks asks the server to send transformer requests back
+	// to the client. Otherwise builds transform like the CLI: native jecs and
+	// sharded sidecar workers, which run in parallel where the client's one
+	// thread cannot.
+	TransformerCallbacks bool `json:"transformerCallbacks"`
 }
 
 type initializeResult struct {
@@ -322,6 +325,9 @@ func (s *Server) initialize(id int64, raw json.RawMessage) {
 		return
 	}
 	s.initialized = true
+	if params.TransformerCallbacks {
+		s.buildBase = compile.WithTransformerCallback(context.Background(), s.callTransformer)
+	}
 	s.respond(response{ID: id, Result: initializeResult{
 		ProtocolVersion: ProtocolVersion,
 		ServerVersion:   s.version,
@@ -378,7 +384,7 @@ func (s *Server) startBuild(id int64, raw json.RawMessage) {
 		s.respondError(id, "BUILD_IN_PROGRESS", "the session already has an active build")
 		return
 	}
-	ctx, cancel := context.WithCancelCause(s.callbackBase)
+	ctx, cancel := context.WithCancelCause(s.buildBase)
 	s.activeID = id
 	s.activeCancel = cancel
 	s.activeMu.Unlock()

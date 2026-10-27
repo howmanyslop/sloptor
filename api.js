@@ -68,6 +68,7 @@ class BuildSession {
 	#executable;
 	#executableArgs;
 	#resolveFromPlatformPackage;
+	#transformerCallbacks;
 	#nextID = 1;
 	#pending = new Map();
 	#queue = Promise.resolve();
@@ -79,10 +80,11 @@ class BuildSession {
 		reactSyntaxHost: process.env.ROTOR_REACT_SYNTAX_HOST === "1",
 	});
 
-	constructor(executable, executableArgs, resolveFromPlatformPackage) {
+	constructor(executable, executableArgs, resolveFromPlatformPackage, transformerCallbacks) {
 		this.#executable = executable;
 		this.#executableArgs = executableArgs;
 		this.#resolveFromPlatformPackage = resolveFromPlatformPackage;
+		this.#transformerCallbacks = transformerCallbacks;
 	}
 
 	async #connect() {
@@ -128,6 +130,7 @@ class BuildSession {
 		const handshake = await this.#request("initialize", {
 			protocolVersion: PROTOCOL_VERSION,
 			clientVersion: pkg.version,
+			transformerCallbacks: this.#transformerCallbacks,
 		});
 		this.#validateHandshake(handshake);
 		this.#connected = true;
@@ -530,7 +533,15 @@ function createBuildSession(options = {}) {
 	if (!Array.isArray(executableArgs) || executableArgs.some((value) => typeof value !== "string")) {
 		throw new SloptorClientError("INVALID_REQUEST", "executableArgs must contain only strings");
 	}
-	return new BuildSession(options.executable, [...executableArgs], options.executable === undefined);
+	if (options.transformerCallbacks !== undefined && typeof options.transformerCallbacks !== "boolean") {
+		throw new SloptorClientError("INVALID_REQUEST", "transformerCallbacks must be a boolean");
+	}
+	return new BuildSession(
+		options.executable,
+		[...executableArgs],
+		options.executable === undefined,
+		options.transformerCallbacks === true,
+	);
 }
 
 export { createBuildSession, SloptorClientError };

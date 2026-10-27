@@ -59,6 +59,38 @@ func TestServerRoutesTransformerCallbacks(t *testing.T) {
 	}
 }
 
+func TestServerTransformsNativelyUnlessTheClientAsksForCallbacks(t *testing.T) {
+	// Given: a client that does not ask for transformer callbacks.
+	hasCallback := make(chan bool, 1)
+	server := NewServer("2.7.1", func(ctx context.Context, _ BuildRequest) (BuildResult, error) {
+		hasCallback <- compile.TransformerCallbackFromContext(ctx) != nil
+		return emptyBuildResult(), nil
+	})
+	inputReader, inputWriter := io.Pipe()
+	outputReader, outputWriter := io.Pipe()
+	done := make(chan error, 1)
+	go func() { done <- server.Run(inputReader, outputWriter) }()
+	t.Cleanup(func() {
+		_ = inputWriter.Close()
+		_ = outputReader.Close()
+	})
+	output := bufio.NewReader(outputReader)
+
+	// When: it initializes and builds.
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1"}})
+	readJSONLine(t, output)
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
+	build := readJSONLine(t, output)
+
+	// Then: the build transforms in the server, never calling back.
+	if build["id"] != float64(2) || build["error"] != nil {
+		t.Fatalf("build response = %#v", build)
+	}
+	if <-hasCallback {
+		t.Fatal("build context has a transformer callback the client did not ask for")
+	}
+}
+
 func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	callbackStarted := make(chan struct{})
 	buildReturned := make(chan error, 1)
@@ -73,7 +105,7 @@ func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- server.Run(inputReader, &output) }()
 
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1", "transformerCallbacks": true}})
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
 	<-callbackStarted
 	_ = inputWriter.Close()
@@ -223,7 +255,7 @@ func startCallbackSession(t *testing.T, server *Server) callbackSession {
 	})
 
 	output := bufio.NewReader(outputReader)
-	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1"}})
+	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1, "clientVersion": "2.7.1", "transformerCallbacks": true}})
 	readJSONLine(t, output)
 	writeJSONLine(t, inputWriter, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "build", "params": map[string]any{"roots": []string{"fixture"}}})
 	callback := readJSONLine(t, output)

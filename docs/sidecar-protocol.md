@@ -44,13 +44,15 @@ node tools/sidecar/main.js
 The process reads newline-delimited JSON requests from `stdin` and writes one
 newline-delimited JSON response per request to `stdout`.
 
-Builds started through the JavaScript API use the same request and response
-objects without starting this process. The native API server sends a
-`transform` request back over the build connection, and the JavaScript client
-passes it to `SidecarServer` in-process. CLI builds continue to use the stdio
-worker. Both transports meet at one native transformer-host seam, so plugin
-resolution, ordering, options, overlay handling, and diagnostic trace maps are
-shared rather than reimplemented.
+Builds started through the JavaScript API use this stdio worker too, sharded
+and with native jecs, exactly like CLI builds. A client created with
+`createBuildSession({ transformerCallbacks: true })` instead asks for callbacks
+when it initializes. The native API server then sends each `transform`
+request back over the build connection to the client's in-process
+`SidecarServer`, which serves them one at a time on its own thread. Both
+transports meet at one native transformer-host seam, so plugin resolution,
+ordering, options, overlay handling, and diagnostic trace maps are shared
+rather than reimplemented.
 
 **stdout is reserved for protocol responses.** `main.js` captures the real
 stdout writer and reroutes every other stdout write (plugin `console.log`,

@@ -142,6 +142,13 @@ export interface BuildSessionOptions {
 	 * for process wrappers.
 	 */
 	readonly executableArgs?: ReadonlyArray<string> | undefined;
+	/**
+	 * Run transformer plugins in this process instead of in the server's
+	 * sidecar workers. Builds then transform one request at a time on this
+	 * process's thread, without native jecs or sharded workers, so they are
+	 * slower; the default keeps transforms in the server, like the CLI.
+	 */
+	readonly transformerCallbacks?: boolean | undefined;
 }
 
 export declare function createBuildSession(options?: BuildSessionOptions): BuildSession;
