@@ -110,3 +110,90 @@ func writeFixture(t *testing.T, directory, name, contents string) {
 		t.Fatal(err)
 	}
 }
+
+func TestIsReferencedAliasValue_qualifiedTypeNames(t *testing.T) {
+	cases := []struct {
+		name     string
+		files    map[string]string
+		importee string
+		want     bool
+	}{
+		{
+			name: "type-only declared namespace used as A.T",
+			files: map[string]string{
+				"src/webhook.d.ts": `export declare namespace Webhook { export interface Post { content: string } }`,
+				"src/main.ts":      `import { Webhook } from "./webhook";
+export function send(body: Webhook.Post) {}
+export type P = Webhook.Post;
+export function many(body: Array<Webhook.Post>, other: { inner: Webhook.Post }) {}
+`,
+			},
+			importee: "Webhook",
+			want:     false,
+		},
+		{
+			name: "implicitly exported namespace in a .d.ts module",
+			files: map[string]string{
+				"src/webhook.d.ts": `declare namespace Webhook { interface Post { content: string } }
+export { Webhook };`,
+				"src/main.ts": `import { Webhook } from "./webhook";
+export function send(body: Webhook.Post) {}
+`,
+			},
+			importee: "Webhook",
+			want:     false,
+		},
+		{
+			name: "nested type-only namespace used as A.B.T",
+			files: map[string]string{
+				"src/a.ts":    `export namespace A { export namespace B { export interface Post { content: string } } }`,
+				"src/main.ts": `import { A } from "./a";
+export function send(body: A.B.Post) {}
+`,
+			},
+			importee: "A",
+			want:     false,
+		},
+		{
+			name: "instantiated namespace used only as a value",
+			files: map[string]string{
+				"src/n.ts":    `export namespace N { export const v = 1; }`,
+				"src/main.ts": `import { N } from "./n";
+export const x = N.v;
+`,
+			},
+			importee: "N",
+			want:     true,
+		},
+		{
+			name: "instantiated namespace used as type and value",
+			files: map[string]string{
+				"src/n.ts":    `export namespace N { export const v = 1; export interface T { a: number } }`,
+				"src/main.ts": `import { N } from "./n";
+export function f(body: N.T) { return N.v; }
+`,
+			},
+			importee: "N",
+			want:     true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+			writeFixture(t, directory, "package.json", `{"name":"fixture","version":"1.0.0"}`)
+			writeFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"rootDir":"src","outDir":"out","moduleResolution":"node","strict":true},"include":["src/**/*.ts"]}`)
+			for path, contents := range tc.files {
+				writeFixture(t, directory, path, contents)
+			}
+
+			s := buildElisionState(t, directory, "src/main.ts")
+			_, importName := findNamedImport(s, tc.importee)
+			if importName == nil {
+				t.Fatalf("import %s not found", tc.importee)
+			}
+			if got := isReferencedAliasValue(s, importName.Parent, importName); got != tc.want {
+				t.Fatalf("isReferencedAliasValue = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

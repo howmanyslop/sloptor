@@ -71,7 +71,18 @@ func isImportedNameReferencedAsValue(s *State, name *ast.Node) bool {
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
 		if ast.IsIdentifier(node) {
-			if node == name || node.Text() != name.Text() || ast.IsPartOfTypeNode(node) || ast.IsPartOfTypeQuery(node) {
+			if node == name || node.Text() != name.Text() {
+				return false
+			}
+			// IsPartOfTypeNode is false for the left side of a QualifiedName
+			// (`A` in `A.B`), so judge the identifier by the outermost
+			// qualified name it belongs to. PropertyAccessExpression is not
+			// climbed: `A.b` in an expression is a real value use.
+			typeName := node
+			for typeName.Parent != nil && ast.IsQualifiedName(typeName.Parent) {
+				typeName = typeName.Parent
+			}
+			if ast.IsPartOfTypeNode(typeName) || ast.IsPartOfTypeQuery(typeName) {
 				return false
 			}
 			if alias == nil {
