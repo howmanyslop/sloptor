@@ -69,8 +69,11 @@ const { command, log } = createScriptCommand("1.0.0", "Runs hooks for `hk`.");
 command
 	.type("hook-tool", new EnumType([HookTool.Gitleaks, HookTool.Shfmt, HookTool.Typos]))
 	.argument("<tool:hook-tool>", "The hook tool to check.")
-	.argument("<files...:file>", "The files to check.")
+	.argument("[files...:file]", "The files to check.")
 	.action(async (_, hookTool, ...files) => {
+		// tag-only pushes and empty diffs hand hk no files; shfmt/typos would scan the cwd
+		if (files.length === 0) return;
+
 		switch (hookTool) {
 			case HookTool.Gitleaks: {
 				await runGitleaksAsync(files);
