@@ -62,3 +62,18 @@ func TestSidecarShardCountKeepsSmallRequestsOnOneWorker(t *testing.T) {
 		t.Fatalf("sharding off: got %d shards, want 1", got)
 	}
 }
+
+// Catches every one of several concurrent builds starting its full pool of
+// Node workers, multiplying the Node heaps on the machine.
+func TestSidecarShardCountShrinksWithConcurrentBuilds(t *testing.T) {
+	t.Setenv(sidecarShardsEnv, "")
+	SetBuildShare(4)
+	t.Cleanup(func() { SetBuildShare(1) })
+	if got := sidecarShardCount(sidecarShardMinFiles * 16); got != 1 {
+		t.Fatalf("4 concurrent builds: got %d shards each, want 1", got)
+	}
+	t.Setenv(sidecarShardsEnv, "3")
+	if got := sidecarShardCount(sidecarShardMinFiles * 16); got != 3 {
+		t.Fatalf("%s=3: got %d shards, want 3", sidecarShardsEnv, got)
+	}
+}

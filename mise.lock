@@ -71,100 +71,100 @@ url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/3849249
 provenance = "github-attestations"
 
 [[tools.bun]]
-version = "1.4.3"
+version = "1.4.4"
 backend = "core:bun"
 
 [tools.bun."platforms.linux-arm64"]
-checksum = "sha256:efa9813da5ed72423bf847f916e8d2c47c0d776add972354026a75e10da9aa21"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-aarch64.zip"
+checksum = "sha256:baa6bb36f51d6e58561e02bbea825038a9df454f673d6d776e8bbf86f8c7850e"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-aarch64.zip"
 
 [tools.bun."platforms.linux-arm64-musl"]
-checksum = "sha256:8de8a0003cc2707bb555887e3d450e24e1edf3f605f491393e89ed61a8853420"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-aarch64-musl.zip"
+checksum = "sha256:57f01b02ac7113c61c935f28f38c2eab849e3c970dab21f8b640a87b1ef65009"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-aarch64-musl.zip"
 
 [tools.bun."platforms.linux-x64"]
-checksum = "sha256:3e730528d89775f03f87f05c06787c4df4099d0a37f3f252e7b829cb23816e18"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64.zip"
+checksum = "sha256:bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip"
 
 [tools.bun."platforms.linux-x64-baseline"]
-checksum = "sha256:1fc2edac843102909e3a1be1d8d9802cc6071cf074e67e88231f4ffe0f8b397b"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-baseline.zip"
+checksum = "sha256:e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-baseline.zip"
 
 [tools.bun."platforms.linux-x64-musl"]
-checksum = "sha256:6e9ea98554ea0d05efda5840ae292618aaa3adefd66b0853520c5c86a37eac9c"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-musl.zip"
+checksum = "sha256:a5a8ccc5e74dcb883fe974f125a7bdb3b41e5195ed1b870e73f17effd3eb2b2d"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-musl.zip"
 
 [tools.bun."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:4b5b0b5503f6ebf15161e8c56eb5a263134c05cd98a86dc11ee43ac5bda9862e"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-linux-x64-musl-baseline.zip"
+checksum = "sha256:6e9c37098b293920aed28bfb51ab240e26d23bfdd9bbfecb3ad428ac166549bc"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64-musl-baseline.zip"
 
 [tools.bun."platforms.macos-arm64"]
-checksum = "sha256:80afd4c069b46a6fa8f3ec520bebc750a7843e4a8d5b9583d29ad436c00a3403"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-darwin-aarch64.zip"
+checksum = "sha256:c240d7f0ccb90c263a849fcdb09b7ee62630d921348ed6aafda86b9d577bc510"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-aarch64.zip"
 
 [tools.bun."platforms.macos-x64"]
-checksum = "sha256:62660e6438eb872278877acca77e1152d5d031324df368d4a81b428211489d2d"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-darwin-x64.zip"
+checksum = "sha256:50a3491f73abc2fe81673171a85762d3bc2cc1680ccecadd983de99adf77977e"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-x64.zip"
 
 [tools.bun."platforms.macos-x64-baseline"]
-checksum = "sha256:0fde04e8b092156b97fe6432e899baf16d9ed6ce52cbb4218d2d9c07a2f827ef"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-darwin-x64-baseline.zip"
+checksum = "sha256:d4a155adfbfd09155eb3ba05c9e3a544f39297d7a68616d3c7759f67ab5c47dc"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-darwin-x64-baseline.zip"
 
 [tools.bun."platforms.windows-x64"]
-checksum = "sha256:0bf84e808552beea67bf1202a287a35c6c825d837b287b3f8e9dd513dba35d3d"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-windows-x64.zip"
+checksum = "sha256:cd2c0fccc78f3ede1f50ca827a15f063eda13d4d150a3d0674f4f6e323d864a5"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64.zip"
 
 [tools.bun."platforms.windows-x64-baseline"]
-checksum = "sha256:d7a7d3eb216614544aab0cde2d8d9f2e4e87839bf5a30a1cd11d077f02d84e0c"
-url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.3/bun-windows-x64-baseline.zip"
+checksum = "sha256:0f20ce6674d4f2dbcc8c5d59fdf99f7ba45f8c3b367e0f5781cbfa30a1c78d99"
+url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-windows-x64-baseline.zip"
 
 [[tools.communique]]
-version = "1.6.0"
+version = "1.6.2"
 backend = "packslip:github.com/jdx/communique"
 
 [tools.communique."platforms.linux-arm64"]
-checksum = "sha256:c3cc3d1c02026f5d8a2f83794f99cd3e989c25c5fdc607e1555e20cda5a2a2f2"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-aarch64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:04a3045e4fb4e0539de9363e8d65eceacf1d2ffcde9625201a2ab2cd4a0ad1e4"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.linux-arm64-musl"]
-checksum = "sha256:a8e006551e0193054b802481a6a01d0822f3ae9d5eb3511a4dd3e6a02e1c5380"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:1d14e29efe1281bccddf25114f438fdc420d94cc312ff7d67b7aa69cbf288565"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-aarch64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.linux-x64"]
-checksum = "sha256:cef864e76f1243535da3c99f8918dd52a42545181e1ff8ceac947d218110550a"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:b8ff7f64b3634eddbece306c12db0ceee09b349db00be7955c09f630d8542f5b"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.linux-x64-baseline"]
-checksum = "sha256:cef864e76f1243535da3c99f8918dd52a42545181e1ff8ceac947d218110550a"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:b8ff7f64b3634eddbece306c12db0ceee09b349db00be7955c09f630d8542f5b"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.linux-x64-musl"]
-checksum = "sha256:010c8f768e1207ad65af96cb3bb1bc5a70adf0efa47677489ac9f1ed5f1a1ea6"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:2bb37e907549fea236f10fb82522f834ca6bb776d3fba1fd4e16c0884d7d0b93"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:010c8f768e1207ad65af96cb3bb1bc5a70adf0efa47677489ac9f1ed5f1a1ea6"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:2bb37e907549fea236f10fb82522f834ca6bb776d3fba1fd4e16c0884d7d0b93"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.macos-arm64"]
-checksum = "sha256:8a3472caac1367a73e3fa287ebef16f7740ae3a46039edb58796d5958eb38590"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:b0859affdac6d447771173d0aee1fcd0f4c23f77ee6ef45143664474ccac490c"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.windows-x64"]
-checksum = "sha256:57bbd488fec030e37e917b28aeed7d0a35aca852a57b6431f5e5fb040bdba4e6"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-pc-windows-msvc.zip"
+checksum = "sha256:a3024b772fbb9b80b8ef47246f0818534f22aad5683dd1b86bf43409a566b6ed"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-pc-windows-msvc.zip"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [tools.communique."platforms.windows-x64-baseline"]
-checksum = "sha256:57bbd488fec030e37e917b28aeed7d0a35aca852a57b6431f5e5fb040bdba4e6"
-url = "https://github.com/jdx/communique/releases/download/v1.6.0/communique-x86_64-pc-windows-msvc.zip"
+checksum = "sha256:a3024b772fbb9b80b8ef47246f0818534f22aad5683dd1b86bf43409a566b6ed"
+url = "https://github.com/jdx/communique/releases/download/v1.6.2/communique-x86_64-pc-windows-msvc.zip"
 signer = "sigstore-oidc:https://github.com/jdx/communique/.github/workflows/release.yml"
 
 [[tools."github:lune-org/lune"]]
@@ -674,111 +674,111 @@ aube = { path = ".mise/locks/ni/30.6.0", digest = "sha256:20b74bf748f72a8a087775
 backend = "npm:@antfu/ni"
 
 [[tools.node]]
-version = "22.23.2"
+version = "22.23.4"
 backend = "core:node"
 
 [tools.node."platforms.linux-arm64"]
-checksum = "sha256:013b59cfd2819703a6f4a14ab891fc46fc2a4e3f5bcd92de3fb4929b43e35b30"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-arm64.tar.gz"
+checksum = "sha256:f7a1e486dbc8b286847815b477d4fb5e9fb963ed4489c3e1588853d685f589f9"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-arm64.tar.gz"
 
 [tools.node."platforms.linux-arm64-musl"]
-checksum = "sha256:b7a1a2b1c7c76e47550f17764676939840e0a64b4d04bdd375a4ac14bccaa8d8"
-url = "https://unofficial-builds.nodejs.org/download/release/v22.23.2/node-v22.23.2-linux-arm64-musl.tar.gz"
+checksum = "sha256:78acbffed1d4095e8b4db55eb8b43ae928b2d41d14ab2ade9ee46a1ca6e677df"
+url = "https://unofficial-builds.nodejs.org/download/release/v22.23.4/node-v22.23.4-linux-arm64-musl.tar.gz"
 
 [tools.node."platforms.linux-x64"]
-checksum = "sha256:b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.gz"
+checksum = "sha256:b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.gz"
 
 [tools.node."platforms.linux-x64-baseline"]
-checksum = "sha256:b294a556e639d64338823920e5866c21c02741742d2e1529ee1a225c1ec9252a"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.gz"
+checksum = "sha256:b8492284c76a54baf58d61668dd0e41ee0fc98adabf9503d30f05d08f55b4406"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.gz"
 
 [tools.node."platforms.linux-x64-musl"]
-checksum = "sha256:396e11ee609eb2e5cb990f045c4d037aa47b2c247f3cecb01c5c162e33ffa9af"
-url = "https://unofficial-builds.nodejs.org/download/release/v22.23.2/node-v22.23.2-linux-x64-musl.tar.gz"
+checksum = "sha256:117eae38a39e45d534f1a18c2217709dc0b09835f61689af490137de231eb42c"
+url = "https://unofficial-builds.nodejs.org/download/release/v22.23.4/node-v22.23.4-linux-x64-musl.tar.gz"
 
 [tools.node."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:396e11ee609eb2e5cb990f045c4d037aa47b2c247f3cecb01c5c162e33ffa9af"
-url = "https://unofficial-builds.nodejs.org/download/release/v22.23.2/node-v22.23.2-linux-x64-musl.tar.gz"
+checksum = "sha256:117eae38a39e45d534f1a18c2217709dc0b09835f61689af490137de231eb42c"
+url = "https://unofficial-builds.nodejs.org/download/release/v22.23.4/node-v22.23.4-linux-x64-musl.tar.gz"
 
 [tools.node."platforms.macos-arm64"]
-checksum = "sha256:61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-arm64.tar.gz"
+checksum = "sha256:c9e1dbc748b33ed2d14f42445191ecaf14c56259c7a9a26d0042c49ec2b66428"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-arm64.tar.gz"
 
 [tools.node."platforms.macos-x64"]
-checksum = "sha256:58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-x64.tar.gz"
+checksum = "sha256:efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-x64.tar.gz"
 
 [tools.node."platforms.macos-x64-baseline"]
-checksum = "sha256:58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-x64.tar.gz"
+checksum = "sha256:efcc2b0db6f94bf53eddb038fe2b370277a042bd29e4f19b8f8e23598795b819"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-darwin-x64.tar.gz"
 
 [tools.node."platforms.windows-x64"]
-checksum = "sha256:1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip"
+checksum = "sha256:cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip"
 
 [tools.node."platforms.windows-x64-baseline"]
-checksum = "sha256:1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97"
-url = "https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip"
+checksum = "sha256:cbc74b5e0982c9dbb41525fd8fb5dcd32fbee237863f7829072f4639a1ce5f20"
+url = "https://nodejs.org/dist/v22.23.4/node-v22.23.4-win-x64.zip"
 
 [[tools.pkl]]
-version = "0.32.1"
+version = "0.32.2"
 backend = "aqua:apple/pkl"
 
 [tools.pkl."platforms.linux-arm64"]
-checksum = "sha256:a76d2dd47da435a8f911b0347373f47c7e59ea54fb75ff846d20b8df10dba058"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-aarch64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426568"
+checksum = "sha256:e60744e17d4ddc0257a35260998b5f98387b5d6a5e868317cccfbebe8d962ae3"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-aarch64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850794"
 
 [tools.pkl."platforms.linux-arm64-musl"]
-checksum = "sha256:a76d2dd47da435a8f911b0347373f47c7e59ea54fb75ff846d20b8df10dba058"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-aarch64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426568"
+checksum = "sha256:e60744e17d4ddc0257a35260998b5f98387b5d6a5e868317cccfbebe8d962ae3"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-aarch64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850794"
 
 [tools.pkl."platforms.linux-x64"]
-checksum = "sha256:3180b62da95c0cad1d904e9bb6c5f4a8f9032413c21e53194bb91ff1ee5f3211"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426567"
+checksum = "sha256:874c75484c79add77fb2346ea4ab2e8875eea35fb707894bf5457a2df5d03def"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850808"
 
 [tools.pkl."platforms.linux-x64-baseline"]
-checksum = "sha256:3180b62da95c0cad1d904e9bb6c5f4a8f9032413c21e53194bb91ff1ee5f3211"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426567"
+checksum = "sha256:874c75484c79add77fb2346ea4ab2e8875eea35fb707894bf5457a2df5d03def"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850808"
 
 [tools.pkl."platforms.linux-x64-musl"]
-checksum = "sha256:3180b62da95c0cad1d904e9bb6c5f4a8f9032413c21e53194bb91ff1ee5f3211"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426567"
+checksum = "sha256:874c75484c79add77fb2346ea4ab2e8875eea35fb707894bf5457a2df5d03def"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850808"
 
 [tools.pkl."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:3180b62da95c0cad1d904e9bb6c5f4a8f9032413c21e53194bb91ff1ee5f3211"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-linux-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426567"
+checksum = "sha256:874c75484c79add77fb2346ea4ab2e8875eea35fb707894bf5457a2df5d03def"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-linux-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850808"
 
 [tools.pkl."platforms.macos-arm64"]
-checksum = "sha256:563eb51c9a20b16a3625464ed745c675ed9750381f2126722696a0d7cac1d9d3"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-macos-aarch64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426570"
+checksum = "sha256:466952f0b30c93dfa36393a5b3695159917ce4291e3c936a18a0a240cfbe98e9"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-macos-aarch64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850972"
 
 [tools.pkl."platforms.macos-x64"]
-checksum = "sha256:5b74b903234047960144f66f2cebdd12d267d9b98e8155ed91d2ae5ed27e2d1f"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-macos-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426599"
+checksum = "sha256:3c4c914a75210d3f3292740b4a8d447f9f832e81b60720bec57221e884717eee"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-macos-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850987"
 
 [tools.pkl."platforms.macos-x64-baseline"]
-checksum = "sha256:5b74b903234047960144f66f2cebdd12d267d9b98e8155ed91d2ae5ed27e2d1f"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-macos-amd64"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426599"
+checksum = "sha256:3c4c914a75210d3f3292740b4a8d447f9f832e81b60720bec57221e884717eee"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-macos-amd64"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663850987"
 
 [tools.pkl."platforms.windows-x64"]
-checksum = "sha256:8550a00fcf027335e42c5e2cd553b88e98845408cb1880b3e3d1860caf46d22a"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-windows-amd64.exe"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426668"
+checksum = "sha256:ac3c55c2e43c20964dc5faf51e47bf73a90150dfe1874aa37753651753edf201"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-windows-amd64.exe"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663854370"
 
 [tools.pkl."platforms.windows-x64-baseline"]
-checksum = "sha256:8550a00fcf027335e42c5e2cd553b88e98845408cb1880b3e3d1860caf46d22a"
-url = "https://github.com/apple/pkl/releases/download/0.32.1/pkl-windows-amd64.exe"
-url_api = "https://api.github.com/repos/apple/pkl/releases/assets/487426668"
+checksum = "sha256:ac3c55c2e43c20964dc5faf51e47bf73a90150dfe1874aa37753651753edf201"
+url = "https://github.com/apple/pkl/releases/download/0.32.2/pkl-windows-amd64.exe"
+url_api = "https://api.github.com/repos/apple/pkl/releases/assets/663854370"
 
 [[tools.pnpm]]
 version = "12.14.0"
@@ -851,73 +851,73 @@ url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/643957404"
 provenance = "github-attestations"
 
 [[tools.rumdl]]
-version = "0.2.79"
+version = "0.3.0"
 backend = "aqua:rvben/rumdl"
 
 [tools.rumdl."platforms.linux-arm64"]
-checksum = "sha256:466b22a4fae861e104a31bfda940adf2a96d77ed683d7ed19c261cf7abc36094"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384614"
+checksum = "sha256:b0ea55fdbabcc2b86e7ef594c3fd86cfee620844c2d8cea4a3135b9468d2845c"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870478"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.linux-arm64-musl"]
-checksum = "sha256:f2ccb236a6b62b9980711a2f54c1e0d8d91ceaea5d7313d0b1a615237b3130bf"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384620"
+checksum = "sha256:5a6274e69bf22164ee6adb47381c870f61ece4648a89fa8b178f0ed24857154a"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870475"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.linux-x64"]
-checksum = "sha256:82618d7c79c83b83781f7a30930402384fbf31d8b7ac071a63a3abccb0dbdef9"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384609"
+checksum = "sha256:1d23c7f8c10d534e53c76b34a22f7dea7f5e5ebe493adbb7e25a401f88620c87"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870483"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.linux-x64-baseline"]
-checksum = "sha256:82618d7c79c83b83781f7a30930402384fbf31d8b7ac071a63a3abccb0dbdef9"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384609"
+checksum = "sha256:1d23c7f8c10d534e53c76b34a22f7dea7f5e5ebe493adbb7e25a401f88620c87"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870483"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.linux-x64-musl"]
-checksum = "sha256:a85ae77c6880616118e10dda1e36292df59815bcfbf767201736ff6971213cf3"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384616"
+checksum = "sha256:6c90c398f04c11a09dcbd2da08bdaa6d53d9b14393e3cd32dbdf4da5620eec5c"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870477"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:a85ae77c6880616118e10dda1e36292df59815bcfbf767201736ff6971213cf3"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384616"
+checksum = "sha256:6c90c398f04c11a09dcbd2da08bdaa6d53d9b14393e3cd32dbdf4da5620eec5c"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870477"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.macos-arm64"]
-checksum = "sha256:8c0ecf93a61bf612df5f6c6f22813d066a6f51a5680f3c12da49b93ed892aebb"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384611"
+checksum = "sha256:bc62f4176dd9257547c939fa152b535b6f393365acd352fcfd94e5e19a792bb4"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870474"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.macos-x64"]
-checksum = "sha256:09cca63968f9a3f35faab71ac8d09bda1a96ba4e0e38cac54bfb7b544523075f"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384605"
+checksum = "sha256:beb48c38948fcb9bb4eb4994af9830cbb6b8a0b97a3ec0ea3233151065d2e56e"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870476"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.macos-x64-baseline"]
-checksum = "sha256:09cca63968f9a3f35faab71ac8d09bda1a96ba4e0e38cac54bfb7b544523075f"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384605"
+checksum = "sha256:beb48c38948fcb9bb4eb4994af9830cbb6b8a0b97a3ec0ea3233151065d2e56e"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870476"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.windows-x64"]
-checksum = "sha256:07d12118c143976fadaaf7d053ac6be328798ce3b59b3f774572ac946b123672"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384622"
+checksum = "sha256:72ed0bd3912560758cfc66cb439a2804755a858573e605cd3d1e65e8aa79d2a1"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870485"
 provenance = "github-attestations"
 
 [tools.rumdl."platforms.windows-x64-baseline"]
-checksum = "sha256:07d12118c143976fadaaf7d053ac6be328798ce3b59b3f774572ac946b123672"
-url = "https://github.com/rvben/rumdl/releases/download/v0.2.79/rumdl-v0.2.79-x86_64-pc-windows-msvc.zip"
-url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/625384622"
+checksum = "sha256:72ed0bd3912560758cfc66cb439a2804755a858573e605cd3d1e65e8aa79d2a1"
+url = "https://github.com/rvben/rumdl/releases/download/v0.3.0/rumdl-v0.3.0-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/rvben/rumdl/releases/assets/649870485"
 provenance = "github-attestations"
 
 [[tools.shellcheck]]
@@ -1098,60 +1098,60 @@ url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1
 url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616657506"
 
 [[tools.vale]]
-version = "3.24.0"
+version = "3.25.1"
 backend = "aqua:vale-cli/vale"
 
 [tools.vale."platforms.linux-arm64"]
-checksum = "sha256:104cbd349279e50c4cb40adb70adf345d93cc4a3a0191f9e68bdccb97086b582"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879360"
+checksum = "sha256:2a69755b68118c612c455fc0c5ea1b9438519aa1c852e3fb303b3ad97141bbb0"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037026"
 
 [tools.vale."platforms.linux-arm64-musl"]
-checksum = "sha256:104cbd349279e50c4cb40adb70adf345d93cc4a3a0191f9e68bdccb97086b582"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879360"
+checksum = "sha256:2a69755b68118c612c455fc0c5ea1b9438519aa1c852e3fb303b3ad97141bbb0"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037026"
 
 [tools.vale."platforms.linux-x64"]
-checksum = "sha256:867534ddb678abca7f214bc4706ead0922bd5252ffe8035fc227013f66c8b214"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879404"
+checksum = "sha256:4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037022"
 
 [tools.vale."platforms.linux-x64-baseline"]
-checksum = "sha256:867534ddb678abca7f214bc4706ead0922bd5252ffe8035fc227013f66c8b214"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879404"
+checksum = "sha256:4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037022"
 
 [tools.vale."platforms.linux-x64-musl"]
-checksum = "sha256:867534ddb678abca7f214bc4706ead0922bd5252ffe8035fc227013f66c8b214"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879404"
+checksum = "sha256:4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037022"
 
 [tools.vale."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:867534ddb678abca7f214bc4706ead0922bd5252ffe8035fc227013f66c8b214"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Linux_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879404"
+checksum = "sha256:4bf5c5176b682b1da0830f471584d3494f1c2e27ee3029e1ad6f6661d4962182"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Linux_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037022"
 
 [tools.vale."platforms.macos-arm64"]
-checksum = "sha256:87b513f26499f6657c15cf7175ba5b058a7c1ff2bb2d4e07265db2dd43451e44"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_macOS_arm64.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879362"
+checksum = "sha256:fbcaa68d9b9e229b9c8dc918f209e93572ce943039700b7e04a423ff12f684cd"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_macOS_arm64.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037030"
 
 [tools.vale."platforms.macos-x64"]
-checksum = "sha256:eeb39e86f1daac27cc2a77fef3af1824d50559bdc22329fb25fb921c80c79472"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_macOS_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879361"
+checksum = "sha256:e27097e84a812d45546de8d6a4ffa75538cab39c96f79b153b601240f8cefaf9"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_macOS_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037025"
 
 [tools.vale."platforms.macos-x64-baseline"]
-checksum = "sha256:eeb39e86f1daac27cc2a77fef3af1824d50559bdc22329fb25fb921c80c79472"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_macOS_64-bit.tar.gz"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879361"
+checksum = "sha256:e27097e84a812d45546de8d6a4ffa75538cab39c96f79b153b601240f8cefaf9"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_macOS_64-bit.tar.gz"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037025"
 
 [tools.vale."platforms.windows-x64"]
-checksum = "sha256:3a8884774973b6f2826877e1c6388a5feae4704ef88a9a9c912c77ce186990f3"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Windows_64-bit.zip"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879364"
+checksum = "sha256:5f4b5cefee5d0f7ee0621d7cc035886515888fd732c4e8add36d3c922f2adc68"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Windows_64-bit.zip"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037103"
 
 [tools.vale."platforms.windows-x64-baseline"]
-checksum = "sha256:3a8884774973b6f2826877e1c6388a5feae4704ef88a9a9c912c77ce186990f3"
-url = "https://github.com/vale-cli/vale/releases/download/v3.24.0/vale_3.24.0_Windows_64-bit.zip"
-url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/603879364"
+checksum = "sha256:5f4b5cefee5d0f7ee0621d7cc035886515888fd732c4e8add36d3c922f2adc68"
+url = "https://github.com/vale-cli/vale/releases/download/v3.25.1/vale_3.25.1_Windows_64-bit.zip"
+url_api = "https://api.github.com/repos/vale-cli/vale/releases/assets/667037103"

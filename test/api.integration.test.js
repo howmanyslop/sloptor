@@ -108,7 +108,7 @@ test("API transformer callbacks retain project state without spawning sidecars a
 	createTransformerProject(apiProject);
 	createTransformerProject(cliProject);
 
-	const session = createBuildSession({ executable });
+	const session = createBuildSession({ executable, transformerCallbacks: true });
 	try {
 		const first = await session.build({ project: apiProject });
 		assert.equal(first.ok, true);
@@ -133,13 +133,47 @@ test("API transformer callbacks retain project state without spawning sidecars a
 	assert.deepEqual(outputArtifactsForProject(apiProject), outputArtifactsForProject(cliProject));
 });
 
+test("API sessions transform in server sidecars by default and match CLI bytes", async () => {
+	const apiProject = path.join(temporaryRoot, "transformer-native-api");
+	const cliProject = path.join(temporaryRoot, "transformer-native-cli");
+	createTransformerProject(apiProject);
+	createTransformerProject(cliProject);
+	const pidFile = path.join(apiProject, "transformer.pid");
+	fs.appendFileSync(
+		path.join(apiProject, "transformer.js"),
+		`require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\n`,
+	);
+	const sidecarEnv = { ROTOR_SIDECAR_PATH: path.join(repoRoot, "tools", "sidecar") };
+
+	const previousSidecarPath = process.env.ROTOR_SIDECAR_PATH;
+	process.env.ROTOR_SIDECAR_PATH = sidecarEnv.ROTOR_SIDECAR_PATH;
+	const session = createBuildSession({ executable });
+	try {
+		const result = await session.build({ project: apiProject });
+		assert.equal(result.ok, true);
+		assert.notEqual(Number(fs.readFileSync(pidFile, "utf8")), process.pid);
+		assert.match(fs.readFileSync(path.join(apiProject, "out", "main.luau"), "utf8"), /callback:start/);
+	} finally {
+		await session.dispose();
+		if (previousSidecarPath === undefined) delete process.env.ROTOR_SIDECAR_PATH;
+		else process.env.ROTOR_SIDECAR_PATH = previousSidecarPath;
+	}
+
+	execFileSync(executable, ["build", "--project", path.join(cliProject, "tsconfig.json")], {
+		cwd: cliProject,
+		env: { ...process.env, ...sidecarEnv },
+		stdio: "pipe",
+	});
+	assert.deepEqual(outputArtifactsForProject(apiProject), outputArtifactsForProject(cliProject));
+});
+
 test("API transformer plugins resolve project modules from outside the project like the CLI", async () => {
 	const apiProject = path.join(temporaryRoot, "linked-transformer-api");
 	const cliProject = path.join(temporaryRoot, "linked-transformer-cli");
 	createLinkedTransformerProject(apiProject);
 	createLinkedTransformerProject(cliProject);
 
-	const session = createBuildSession({ executable });
+	const session = createBuildSession({ executable, transformerCallbacks: true });
 	try {
 		const result = await session.build({ project: apiProject });
 		assert.equal(result.ok, true, JSON.stringify(result.diagnostics ?? result.projects?.[0]?.diagnostics));
@@ -162,7 +196,7 @@ test("concurrent solution projects keep transformer callback state isolated", as
 	createTransformerProject(firstProject, "first", "one");
 	createTransformerProject(secondProject, "second", "two");
 
-	const session = createBuildSession({ executable });
+	const session = createBuildSession({ executable, transformerCallbacks: true });
 	let result;
 	try {
 		result = await session.build({
@@ -186,7 +220,7 @@ test("transformer callback failures belong to their project", async () => {
 	createTransformerProject(successfulProject, "successful", "two");
 	fs.writeFileSync(path.join(failedProject, "transformer.js"), 'module.exports = () => { throw new Error("owned callback failure"); };\n');
 
-	const session = createBuildSession({ executable });
+	const session = createBuildSession({ executable, transformerCallbacks: true });
 	let result;
 	try {
 		result = await session.build({
@@ -220,7 +254,7 @@ test("transformer callback diagnostics map back to original source positions", a
 `,
 	);
 
-	const session = createBuildSession({ executable });
+	const session = createBuildSession({ executable, transformerCallbacks: true });
 	let result;
 	try {
 		result = await session.build({ project });

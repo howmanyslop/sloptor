@@ -370,6 +370,9 @@ func runBuildBody(streams cliStreams, parsed *buildArgs) error {
 		}
 		logservice.WriteLineIfVerbose(fmt.Sprintf("concurrency: builders=%s checkers=%s singleThreaded=%s", builders, checkers, single))
 	}
+	if !opts.watch {
+		defer admitBuild(context.Background(), streams)()
+	}
 
 	// Upstream projectPath = path.dirname(tsConfigPath)
 	// (createProjectData.ts L13).

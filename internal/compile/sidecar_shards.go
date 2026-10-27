@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"rotor/tsgo/ast"
 )
@@ -27,11 +28,20 @@ const (
 	sidecarShardMinFiles = 256
 )
 
+// buildShare is how many builds share this machine right now; the CLI updates
+// it while it holds an admission slot.
+var buildShare atomic.Int32
+
+// SetBuildShare records how many builds share this machine.
+func SetBuildShare(share int) {
+	buildShare.Store(int32(max(1, share)))
+}
+
 // sidecarShardCount is how many workers a transform of fileCount files fans
-// out across. ROTOR_SIDECAR_SHARDS overrides the CPU-derived default; 1 turns
-// sharding off.
+// out across. ROTOR_SIDECAR_SHARDS overrides the CPU-derived default, which
+// is split across concurrent builds; 1 turns sharding off.
 func sidecarShardCount(fileCount int) int {
-	limit := min(sidecarShardMaxDefault, max(1, runtime.NumCPU()/2))
+	limit := max(1, min(sidecarShardMaxDefault, max(1, runtime.NumCPU()/2))/max(1, int(buildShare.Load())))
 	if raw := os.Getenv(sidecarShardsEnv); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil && n >= 1 {
 			limit = n

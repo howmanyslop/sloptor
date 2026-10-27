@@ -84,6 +84,8 @@ func runCheckCommand(streams cliStreams, args *checkArgs, argv []string) error {
 	}
 	if args.watch {
 		defer applyRuntimePolicy(true)()
+	} else {
+		defer admitBuild(context.Background(), streams)()
 	}
 
 	// rbxts-style projects resolve all of their types (including the
