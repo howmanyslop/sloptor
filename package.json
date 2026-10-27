@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor",
-	"version": "2.9.0-beta.1",
+	"version": "3.0.0-beta.1",
 	"description": "Native TypeScript-to-Luau compiler for Roblox with a typed JavaScript client.",
 	"keywords": [
 		"compiler",
@@ -97,12 +97,12 @@
 		"typescript": "catalog:tooling"
 	},
 	"optionalDependencies": {
-		"@rotor-rbx/rotor-darwin-arm64": "2.9.0-beta.1",
-		"@rotor-rbx/rotor-darwin-x64": "2.9.0-beta.1",
-		"@rotor-rbx/rotor-linux-arm64": "2.9.0-beta.1",
-		"@rotor-rbx/rotor-linux-x64": "2.9.0-beta.1",
-		"@rotor-rbx/rotor-win32-arm64": "2.9.0-beta.1",
-		"@rotor-rbx/rotor-win32-x64": "2.9.0-beta.1"
+		"@rotor-rbx/rotor-darwin-arm64": "3.0.0-beta.1",
+		"@rotor-rbx/rotor-darwin-x64": "3.0.0-beta.1",
+		"@rotor-rbx/rotor-linux-arm64": "3.0.0-beta.1",
+		"@rotor-rbx/rotor-linux-x64": "3.0.0-beta.1",
+		"@rotor-rbx/rotor-win32-arm64": "3.0.0-beta.1",
+		"@rotor-rbx/rotor-win32-x64": "3.0.0-beta.1"
 	},
 	"packageManager": "pnpm@12.14.0",
 	"engines": {

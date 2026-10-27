@@ -25,7 +25,7 @@ import (
 func TestMacrosModel(t *testing.T) {
 	files := compileRuntimeLibProject(t, "macros_model")
 
-	want := "-- Compiled with sloptor v2.9.0-beta.1\n" +
+	want := "-- Compiled with sloptor v3.0.0-beta.1-beta.1\n" +
 		"-- $nameof: trailing property name, and a bare identifier.\n" +
 		"print(\"Health\")\n" +
 		"print(\"foo\")\n" +

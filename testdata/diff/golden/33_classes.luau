@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.9.0-beta.1
+-- Compiled with sloptor v3.0.0-beta.1-beta.1
 -- classes: declarations, expressions, inheritance, statics, abstract,
 -- parameter properties, computed names, hoisting, toString/__tostring
 local Animal

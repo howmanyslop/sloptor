@@ -1,4 +1,4 @@
--- Compiled with sloptor v2.9.0-beta.1
+-- Compiled with sloptor v3.0.0-beta.1-beta.1
 local TS = require(script.Parent.Parent.include.RuntimeLib)
 local Roact = TS.import(script, script.Parent.Parent, "node_modules", "@rbxts", "roact", "src")
 return function()

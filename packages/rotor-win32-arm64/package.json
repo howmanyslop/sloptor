@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor-win32-arm64",
-	"version": "2.9.0-beta.1",
+	"version": "3.0.0-beta.1",
 	"description": "Sloptor native executable for Windows arm64",
 	"repository": {
 		"type": "git",
