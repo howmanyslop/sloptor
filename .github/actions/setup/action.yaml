@@ -33,13 +33,13 @@ runs:
       continue-on-error: true
 
     - name: Set up Mise toolchain
-      uses: jdx/mise-action@v2
+      uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
       with:
         experimental: true
         install_args: go gofumpt go:golang.org/x/tools/cmd/goimports bun node github:rojo-rbx/rojo github:lune-org/lune
 
     - name: Restore Go module and build caches
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         key: ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
         path: |
@@ -52,7 +52,7 @@ runs:
           ${{ runner.os }}-go${{ inputs.go-cache-suffix }}-
 
     - name: Restore fixture dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         key: ${{ runner.os }}-bun-fixtures-${{ hashFiles('mise.toml', 'mise.lock', 'tools/sidecar/package.json', 'tools/sidecar/package-lock.json', 'testdata/diff/project/package.json', 'testdata/diff/project/package-lock.json', 'testdata/conformance/project/package.json', 'testdata/conformance/project/package-lock.json', 'testdata/conformance/project/bun.lock', 'testdata/transformers/project/package.json') }}
         path: |

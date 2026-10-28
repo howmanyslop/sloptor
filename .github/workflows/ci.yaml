@@ -25,7 +25,9 @@ jobs:
     steps:
       # Pushes are diffed with git; pull requests ask the API instead.
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - id: filter
         name: Detect Go-relevant changes
@@ -58,16 +60,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install_args: go golangci-lint
           experimental: true
 
       - name: Restore Go module, build, and lint caches
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/go/pkg/mod
@@ -89,7 +93,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -117,7 +123,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -159,7 +167,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -183,7 +193,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -209,16 +221,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install_args: go go:golang.org/x/vuln/cmd/govulncheck
           experimental: true
 
       - name: Restore Go module and build caches
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/go/pkg/mod
@@ -232,13 +246,17 @@ jobs:
         # execute.
         run: govulncheck ./...
 
+    timeout-minutes: 15
+
   windows-compile:
     if: needs.changes.outputs.go == 'true'
     needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -271,7 +289,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -292,7 +312,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -324,7 +346,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -347,7 +371,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -368,7 +394,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
