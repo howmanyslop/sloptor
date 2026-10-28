@@ -70,9 +70,13 @@ async function resolveRangeAsync(localSha: string, remoteSha: string): Promise<s
 
 async function scanRefAsync(localSha: string, remoteSha: string): Promise<number> {
 	const range = await resolveRangeAsync(localSha, remoteSha);
-	const result = await exec("betterleaks", ["git", "--redact", "--no-banner", "--verbose", `--log-opts=${range}`], {
-		nodeOptions: { stdio: "inherit" },
-	});
+	const result = await exec(
+		"betterleaks",
+		["git", "--config", ".betterleaks.toml", "--redact", "--no-banner", "--verbose", `--log-opts=${range}`],
+		{
+			nodeOptions: { stdio: "inherit" },
+		},
+	);
 
 	return result.exitCode ?? 1;
 }
@@ -90,9 +94,13 @@ async function scanManualRunAsync(): Promise<number> {
 
 	process.stderr.write(`No hook stdin; scanning ${range} for a manual run.\n`);
 
-	const result = await exec("betterleaks", ["git", "--redact", "--no-banner", "--verbose", `--log-opts=${range}`], {
-		nodeOptions: { stdio: "inherit" },
-	});
+	const result = await exec(
+		"betterleaks",
+		["git", "--config", ".betterleaks.toml", "--redact", "--no-banner", "--verbose", `--log-opts=${range}`],
+		{
+			nodeOptions: { stdio: "inherit" },
+		},
+	);
 
 	return result.exitCode ?? 1;
 }

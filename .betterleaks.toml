@@ -1,0 +1,14 @@
+title = "rotor"
+
+[extend]
+useDefault = true
+
+# Allowlist paths are merged into the inherited prefilter. A child `prefilter`
+# is not: betterleaks 1.9.0 keeps the default expression and drops the child's.
+[allowlist]
+description = "Generated lockfiles are not credentials."
+paths = [
+	'''(?i)(?:^|/)[^/]*\.lockb?$''',
+	'''(?i)(?:^|/)[^/]*-lock\.(?:json|ya?ml|toml)$''',
+	'''(?i)(?:^|/)(?:npm-shrinkwrap\.json|gradle\.lockfile)$''',
+]

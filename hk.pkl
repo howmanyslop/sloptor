@@ -57,8 +57,8 @@ local MIRROR_INPUTS = List("tools/mirror/patches/**", "tools/mirror/overlay/**")
 local VENDORED_GO = List("tsgo", "reference", "include", "**/testdata/**")
 
 // Windows runs these hooks under cmd.exe, which shapes two choices below:
-// - Builtins whose commands are `sh` snippets (gitleaks, typos, shfmt) run through
-//   scripts/check-hook-tools.ts instead, which also keeps gitleaks scans parallel.
+// - Builtins whose commands are `sh` snippets (typos, shfmt) run through
+//   scripts/check-hook-tools.ts instead.
 // - `Command { argv }` execs directly and finds only `.exe` files, never pnpm's
 //   `node_modules/.bin/biome.CMD` shim. A string command goes through the shell,
 //   which resolves the shim, so `package.json` stays the one biome pin.
@@ -72,17 +72,6 @@ local fileChecks = new Mapping<String, Step> {
   }
   ["merge-conflicts"] = Builtins.check_merge_conflict
   ["private-keys"] = Builtins.detect_private_key
-  // `gitleaks dir` takes a single path: handed several it silently scans the whole
-  // working directory instead (node_modules, ignored scratch state), so the helper
-  // scans one file per process.
-  ["gitleaks"] = (Builtins.gitleaks) {
-    check = new CommandSpec {
-      command = new Command {
-        argv = List("bun", "run", "scripts/check-hook-tools.ts", "gitleaks", "{{files}}")
-      }
-      effect = "read"
-    }
-  }
   ["typos"] = (Builtins.typos) {
     exclude = BINARY_FILES + MIRROR_INPUTS
     check = new CommandSpec {
@@ -202,7 +191,40 @@ local fileChecks = new Mapping<String, Step> {
     }
   }
   ["shellcheck"] = Builtins.shellcheck
-  ["actionlint"] = Builtins.actionlint
+  // default profile (`.github/jactionlint.yaml`) is actionlint's checks plus the
+  // zizmor rules worth failing a build. `--strict-exit` gates warn and info too,
+  // so a later profile bump cannot soften the hook.
+  ["jactionlint"] = (Builtins.jactionlint) {
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("jactionlint", "--strict-exit", "--format", "gcc", "{{files}}")
+      }
+      effect = "read"
+    }
+    check_diff = new CommandSpec {
+      command = new Command {
+        argv =
+          List(
+            "hk",
+            "util",
+            "sarif-diff",
+            "--",
+            "jactionlint",
+            "--strict-exit",
+            "--format",
+            "sarif",
+            "{{files}}",
+          )
+      }
+      effect = "read"
+    }
+    fix = new CommandSpec {
+      command = new Command {
+        argv = List("jactionlint", "--strict-exit", "--fix", "{{files}}")
+      }
+      effect = "write"
+    }
+  }
   ["rumdl"] = Builtins.rumdl_format
   ["pkl-format"] = Builtins.pkl_format
 }
@@ -298,6 +320,18 @@ hooks {
     stage = false
     steps = (fileChecks) {
       ...moduleChecks
+      // History scan of the refs being pushed. hk has already consumed git's
+      // pre-push stdin; feed it back. A manual `hk run pre-push` has empty
+      // stdin and the script scans upstream..HEAD (or all of HEAD).
+      ["betterleaks"] {
+        stdin = "{{hook_stdin}}"
+        check = new CommandSpec {
+          command = new Command {
+            argv = List("bun", "run", "scripts/betterleaks-pre-push.ts")
+          }
+          effect = "read"
+        }
+      }
     }
   }
 
