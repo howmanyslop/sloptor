@@ -90,14 +90,39 @@ local fileChecks = new Mapping<String, Step> {
   }
 
   // Go.
-  // `gofmt -d` exits 1 on a diff, so it needs no wrapper and serves as the check.
-  ["gofmt"] = (Builtins.go_fmt) {
+  // `gofumpt -d` / `goimports -d` emit a diff when files need formatting;
+  // hk fails the step on diff output, so no wrapper is needed. Both run as
+  // `Command { argv }` (not shell strings) so they resolve on Windows cmd.exe.
+  ["gofumpt"] {
+    glob = List("**/*.go")
     check_list_files = null
     check_diff = new CommandSpec {
       command = new Command {
-        argv = List("gofmt", "-s", "-d", "{{files}}")
+        argv = List("gofumpt", "-d", "{{files}}")
       }
       effect = "read"
+    }
+    fix = new CommandSpec {
+      command = new Command {
+        argv = List("gofumpt", "-w", "{{files}}")
+      }
+      effect = "write"
+    }
+  }
+  ["goimports"] {
+    glob = List("**/*.go")
+    check_list_files = null
+    check_diff = new CommandSpec {
+      command = new Command {
+        argv = List("goimports", "-d", "{{files}}")
+      }
+      effect = "read"
+    }
+    fix = new CommandSpec {
+      command = new Command {
+        argv = List("goimports", "-w", "{{files}}")
+      }
+      effect = "write"
     }
   }
   ["gomod-tidy"] = Builtins.gomod_tidy
@@ -175,8 +200,9 @@ local fileChecks = new Mapping<String, Step> {
 }
 
 // Whole-module Go checks. They rebuild the module, so they run on push, not on
-// every commit. go-vet and golangci-lint mirror CI; the vendored tsgo mirror is
-// deliberately excluded from both.
+// every commit. go-vet, golangci-lint, nilaway, and deadcode mirror CI (minus the
+// vendored tsgo mirror, which is deliberately excluded from all of them);
+// govulncheck mirrors the CI vuln job's whole-module reachability scan.
 local GO_PACKAGES = List("./internal/...", "./cmd/...", "./tools/...")
 local moduleChecks = new Mapping<String, Step> {
   ["go-vet"] {
@@ -206,6 +232,33 @@ local moduleChecks = new Mapping<String, Step> {
       effect = "write"
     }
     fix = null
+  }
+  ["nilaway"] {
+    glob = GO_FILES
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("nilaway") + GO_PACKAGES
+      }
+      effect = "write"
+    }
+  }
+  ["deadcode"] {
+    glob = GO_FILES
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("deadcode") + GO_PACKAGES
+      }
+      effect = "write"
+    }
+  }
+  ["govulncheck"] {
+    glob = GO_FILES
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("govulncheck", "./...")
+      }
+      effect = "write"
+    }
   }
 }
 

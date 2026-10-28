@@ -124,10 +124,16 @@ jobs:
 
       - name: Check formatting
         run: |
-          unformatted="$(gofmt -l internal cmd tools)"
+          unformatted="$(gofumpt -l internal cmd tools)"
           if [ -n "$unformatted" ]; then
-            echo "gofmt needs to run on:"
+            echo "gofumpt needs to run on:"
             echo "$unformatted"
+            exit 1
+          fi
+          unformatted_imports="$(goimports -l internal cmd tools)"
+          if [ -n "$unformatted_imports" ]; then
+            echo "goimports needs to run on:"
+            echo "$unformatted_imports"
             exit 1
           fi
 

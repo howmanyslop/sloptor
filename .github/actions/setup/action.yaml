@@ -36,7 +36,7 @@ runs:
       uses: jdx/mise-action@v2
       with:
         experimental: true
-        install_args: go bun node github:rojo-rbx/rojo github:lune-org/lune
+        install_args: go gofumpt go:golang.org/x/tools/cmd/goimports bun node github:rojo-rbx/rojo github:lune-org/lune
 
     - name: Restore Go module and build caches
       uses: actions/cache@v4

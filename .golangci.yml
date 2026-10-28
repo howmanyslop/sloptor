@@ -29,7 +29,8 @@ linters:
 
 formatters:
   enable:
-    - gofmt
+    - gofumpt
+    - goimports
   exclusions:
     paths:
       - tsgo
@@ -37,8 +38,8 @@ formatters:
       - include
       - testdata
   settings:
-    gofmt:
-      simplify: true
+    gofumpt:
+      extra-rules: true
 
 issues:
   max-issues-per-linter: 0
