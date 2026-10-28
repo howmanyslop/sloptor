@@ -32,8 +32,12 @@ func TestResourceExactMeanAbsoluteNeighbors(t *testing.T) {
 		scale     int64
 	}{
 		{"job_cpu_ms", 156250, 10000},
-		{"read_operations", 16, 1}, {"write_operations", 16, 1}, {"other_operations", 16, 1},
-		{"read_bytes", 65536, 1}, {"write_bytes", 4096, 1}, {"other_bytes", 65536, 1},
+		{"read_operations", 16, 1},
+		{"write_operations", 16, 1},
+		{"other_operations", 16, 1},
+		{"read_bytes", 65536, 1},
+		{"write_bytes", 4096, 1},
+		{"other_bytes", 65536, 1},
 	} {
 		t.Run(tc.metric, func(t *testing.T) {
 			for _, offset := range []int64{-1, 0, 1} {

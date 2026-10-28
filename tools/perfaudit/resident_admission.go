@@ -361,8 +361,10 @@ func (r *residentReader) batch(ref residentBatchRef, key ResidentKey, purpose st
 	return b
 }
 
-const residentJournalKeys = "event schema session batch mode stage comparator semantic_label arm position pair block pair_order order at_utc status executable executable_sha256 production harness arguments working_directory report_path stdout_path stderr_path fixture_leaf resource_accounting_format resource_units resource_scope build_source production_manifest_sha256"
-const residentFinishedKeys = "validation_completed owner_disposed fixture_absent report result reasons enclosure clock_assessment native_result_json finalization_ticks stopwatch_frequency"
+const (
+	residentJournalKeys  = "event schema session batch mode stage comparator semantic_label arm position pair block pair_order order at_utc status executable executable_sha256 production harness arguments working_directory report_path stdout_path stderr_path fixture_leaf resource_accounting_format resource_units resource_scope build_source production_manifest_sha256"
+	residentFinishedKeys = "validation_completed owner_disposed fixture_absent report result reasons enclosure clock_assessment native_result_json finalization_ticks stopwatch_frequency"
+)
 
 func (r *residentReader) arguments(p, a object, key ResidentKey, id, order, report string) []string {
 	return []string{"-test.run=^TestSourceSignatureResidentCycles$/^" + key.Scenario + "$/^" + key.Settings + "$", "-test.count=1", "-test.v", "-resident-cycle-collect", "-resident-cycle-leaf=" + key.Scenario + "/" + key.Settings, "-resident-cycle-count=30", "-resident-cycle-report=" + report, "-resident-cycle-fixture-parent=" + r.str(p, "fixtureParent", "plan"), "-resident-cycle-production=" + r.str(a, "production", "arm"), "-resident-cycle-harness=" + residentCollector, "-resident-cycle-session=" + id, "-resident-cycle-order=" + order, "-resident-cycle-purpose=session"}

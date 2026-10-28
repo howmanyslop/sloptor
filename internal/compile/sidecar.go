@@ -40,9 +40,11 @@ const defaultSidecarResponseTimeout = 10 * time.Minute
 
 const sidecarResponseTimeoutEnv = "ROTOR_SIDECAR_TIMEOUT"
 
-type sidecarRequest = TransformerRequest
-type sidecarChangedFile = TransformerChangedFile
-type sidecarResponse = TransformerResponse
+type (
+	sidecarRequest     = TransformerRequest
+	sidecarChangedFile = TransformerChangedFile
+	sidecarResponse    = TransformerResponse
+)
 
 // sidecarPluginMetric is one plugin's share of a round trip: the wall time the
 // worker spent inside that transformer's factory and node visits. The shares
@@ -69,8 +71,10 @@ type sidecarCallStats struct {
 	nodeVersion      string
 }
 
-type sidecarDiagnostic = TransformerDiagnostic
-type sidecarOutputFile = TransformerOutputFile
+type (
+	sidecarDiagnostic = TransformerDiagnostic
+	sidecarOutputFile = TransformerOutputFile
+)
 
 type preparedTransformerProgram struct {
 	program                  *compiler.Program

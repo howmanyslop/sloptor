@@ -166,8 +166,12 @@ func TestResourcePracticalBudgetsAndDescriptions(t *testing.T) {
 		metric, unit string
 		allowance    float64
 	}{
-		{"read_operations", "operations", 16}, {"write_operations", "operations", 16}, {"other_operations", "operations", 16},
-		{"read_bytes", "bytes", 65536}, {"write_bytes", "bytes", 4096}, {"other_bytes", "bytes", 65536},
+		{"read_operations", "operations", 16},
+		{"write_operations", "operations", 16},
+		{"other_operations", "operations", 16},
+		{"read_bytes", "bytes", 65536},
+		{"write_bytes", "bytes", 4096},
+		{"other_bytes", "bytes", 65536},
 	} {
 		result := resourcePhaseStatistics([][]pair{resourceTestConstant(1, 0, test.allowance)}, test.metric, false)
 		if result.Unit != test.unit || result.Status != criterionMet || len(result.Rows) != 2 {

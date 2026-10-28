@@ -12,8 +12,10 @@ import (
 	"time"
 )
 
-const resourcePolicySHA256 = "3c234c019869f91a6bb811b04b20ce15d5b4d52fd96f6e2e8a984afd8dda6072"
-const unverified = "unverified"
+const (
+	resourcePolicySHA256 = "3c234c019869f91a6bb811b04b20ce15d5b4d52fd96f6e2e8a984afd8dda6072"
+	unverified           = "unverified"
+)
 
 type resourcePaths struct {
 	Manifest string `json:"manifest"`
@@ -490,7 +492,8 @@ func evaluateResourceCampaign(paths calibrationPaths, confirmation *resourcePath
 
 func evaluateResourcePlan(data []byte, base string) (resourceReport, error) {
 	p, issues := parseResourcePlan(data)
-	r := resourceReport{Schema: 1, PolicySHA256: resourcePolicySHA256, Outcome: invalidEvidence, Input: resourceRaw(data), Plan: p, Issues: issues,
+	r := resourceReport{
+		Schema: 1, PolicySHA256: resourcePolicySHA256, Outcome: invalidEvidence, Input: resourceRaw(data), Plan: p, Issues: issues,
 		Scope: "recorded Windows owned-job resource/control statistics, internal harness correspondence and supplied campaign decision table only",
 		ExternalGates: []externalGate{
 			{"runtime_source_fixture_and_host", unverified, "labels/hashes do not establish source correctness, full fixture/dependency identity, quiet host or honest collection"},

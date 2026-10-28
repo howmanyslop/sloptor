@@ -28,14 +28,16 @@ type resourceExactMarginal struct {
 // same rational representation under their separate exact_marginal field.
 type resourceExactMean = resourceExactMarginal
 
-type resourceCounterPair struct{ baseline, candidate uint64 }
-type resourceMeanTotals struct{ baseline, candidate big.Int }
-type resourceExactSamples struct {
-	blocks      []resourceMeanTotals
-	point       resourceMeanTotals
-	draws       []resourceMeanTotals
-	denominator big.Int // common denominator for the named statistic's numerators
-}
+type (
+	resourceCounterPair  struct{ baseline, candidate uint64 }
+	resourceMeanTotals   struct{ baseline, candidate big.Int }
+	resourceExactSamples struct {
+		blocks      []resourceMeanTotals
+		point       resourceMeanTotals
+		draws       []resourceMeanTotals
+		denominator big.Int // common denominator for the named statistic's numerators
+	}
+)
 
 type resourceMeanSamples = resourceExactSamples
 

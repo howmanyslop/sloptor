@@ -8,12 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"rotor/internal/transformer"
-	"rotor/tsgo/ast"
-	"rotor/tsgo/vfs/osvfs"
 	"sort"
 	"strings"
 	"testing"
+
+	"rotor/internal/transformer"
+	"rotor/tsgo/ast"
+	"rotor/tsgo/vfs/osvfs"
 )
 
 // writeCensusProject lays down a package-type project (no Rojo file needed)
@@ -38,7 +39,6 @@ func TestCompileProjectOverlaysOverrideFileText(t *testing.T) {
 	outputs, diags, err := CompileProjectWithOptions(dir, ProjectOptions{
 		Overlays: map[string]string{mainPath: "export const fromOverlay = 2;\n"},
 	})
-
 	// Then the compiled Luau reflects the overlay, not the disk
 	if err != nil {
 		t.Fatalf("CompileProjectWithOptions: %v (diags: %v)", err, diags)
@@ -494,7 +494,6 @@ func TestCompileProjectOverlayKeysMatchAcrossSeparatorAndCase(t *testing.T) {
 			census, err := CompileProjectDiagnostics(dir, ProjectOptions{
 				Overlays: map[string]string{key: censusFiles["noany.ts"]},
 			})
-
 			// Then it matched, and is counted
 			if err != nil {
 				t.Fatalf("CompileProjectDiagnostics: %v", err)
@@ -543,7 +542,6 @@ func TestCompileProjectOverlaysWithTransformerPluginsAreAccepted(t *testing.T) {
 	matched, err := matchProgramOverlays(program, ProjectOptions{
 		Overlays: map[string]string{cleanPath: censusFiles["noany.ts"]},
 	})
-
 	// Then the plugin does not disqualify them. The worker holds the overlay
 	// text, so the census reports on what the caller sent.
 	if err != nil {

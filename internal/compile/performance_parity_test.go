@@ -49,7 +49,6 @@ func TestDeclarationEmitRemainsPerSource(t *testing.T) {
 
 	// When
 	result, diagnostics, err := BuildProjectWithOptions(fixture, ProjectOptions{})
-
 	// Then
 	if err != nil {
 		t.Fatalf("build: %v (diagnostics: %v)", err, diagnostics)
@@ -98,7 +97,6 @@ func TestDeclarationMapByteParity(t *testing.T) {
 
 	// When
 	_, diagnostics, err := BuildProjectWithOptions(fixture, ProjectOptions{})
-
 	// Then
 	if err != nil {
 		t.Fatalf("build: %v (diagnostics: %v)", err, diagnostics)

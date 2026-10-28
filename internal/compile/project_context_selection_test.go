@@ -15,8 +15,10 @@ import (
 	"rotor/internal/transformer"
 )
 
-const projectContextSelectionModelRojo = `{"name":"kind","tree":{"$path":"out","include":{"$path":"include"}}}`
-const projectContextSelectionGameRojo = `{"name":"kind","tree":{"$className":"DataModel","ReplicatedStorage":{"out":{"$path":"out"},"include":{"$path":"include"},"node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"}}}}}`
+const (
+	projectContextSelectionModelRojo = `{"name":"kind","tree":{"$path":"out","include":{"$path":"include"}}}`
+	projectContextSelectionGameRojo  = `{"name":"kind","tree":{"$className":"DataModel","ReplicatedStorage":{"out":{"$path":"out"},"include":{"$path":"include"},"node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"}}}}}`
+)
 
 func writeProjectContextSelectionFile(tb testing.TB, dir, name, contents string) {
 	tb.Helper()

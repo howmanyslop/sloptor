@@ -106,6 +106,8 @@ var kindNames = [...]string{
 
 func (k SyntaxKind) String() string { return kindNames[k] }
 
-type BinaryOperator string     // "+" "-" "*" "/" "//" "^" "%" ".." "<" "<=" ">" ">=" "==" "~=" "and" "or"
-type UnaryOperator string      // "-" "not" "#"
-type AssignmentOperator string // "=" "+=" "-=" "*=" "/=" "//=" "%=" "^=" "..="
+type (
+	BinaryOperator     string // "+" "-" "*" "/" "//" "^" "%" ".." "<" "<=" ">" ">=" "==" "~=" "and" "or"
+	UnaryOperator      string // "-" "not" "#"
+	AssignmentOperator string // "=" "+=" "-=" "*=" "/=" "//=" "%=" "^=" "..="
+)

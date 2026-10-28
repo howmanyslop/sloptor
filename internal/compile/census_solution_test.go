@@ -228,7 +228,6 @@ func TestSolutionOverlaysAcceptAPluginProjectTheyReach(t *testing.T) {
 	// When this project of the solution is prepared
 	overlaid := filepath.Join(dir, "src", "clean.ts")
 	tracker, err := solutionOverlayProgram(t, dir, map[string]string{overlaid: censusFiles["noany.ts"]})
-
 	// Then it is accepted, exactly as a single-project run is, and the overlay
 	// is recorded against the union
 	if err != nil {
@@ -247,7 +246,6 @@ func TestSolutionOverlaysDeferTheUnmatchedCheckToTheUnion(t *testing.T) {
 
 	// When this project of the solution is prepared
 	tracker, err := solutionOverlayProgram(t, dir, map[string]string{elsewhere: censusFiles["clean.ts"]})
-
 	// Then it does not fail here. Applying the single-project rule per project
 	// would fail every overlay in every project but its owner.
 	if err != nil {

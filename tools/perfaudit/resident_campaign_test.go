@@ -40,8 +40,11 @@ func TestResidentBenefitPrecedence(t *testing.T) {
 		p, l, u float64
 		want    string
 	}{
-		{.96, .94, .99, criterionNotMet}, {.96, .94, 1.01, inconclusive}, {.95, .94, .99, criterionMet},
-		{.95, .90, 1, inconclusive}, {1.01, 1, 1.02, criterionNotMet},
+		{.96, .94, .99, criterionNotMet},
+		{.96, .94, 1.01, inconclusive},
+		{.95, .94, .99, criterionMet},
+		{.95, .90, 1, inconclusive},
+		{1.01, 1, 1.02, criterionNotMet},
 	} {
 		if residentPractical(estimate{v.p, interval{v.l, v.u}}) != v.want {
 			t.Fatalf("frozen P02 vector %+v", v)
@@ -158,9 +161,11 @@ func residentWitnessCPU(b *ResidentBatch, highBlocks int) {
 
 func TestResidentReachableJointDeferral(t *testing.T) {
 	key := residentTestKey()
-	c := ResidentCampaign{Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
+	c := ResidentCampaign{
+		Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
 		Calibration: []ResidentBatch{residentInventedBatch("joint-AA", "initial", "calibration", 1, key, 10000000, 10000000)},
-		Comparison:  []ResidentBatch{residentInventedBatch("joint-initial", "initial", "comparison", 2, key, 10000000, 10000000), residentInventedBatch("joint-follow", "follow_up", "comparison", 3, key, 10000000, 10000000)}}
+		Comparison:  []ResidentBatch{residentInventedBatch("joint-initial", "initial", "comparison", 2, key, 10000000, 10000000), residentInventedBatch("joint-follow", "follow_up", "comparison", 3, key, 10000000, 10000000)},
+	}
 	residentWitnessCPU(&c.Comparison[0], 3)
 	residentWitnessCPU(&c.Comparison[1], 2)
 	r := EvaluateResident(c)
@@ -180,9 +185,11 @@ func TestResidentConfirmationAndPrerequisites(t *testing.T) {
 			role = "secondary"
 		}
 		key := ResidentKey{"B:C", "Chain32", settings, role}
-		c := ResidentCampaign{Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
+		c := ResidentCampaign{
+			Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
 			Calibration: []ResidentBatch{residentInventedBatch("confirm-AA-"+settings, "initial", "calibration", 1, key, 100000000, 100000000)},
-			Comparison:  []ResidentBatch{residentInventedBatch("confirm-initial-"+settings, "initial", "comparison", 2, key, 100000000, 80000000), residentInventedBatch("confirm-confirmation-"+settings, "confirmation", "comparison", 3, key, 100000000, 110000000)}}
+			Comparison:  []ResidentBatch{residentInventedBatch("confirm-initial-"+settings, "initial", "comparison", 2, key, 100000000, 80000000), residentInventedBatch("confirm-confirmation-"+settings, "confirmation", "comparison", 3, key, 100000000, 110000000)},
+		}
 		r := EvaluateResident(c)
 		if r.Comparison.Decisions["initial"].Status != criterionMet || r.Comparison.Decisions["confirmation"].Status != criterionNotMet || r.Status != criterionNotMet || len(r.Comparison.Summaries) != 2 {
 			t.Fatal("bad confirmation rescued/pooled")
@@ -216,9 +223,11 @@ func TestResidentConfirmationAndPrerequisites(t *testing.T) {
 
 func TestResidentSuccessfulCandidateFollowUp(t *testing.T) {
 	key := ResidentKey{"B:C", "Chain32", "C1B1", "primary"}
-	c := ResidentCampaign{Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
+	c := ResidentCampaign{
+		Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
 		Calibration: []ResidentBatch{residentInventedBatch("follow-AA", "initial", "calibration", 1, key, 100000000, 100000000)},
-		Comparison:  []ResidentBatch{residentInventedBatch("follow-initial", "initial", "comparison", 2, key, 100000000, 80000000), residentInventedBatch("follow-doubled", "follow_up", "comparison", 3, key, 100000000, 80000000), residentInventedBatch("follow-confirmation", "confirmation", "comparison", 4, key, 100000000, 80000000)}}
+		Comparison:  []ResidentBatch{residentInventedBatch("follow-initial", "initial", "comparison", 2, key, 100000000, 80000000), residentInventedBatch("follow-doubled", "follow_up", "comparison", 3, key, 100000000, 80000000), residentInventedBatch("follow-confirmation", "confirmation", "comparison", 4, key, 100000000, 80000000)},
+	}
 	c.Comparison[0].Blocks[0].Sessions[1].Resources.UserTicks = residentTestUint(1875001) // +125ms
 	r := EvaluateResident(c)
 	if r.Comparison.Decisions["initial"].Status != inconclusive || r.Comparison.Decisions["follow_up"].Status != criterionMet || r.Comparison.Decisions["joint"].Status != criterionMet || r.Comparison.Decisions["confirmation"].Status != criterionMet || r.Status != criterionMet || r.Comparison.FollowUpAllowed {
@@ -246,9 +255,11 @@ func TestResidentCalibrationBeforeCandidate(t *testing.T) {
 
 func TestResidentPreservesInvalidLaterAndSemanticCost(t *testing.T) {
 	key := ResidentKey{"B:C", "API_L32F32", "C1B1", residentCost}
-	c := ResidentCampaign{Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
+	c := ResidentCampaign{
+		Label: residentSynthetic, Key: key, Prerequisites: residentAssumed,
 		Calibration: []ResidentBatch{residentInventedBatch("cost-AA", "initial", "calibration", 1, key, 10000000, 10000000)},
-		Comparison:  []ResidentBatch{residentInventedBatch("cost-initial", "initial", "comparison", 2, key, 10000000, 1000000000)}}
+		Comparison:  []ResidentBatch{residentInventedBatch("cost-initial", "initial", "comparison", 2, key, 10000000, 1000000000)},
+	}
 	r := EvaluateResident(c)
 	if r.Status != residentCost || r.Comparison.Decisions["initial"].Practical != "" || r.Comparison.FollowUpAllowed {
 		t.Fatalf("required semantic work classified as equal-output regression: %s", r.Status)

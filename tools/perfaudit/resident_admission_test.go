@@ -28,6 +28,7 @@ func (f *residentProtocolFixture) events(ref residentBatchRef) []map[string]any 
 	}
 	return events
 }
+
 func (f *residentProtocolFixture) seal(ref residentBatchRef, events []map[string]any) {
 	f.t.Helper()
 	var journal []byte
@@ -52,6 +53,7 @@ func (f *residentProtocolFixture) seal(ref residentBatchRef, events []map[string
 	finished["evidence_manifest"] = map[string]any{"path": mp, "sha256": mr.SHA256, "bytes": len(mustReadTest(f.t, mp))}
 	f.write(fp, finished)
 }
+
 func (f *residentProtocolFixture) editReport(e map[string]any, edit func(map[string]any)) {
 	path := e["report_path"].(string)
 	report := f.read(path)
@@ -61,11 +63,13 @@ func (f *residentProtocolFixture) editReport(e map[string]any, edit func(map[str
 	f.write(identity["snapshot_path"].(string), mustReadTest(f.t, path))
 	identity["sha256"], identity["bytes"] = ref.SHA256, len(mustReadTest(f.t, path))
 }
+
 func (f *residentProtocolFixture) batchReport(ref residentBatchRef) (residentRawBatch, *residentReader) {
 	r := newResidentReader()
 	r.kind = "invented-protocol"
 	return r.batch(ref, f.plan.Campaigns[0].Key, "calibration"), r
 }
+
 func residentProblem(issues []issue, text string) bool {
 	for _, i := range issues {
 		if strings.Contains(i.Path+" "+i.Message, text) {
@@ -314,12 +318,12 @@ func TestResidentReaderStrictScalarsAndDocuments(t *testing.T) {
 func TestResidentReaderSnapshotImmutableAndBounded(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "input.json")
 	data := []byte(`{"invented":true}`)
-	if err := os.WriteFile(p, data, 0600); err != nil {
+	if err := os.WriteFile(p, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := newResidentReader()
 	first := r.snapshot(p, false)
-	if err := os.WriteFile(p, []byte("replacement"), 0600); err != nil {
+	if err := os.WriteFile(p, []byte("replacement"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.snapshot(p, false); got != first || !bytes.Equal(got.data, data) {
