@@ -288,7 +288,8 @@ local moduleChecks = new Mapping<String, Step> {
     glob = GO_FILES
     check = new CommandSpec {
       command = new Command {
-        argv = List("deadcode", "-test", "-filter=^rotor/(internal|cmd|tools)") + GO_PACKAGES
+        // deadcode exits 0 on findings; the wrapper fails on any output.
+        argv = List("bun", "run", "scripts/check-hook-tools.ts", "deadcode") + GO_PACKAGES
       }
       effect = "write"
     }

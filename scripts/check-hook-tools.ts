@@ -27,10 +27,26 @@ async function runAsync(command: string, parameters: ReadonlyArray<string>, capt
 }
 
 const enum HookTool {
+	Deadcode = "deadcode",
 	Shfmt = "shfmt",
 	Typos = "typos",
 }
 
+/**
+ * Fails on any output, since deadcode exits 0 when it reports unreachable
+ * functions.
+ *
+ * @param packages - The Go package patterns to analyze.
+ */
+async function runDeadcodeAsync(packages: ReadonlyArray<string>): Promise<void> {
+	const { code, output } = await runAsync(
+		"deadcode",
+		["-test", "-filter=^rotor/(internal|cmd|tools)", ...packages],
+		true,
+	);
+	if (output) process.stdout.write(output);
+	if (code !== 0 || output.trim()) exit(1);
+}
 async function runShfmtAsync(files: ReadonlyArray<string>): Promise<void> {
 	const { code, output } = await runAsync("shfmt", ["-i", "4", "-l", "--apply-ignore", ...files], true);
 	if (output) process.stdout.write(output);
@@ -45,10 +61,15 @@ async function runTyposAsync(files: ReadonlyArray<string>): Promise<void> {
 const { command, log } = createScriptCommand("1.0.0", "Runs hooks for `hk`.");
 
 command
-	.type("hook-tool", new EnumType([HookTool.Shfmt, HookTool.Typos]))
+	.type("hook-tool", new EnumType([HookTool.Deadcode, HookTool.Shfmt, HookTool.Typos]))
 	.argument("<tool:hook-tool>", "The hook tool to check.")
-	.argument("[files...:file]", "The files to check.")
+	.argument("[files...:file]", "The files (or, for deadcode, Go packages) to check.")
 	.action(async (_, hookTool, ...files) => {
+		if (hookTool === HookTool.Deadcode) {
+			await runDeadcodeAsync(files);
+			return;
+		}
+
 		// tag-only pushes and empty diffs hand hk no files; shfmt/typos would
 		// scan the cwd
 		if (files.length === 0) return;
