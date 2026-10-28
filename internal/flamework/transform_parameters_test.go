@@ -25,6 +25,9 @@ inspect({ ...other });`)
 	err := validateParameterConstIntrinsic(calls[0], signature, signature.Parameters())
 
 	// Then
+	if err == nil {
+		t.Fatal("validateParameterConstIntrinsic() succeeded, want spread rejection")
+	}
 	if !errors.Is(err, ErrMacroDiagnostic) || err.Error() != "Flamework does not support spread expressions in this location." {
 		t.Fatalf("validateParameterConstIntrinsic() error = %v", err)
 	}

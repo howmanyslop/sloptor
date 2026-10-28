@@ -199,6 +199,9 @@ func TestFlameworkTracePrintedSourceMatchesJSONRoute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepareFlameworkPipeline: %v (%v)", err, diagnostics)
 	}
+	if pipeline == nil {
+		t.Fatal("prepareFlameworkPipeline returned nil pipeline")
+	}
 	checker, release := program.GetTypeChecker(context.Background())
 	defer release()
 	result, err := flamework.Transform(flamework.TransformInput{Program: program, Checker: checker, Files: sources, Project: pipeline.project})

@@ -38,7 +38,7 @@ func TransformStatementList(s *State, parent *ast.Node, statements []*ast.Node, 
 	// their body block here, and a block's parent is function-like ONLY when
 	// that block IS the body.
 	if parent != nil && ast.IsBlock(parent) && ast.IsFunctionLike(parent.Parent) {
-		var result *luau.List[luau.Statement]
+		result := luau.NewList[luau.Statement]()
 		s.WithoutLabels(func() {
 			result = transformStatementListWorker(s, parent, statements, exportInfo)
 		})
@@ -57,7 +57,7 @@ func transformStatementListWorker(s *State, parent *ast.Node, statements []*ast.
 		// createHoistDeclaration is consulted, so hoists registered while
 		// transforming statement N (a use-before-declare inside N) are
 		// picked up for N itself.
-		var transformed *luau.List[luau.Statement]
+		transformed := luau.NewList[luau.Statement]()
 		prereqs := s.CaptureStatements(func() {
 			if TransformStatement == nil {
 				panic("transformer: statement dispatch not wired")

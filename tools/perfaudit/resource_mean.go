@@ -196,6 +196,9 @@ func (e resourceRationalEstimate) display() estimate {
 }
 
 func (s *resourceMeanSamples) direction(reverse bool) resourceDirection {
+	if s == nil {
+		return resourceDirection{}
+	}
 	point := s.point
 	if reverse {
 		point = resourceMeanTotals{point.candidate, point.baseline}

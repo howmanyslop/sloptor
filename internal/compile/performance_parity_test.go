@@ -127,10 +127,18 @@ func TestPerformanceOutputParityMutations(t *testing.T) {
 
 	// When
 	byteMutated := clonePerformanceTree(golden)
-	byteMutated["out/alpha.d.ts"][0] ^= 1
+	byteTarget, ok := byteMutated["out/alpha.d.ts"]
+	if !ok || len(byteTarget) == 0 {
+		t.Fatal("golden tree lacks out/alpha.d.ts")
+	}
+	byteTarget[0] ^= 1
 	byteMutationErr := comparePerformanceTree(byteMutated, actual)
 	mapMutated := clonePerformanceTree(golden)
-	mapMutated["out/alpha.d.ts.map"] = reorderPerformanceMapKeys(t, mapMutated["out/alpha.d.ts.map"])
+	mapValue, ok := mapMutated["out/alpha.d.ts.map"]
+	if !ok {
+		t.Fatal("golden tree lacks out/alpha.d.ts.map")
+	}
+	mapMutated["out/alpha.d.ts.map"] = reorderPerformanceMapKeys(t, mapValue)
 	mapMutationErr := comparePerformanceTree(mapMutated, actual)
 
 	// Then

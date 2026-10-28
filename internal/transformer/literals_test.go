@@ -38,6 +38,9 @@ func TestTemplateWithTableExpressionWrapsInParens(t *testing.T) {
 	s, expression := parseFirstExpression(t, "`${[1, 2]}`;")
 	var result luau.Expression
 	prereqs := s.CaptureStatements(func() { result = TransformExpression(s, expression) })
+	if result == nil {
+		t.Fatal("TransformExpression returned nil")
+	}
 	if prereqs.IsNonEmpty() {
 		t.Fatal("template literal must not produce prereqs")
 	}
@@ -82,6 +85,9 @@ func TestObjectLiteralComputedKey(t *testing.T) {
 	object := SkipDownwards(expression)
 	var result luau.Expression
 	prereqs := s.CaptureStatements(func() { result = TransformExpression(s, object) })
+	if result == nil {
+		t.Fatal("TransformExpression returned nil")
+	}
 	if prereqs.IsNonEmpty() {
 		t.Fatal("literal-only object must stay inline (no prereqs)")
 	}

@@ -25,6 +25,11 @@ import (
 // wrap non-indexable expressions in parentheses so they can be indexed or
 // called.
 func convertToIndexableExpression(expression luau.Expression) luau.IndexableExpression {
+	if expression == nil {
+		// Unreachable: every transform returns a node (banned kinds yield
+		// None). Fail loudly here rather than nil-dereffing in the guards.
+		panic("transformer: convertToIndexableExpression got nil expression") // upstream assert
+	}
 	if luau.IsIndexableExpression(expression) {
 		return expression.(luau.IndexableExpression)
 	}
@@ -40,6 +45,11 @@ func convertToIndexableExpression(expression luau.Expression) luau.IndexableExpr
 // the originating TS expression (optional): reads of const identifiers cannot
 // change.
 func expressionMightMutate(s *State, expression luau.Expression, node *ast.Node) bool {
+	if expression == nil {
+		// No value information — take the conservative answer so callers
+		// pin the expression to a temp instead of risking reorder harm.
+		return true
+	}
 	switch e := expression.(type) {
 	case *luau.TemporaryIdentifier:
 		// Assume tempIds are never re-assigned after being returned
@@ -202,9 +212,9 @@ func runCallMacro(
 ) luau.Expression {
 	call := node.AsCallExpression()
 
-	var args []luau.Expression
+	args := []luau.Expression{}
 	prereqs := s.CaptureStatements(func() {
-		args = ensureTransformOrder(s, nodeArguments)
+		args = append(args, ensureTransformOrder(s, nodeArguments)...)
 		if len(nodeArguments) > 0 {
 			if lastArg := nodeArguments[len(nodeArguments)-1]; ast.IsSpreadElement(lastArg) {
 				signature := s.Checker.GetSignaturesOfType(s.GetType(call.Expression), checker.SignatureKindCall)[0]
@@ -352,8 +362,8 @@ func transformCallExpressionInner(s *State, node *ast.Node, expression luau.Expr
 		}
 	}
 
-	var args []luau.Expression
-	prereqs := s.CaptureStatements(func() { args = ensureTransformOrder(s, nodeArguments) })
+	args := []luau.Expression{}
+	prereqs := s.CaptureStatements(func() { args = append(args, ensureTransformOrder(s, nodeArguments)...) })
 	fixVoidArgumentsForRobloxFunctions(s, expType, args, nodeArguments)
 
 	if prereqs.IsNonEmpty() && expressionMightMutate(s, expression, call.Expression) {
@@ -408,8 +418,8 @@ func transformPropertyCallExpressionInner(s *State, node *ast.Node, expression *
 		}
 	}
 
-	var args []luau.Expression
-	prereqs := s.CaptureStatements(func() { args = ensureTransformOrder(s, nodeArguments) })
+	args := []luau.Expression{}
+	prereqs := s.CaptureStatements(func() { args = append(args, ensureTransformOrder(s, nodeArguments)...) })
 	fixVoidArgumentsForRobloxFunctions(s, expType, args, nodeArguments)
 
 	if prereqs.IsNonEmpty() && expressionMightMutate(s, baseExpression, propertyAccess.Expression) {
@@ -487,9 +497,9 @@ func transformElementCallExpressionInner(s *State, node *ast.Node, expression *a
 		}
 	}
 
-	var ordered []luau.Expression
+	ordered := []luau.Expression{}
 	prereqs := s.CaptureStatements(func() {
-		ordered = ensureTransformOrder(s, append([]*ast.Node{argumentExpression}, nodeArguments...))
+		ordered = append(ordered, ensureTransformOrder(s, append([]*ast.Node{argumentExpression}, nodeArguments...))...)
 	})
 	argumentExp, args := ordered[0], ordered[1:]
 
@@ -561,7 +571,7 @@ type chainItem struct {
 // `.expression` collecting chain items; a CallExpression whose callee (skipped
 // downwards) is a property/element access becomes a compound item.
 func flattenOptionalChain(expression *ast.Node) ([]chainItem, *ast.Node) {
-	var chain []chainItem // built outer-to-inner, reversed below (upstream unshifts)
+	chain := []chainItem{} // built outer-to-inner, reversed below (upstream unshifts)
 	for {
 		if ast.IsPropertyAccessExpression(expression) {
 			propertyAccess := expression.AsPropertyAccessExpression()

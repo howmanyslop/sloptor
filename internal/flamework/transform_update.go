@@ -63,6 +63,11 @@ func updateFlameworkAttributeGuards(
 			state.factory.UpdateObjectLiteralExpression(initializer, state.factory.NewNodeList(merged), true),
 		)
 		updated := append([]*ast.Node(nil), properties...)
+		if customIndex >= len(updated) {
+			// Unreachable: customIndex indexes properties, which updated
+			// copies, but it proves updated non-nil for the write below.
+			return updated, nil
+		}
 		updated[customIndex] = updatedProperty
 		return updated, nil
 	}

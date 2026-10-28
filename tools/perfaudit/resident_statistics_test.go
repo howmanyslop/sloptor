@@ -278,7 +278,7 @@ func TestResidentIndependentBlockEnumeration(t *testing.T) {
 			for y := range 3 {
 				for z := range 3 {
 					var weights [15]uint8
-					var forward, reversed []float64
+					forward, reversed := []float64{}, []float64{}
 					for _, i := range []int{x, y, z} {
 						weights[i]++
 						forward = append(forward, perBlock[i]...)

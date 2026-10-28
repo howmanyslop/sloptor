@@ -185,6 +185,9 @@ func TestSolutionCoordinatorKeepsSelectedDependencyBarriers(t *testing.T) {
 	if err == nil {
 		t.Fatal("DrainWithProjectResultsForSelection unexpectedly succeeded")
 	}
+	if len(projects) != 2 {
+		t.Fatalf("DrainWithProjectResultsForSelection returned %d projects, want 2", len(projects))
+	}
 	if got, want := drainer.drained, []string{"shared"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("drained projects = %v, want %v", got, want)
 	}

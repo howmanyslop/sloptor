@@ -12,8 +12,8 @@ func exactMeanFixture(metric string, blocks int, a, c uint64) ([]pair, []resourc
 	if metric == "job_cpu_ms" {
 		scale = 10000
 	}
-	var values []pair
-	var counters []resourceCounterPair
+	values := make([]pair, 0, 2*blocks)
+	counters := make([]resourceCounterPair, 0, 2*blocks)
 	for i := range 2 * blocks {
 		order := "AB"
 		if i%2 == 1 {

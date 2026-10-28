@@ -33,7 +33,9 @@ func getSourceFileFromModuleSpecifier(s *State, moduleSpecifier *ast.Node) *ast.
 			sourceFile := ast.GetSourceFileOfNode(moduleSpecifier)
 			mode := s.Program.GetModeForUsageLocation(sourceFile, declaration.Name())
 			resolvedModule := s.Program.GetResolvedModule(sourceFile, declaration.Name().Text(), mode)
-			if resolvedModule.IsResolved() {
+			// IsResolved is already nil-receiver safe; spell the check out
+			// so the checker sees the guard.
+			if resolvedModule != nil && resolvedModule.IsResolved() {
 				return s.Program.GetSourceFile(resolvedModule.ResolvedFileName)
 			}
 		}
@@ -130,7 +132,9 @@ func validateModule(s *State, scope string) bool {
 // (L61-68): first pkg resolver that covers the path wins.
 func findRelativeRbxPath(moduleOutPath string, pkgRojoResolvers []*rojo.RojoResolver) (rojo.RbxPath, bool) {
 	for _, pkgRojoResolver := range pkgRojoResolvers {
-		if relativeRbxPath, ok := pkgRojoResolver.GetRbxPathFromFilePath(moduleOutPath); ok {
+		// A stored nil path still reports ok — treat it as a miss so
+		// callers take the no-Rojo-data diagnostic below.
+		if relativeRbxPath, ok := pkgRojoResolver.GetRbxPathFromFilePath(moduleOutPath); ok && relativeRbxPath != nil {
 			return relativeRbxPath, true
 		}
 	}
@@ -291,6 +295,13 @@ func getNodeModulesImportParts(s *State, sourceFile *ast.SourceFile, moduleSpeci
 		}
 	}
 
+	if moduleRbxPath == nil {
+		// Same missing-scope diagnostic the index check below would emit
+		// (slices.Index finds nothing in a nil path).
+		s.Diags.Add(DiagNoPackageImportWithoutScope(moduleSpecifier, relToProject(s, moduleOutPath), moduleRbxPath))
+		return []luau.Expression{luau.NewNone()}
+	}
+
 	indexOfScope := slices.Index(moduleRbxPath, moduleScope)
 	if indexOfScope <= 0 || moduleRbxPath[indexOfScope-1] != nodeModules {
 		s.Diags.Add(DiagNoPackageImportWithoutScope(moduleSpecifier, relToProject(s, moduleOutPath), moduleRbxPath))
@@ -437,7 +448,9 @@ func getImportPartsImpl(s *State, sourceFile *ast.SourceFile, moduleSpecifier *a
 		}
 	}
 	moduleRbxPath, ok := s.Rojo.Resolver.GetRbxPathFromFilePath(moduleOutPath)
-	if !ok {
+	if !ok || moduleRbxPath == nil {
+		// A stored nil path still reports ok (slices.Clone(nil) keeps it)
+		// but carries no location — same no-data diagnostic either way.
 		s.Diags.Add(DiagNoRojoData(moduleSpecifier, relToProject(s, moduleOutPath), false))
 		return []luau.Expression{luau.NewNone()}
 	}
@@ -490,7 +503,9 @@ func getFolderImportParts(s *State, sourceFile *ast.SourceFile, moduleSpecifier 
 		}
 		moduleOutPath := s.Rojo.PathTranslator.GetOutputPath(dir)
 		moduleRbxPath, ok := s.Rojo.Resolver.GetRbxPathFromFilePath(moduleOutPath)
-		if !ok {
+		// A stored nil path still reports ok but carries no location —
+		// treat it as a miss and try the next candidate.
+		if !ok || moduleRbxPath == nil {
 			continue
 		}
 		return getProjectImportParts(s, sourceFile, moduleSpecifier, moduleOutPath, moduleRbxPath), true

@@ -68,7 +68,7 @@ func (f *residentProtocolFixture) read(path string) map[string]any {
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.UseNumber()
-	var v map[string]any
+	v := map[string]any{}
 	if err := decoder.Decode(&v); err != nil {
 		f.t.Fatal(err)
 	}

@@ -178,7 +178,7 @@ func TestResidentReachableJointDeferral(t *testing.T) {
 }
 
 func TestResidentConfirmationAndPrerequisites(t *testing.T) {
-	var confirmed []ResidentCampaign
+	confirmed := make([]ResidentCampaign, 0, 2)
 	for _, settings := range []string{"C1B1", "C4B4"} {
 		role := "primary"
 		if settings == "C4B4" {

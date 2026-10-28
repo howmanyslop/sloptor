@@ -182,11 +182,17 @@ func TestResourceCampaignIdentityAndUnusedInvalidEvidence(t *testing.T) {
 	}
 	y := x
 	var run object
-	_ = json.Unmarshal(x.RawRun.Bytes, &run)
+	if err := json.Unmarshal(x.RawRun.Bytes, &run); err != nil {
+		t.Fatal(err)
+	}
 	var before object
-	_ = json.Unmarshal(run["before"], &before)
+	if err := json.Unmarshal(run["before"], &before); err != nil {
+		t.Fatal(err)
+	}
 	var fixture object
-	_ = json.Unmarshal(before["fixture"], &fixture)
+	if err := json.Unmarshal(before["fixture"], &fixture); err != nil {
+		t.Fatal(err)
+	}
 	fixture["sha256"] = json.RawMessage(`"sha256-tree-v2:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`)
 	before["fixture"], _ = json.Marshal(fixture)
 	run["before"], _ = json.Marshal(before)
@@ -214,11 +220,15 @@ func TestResourceCampaignRetainsInitialNoiseAfterAdmittedFollowUp(t *testing.T) 
 		return b
 	}
 	a, b := makeBatch(15), makeBatch(30)
+	coldPairs := a.Phases[cold]
+	if a.Phases == nil || coldPairs == nil {
+		t.Fatal("makeBatch must supply cold phase populations")
+	}
 	for i := range 20 {
 		if i%2 == 0 {
-			a.Phases[cold][i] = pair{10, 12, "AB"}
+			coldPairs[i] = pair{10, 12, "AB"}
 		} else {
-			a.Phases[cold][i] = pair{12, 10, "BA"}
+			coldPairs[i] = pair{12, 10, "BA"}
 		}
 	}
 	a.Resources["job_cpu_ms"][cold][0].candidate = 250

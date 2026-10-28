@@ -161,6 +161,9 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 	}
 	for _, project := range graph.Projects {
 		info := m.infos[project.ConfigPath]
+		if info == nil {
+			continue
+		}
 		metadata.writeRoots[project.ConfigPath] = info.writeRoots
 		if info.err != "" {
 			metadata.restoredMetadataErrs[project.ConfigPath] = info.err
@@ -198,7 +201,7 @@ func (m *crossProjectMetadata) derive(graph *SolutionGraph, consumers []Solution
 		}
 		project.Options.projectReferencePaths = paths
 		project.Options.projectReferenceSaltPaths = saltPaths
-		if own := m.infos[project.ConfigPath]; own.emits {
+		if own := m.infos[project.ConfigPath]; own != nil && own.emits {
 			outputs = append(outputs, own.outputs...)
 			includePath, err := resolveIncludePath(filepath.Dir(project.ConfigPath), project.Options.IncludePath)
 			if err != nil {

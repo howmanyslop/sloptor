@@ -168,10 +168,18 @@ func TestCompileSolutionDiagnosticsOverlayLandsInTheOwningProject(t *testing.T) 
 	if got := censusByFile(byDir["alpha"])["alpha.ts"].Outcome; got != FileOutcomeOK {
 		t.Errorf("alpha.ts outcome = %q, want %q — the overlay leaked into another project", got, FileOutcomeOK)
 	}
-	if got := byDir["beta"].OverlayMatches; got != 1 {
+	beta, ok := byDir["beta"]
+	if !ok {
+		t.Fatalf("beta missing from the census: %+v", solution.Projects)
+	}
+	if got := beta.OverlayMatches; got != 1 {
 		t.Errorf("beta OverlayMatches = %d, want 1", got)
 	}
-	if got := byDir["alpha"].OverlayMatches; got != 0 {
+	alpha, ok := byDir["alpha"]
+	if !ok {
+		t.Fatalf("alpha missing from the census: %+v", solution.Projects)
+	}
+	if got := alpha.OverlayMatches; got != 0 {
 		t.Errorf("alpha OverlayMatches = %d, want 0", got)
 	}
 }

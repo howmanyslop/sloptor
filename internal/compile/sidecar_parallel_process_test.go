@@ -117,6 +117,9 @@ func TestParallelRealNodeWholeResponseMatchesSerial(t *testing.T) {
 	if err != nil || !handled {
 		t.Fatalf("parallel: handled=%v %v", handled, err)
 	}
+	if response == nil {
+		t.Fatal("parallel transformer returned nil response")
+	}
 	baseline.Metrics, response.Metrics = nil, nil
 	if len(baseline.Diagnostics) != 3 || len(baseline.Transformed) != 2 || !reflect.DeepEqual(baseline, response) || baselineStderr != forwarded.String() {
 		t.Fatalf("whole serial/parallel response or forwarded stderr differs:\n%#v\n%#v", baseline, response)

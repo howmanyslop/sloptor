@@ -197,9 +197,13 @@ func summarizeResources(batches []resourceBatch, p resourcePlan, symmetric bool,
 		return s
 	}
 	for _, phase := range []string{cold, noChange} {
-		var elapsed [][]pair
-		for _, b := range batches {
-			elapsed = append(elapsed, b.Phases[phase])
+		elapsed := make([][]pair, len(batches))
+		for i, b := range batches {
+			e := b.Phases[phase]
+			if e == nil {
+				e = []pair{}
+			}
+			elapsed[i] = e
 		}
 		s.Elapsed[phase] = phaseElapsedStatistics(elapsed)
 		if phase == p.Primary {

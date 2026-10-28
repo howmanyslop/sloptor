@@ -121,7 +121,7 @@ func (h *callbackTransformerHost) slot(key string) *callbackTransformerSlot {
 }
 
 func applyTransformerResponseMetrics(stats *sidecarCallStats, response *sidecarResponse, configPath string) {
-	if response.Metrics == nil {
+	if response == nil || response.Metrics == nil {
 		return
 	}
 	stats.nodeWallMs = response.Metrics.WallMs

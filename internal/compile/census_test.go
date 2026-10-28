@@ -181,6 +181,9 @@ var censusFiles = map[string]string{
 }
 
 func censusByFile(census *ProjectDiagnostics) map[string]FileDiagnostics {
+	if census == nil {
+		return map[string]FileDiagnostics{}
+	}
 	byName := make(map[string]FileDiagnostics, len(census.Files))
 	for _, file := range census.Files {
 		byName[filepath.Base(filepath.FromSlash(file.FileName))] = file

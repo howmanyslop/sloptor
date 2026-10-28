@@ -103,6 +103,9 @@ func resourceAdmissionHasKind(b resourceBatch, kind string) bool {
 func changeResourceJournal(t *testing.T, journal []byte, line int, change func(map[string]any)) []byte {
 	t.Helper()
 	lines := bytes.Split(bytes.TrimSuffix(journal, []byte{'\n'}), []byte{'\n'})
+	if lines == nil {
+		t.Fatal("empty journal")
+	}
 	var entry map[string]any
 	if err := json.Unmarshal(lines[line], &entry); err != nil {
 		t.Fatal(err)
@@ -280,6 +283,9 @@ func TestResourceAdmissionExactIntegerRangeAndStrictExtensions(t *testing.T) {
 func TestResourceAdmissionCountRunAndPathValidation(t *testing.T) {
 	m, j, r := resourceAdmissionFixture(t, 10, 20)
 	lines := bytes.Split(bytes.TrimSuffix(j, []byte{'\n'}), []byte{'\n'})
+	if lines == nil {
+		t.Fatal("empty journal")
+	}
 	for name, bad := range map[string][]byte{
 		"no diagnostic":   bytes.Join(lines[:120], []byte{'\n'}),
 		"unfinished":      bytes.Join(lines[:121], []byte{'\n'}),
@@ -448,7 +454,9 @@ func resourceAdmissionStableFixture(t *testing.T) (m, j, r []byte) {
 	t.Helper()
 	m, j, r = resourceAdmissionFixture(t, 10, 20)
 	var root map[string]any
-	_ = json.Unmarshal(r, &root)
+	if err := json.Unmarshal(r, &root); err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Dir(root["invocation_journal"].(string))
 	work := filepath.Join(dir, "work-0123456789abcdef0123456789abcdef")
 	active := filepath.Join(work, "active")
@@ -462,7 +470,9 @@ func resourceAdmissionStableFixture(t *testing.T) (m, j, r []byte) {
 	}
 	r, _ = json.Marshal(root)
 	var manifest map[string]any
-	_ = json.Unmarshal(m, &manifest)
+	if err := json.Unmarshal(m, &manifest); err != nil {
+		t.Fatal(err)
+	}
 	for _, arm := range []string{"baseline", "candidate"} {
 		manifest[arm].(map[string]any)["command"] = root["before"].(map[string]any)[arm].(map[string]any)["path"].(string) + " build --project " + active + " --json"
 	}
@@ -470,7 +480,9 @@ func resourceAdmissionStableFixture(t *testing.T) (m, j, r []byte) {
 	lines := bytes.Split(bytes.TrimSuffix(j, []byte{'\n'}), []byte{'\n'})
 	for i, line := range lines {
 		var entry map[string]any
-		_ = json.Unmarshal(line, &entry)
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatal(err)
+		}
 		entry["working_directory"] = active
 		lines[i], _ = json.Marshal(entry)
 	}

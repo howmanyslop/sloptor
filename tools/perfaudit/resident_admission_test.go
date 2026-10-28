@@ -16,13 +16,16 @@ import (
 // so the targeted inner join must independently reject the contradiction.
 func (f *residentProtocolFixture) events(ref residentBatchRef) []map[string]any {
 	f.t.Helper()
-	var events []map[string]any
+	events := []map[string]any{}
 	for _, line := range bytes.Split(bytes.TrimSpace(mustReadTest(f.t, filepath.Join(ref.Directory, "journal.ndjson"))), []byte{'\n'}) {
 		var e map[string]any
 		d := json.NewDecoder(bytes.NewReader(line))
 		d.UseNumber()
 		if err := d.Decode(&e); err != nil {
 			f.t.Fatal(err)
+		}
+		if e == nil {
+			f.t.Fatal("empty journal event")
 		}
 		events = append(events, e)
 	}

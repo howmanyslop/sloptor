@@ -1376,6 +1376,9 @@ func parseProjectCommandLine(dir, configPath string, fs vfs.FS, checkers *int, s
 	if len(configDiags) > 0 {
 		return nil, nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
 	}
+	if parsed == nil || parsed.ParsedConfig == nil {
+		return nil, nil, diagnosticStrings(configDiags), errors.New("compile: tsconfig.json has errors")
+	}
 	ApplyAutomaticTypes(parsed.CompilerOptions())
 	ApplyCheckerOverride(parsed.CompilerOptions(), checkers)
 	ApplySingleThreadedOverride(parsed.CompilerOptions(), singleThreaded)

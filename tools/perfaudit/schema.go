@@ -120,7 +120,8 @@ type object map[string]json.RawMessage
 
 func (v *validation) object(raw json.RawMessage, path string, required, optional []string) object {
 	var obj object
-	if json.Unmarshal(raw, &obj) != nil || obj == nil || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' {
+	trimmed := bytes.TrimSpace(raw)
+	if json.Unmarshal(raw, &obj) != nil || obj == nil || trimmed == nil || len(trimmed) == 0 || trimmed[0] != '{' {
 		v.invalid(path, "must be an object")
 		return object{}
 	}

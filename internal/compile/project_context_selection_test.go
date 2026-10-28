@@ -111,6 +111,9 @@ func TestProjectContextSelectionNoChangeThenEditMatchesFresh(t *testing.T) {
 		}
 	}
 	nc, counts := build(dir)
+	if counts == nil {
+		t.Fatal("build returned nil timings")
+	}
 	if counts.Counts.SelectedSources != 0 || counts.Counts.ActualWrites != 0 || len(nc.Outputs) != 0 || len(nc.EmittedFiles) != 0 {
 		t.Fatalf("no-change pass selected/emitted/wrote: %+v, outputs %v, emitted %v", counts.Counts, nc.Outputs, nc.EmittedFiles)
 	}
@@ -129,6 +132,9 @@ func TestProjectContextSelectionNoChangeThenEditMatchesFresh(t *testing.T) {
 
 	writeProjectContextSelectionFile(t, dir, "src/main.ts", edited)
 	changed, counts := build(dir)
+	if counts == nil {
+		t.Fatal("build returned nil timings")
+	}
 	if counts.Counts.SelectedSources != 1 {
 		t.Fatalf("edited pass selected %d sources, want 1", counts.Counts.SelectedSources)
 	}

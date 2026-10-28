@@ -173,7 +173,11 @@ func residentLocalPath(p string) bool {
 		if part == "." || part == ".." || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || strings.Contains(part, ":") {
 			return false
 		}
-		stem := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		segments := strings.SplitN(part, ".", 2)
+		if len(segments) == 0 {
+			continue // SplitN never returns empty; len-guard pins it for nilaway.
+		}
+		stem := strings.ToUpper(segments[0])
 		if slices.Contains([]string{"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}, stem) {
 			return false
 		}
@@ -198,7 +202,8 @@ func (r *residentReader) obj(data []byte, p, required, optional string) object {
 
 func (r *residentReader) arr(raw json.RawMessage, p string, max int) []json.RawMessage {
 	var a []json.RawMessage
-	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '[' || json.Unmarshal(raw, &a) != nil || len(a) > max {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '[' || json.Unmarshal(raw, &a) != nil || len(a) > max {
 		r.invalid(p, "bounded JSON array required")
 		return nil
 	}
