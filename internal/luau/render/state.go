@@ -59,12 +59,6 @@ func (s *RenderState) Indented(text string) string { return s.indent + text }
 
 func (s *RenderState) Line(text string) string { return s.Indented(text) + "\n" }
 
-// LineWithEnd is upstream state.line(text, endNode): appends `;` when needed
-// to avoid Luau ambiguous-syntax errors.
-func (s *RenderState) LineWithEnd(text string, endNode luau.Statement) string {
-	return s.Indented(text) + getEnding(s, endNode) + "\n"
-}
-
 func (s *RenderState) Block(callback func() string) string {
 	s.pushIndent()
 	result := callback()
