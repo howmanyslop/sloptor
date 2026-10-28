@@ -27,9 +27,15 @@ linters:
         - fmt.Fprintf
         - fmt.Fprintln
 
+# NOTE: gofumpt is intentionally NOT enabled here. golangci-lint 2.15.0's
+# gofumpt formatter merges import groups even though it embeds gofumpt v0.12.0,
+# which (like the mise-pinned binary, goimports, and gofmt) keeps stdlib and
+# module imports in separate groups. Enabling it makes `golangci-lint run` and
+# `gofumpt -l` contradict each other on ~300 files with no stable fixpoint.
+# gofumpt is enforced instead by the hk `gofumpt` step and the CI formatting
+# gate, both of which use the mise-pinned gofumpt binary.
 formatters:
   enable:
-    - gofumpt
     - goimports
   exclusions:
     paths:
@@ -37,9 +43,6 @@ formatters:
       - reference
       - include
       - testdata
-  settings:
-    gofumpt:
-      extra-rules: true
 
 issues:
   max-issues-per-linter: 0
