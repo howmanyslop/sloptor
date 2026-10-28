@@ -6,6 +6,9 @@ on:
       ref:
         required: true
         type: string
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: false
   workflow_dispatch:
     inputs:
       ref:

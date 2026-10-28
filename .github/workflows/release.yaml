@@ -20,22 +20,19 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         with:
+          # Tag-triggered: never restore a cache into release artifacts.
+          cache: false
           install_args: go node
           experimental: true
 
-      - name: Restore Go module and build caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/AppData/Local/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-
+      # No Go cache restore: release binaries build from a clean module and
+      # build cache so a poisoned cache entry cannot reach published assets.
       - name: Build release binaries
         run: |
           set -euo pipefail
@@ -183,8 +180,10 @@ jobs:
           persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         with:
+          # Tag-triggered: never restore a cache into release artifacts.
+          cache: false
           install_args: node pnpm
           experimental: true
 
@@ -221,7 +220,8 @@ jobs:
     needs: changelog
     permissions:
       contents: read
-    secrets: inherit
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     uses: ./.github/workflows/docs.yaml
     with:
       ref: main
@@ -311,16 +311,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         with:
+          # Tag-triggered: never restore a cache into release artifacts.
+          cache: false
           install_args: communique
 
       - env:
           GITHUB_TOKEN: ${{ github.token }}
           OPENAI_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         name: Generate and publish release notes
-        run: communique generate "${{ github.ref_name }}" --github-release --review-report release-notes-review.md
+        run: communique generate "$GITHUB_REF_NAME" --github-release --review-report release-notes-review.md
 
       - if: always()
         name: Upload release notes coverage report
@@ -341,6 +344,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Download release bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -377,10 +382,14 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
         with:
+          # Tag-triggered: never restore a cache into release artifacts.
+          cache: false
           install_args: node
           experimental: true
 
@@ -403,3 +412,5 @@ jobs:
           fi
           node scripts/validate-release.cjs "${validation_args[@]}"
           echo "version=$code_version" >> "$GITHUB_OUTPUT"
+
+    timeout-minutes: 10
