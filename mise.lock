@@ -70,6 +70,76 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924919"
 provenance = "github-attestations"
 
+[[tools.betterleaks]]
+version = "1.9.0"
+backend = "aqua:betterleaks/betterleaks"
+
+[tools.betterleaks."platforms.linux-arm64"]
+checksum = "sha256:1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108932"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.linux-arm64-musl"]
+checksum = "sha256:1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108932"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.linux-x64"]
+checksum = "sha256:f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108929"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.linux-x64-baseline"]
+checksum = "sha256:f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108929"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.linux-x64-musl"]
+checksum = "sha256:f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108929"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108929"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.macos-arm64"]
+checksum = "sha256:83dd7eaab13d44a1e8e347a17064cdef153a1478db473276d41b38d55613d3f2"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108927"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.macos-x64"]
+checksum = "sha256:68dfd83458d9e7f90663daa7a81c7f944083b170dae82e4f5f8d0581ed519ef1"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_darwin_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108931"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.macos-x64-baseline"]
+checksum = "sha256:68dfd83458d9e7f90663daa7a81c7f944083b170dae82e4f5f8d0581ed519ef1"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_darwin_x64.tar.gz"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108931"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.windows-x64"]
+checksum = "sha256:b765daec9fda475b031b5a5159798cbe4294a3f2a50683cbc0471226e376d3da"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_windows_x64.zip"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108997"
+provenance = "cosign"
+
+[tools.betterleaks."platforms.windows-x64-baseline"]
+checksum = "sha256:b765daec9fda475b031b5a5159798cbe4294a3f2a50683cbc0471226e376d3da"
+url = "https://github.com/betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_windows_x64.zip"
+url_api = "https://api.github.com/repos/betterleaks/betterleaks/releases/assets/599108997"
+provenance = "cosign"
+
 [[tools.bun]]
 version = "1.4.4"
 backend = "core:bun"
@@ -730,6 +800,76 @@ url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832
 checksum = "sha256:2508c549b049b1d4342d08edc1cb42bfac169082b6e3069431b5bab9822dbb32"
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-pc-windows-msvc.zip"
 url_api = "https://api.github.com/repos/sharkdp/hyperfine/releases/assets/317832313"
+
+[[tools.jactionlint]]
+version = "2.3.0"
+backend = "github:jdx/jactionlint"
+
+[tools.jactionlint."platforms.linux-arm64"]
+checksum = "sha256:deea7744e5769e1e5cc8c9898a838f80a941ec68476d9f2814a61474d5652dac"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210370"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.linux-arm64-musl"]
+checksum = "sha256:deea7744e5769e1e5cc8c9898a838f80a941ec68476d9f2814a61474d5652dac"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210370"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.linux-x64"]
+checksum = "sha256:907e6f6a59e181879f7e6936e19ee2eca1cbc51de134fb85460cfa8d65a71f28"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210498"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.linux-x64-baseline"]
+checksum = "sha256:907e6f6a59e181879f7e6936e19ee2eca1cbc51de134fb85460cfa8d65a71f28"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210498"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.linux-x64-musl"]
+checksum = "sha256:907e6f6a59e181879f7e6936e19ee2eca1cbc51de134fb85460cfa8d65a71f28"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210498"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:907e6f6a59e181879f7e6936e19ee2eca1cbc51de134fb85460cfa8d65a71f28"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210498"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.macos-arm64"]
+checksum = "sha256:f96afa36578b21290203ae8df4fa7ac3bf5aba08ed288df28cb0530af7ca6e55"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210452"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.macos-x64"]
+checksum = "sha256:a61006b669ec0ab1266c73e3561eecf839537eb6e8b3b6be766a55ba17fcbe42"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210428"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.macos-x64-baseline"]
+checksum = "sha256:a61006b669ec0ab1266c73e3561eecf839537eb6e8b3b6be766a55ba17fcbe42"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210428"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.windows-x64"]
+checksum = "sha256:9864d1045bd37fddb2df33bf4d6b45de205c0ce133c52a225928b7ede7d7f3eb"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_windows_amd64.zip"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210534"
+provenance = "github-attestations"
+
+[tools.jactionlint."platforms.windows-x64-baseline"]
+checksum = "sha256:9864d1045bd37fddb2df33bf4d6b45de205c0ce133c52a225928b7ede7d7f3eb"
+url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2.3.0_windows_amd64.zip"
+url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210534"
+provenance = "github-attestations"
 
 [[tools.ni]]
 version = "30.6.0"
