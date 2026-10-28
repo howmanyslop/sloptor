@@ -14,8 +14,9 @@ import (
 	"embed"
 	"os"
 	"path/filepath"
-	"rotor/internal/fsutil"
 	"sort"
+
+	"rotor/internal/fsutil"
 )
 
 // files holds the runtime library. Upstream's include/ directory contains

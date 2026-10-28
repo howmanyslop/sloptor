@@ -89,6 +89,9 @@ func TestTransformerPluginFingerprintsPinVersionAndEntryContents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(edited) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(edited))
+	}
 	if edited[0].EntryHash == first.EntryHash {
 		t.Fatal("editing the plugin entry left the fingerprint unchanged")
 	}
@@ -109,6 +112,9 @@ func TestTransformerPluginFingerprintsFollowPackageExports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(fingerprints) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(fingerprints))
+	}
 	if fingerprints[0].Unresolved != "" || fingerprints[0].Version != "0.0.9" || fingerprints[0].EntryHash == "" {
 		t.Fatalf("fingerprint = %+v, want the exports entry resolved", fingerprints[0])
 	}
@@ -123,6 +129,9 @@ func TestTransformerPluginFingerprintsRecordUnresolvedPackages(t *testing.T) {
 	fingerprints, err := transformerPluginFingerprints(dir, filepath.Join(dir, "tsconfig.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(fingerprints) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(fingerprints))
 	}
 	if fingerprints[0].Unresolved != "package not installed" {
 		t.Fatalf("fingerprint = %+v, want it marked unresolved", fingerprints[0])
@@ -197,6 +206,9 @@ func TestTransformerPluginFingerprintsResolveSubpathSpecifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(fingerprints) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(fingerprints))
+	}
 	if fingerprints[0].Unresolved != "" || fingerprints[0].Version != "2.0.0" {
 		t.Fatalf("fingerprint = %+v, want the subpath resolved", fingerprints[0])
 	}
@@ -247,6 +259,9 @@ func TestTransformerPluginFingerprintsResolveAwkwardPackageShapes(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
+			if len(fingerprints) != 1 {
+				t.Fatalf("fingerprinted %d plugins, want 1", len(fingerprints))
+			}
 			if fingerprints[0].Unresolved != "" || fingerprints[0].EntryHash == "" {
 				t.Fatalf("fingerprint = %+v, want %s resolved", fingerprints[0], test.entry)
 			}
@@ -266,11 +281,17 @@ func TestUnresolvedTransformerPluginFingerprintsStillFollowTheTsconfig(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(before) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(before))
+	}
 
 	writePluginTsconfig(t, dir, map[string]any{"transform": "rotor-missing-transformer", "mode": "second"})
 	after, err := transformerPluginFingerprints(dir, filepath.Join(dir, "tsconfig.json"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(after) != 1 {
+		t.Fatalf("fingerprinted %d plugins, want 1", len(after))
 	}
 
 	if before[0].Unresolved == "" || after[0].Unresolved == "" {

@@ -112,7 +112,11 @@ func TestComparatorDetectsOneByteDrift(t *testing.T) {
 	// Given
 	a := &RunResult{OutputTree: map[string][]byte{"out/main.luau": []byte("return 1\n")}}
 	b := &RunResult{OutputTree: map[string][]byte{"out/main.luau": []byte("return 1\n")}}
-	b.OutputTree["out/main.luau"][7] = '2'
+	drifted, ok := b.OutputTree["out/main.luau"]
+	if !ok || len(drifted) <= 7 {
+		t.Fatalf("fixture artifact too short for one-byte drift: %q", b.OutputTree["out/main.luau"])
+	}
+	drifted[7] = '2'
 
 	// When
 	report, err := Compare(a, b)

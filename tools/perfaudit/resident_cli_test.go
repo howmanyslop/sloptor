@@ -50,6 +50,7 @@ func (f *residentProtocolFixture) analyze() residentReaderReport {
 	r.decide(&report)
 	return report
 }
+
 func TestResidentReaderAdmissionDeclarations(t *testing.T) {
 	for _, tc := range []struct {
 		name, want string

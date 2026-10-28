@@ -152,6 +152,11 @@ func transformOptionalChainInner(
 			}
 			return luau.NewNone()
 		})
+		if result == nil {
+			// Unreachable: every branch above returns a node. Fail loudly
+			// here rather than nil-dereffing downstream.
+			panic("transformer: transformOptionalChainInner got nil expression") // upstream assert
+		}
 
 		if isCompoundCall(item) && item.optional && item.callOptional {
 			// a?.b?.(): a SECOND nil check wraps everything captured above

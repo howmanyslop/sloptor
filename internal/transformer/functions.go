@@ -102,7 +102,7 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 	if ast.IsBlock(body) {
 		statements.PushList(TransformStatementList(s, body, body.AsBlock().Statements.Nodes, nil))
 	} else {
-		var returnStatements *luau.List[luau.Statement]
+		returnStatements := luau.NewList[luau.Statement]()
 		prereqs := s.CaptureStatements(func() {
 			returnStatements = transformReturnStatementInner(s, body)
 		})

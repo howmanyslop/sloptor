@@ -436,7 +436,8 @@ func task7StateParseUpstream(root, category string, output []byte) []task7StateT
 		}
 	}
 	if len(tuples) == 0 && len(bytes.TrimSpace(output)) != 0 {
-		first := strings.TrimSpace(strings.SplitN(clean, "\n", 2)[0])
+		first, _, _ := strings.Cut(clean, "\n")
+		first = strings.TrimSpace(first)
 		tuples = append(tuples, task7StateTuple{Start: -1, Category: category, Code: "runtime", Message: task7StateNormalizePath(root, first)})
 	}
 	return tuples

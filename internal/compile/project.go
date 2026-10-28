@@ -287,7 +287,7 @@ func newProjectContextWithImportContext(dir string, program *compiler.Program, o
 	if projectType != transformer.ProjectTypePackage {
 		var ok bool
 		runtimeLibRbxPath, ok = rojoResolver.GetRbxPathFromFilePath(filepath.Join(includePath, "RuntimeLib.lua"))
-		if !ok {
+		if !ok || runtimeLibRbxPath == nil {
 			return nil, []string{"Rojo project contained no data for include folder!"}, errors.New("compile: emit failure")
 		} else if rojoResolver.GetNetworkType(runtimeLibRbxPath) != rojo.NetworkTypeUnknown {
 			return nil, []string{"Runtime library cannot be in a server-only or client-only container!"}, errors.New("compile: emit failure")
@@ -974,6 +974,12 @@ func groupSourceFilesByChecker(ctx context.Context, program *compiler.Program, s
 			groupIndex = len(groups)
 			groupsByChecker[key] = groupIndex
 			groups = append(groups, checkerSourceFileGroup{})
+		}
+		if groupIndex < 0 || groupIndex >= len(groups) {
+			// Unreachable: groupIndex is either a previously stored valid
+			// index or len(groups)-1 after the append above.
+			groups = append(groups, checkerSourceFileGroup{})
+			groupIndex = len(groups) - 1
 		}
 		groups[groupIndex].indices = append(groups[groupIndex].indices, i)
 		groups[groupIndex].files = append(groups[groupIndex].files, sourceFile)

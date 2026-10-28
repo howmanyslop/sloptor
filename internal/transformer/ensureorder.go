@@ -23,7 +23,14 @@ func ensureTransformOrderWith(s *State, nodes []*ast.Node, transformer func(*Sta
 	result := make([]luau.Expression, len(nodes))
 	prereqs := make([]*luau.List[luau.Statement], len(nodes))
 	for i, node := range nodes {
-		result[i], prereqs[i] = s.Capture(func() luau.Expression { return transformer(s, node) })
+		expression, prereqList := s.Capture(func() luau.Expression { return transformer(s, node) })
+		if expression == nil {
+			// Unreachable: the per-node transformer always returns a node
+			// (banned kinds yield None). Fail loudly here rather than
+			// nil-dereffing in the pinning scan below.
+			panic("transformer: ensureTransformOrderWith got nil expression") // upstream assert
+		}
+		result[i], prereqs[i] = expression, prereqList
 	}
 
 	// findLastIndex(expressionInfoList, info => !isEmpty(info.prereqs))

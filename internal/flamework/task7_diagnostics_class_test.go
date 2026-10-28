@@ -308,6 +308,9 @@ func task7ClassOracleCLITuples(t *testing.T, root, output string) []task7ClassDi
 	tuples := make([]task7ClassDiagnosticTuple, 0, len(matches))
 	for matchIndex, indices := range matches {
 		fields := linePattern.FindStringSubmatch(clean[indices[0]:indices[1]])
+		if len(fields) == 0 {
+			t.Fatalf("oracle line %q did not match diagnostic pattern", clean[indices[0]:indices[1]])
+		}
 		line, lineErr := strconv.Atoi(fields[2])
 		column, columnErr := strconv.Atoi(fields[3])
 		if lineErr != nil || columnErr != nil {

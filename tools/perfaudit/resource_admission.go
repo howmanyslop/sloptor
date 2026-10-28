@@ -16,9 +16,11 @@ import (
 	"time"
 )
 
-const resourceFormat = "windows-job-post-wall-v1"
-const resourceBoundary = "owned-job-quiescence-and-spooled-stream-eof-v2"
-const incompleteResource = "incomplete-unmeasured"
+const (
+	resourceFormat     = "windows-job-post-wall-v1"
+	resourceBoundary   = "owned-job-quiescence-and-spooled-stream-eof-v2"
+	incompleteResource = "incomplete-unmeasured"
+)
 
 var resourceMetricNames = []string{"job_cpu_ms", "job_peak_bytes", "read_operations", "write_operations", "other_operations", "read_bytes", "write_bytes", "other_bytes"}
 
@@ -67,8 +69,10 @@ func resourceRaw(input []byte) rawInput {
 }
 
 func admitResourceBatch(manifest, journal, run []byte, cfg config) resourceBatch {
-	b := resourceBatch{RawManifest: resourceRaw(manifest), RawJournal: resourceRaw(journal), RawRun: resourceRaw(run),
-		Resources: map[string]map[string][]pair{}, Observations: []resourceObservation{}, ResourceStatus: "complete", LegacyVerdict: "unverified"}
+	b := resourceBatch{
+		RawManifest: resourceRaw(manifest), RawJournal: resourceRaw(journal), RawRun: resourceRaw(run),
+		Resources: map[string]map[string][]pair{}, Observations: []resourceObservation{}, ResourceStatus: "complete", LegacyVerdict: "unverified",
+	}
 	b.Phases, b.Issues = validate(manifest, cfg)
 	v := validation{}
 	if resourceDocument(&v, manifest, "$.manifest") {
@@ -800,9 +804,11 @@ func resourceNativeStructureSize(component string, size uint64) bool {
 // The harness retains Windows paths. Normalize them lexically without reading
 // or rewriting evidence; moving raw files does not rewrite their provenance.
 func resourcePath(s string) string { return path.Clean(strings.ReplaceAll(s, "\\", "/")) }
+
 func resourcePathEqual(a, b string) bool {
 	return strings.EqualFold(resourcePath(a), resourcePath(b))
 }
+
 func resourceAbsolute(s string) bool {
 	s = strings.ReplaceAll(s, "\\", "/")
 	return strings.HasPrefix(s, "/") || len(s) >= 3 && s[1] == ':' && s[2] == '/'

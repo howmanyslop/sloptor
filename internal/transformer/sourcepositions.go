@@ -35,7 +35,9 @@ func (s *State) sourcePositionAt(file *ast.SourceFile, offset int) SourcePositio
 }
 
 func sourceColumnCheckpoints(text string) []sourceColumnCheckpoint {
-	var checkpoints []sourceColumnCheckpoint
+	// Non-nil even for pure-ASCII text: callers pass the result straight
+	// into sourceColumnAdjustment, which must never see a nil slice.
+	checkpoints := []sourceColumnCheckpoint{}
 	var extraBytes int32
 	for offset := 0; offset < len(text); {
 		if text[offset] < utf8.RuneSelf {

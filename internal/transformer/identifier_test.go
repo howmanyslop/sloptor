@@ -68,7 +68,7 @@ func buildState(t *testing.T, projDir, relPath string) *transformer.State {
 // collectIdentifiers returns every Identifier named text under root, in
 // source order.
 func collectIdentifiers(root *ast.Node, text string) []*ast.Node {
-	var out []*ast.Node
+	out := []*ast.Node{}
 	var visit func(node *ast.Node) bool
 	visit = func(node *ast.Node) bool {
 		if node.Kind == ast.KindIdentifier && node.Text() == text {

@@ -47,12 +47,16 @@ func TestParallelMergeOrderAndBatchDiagnostics(t *testing.T) {
 	common := sidecarDiagnostic{Category: "error", Code: "transformer-not-found", Message: "factory failed"}
 	one := sidecarDiagnostic{File: "a", Message: "first"}
 	two := sidecarDiagnostic{File: "b", Message: "second"}
-	first := &sidecarResponse{ParallelBatchDiagnostics: 1, Diagnostics: []sidecarDiagnostic{common, one},
+	first := &sidecarResponse{
+		ParallelBatchDiagnostics: 1, Diagnostics: []sidecarDiagnostic{common, one},
 		Transformed: []sidecarOutputFile{{FileName: "a", Text: "A", TraceMap: "trace-a"}}, AfterDeclarationsTransformers: 1,
-		Metrics: &TransformerResponseMetrics{WallMs: 500, CPUUserUs: 100, Plugins: []TransformerPluginMetric{{Transform: "example", Ms: 20}}}}
-	second := &sidecarResponse{ParallelBatchDiagnostics: 1, Diagnostics: []sidecarDiagnostic{common, two},
+		Metrics: &TransformerResponseMetrics{WallMs: 500, CPUUserUs: 100, Plugins: []TransformerPluginMetric{{Transform: "example", Ms: 20}}},
+	}
+	second := &sidecarResponse{
+		ParallelBatchDiagnostics: 1, Diagnostics: []sidecarDiagnostic{common, two},
 		Transformed: []sidecarOutputFile{{FileName: "b", Text: "B", TraceMap: "trace-b"}}, AfterDeclarationsTransformers: 1,
-		Metrics: &TransformerResponseMetrics{WallMs: 400, CPUUserUs: 120, Plugins: []TransformerPluginMetric{{Transform: "example", Ms: 30}}}}
+		Metrics: &TransformerResponseMetrics{WallMs: 400, CPUUserUs: 120, Plugins: []TransformerPluginMetric{{Transform: "example", Ms: 30}}},
+	}
 	merged, last, err := mergeParallelResponses(first, second, 550*time.Millisecond)
 	if err != nil || last != 1 {
 		t.Fatalf("%d: %v", last, err)
@@ -249,8 +253,10 @@ func parallelScriptedSession(ready bool, response *sidecarResponse, stderr strin
 	input := &parallelRecordingInput{}
 	tail := newSidecarStderrTail(strings.NewReader(stderr))
 	<-tail.done
-	return &sidecarSession{cmd: &exec.Cmd{}, stdin: input, stdout: bufio.NewReader(strings.NewReader(text)),
-		stderr: tail}, input
+	return &sidecarSession{
+		cmd: &exec.Cmd{}, stdin: input, stdout: bufio.NewReader(strings.NewReader(text)),
+		stderr: tail,
+	}, input
 }
 
 func TestParallelPreflightMismatchKeepsSerialSession(t *testing.T) {

@@ -104,6 +104,7 @@ var propertyCallMacroTable = map[string]map[string]PropertyCallMacro{
 // macroCommentHeader / macroCommentFooter port header/footer (L943-949):
 // rendered `-- ▼ ReadonlyArray.reduce ▼` / `-- ▲ ReadonlyArray.reduce ▲`.
 func macroCommentHeader(text string) *luau.Comment { return luau.NewComment(" ▼ " + text + " ▼") }
+
 func macroCommentFooter(text string) *luau.Comment { return luau.NewComment(" ▲ " + text + " ▲") }
 
 // wasExpressionPushed ports wasExpressionPushed (L951-963): the first prereq

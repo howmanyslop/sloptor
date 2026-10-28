@@ -17,25 +17,30 @@ func TestSolutionWriteRoots(t *testing.T) {
 		secondOut   func(string) string
 		wantEdge    bool
 	}{
-		{name: "disjoint outputs",
+		{
+			name:      "disjoint outputs",
 			firstOut:  func(root string) string { return filepath.Join(root, "outputs", "first") },
 			secondOut: func(root string) string { return filepath.Join(root, "outputs", "second") },
 		},
-		{name: "identical outputs",
+		{
+			name:      "identical outputs",
 			firstOut:  func(root string) string { return filepath.Join(root, "outputs") },
 			secondOut: func(root string) string { return filepath.Join(root, "outputs") }, wantEdge: true,
 		},
-		{name: "nested outputs",
+		{
+			name:      "nested outputs",
 			firstOut:  func(root string) string { return filepath.Join(root, "outputs") },
 			secondOut: func(root string) string { return filepath.Join(root, "outputs", "nested") }, wantEdge: true,
 		},
-		{name: "shared include output enabled",
+		{
+			name:        "shared include output enabled",
 			emitInclude: true,
 			includePath: func(root string) string { return filepath.Join(root, "shared-include") },
 			firstOut:    func(root string) string { return filepath.Join(root, "outputs", "first") },
 			secondOut:   func(root string) string { return filepath.Join(root, "outputs", "second") }, wantEdge: true,
 		},
-		{name: "shared include output disabled",
+		{
+			name:        "shared include output disabled",
 			includePath: func(root string) string { return filepath.Join(root, "shared-include") },
 			firstOut:    func(root string) string { return filepath.Join(root, "outputs", "first") },
 			secondOut:   func(root string) string { return filepath.Join(root, "outputs", "second") },

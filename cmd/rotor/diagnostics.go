@@ -224,9 +224,19 @@ type jsonDiagnosticsResult struct {
 func runDiagnosticsCensus(dir, tsConfigPath string, opts compile.ProjectOptions, build bool) ([]*compile.ProjectDiagnostics, int, error) {
 	if build {
 		solution, err := compile.CompileSolutionDiagnostics(tsConfigPath, opts)
+		// Documented non-nil on every path; the guard only pins the
+		// contract for nilaway without touching reachable behavior.
+		if solution == nil {
+			return nil, 0, err
+		}
 		return solution.Projects, solution.OverlayMatches, err
 	}
 	census, err := compile.CompileProjectDiagnostics(dir, opts)
+	// Documented non-nil on every path; the guard only pins the contract
+	// for nilaway without touching reachable behavior.
+	if census == nil {
+		return nil, 0, err
+	}
 	return []*compile.ProjectDiagnostics{census}, census.OverlayMatches, err
 }
 

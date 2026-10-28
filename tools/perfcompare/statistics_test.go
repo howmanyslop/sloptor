@@ -27,7 +27,6 @@ func TestMedian_returns_exact_fraction_for_odd_and_even_counts(t *testing.T) {
 
 			// When
 			got, err := median(durations)
-
 			// Then
 			if err != nil {
 				t.Fatalf("median: %v", err)
@@ -64,7 +63,6 @@ func TestNearestRankP95_returns_sorted_ceiling_rank(t *testing.T) {
 
 			// When
 			got, err := nearestRankP95(durations)
-
 			// Then
 			if err != nil {
 				t.Fatalf("nearestRankP95: %v", err)
