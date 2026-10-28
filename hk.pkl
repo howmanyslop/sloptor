@@ -233,10 +233,9 @@ local fileChecks = new Mapping<String, Step> {
 // every commit. go-vet and golangci-lint gate the push (minus the vendored
 // tsgo mirror, which is deliberately excluded from all of them); govulncheck
 // mirrors the CI vuln job's whole-module reachability scan. nilaway and
-// deadcode are advisory reports instead: both fail open on the current tree
-// (hundreds of pre-existing potential-nil flows, plus reachable-only-from-API
-// helpers deadcode will always flag), so gating pre-push on them would never
-// go green. They live in `hk run reports` until the backlog is triaged.
+// deadcode gate the push too, scoped to first-party code: nilaway excludes
+// tsgo findings (vendored mirror, never touched) and deadcode filters to the
+// module's own packages (plus -test) so API-only helpers stay quiet.
 local GO_PACKAGES = List("./internal/...", "./cmd/...", "./tools/...")
 local moduleChecks = new Mapping<String, Step> {
   ["go-vet"] {
@@ -276,6 +275,24 @@ local moduleChecks = new Mapping<String, Step> {
       effect = "write"
     }
   }
+  ["nilaway"] {
+    glob = GO_FILES
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("nilaway", "-exclude-errors-in-files=tsgo") + GO_PACKAGES
+      }
+      effect = "write"
+    }
+  }
+  ["deadcode"] {
+    glob = GO_FILES
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("deadcode", "-test", "-filter=^rotor/(internal|cmd|tools)") + GO_PACKAGES
+      }
+      effect = "write"
+    }
+  }
 }
 
 // Materializes `check`, `fix`, and `pre-commit`; `pre-commit` fixes, stages, and
@@ -294,22 +311,6 @@ hooks {
               List("gocognit", "-over", "30", "-ignore", "_test\\.go$", "internal", "cmd", "tools")
           }
           effect = "read"
-        }
-      }
-      ["nilaway"] {
-        check = new CommandSpec {
-          command = new Command {
-            argv = List("nilaway") + GO_PACKAGES
-          }
-          effect = "write"
-        }
-      }
-      ["deadcode"] {
-        check = new CommandSpec {
-          command = new Command {
-            argv = List("deadcode") + GO_PACKAGES
-          }
-          effect = "write"
         }
       }
     }
