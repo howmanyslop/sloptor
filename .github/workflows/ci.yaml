@@ -67,7 +67,7 @@ jobs:
       - name: Set up Mise toolchain
         uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
-          install_args: go golangci-lint
+          install_args: go golangci-lint go:go.uber.org/nilaway/cmd/nilaway go:golang.org/x/tools/cmd/deadcode
           experimental: true
 
       - name: Restore Go module, build, and lint caches
@@ -84,6 +84,21 @@ jobs:
       - name: golangci-lint
         # Same package set as vet; the vendored tsgo mirror is excluded.
         run: golangci-lint run ./internal/... ./cmd/... ./tools/...
+
+      - name: nilaway
+        # Findings in the vendored tsgo mirror are never actionable.
+        run: nilaway -exclude-errors-in-files=tsgo ./internal/... ./cmd/... ./tools/...
+
+      - name: deadcode
+        # deadcode exits 0 when it reports unreachable functions, so any
+        # output fails the step. The filter keeps it to first-party packages.
+        run: |
+          set -euo pipefail
+          findings="$(deadcode -test '-filter=^rotor/(internal|cmd|tools)' ./internal/... ./cmd/... ./tools/...)"
+          if [ -n "$findings" ]; then
+            echo "$findings"
+            exit 1
+          fi
 
     timeout-minutes: 15
 
@@ -416,3 +431,25 @@ jobs:
         working-directory: tools/sidecar
 
     timeout-minutes: 20
+
+  # Not gated on the Go filter: release.yaml, docs.yaml, and
+  # ci-documentation.yaml count as Go-free there, and they need linting most.
+  workflow-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          experimental: true
+          install_args: jactionlint
+
+      - name: jactionlint
+        # Same profile (.github/jactionlint.yaml) and exit policy as the hook.
+        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup/action.yaml
+
+    timeout-minutes: 5
