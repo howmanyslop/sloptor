@@ -78,59 +78,63 @@ func getNativeUnspellable(nativePosition nativePosition) string {
 // marker; a member that cannot be mirrored widens the whole nested union to
 // `any` and disqualifies a tagged one.
 func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition nativePosition, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
-	var texts []string
-	var kinds []nativeTypeKind
+	type member struct {
+		text string
+		kind nativeTypeKind
+	}
+	members := make([]member, 0, len(checkerType.Types()))
 	optional := false
 	outerGeneric := false
 	unspellable := false
 
-	for _, member := range checkerType.Types() {
-		if isUndefinedTypeCheck(member) {
+	for _, unionMember := range checkerType.Types() {
+		if isUndefinedTypeCheck(unionMember) {
 			optional = true
 			continue
 		}
-		text, kind, outer := getNativeType(state, member, nativePosition, depth, seen)
+		text, kind, outer := getNativeType(state, unionMember, nativePosition, depth, seen)
 		if text == "" {
 			unspellable = true
 			continue
 		}
 		outerGeneric = outerGeneric || outer
-		if !slices.Contains(texts, text) {
-			texts = append(texts, text)
-			kinds = append(kinds, kind)
+		if !slices.ContainsFunc(members, func(existing member) bool { return existing.text == text }) {
+			members = append(members, member{text: text, kind: kind})
 		}
 	}
-	if unspellable || len(texts) == 0 {
+	if unspellable || len(members) == 0 {
 		return getNativeUnspellable(nativePosition), nativeKindUnspellable, outerGeneric
 	}
-	if len(texts) == 1 {
-		text := texts[0]
+	if len(members) == 1 {
+		text := members[0].text
 		if optional {
 			text = getNativeOptionalType(text)
 		}
-		return text, kinds[0], outerGeneric
+		return text, members[0].kind, outerGeneric
 	}
 	if nativePosition == nativePositionParameter {
 		// Luau tags every table member of a union as TABLE, but a union that
 		// mixes a table with another kind has no single useful tag.
-		for _, kind := range kinds {
-			if kind != nativeKindTable {
+		for _, existing := range members {
+			if existing.kind != nativeKindTable {
 				return "", nativeKindUnspellable, outerGeneric
 			}
 		}
 	}
-	for index, text := range texts {
-		if kinds[index] == nativeKindFunction || doesNativeHaveTopLevelOperator(text, "&") {
+	texts := make([]string, len(members))
+	for index, existing := range members {
+		texts[index] = existing.text
+		if existing.kind == nativeKindFunction || doesNativeHaveTopLevelOperator(existing.text, "&") {
 			// A function type needs parentheses before `|`, and mixing `|`
 			// and `&` unparenthesised is a syntax error.
-			texts[index] = "(" + text + ")"
+			texts[index] = "(" + existing.text + ")"
 		}
 	}
 	text := strings.Join(texts, " | ")
 	if optional {
 		text = getNativeOptionalType(text)
 	}
-	return text, kinds[0], outerGeneric
+	return text, members[0].kind, outerGeneric
 }
 
 // getNativeTypeVariable mirrors a type variable: its constraint when that yields a
