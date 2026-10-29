@@ -189,3 +189,17 @@ func TestStatementAfterFinalPanics(t *testing.T) {
 	}()
 	RenderAST(stmts(luau.NewReturn(luau.Nil()), luau.NewBreak()))
 }
+
+func TestRenderTypedFunctionSignatures(t *testing.T) {
+	a, b := luau.ID("a"), luau.ID("b")
+	luau.SetParameterType(a, &luau.Type{Name: "vector"})
+	luau.SetParameterType(b, &luau.Type{Name: "vector", Optional: true})
+
+	declaration := luau.NewFunctionDeclaration(true, luau.ID("f"), luau.NewList[luau.AnyIdentifier](a, b), false, luau.NewList[luau.Statement]())
+	declaration.ReturnType = &luau.Type{Name: "number", Optional: true}
+
+	got := renderAST(t, stmts(declaration))
+	if want := "local function f(a: vector, b: vector?): number?\nend\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

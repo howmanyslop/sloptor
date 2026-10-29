@@ -166,6 +166,10 @@ type State struct {
 	// intentionally differs from rbxtsc.
 	OptimizedArrayAppends bool
 
+	// IsNative is set when the file carries a `//!native` directive; only
+	// then are Luau type annotations emitted (see nativetypes.go).
+	IsNative bool
+
 	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
 	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
 	// that would have been TS2304 can reach the transformer with no symbol.

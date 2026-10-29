@@ -38,6 +38,40 @@ Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; me
 
 - **One-shot diagnostics** — `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, and `--timings` can be combined on one build. sloptor finalizes requested profiles even when the build fails, which keeps failed-build traces usable. `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence, excluding profile serialization); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. Go CPU/block/mutex/heap profiles cover the parent process only — they do not include Node transformer-sidecar CPU or heap. Profile flush can add CLI wall time after the timing JSON is closed; `--verbose` prints a `finalize profiles` stage for that tail.
 
+## Native code generation annotations
+
+A file whose leading comments include `//!native` gets Luau type annotations on its function parameters and return types, which is what Luau's native compiler specializes on. sloptor emits the directive as `--!native` and annotates every function in the file. Files without the directive produce the same Luau as rbxtsc.
+
+```ts
+//!native
+export function scale(x: number, factor = 2, label?: string): number {
+	return x * factor;
+}
+```
+
+```lua
+--!native
+local function scale(x: number, factor: number?, label: string?): number
+```
+
+Annotations follow the TypeScript type:
+
+| TypeScript type                                                        | Emitted             |
+| ---------------------------------------------------------------------- | ------------------- |
+| `number`, numeric literals and enums, generics constrained to `number` | `number`            |
+| `string`                                                               | `string`            |
+| `vector`, `Vector3`                                                    | `vector`, `Vector3` |
+| arrays, tuples, `Map`, `Set`, object types, and interfaces             | `{ [any]: any }`    |
+| anything else                                                          | none                |
+
+"Anything else" covers `boolean`, functions, `any` and `unknown`, mixed unions, Roblox datatypes and `Instance`s other than `Vector3`, and class instances. Class instances stay out because their metatable makes Luau's analyzer reject the table type literal.
+
+A parameter that callers may omit becomes optional: a `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest, and destructured parameters stay unannotated. So do async functions, generators, `void` and `LuaTuple` returns, and constructors.
+
+sloptor never emits a bare `table`. Luau's compiler tags it as userdata, so the native entry guard would fail on every call.
+
+Return annotations don't affect native code generation. They only help Luau's type checker. A wrong annotation costs an interpreter fallback, never a crash. Luau's analyzer may still warn that a defaulted parameter is `number?` where the body uses it in arithmetic after the `if x == nil then x = default end` check. That only affects Studio script-analysis warnings, and the `?` is required: an omitted argument arrives as `nil`, and a plain `number` annotation would send every such call back to the interpreter.
+
 ## Shell completion
 
 `sloptor completion <bash|zsh|fish|powershell>` writes a native completion

@@ -90,8 +90,9 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 		return luau.NewList[luau.Statement](luau.NewAssignment(name, "=", right))
 	}
 
-	return luau.NewList[luau.Statement](
-		luau.NewFunctionDeclaration(localize, name, body.parameters, body.hasDotDotDot, body.statements))
+	declarationNode := luau.NewFunctionDeclaration(localize, name, body.parameters, body.hasDotDotDot, body.statements)
+	declarationNode.ReturnType = nativeReturnType(s, node)
+	return luau.NewList[luau.Statement](declarationNode)
 }
 
 func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
@@ -164,7 +165,9 @@ func transformFunctionExpression(s *State, node *ast.Node) luau.Expression {
 		body.statements = wrapStatementsAsGenerator(s, node, body.statements)
 	}
 
-	var expression luau.Expression = luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
+	functionExpression := luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
+	functionExpression.ReturnType = nativeReturnType(s, node)
+	var expression luau.Expression = functionExpression
 	s.setNodeSourcePosition(expression, node)
 
 	if isAsync {
@@ -245,19 +248,25 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 	if !isAsync && nameIsStr && !ptrIsMap && luau.IsValidIdentifier(nameStr.Value) {
 		if isMethod(s, node) {
 			parameters.Shift() // remove `self`
-			result.Push(luau.NewMethodDeclaration(
-				ptr.Value.(luau.IndexableExpression), nameStr.Value, parameters, hasDotDotDot, statements))
+			method := luau.NewMethodDeclaration(
+				ptr.Value.(luau.IndexableExpression), nameStr.Value, parameters, hasDotDotDot, statements)
+			method.ReturnType = nativeReturnType(s, node)
+			result.Push(method)
 		} else {
-			result.Push(luau.NewFunctionDeclaration(
+			function := luau.NewFunctionDeclaration(
 				false, /*localize*/
 				luau.NewPropertyAccess(ptr.Value.(luau.IndexableExpression), nameStr.Value),
-				parameters, hasDotDotDot, statements))
+				parameters, hasDotDotDot, statements)
+			function.ReturnType = nativeReturnType(s, node)
+			result.Push(function)
 		}
 		s.setNodeSourcePosition(result.Tail.Value, node)
 		return result
 	}
 
-	var expression luau.Expression = luau.NewFunctionExpression(parameters, hasDotDotDot, statements)
+	methodExpression := luau.NewFunctionExpression(parameters, hasDotDotDot, statements)
+	methodExpression.ReturnType = nativeReturnType(s, node)
+	var expression luau.Expression = methodExpression
 	s.setNodeSourcePosition(expression, node)
 
 	if isAsync {

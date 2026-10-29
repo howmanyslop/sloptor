@@ -31,15 +31,15 @@ func emitNamedFunctionExpression(
 		body.statements = wrapStatementsAsGenerator(s, node, body.statements)
 	}
 
-	statements := luau.NewList[luau.Statement](
-		luau.NewFunctionDeclaration(
-			localize,
-			name,
-			body.parameters,
-			body.hasDotDotDot,
-			body.statements,
-		),
+	declaration := luau.NewFunctionDeclaration(
+		localize,
+		name,
+		body.parameters,
+		body.hasDotDotDot,
+		body.statements,
 	)
+	declaration.ReturnType = nativeReturnType(s, node)
+	statements := luau.NewList[luau.Statement](declaration)
 	s.setNodeSourcePosition(statements.Head.Value, node)
 	if isAsync {
 		statements.Push(luau.NewAssignment(

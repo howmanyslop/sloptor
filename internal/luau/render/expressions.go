@@ -142,6 +142,7 @@ func renderFunctionExpression(s *RenderState, node *luau.FunctionExpression) {
 	s.write("function(")
 	s.parameters(node)
 	s.write(")")
+	s.returnType(node)
 	if node.Statements.IsEmpty() {
 		s.write(" ")
 		s.closing("end")

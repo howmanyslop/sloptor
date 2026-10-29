@@ -64,6 +64,7 @@ type WritableExpression interface {
 type HasParameters interface {
 	Node
 	ParamData() (params *List[AnyIdentifier], hasDotDotDot bool)
+	ReturnTypeData() *Type
 }
 
 // base is embedded in every node struct.

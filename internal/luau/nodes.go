@@ -4,14 +4,16 @@ package luau
 
 type Identifier struct {
 	base
-	Name string
+	Name       string
+	Annotation *Type // parameter annotation, rendered only in a parameter list
 }
 
 type TemporaryIdentifier struct {
 	base
-	Name      string
-	ID        int
-	ExactName bool
+	Name       string
+	ID         int
+	ExactName  bool
+	Annotation *Type // parameter annotation, rendered only in a parameter list
 }
 
 type ComputedIndexExpression struct {
@@ -67,6 +69,7 @@ type VarArgsLiteral struct{ base }
 
 type FunctionExpression struct {
 	base
+	ReturnType   *Type
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -177,6 +180,7 @@ type ForStatement struct {
 
 type FunctionDeclaration struct {
 	base
+	ReturnType   *Type
 	Localize     bool
 	Name         Expression // AnyIdentifier | PropertyAccessExpression
 	Parameters   *List[AnyIdentifier]
@@ -186,6 +190,7 @@ type FunctionDeclaration struct {
 
 type MethodDeclaration struct {
 	base
+	ReturnType   *Type
 	Expression   IndexableExpression
 	Name         string
 	Parameters   *List[AnyIdentifier]
@@ -375,10 +380,16 @@ func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool) {
 	return n.Parameters, n.HasDotDotDot
 }
 
+func (n *FunctionExpression) ReturnTypeData() *Type { return n.ReturnType }
+
 func (n *FunctionDeclaration) ParamData() (*List[AnyIdentifier], bool) {
 	return n.Parameters, n.HasDotDotDot
 }
 
+func (n *FunctionDeclaration) ReturnTypeData() *Type { return n.ReturnType }
+
 func (n *MethodDeclaration) ParamData() (*List[AnyIdentifier], bool) {
 	return n.Parameters, n.HasDotDotDot
 }
+
+func (n *MethodDeclaration) ReturnTypeData() *Type { return n.ReturnType }
