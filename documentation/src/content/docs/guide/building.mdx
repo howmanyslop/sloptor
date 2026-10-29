@@ -56,15 +56,20 @@ local function scale(x: number, factor: number?, label: string?): number
 
 Annotations follow the TypeScript type:
 
-| TypeScript type                                                        | Emitted             |
-| ---------------------------------------------------------------------- | ------------------- |
-| `number`, numeric literals and enums, generics constrained to `number` | `number`            |
-| `string`                                                               | `string`            |
-| `vector`, `Vector3`                                                    | `vector`, `Vector3` |
-| arrays, tuples, `Map`, `Set`, object types, and interfaces             | `{ [any]: any }`    |
-| anything else                                                          | none                |
+| TypeScript type                                                        | Emitted                       |
+| ---------------------------------------------------------------------- | ----------------------------- |
+| `number`, numeric literals and enums, generics constrained to `number` | `number`                      |
+| `string`                                                               | `string`                      |
+| `vector`, `Vector3`                                                    | `vector`, `Vector3`           |
+| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`         |
+| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }` |
+| interfaces and object types                                            | `{ a: number, b: string? }`   |
+| a shape that cannot be written out                                     | `{ [any]: any }`              |
+| anything else                                                          | none                          |
 
-"Anything else" covers `boolean`, functions, `any` and `unknown`, mixed unions, Roblox datatypes and `Instance`s other than `Vector3`, and class instances. Class instances stay out because their metatable makes Luau's analyzer reject the table type literal.
+Table shapes are followed into nested members, so `Map<string, number[]>` becomes `{ [string]: { number } }`; names that are not Luau identifiers are quoted (`["kebab-case"]: number`), and a shape that recurses or nests past four levels falls back to `{ [any]: any }`.
+
+"Anything else" covers `boolean`, functions, `any` and `unknown`, unions that mix a table with a non-table, Roblox datatypes and `Instance`s other than `Vector3`, and class instances. Class instances stay out because their metatable makes Luau's analyzer reject the table type literal.
 
 A parameter that callers may omit becomes optional: a `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest, and destructured parameters stay unannotated. So do async functions, generators, `void` and `LuaTuple` returns, and constructors.
 
