@@ -12,13 +12,6 @@ import (
 	sidecarfs "rotor/tools/sidecar"
 )
 
-// ResolveSidecarDir exposes sidecar resolution/extraction for diagnostics
-// (`rotor doctor`): it returns the directory the transformer worker would run
-// from, extracting the embedded worker if needed.
-func ResolveSidecarDir() (string, error) {
-	return resolveSidecarDir()
-}
-
 // resolveSidecarDir locates the Node transformer worker. ROTOR_SIDECAR_PATH
 // overrides (repo-dev and tests); otherwise the embedded worker is extracted
 // once into a content-addressed cache dir so released binaries work without

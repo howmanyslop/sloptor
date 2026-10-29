@@ -115,6 +115,7 @@ export default defineConfig({
 							{ label: "Introduction", slug: "guide/introduction" },
 							{ label: "Install", slug: "guide/install" },
 							{ label: "Migrate from rbxtsc", slug: "guide/migrate" },
+							{ label: "Editors", slug: "guide/editors" },
 						],
 						label: "Start",
 					},

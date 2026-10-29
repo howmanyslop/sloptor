@@ -45,6 +45,9 @@ func newDeclarationPrefetch(program *compiler.Program, selectedPaths map[string]
 // run emits the declarations once. Closing abandon stops it between files and
 // leaves no result, so the build emits after the transform as usual.
 func (prefetch *declarationPrefetch) run(abandon <-chan struct{}) {
+	if prefetch == nil {
+		return
+	}
 	prefetch.once.Do(func() {
 		var emitted []declarationEmitFile
 		var err error

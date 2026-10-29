@@ -18,6 +18,9 @@ func median(durations []int64) (Fraction, error) {
 		return Fraction{}, ErrEmptySamples
 	}
 	ordered := slices.Clone(durations)
+	if ordered == nil {
+		ordered = []int64{}
+	}
 	slices.Sort(ordered)
 	middle := len(ordered) / 2
 	if len(ordered)%2 != 0 {
@@ -31,6 +34,9 @@ func nearestRankP95(durations []int64) (int64, error) {
 		return 0, ErrEmptySamples
 	}
 	ordered := slices.Clone(durations)
+	if ordered == nil {
+		ordered = []int64{}
+	}
 	slices.Sort(ordered)
 	rank := (95*len(ordered) + 99) / 100
 	return ordered[rank-1], nil

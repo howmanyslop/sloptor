@@ -8,12 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"rotor/internal/transformer"
-	"rotor/tsgo/ast"
-	"rotor/tsgo/vfs/osvfs"
 	"sort"
 	"strings"
 	"testing"
+
+	"rotor/internal/transformer"
+	"rotor/tsgo/ast"
+	"rotor/tsgo/vfs/osvfs"
 )
 
 // writeCensusProject lays down a package-type project (no Rojo file needed)
@@ -38,7 +39,6 @@ func TestCompileProjectOverlaysOverrideFileText(t *testing.T) {
 	outputs, diags, err := CompileProjectWithOptions(dir, ProjectOptions{
 		Overlays: map[string]string{mainPath: "export const fromOverlay = 2;\n"},
 	})
-
 	// Then the compiled Luau reflects the overlay, not the disk
 	if err != nil {
 		t.Fatalf("CompileProjectWithOptions: %v (diags: %v)", err, diags)
@@ -181,6 +181,9 @@ var censusFiles = map[string]string{
 }
 
 func censusByFile(census *ProjectDiagnostics) map[string]FileDiagnostics {
+	if census == nil {
+		return map[string]FileDiagnostics{}
+	}
 	byName := make(map[string]FileDiagnostics, len(census.Files))
 	for _, file := range census.Files {
 		byName[filepath.Base(filepath.FromSlash(file.FileName))] = file
@@ -462,6 +465,48 @@ func TestCompileProjectOverlayNamingNoFileIsAnError(t *testing.T) {
 	}
 }
 
+func TestCompileProjectIgnoreUnmatchedOverlaysDropsOnlyTheUnmatched(t *testing.T) {
+	// Given an editor-shaped overlay set: one buffer the program holds and one
+	// path it does not
+	dir := writeCensusProject(t, map[string]string{"clean.ts": censusFiles["clean.ts"]})
+	overlays := map[string]string{
+		filepath.Join(dir, "src", "clean.ts"):     censusFiles["noany.ts"],
+		filepath.Join(dir, "elsewhere", "new.ts"): censusFiles["noany.ts"],
+	}
+
+	t.Run("flag set", func(t *testing.T) {
+		// When the census runs with unmatched overlays tolerated
+		census, err := CompileProjectDiagnostics(dir, ProjectOptions{
+			Overlays:                overlays,
+			IgnoreUnmatchedOverlays: true,
+		})
+		// Then it succeeds, the matching overlay still applied, and only that
+		// one is counted
+		if err != nil {
+			t.Fatalf("CompileProjectDiagnostics: %v", err)
+		}
+		if census.OverlayMatches != 1 {
+			t.Errorf("OverlayMatches = %d, want 1", census.OverlayMatches)
+		}
+		if got := censusByFile(census)["clean.ts"].Outcome; got != FileOutcomeTransformerDiagnostic {
+			t.Errorf("clean.ts outcome = %q, want %q — the matching overlay did not apply", got, FileOutcomeTransformerDiagnostic)
+		}
+	})
+
+	t.Run("flag unset", func(t *testing.T) {
+		// When the same overlays are sent without the flag
+		_, err := CompileProjectDiagnostics(dir, ProjectOptions{Overlays: overlays})
+
+		// Then the strict rule still refuses and names the stray path
+		if err == nil {
+			t.Fatal("an overlay matching no file in the program was accepted")
+		}
+		if !strings.Contains(err.Error(), "new.ts") {
+			t.Errorf("error = %v, want it to name the unmatched overlay", err)
+		}
+	})
+}
+
 func TestCompileProjectRelativeOverlayKeyIsAnError(t *testing.T) {
 	// Given an overlay keyed relatively — the program holds absolute paths, so
 	// this can never match
@@ -494,7 +539,6 @@ func TestCompileProjectOverlayKeysMatchAcrossSeparatorAndCase(t *testing.T) {
 			census, err := CompileProjectDiagnostics(dir, ProjectOptions{
 				Overlays: map[string]string{key: censusFiles["noany.ts"]},
 			})
-
 			// Then it matched, and is counted
 			if err != nil {
 				t.Fatalf("CompileProjectDiagnostics: %v", err)
@@ -543,7 +587,6 @@ func TestCompileProjectOverlaysWithTransformerPluginsAreAccepted(t *testing.T) {
 	matched, err := matchProgramOverlays(program, ProjectOptions{
 		Overlays: map[string]string{cleanPath: censusFiles["noany.ts"]},
 	})
-
 	// Then the plugin does not disqualify them. The worker holds the overlay
 	// text, so the census reports on what the caller sent.
 	if err != nil {

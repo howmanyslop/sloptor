@@ -250,7 +250,9 @@ func (w *solutionWatches) close() {
 			dispatch.set(nil)
 			delete(w.dispatch, key)
 		}
-		_ = watch.Close()
+		if watch != nil {
+			_ = watch.Close()
+		}
 		delete(w.watches, key)
 	}
 }
@@ -493,7 +495,7 @@ func watchProjectInput(event fswatch.Event) bool {
 		return false
 	}
 	info, err := os.Stat(event.Path)
-	return err == nil && info.IsDir()
+	return err == nil && info != nil && info.IsDir()
 }
 
 type fmtWriter struct{}

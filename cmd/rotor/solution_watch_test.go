@@ -189,7 +189,9 @@ func (w *fakeSolutionWatch) Close() error {
 	w.watcher.mu.Lock()
 	defer w.watcher.mu.Unlock()
 	w.watcher.closes[w.path]++
-	w.watcher.callbacks[w.path][w.index] = nil
+	if callbacks := w.watcher.callbacks[w.path]; callbacks != nil && w.index >= 0 && w.index < len(callbacks) {
+		callbacks[w.index] = nil
+	}
 	return nil
 }
 

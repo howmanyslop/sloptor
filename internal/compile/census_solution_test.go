@@ -168,10 +168,18 @@ func TestCompileSolutionDiagnosticsOverlayLandsInTheOwningProject(t *testing.T) 
 	if got := censusByFile(byDir["alpha"])["alpha.ts"].Outcome; got != FileOutcomeOK {
 		t.Errorf("alpha.ts outcome = %q, want %q — the overlay leaked into another project", got, FileOutcomeOK)
 	}
-	if got := byDir["beta"].OverlayMatches; got != 1 {
+	beta, ok := byDir["beta"]
+	if !ok {
+		t.Fatalf("beta missing from the census: %+v", solution.Projects)
+	}
+	if got := beta.OverlayMatches; got != 1 {
 		t.Errorf("beta OverlayMatches = %d, want 1", got)
 	}
-	if got := byDir["alpha"].OverlayMatches; got != 0 {
+	alpha, ok := byDir["alpha"]
+	if !ok {
+		t.Fatalf("alpha missing from the census: %+v", solution.Projects)
+	}
+	if got := alpha.OverlayMatches; got != 0 {
 		t.Errorf("alpha OverlayMatches = %d, want 0", got)
 	}
 }
@@ -228,7 +236,6 @@ func TestSolutionOverlaysAcceptAPluginProjectTheyReach(t *testing.T) {
 	// When this project of the solution is prepared
 	overlaid := filepath.Join(dir, "src", "clean.ts")
 	tracker, err := solutionOverlayProgram(t, dir, map[string]string{overlaid: censusFiles["noany.ts"]})
-
 	// Then it is accepted, exactly as a single-project run is, and the overlay
 	// is recorded against the union
 	if err != nil {
@@ -247,7 +254,6 @@ func TestSolutionOverlaysDeferTheUnmatchedCheckToTheUnion(t *testing.T) {
 
 	// When this project of the solution is prepared
 	tracker, err := solutionOverlayProgram(t, dir, map[string]string{elsewhere: censusFiles["clean.ts"]})
-
 	// Then it does not fail here. Applying the single-project rule per project
 	// would fail every overlay in every project but its owner.
 	if err != nil {

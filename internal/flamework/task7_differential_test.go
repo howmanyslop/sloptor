@@ -731,6 +731,9 @@ func readTask7TSV(t *testing.T, path string) [][]string {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
+	if len(records) == 0 {
+		t.Fatalf("read %s: no records", path)
+	}
 	return records
 }
 

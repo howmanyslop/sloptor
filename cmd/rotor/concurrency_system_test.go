@@ -14,9 +14,11 @@ import (
 	"testing"
 )
 
-var concurrencyTimingLine = regexp.MustCompile(`(?m)(compiled\s+\d+\s+files\s+in\s+)\d+(?:\.\d+)?\s*(?:ns|us|µs|ms|s)`)
-var concurrencyRate = regexp.MustCompile(`(?m)(\s)\d+ files/s`)
-var concurrencyPathPrefix = regexp.MustCompile(`^(?:[A-Za-z]:)?/+`)
+var (
+	concurrencyTimingLine = regexp.MustCompile(`(?m)(compiled\s+\d+\s+files\s+in\s+)\d+(?:\.\d+)?\s*(?:ns|us|µs|ms|s)`)
+	concurrencyRate       = regexp.MustCompile(`(?m)(\s)\d+ files/s`)
+	concurrencyPathPrefix = regexp.MustCompile(`^(?:[A-Za-z]:)?/+`)
+)
 
 type concurrencySystemRun struct {
 	code     int

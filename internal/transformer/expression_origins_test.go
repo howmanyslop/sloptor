@@ -55,8 +55,12 @@ func TestCachedObjectKeyOriginsArePerOccurrence(t *testing.T) {
 	second := state.SourceFile.Statements.Nodes[1].AsExpressionStatement().Expression
 	key := luau.Str("key")
 	state.SetClassElementObjectKey(first, key)
+	cached := state.GetClassElementObjectKey(first)
+	if cached == nil {
+		t.Fatal("missing class element object key")
+	}
 	for line, node := range []*ast.Node{first, second} {
-		occurrence := state.tagExpressionOrigin(state.GetClassElementObjectKey(first), node)
+		occurrence := state.tagExpressionOrigin(cached, node)
 		if occurrence == key || occurrence.Origin() == nil || occurrence.Origin().Start != (luau.Position{Line: line}) {
 			t.Fatalf("cached key occurrence %d has wrong identity or origin: %+v", line, occurrence.Origin())
 		}

@@ -273,13 +273,13 @@ func quoteSpecifier(specifier string) string {
 // specifier survives untouched, since no lookup can ever answer it.
 func (r *declarationPathRewriter) resolveSpecifier(resolutions module.ModeAwareCache[*module.ResolvedModule], mode core.ResolutionMode, containingFile string, fileDirectory string, specifier string) (string, bool) {
 	resolved := resolutions[module.ModeAwareCacheKey{Name: specifier, Mode: mode}]
-	if !resolved.IsResolved() && mode != core.ResolutionModeNone {
+	if (resolved == nil || !resolved.IsResolved()) && mode != core.ResolutionModeNone {
 		resolved = resolutions[module.ModeAwareCacheKey{Name: specifier, Mode: core.ResolutionModeNone}]
 	}
-	if !resolved.IsResolved() {
+	if resolved == nil || !resolved.IsResolved() {
 		resolved = r.resolveFresh(containingFile, specifier, mode)
 	}
-	if !resolved.IsResolved() || resolved.IsExternalLibraryImport {
+	if resolved == nil || !resolved.IsResolved() || resolved.IsExternalLibraryImport {
 		return "", false
 	}
 

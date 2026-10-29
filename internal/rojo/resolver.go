@@ -756,6 +756,11 @@ func stripRojoExts(filePath string) string {
 }
 
 func arrayStartsWith(a, b RbxPath) bool {
+	if a == nil || b == nil {
+		// A missing path has no segments to differ on, matching the
+		// vacuous-true result of the loop below over an empty range.
+		return true
+	}
 	minLength := min(len(a), len(b))
 	for i := 0; i < minLength; i++ {
 		if a[i] != b[i] {

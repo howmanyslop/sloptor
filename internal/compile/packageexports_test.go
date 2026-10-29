@@ -41,7 +41,6 @@ func TestResolvePackageExports(t *testing.T) {
 			pkgDir := writePackageManifest(t, t.TempDir(), "pkg", tt.manifest)
 
 			typesPath, runtimePath, err := resolvePackageExports(pkgDir, nil)
-
 			if err != nil {
 				t.Fatalf("resolvePackageExports: %v", err)
 			}

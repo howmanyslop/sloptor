@@ -53,6 +53,9 @@ func TestRootBuildClassLookupSelection(t *testing.T) {
 	}
 	info := NewBuildInfo("fixture/flamework.build", FlameworkVersion)
 	err := info.decode([]byte(`{"version":1,"flameworkVersion":"1.3.2","identifiers":{},"classes":null}`))
+	if err == nil {
+		t.Fatal("decode() succeeded for null classes, want ErrInvalidBuildInfo")
+	}
 	if !errors.Is(err, ErrInvalidBuildInfo) || err.Error() != "flamework: invalid flamework.build: classes must not be null" {
 		t.Fatalf("persisted null rejection = %v", err)
 	}

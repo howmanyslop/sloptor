@@ -287,6 +287,7 @@ func EvaluateResident(c ResidentCampaign) ResidentCampaignResult {
 func residentPrerequisiteMet(label, status string) bool {
 	return label == residentSynthetic && status == residentAssumed || label == residentRecorded && status == residentDeclared
 }
+
 func residentPrerequisiteAllowed(label, status string) bool {
 	return residentPrerequisiteMet(label, status) || status == residentUnverified || status == correctnessFailure
 }

@@ -190,6 +190,9 @@ func TestSolutionCoordinatorDeterministicReductionAndPersists(t *testing.T) {
 			t.Fatalf("NewSolutionCoordinatorWithDrainer: %v", err)
 		}
 		result, messages, drainErr := coordinator.Drain()
+		if result == nil {
+			t.Fatalf("Drain returned nil result")
+		}
 		normalized := *result
 		normalized.Outputs = make(map[string]string, len(result.Outputs))
 		for path, output := range result.Outputs {

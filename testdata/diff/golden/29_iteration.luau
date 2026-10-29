@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.1-beta.1
+-- Compiled with sloptor v3.0.0-beta.1
 -- for-of over Set: single binding `for x in exp do`
 for tag in tags do
 	print(tag)

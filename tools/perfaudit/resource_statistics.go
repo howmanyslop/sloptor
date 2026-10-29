@@ -125,6 +125,9 @@ func resourceBatchCounts(batches [][]pair) []int {
 
 func resourceArm(values []float64, additive bool) resourceArmSummary {
 	ordered := slices.Clone(values)
+	if ordered == nil {
+		ordered = []float64{}
+	}
 	slices.Sort(ordered)
 	var total float64
 	for _, value := range values {
@@ -150,6 +153,9 @@ func resourceArms(pairs []pair, additive bool) (resourceArmSummary, resourceArmS
 
 func resourceEstimate(point float64, values []float64) estimate {
 	ordered := slices.Clone(values)
+	if ordered == nil {
+		ordered = []float64{}
+	}
 	slices.Sort(ordered)
 	return estimate{point, interval{percentile(ordered, 0.025), percentile(ordered, 0.975)}}
 }

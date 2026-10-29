@@ -187,7 +187,7 @@ func (s *state) transformExpression(expression *ast.Node) *ast.Node {
 }
 
 func (s *state) transformStatement(statement *ast.Node) []*ast.Node {
-	s.prereqStack = append(s.prereqStack, nil)
+	s.prereqStack = append(s.prereqStack, []*ast.Node{})
 	var node *ast.Node
 	if ast.IsForOfStatement(statement) {
 		node = s.inlineQueryIterators(statement)

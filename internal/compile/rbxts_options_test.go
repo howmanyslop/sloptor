@@ -33,7 +33,6 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 
 	// When
 	opts, err := ReadRbxtsOptions(childPath)
-
 	// Then
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +119,6 @@ func TestRbxtsOptionsResolvePackageExportExtends(t *testing.T) {
 
 	// When
 	opts, chain, err := ReadRbxtsOptionsWithChain(projectConfig)
-
 	// Then
 	if err != nil {
 		t.Fatal(err)
@@ -231,7 +229,6 @@ func TestPerProjectRbxtsOptions(t *testing.T) {
 
 	// When
 	got, err := ProjectOptionsForReferencedConfig(entry, config, false)
-
 	// Then
 	if err != nil {
 		t.Fatal(err)

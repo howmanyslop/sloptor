@@ -16,12 +16,14 @@ import (
 	"time"
 )
 
-const residentLauncherSHA = "319031bc2a089609293c10bbd5091842204b73075aa300ea126c1e8f209d0dc5"
-const residentCaptureSHA = "ffceeefd821c409c2081253bce6af2986b00e16a3c780422c7a42b722795eb21"
-const residentCollector = "518a2f4b0bc3ea1cf021ad4ba281e210abc64fd9"
-const residentInterfaceSHA = "243194446103a787e3ef7cbd8655738bd6a33e8bfbd67b036ccfb4f10d77b6f3"
-const residentFileLimit = 16 << 20
-const residentAggregateLimit = 512 << 20
+const (
+	residentLauncherSHA    = "319031bc2a089609293c10bbd5091842204b73075aa300ea126c1e8f209d0dc5"
+	residentCaptureSHA     = "ffceeefd821c409c2081253bce6af2986b00e16a3c780422c7a42b722795eb21"
+	residentCollector      = "518a2f4b0bc3ea1cf021ad4ba281e210abc64fd9"
+	residentInterfaceSHA   = "243194446103a787e3ef7cbd8655738bd6a33e8bfbd67b036ccfb4f10d77b6f3"
+	residentFileLimit      = 16 << 20
+	residentAggregateLimit = 512 << 20
+)
 
 type residentFileRef struct {
 	Path   string `json:"path"`
@@ -171,13 +173,18 @@ func residentLocalPath(p string) bool {
 		if part == "." || part == ".." || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") || strings.Contains(part, ":") {
 			return false
 		}
-		stem := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		segments := strings.SplitN(part, ".", 2)
+		if len(segments) == 0 {
+			continue // SplitN never returns empty; len-guard pins it for nilaway.
+		}
+		stem := strings.ToUpper(segments[0])
 		if slices.Contains([]string{"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}, stem) {
 			return false
 		}
 	}
 	return true
 }
+
 func (r *residentReader) bound(ref residentFileRef, binary bool) *residentSnapshot {
 	s := r.snapshot(ref.Path, binary)
 	if !isSHA256(ref.SHA256) || s.SHA256 != ref.SHA256 {
@@ -185,20 +192,24 @@ func (r *residentReader) bound(ref residentFileRef, binary bool) *residentSnapsh
 	}
 	return s
 }
+
 func (r *residentReader) obj(data []byte, p, required, optional string) object {
 	if !resourceDocument(&r.validation, data, p) {
 		return nil
 	}
 	return r.object(data, p, strings.Fields(required), strings.Fields(optional))
 }
+
 func (r *residentReader) arr(raw json.RawMessage, p string, max int) []json.RawMessage {
 	var a []json.RawMessage
-	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '[' || json.Unmarshal(raw, &a) != nil || len(a) > max {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '[' || json.Unmarshal(raw, &a) != nil || len(a) > max {
 		r.invalid(p, "bounded JSON array required")
 		return nil
 	}
 	return a
 }
+
 func (r *residentReader) str(o object, k, p string) string {
 	var s string
 	if !bytes.HasPrefix(bytes.TrimSpace(o[k]), []byte{'"'}) || !r.field(o, k, p, &s) {
@@ -207,8 +218,10 @@ func (r *residentReader) str(o object, k, p string) string {
 	return s
 }
 
-var residentUnsignedToken = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
-var residentSignedToken = regexp.MustCompile(`^(0|-?[1-9][0-9]*)$`)
+var (
+	residentUnsignedToken = regexp.MustCompile(`^(0|[1-9][0-9]*)$`)
+	residentSignedToken   = regexp.MustCompile(`^(0|-?[1-9][0-9]*)$`)
+)
 
 func (r *residentReader) uint(o object, k, p string, max uint64) uint64 {
 	t := strings.TrimSpace(string(o[k]))
@@ -219,6 +232,7 @@ func (r *residentReader) uint(o object, k, p string, max uint64) uint64 {
 	}
 	return n
 }
+
 func (r *residentReader) sint(o object, k, p string) int64 {
 	t := strings.TrimSpace(string(o[k]))
 	n, e := strconv.ParseInt(t, 10, 64)
@@ -228,6 +242,7 @@ func (r *residentReader) sint(o object, k, p string) int64 {
 	}
 	return n
 }
+
 func (r *residentReader) boolean(o object, k, p string) bool {
 	var b bool
 	token := string(bytes.TrimSpace(o[k]))
@@ -236,26 +251,31 @@ func (r *residentReader) boolean(o object, k, p string) bool {
 	}
 	return b
 }
+
 func (r *residentReader) want(o object, k, p, want string) {
 	if r.str(o, k, p) != want {
 		r.invalid(p+"."+k, "expected "+strconv.Quote(want))
 	}
 }
+
 func (r *residentReader) flag(o object, k, p string, want bool) {
 	if r.boolean(o, k, p) != want {
 		r.invalid(p+"."+k, "contradictory Boolean")
 	}
 }
+
 func (r *residentReader) number(o object, k, p string, want uint64) {
 	if r.uint(o, k, p, math.MaxUint64) != want {
 		r.invalid(p+"."+k, "unexpected integer value")
 	}
 }
+
 func (r *residentReader) equal(a, b json.RawMessage, p string) {
 	if !resourceJSONEqual(a, b) {
 		r.invalid(p, "joined JSON values differ")
 	}
 }
+
 func (r *residentReader) absent(o object, p string, keys ...string) {
 	for _, k := range keys {
 		if _, ok := o[k]; ok {
@@ -263,6 +283,7 @@ func (r *residentReader) absent(o object, p string, keys ...string) {
 		}
 	}
 }
+
 func (r *residentReader) noError(o object, p string, keys ...string) {
 	for _, k := range keys {
 		if _, ok := o[k]; ok {
@@ -272,6 +293,7 @@ func (r *residentReader) noError(o object, p string, keys ...string) {
 		}
 	}
 }
+
 func (r *residentReader) stamp(o object, k, p string) time.Time {
 	t, e := time.Parse(time.RFC3339Nano, r.str(o, k, p))
 	if e != nil {
@@ -279,15 +301,18 @@ func (r *residentReader) stamp(o object, k, p string) time.Time {
 	}
 	return t
 }
+
 func (r *residentReader) pathEqual(a, b, p string) {
 	if !resourceAbsolute(a) || !resourceAbsolute(b) || !resourcePathEqual(a, b) {
 		r.invalid(p, "original recorded path does not match required location")
 	}
 }
+
 func (r *residentReader) ref(raw json.RawMessage, p string) residentFileRef {
 	o := r.obj(raw, p, "path sha256", "")
 	return residentFileRef{r.str(o, "path", p), r.str(o, "sha256", p)}
 }
+
 func (r *residentReader) parsePlan(data []byte) residentReaderPlan {
 	o := r.obj(data, "$.resident_plan", "schema evidence_kind policy_sha256 campaigns", "admission")
 	r.number(o, "schema", "$.resident_plan", 1)

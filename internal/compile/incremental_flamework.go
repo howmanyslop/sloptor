@@ -154,10 +154,14 @@ func portableFlameworkIncrementalInputs(inputs *FlameworkIncrementalInputs, enco
 	result.RelevantGlobs = slices.Clone(inputs.RelevantGlobs)
 	for i, glob := range result.RelevantGlobs {
 		result.RelevantGlobs[i].Pattern = encodePath(glob.Pattern)
-		result.RelevantGlobs[i].Matches = slices.Clone(glob.Matches)
-		for j, match := range glob.Matches {
-			result.RelevantGlobs[i].Matches[j] = encodePath(match)
+		if glob.Matches == nil {
+			continue
 		}
+		matches := make([]string, len(glob.Matches))
+		for j, match := range glob.Matches {
+			matches[j] = encodePath(match)
+		}
+		result.RelevantGlobs[i].Matches = matches
 	}
 	return &result
 }

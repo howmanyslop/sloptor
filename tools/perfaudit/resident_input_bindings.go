@@ -182,18 +182,20 @@ func (r *residentReader) fixture(raw json.RawMessage, seal string, key ResidentK
 	return o
 }
 
-var residentProductionPins = map[string]string{"B": "7015f901e2fcb8adbef3ad29909ea2518a338483", "S": "4765bd7c865dd8a1c9678f6ee905f0e2aaa4788e", "C": "401fe12c760a2f176b472b1ea8a8a56d3be22238"}
-var residentBinaryPins = map[string]string{"B": "edf843d18d38dca080db08084f40f9b99061a81ca62911e3c967578a5c1cc086", "S": "2cf843cb36d48e1fd8ad62d3fe4096300568be0b2f8137b34807575752151707", "C": "beb58e39abc34ff61b0c8b5bd89f4bceb2133854f31670d72c9a0cf63074b034"}
-var residentHarnessPins = map[string]string{
-	"bench":               "54fc8f6c161ad444114f2c33b91f63ea2b2a931e5cfb82bff8532b8c5d6ff11f",
-	"clock_native":        "d9cb50cea1c2f9f34d2b3c1c12e4b195afb243aa7a29a3d858fb77744b9a8e1a",
-	"clock":               "eb657bb5d58d73c1cac9bad894a08e1cb2d8cbba8d572bb3d9aa091d59fd7ba7",
-	"clock_unit":          "2c2731b99db7e41dcd09f38fc7bf98488eeef0d1e61567f97238920fb219105e",
-	"clock_unsupported":   "649bb5a4885544c0a3ddee4ce054bd5c29847fb147684966c005b4a95331be34",
-	"clock_windows_amd64": "d28605f7e2efd12152b0a4d6ffa5918ec2fc67be2651d154b6c428fb5b46907d",
-	"cycles":              "166f421cfe1260ef2ac6c6ce1cf683ae281aa1d8c346a8d776473287c22361ab",
-	"fixture":             "1f74e15bc171db69b122361d2f860dca5a70aab3a51d232849356a56206d8d9a",
-}
+var (
+	residentProductionPins = map[string]string{"B": "7015f901e2fcb8adbef3ad29909ea2518a338483", "S": "4765bd7c865dd8a1c9678f6ee905f0e2aaa4788e", "C": "401fe12c760a2f176b472b1ea8a8a56d3be22238"}
+	residentBinaryPins     = map[string]string{"B": "edf843d18d38dca080db08084f40f9b99061a81ca62911e3c967578a5c1cc086", "S": "2cf843cb36d48e1fd8ad62d3fe4096300568be0b2f8137b34807575752151707", "C": "beb58e39abc34ff61b0c8b5bd89f4bceb2133854f31670d72c9a0cf63074b034"}
+	residentHarnessPins    = map[string]string{
+		"bench":               "54fc8f6c161ad444114f2c33b91f63ea2b2a931e5cfb82bff8532b8c5d6ff11f",
+		"clock_native":        "d9cb50cea1c2f9f34d2b3c1c12e4b195afb243aa7a29a3d858fb77744b9a8e1a",
+		"clock":               "eb657bb5d58d73c1cac9bad894a08e1cb2d8cbba8d572bb3d9aa091d59fd7ba7",
+		"clock_unit":          "2c2731b99db7e41dcd09f38fc7bf98488eeef0d1e61567f97238920fb219105e",
+		"clock_unsupported":   "649bb5a4885544c0a3ddee4ce054bd5c29847fb147684966c005b4a95331be34",
+		"clock_windows_amd64": "d28605f7e2efd12152b0a4d6ffa5918ec2fc67be2651d154b6c428fb5b46907d",
+		"cycles":              "166f421cfe1260ef2ac6c6ce1cf683ae281aa1d8c346a8d776473287c22361ab",
+		"fixture":             "1f74e15bc171db69b122361d2f860dca5a70aab3a51d232849356a56206d8d9a",
+	}
+)
 
 func (r *residentReader) builds(p, arms object, copies map[string][]byte, key ResidentKey, purpose, where string) {
 	reference, target := "B", "C"

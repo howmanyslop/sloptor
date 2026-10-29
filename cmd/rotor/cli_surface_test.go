@@ -25,7 +25,7 @@ func TestCompilerOnlyCommands(t *testing.T) {
 			commands = append(commands, cmd.Name())
 		}
 	}
-	if got := strings.Join(commands, ","); got != "build,check,clean,completion,diagnostics,schema,version" {
+	if got := strings.Join(commands, ","); got != "build,check,clean,completion,diagnostics,lsp,schema,version" {
 		t.Fatalf("public commands = %s", got)
 	}
 	for _, name := range []string{"bundle", "minify", "pack", "dev", "sourcemap", "asset", "deploy", "init", "add", "doctor", "migrate"} {

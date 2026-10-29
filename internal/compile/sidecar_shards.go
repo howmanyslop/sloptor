@@ -56,6 +56,9 @@ func sidecarShardCount(fileCount int) int {
 // locality buys nothing and one heavy directory (a React tree) would otherwise
 // land on a single worker. Each shard keeps the caller's file order.
 func splitSidecarShards(files []*ast.SourceFile, count int) [][]*ast.SourceFile {
+	if len(files) == 0 {
+		return nil
+	}
 	order := make([]int, len(files))
 	for index := range order {
 		order[index] = index

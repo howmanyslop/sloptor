@@ -22,6 +22,9 @@ func TestNativeFlameworkSparseUpdate_reprintsEverySourceByDefault_whenNoStructur
 	if err != nil {
 		t.Fatalf("prepareFlameworkPipeline: %v (%v)", err, diagnostics)
 	}
+	if pipeline == nil {
+		t.Fatal("prepareFlameworkPipeline returned nil pipeline")
+	}
 	sourceFiles := projectSourceFiles(program)
 	traces := diagnosticTraces{"unchanged-prefix": {fileName: "unchanged.ts", text: "prefix"}}
 
@@ -61,6 +64,9 @@ func TestNativeFlameworkSparseUpdate_reusesIncomingProgramAndFiles_whenSkipUncha
 	pipeline, diagnostics, err := prepareFlameworkPipeline(filepath.ToSlash(dir), program, ProjectOptions{})
 	if err != nil {
 		t.Fatalf("prepareFlameworkPipeline: %v (%v)", err, diagnostics)
+	}
+	if pipeline == nil {
+		t.Fatal("prepareFlameworkPipeline returned nil pipeline")
 	}
 	sourceFiles := projectSourceFiles(program)
 	traces := diagnosticTraces{"unchanged-prefix": {fileName: "unchanged.ts", text: "prefix"}}

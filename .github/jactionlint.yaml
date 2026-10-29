@@ -1,0 +1,4 @@
+# default is actionlint's correctness checks plus the zizmor rules worth failing
+# a build. The hk step passes --strict-exit, so warn and info findings fail the
+# hook too. pedantic is the noisier set and is not enabled.
+profile: default

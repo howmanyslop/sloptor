@@ -20,7 +20,10 @@ func TestWriteFileIfChangedKeepsIdenticalFile(t *testing.T) {
 	if err != nil || wrote {
 		t.Fatalf("wrote = %v, err = %v; want skip", wrote, err)
 	}
-	info, _ := os.Stat(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !info.ModTime().Equal(old) {
 		t.Fatalf("modtime changed to %v", info.ModTime())
 	}

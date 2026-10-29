@@ -38,6 +38,12 @@ func (s *RenderState) identifiers(identifiers *luau.List[luau.AnyIdentifier]) {
 
 func (s *RenderState) parameters(node luau.HasParameters) {
 	params, hasDotDotDot := node.ParamData()
+	if params == nil {
+		// Unreachable: every function constructor receives its (possibly
+		// empty) parameter list. Fail loudly here rather than nil-dereffing
+		// in identifiers below.
+		panic("render: parameters got nil parameter list") // upstream assert
+	}
 	s.identifiers(params)
 	if hasDotDotDot {
 		if params.IsNonEmpty() {
