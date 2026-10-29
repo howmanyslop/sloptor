@@ -329,7 +329,9 @@ func TestLuauTypesBuilderTables(t *testing.T) {
 		{name: "code", want: "Codes"},
 		{name: "up", want: `"up"`},
 		{name: "directionObject", want: `{ read Up: "up", read Down: "down" }`},
-		{name: "foo", want: "Foo"},
+		// The first reference to Foo registers its instance alias, whose body
+		// records the dropped readonly (luautypes_class.go).
+		{name: "foo", want: "Foo", losses: []fidelityLossKind{lossClassReadonlyDropped}},
 		// The class value is structural; its recursive `self` static makes
 		// it a cycle through an anonymous type, which only a synthesized
 		// hoisted alias can spell.
@@ -341,7 +343,9 @@ func TestLuauTypesBuilderTables(t *testing.T) {
 	if anonymous == nil {
 		t.Fatal("fooClass did not register a synthesized alias")
 	}
-	if got, want := strings.TrimSpace(text(anonymous.Statement)), "type Anonymous_1 = { new: (x: number) -> Foo, self: Anonymous_1, make: () -> Foo, prototype: Foo }"; got != want {
+	// The TS `prototype` artifact is left out: the emitted class table has no
+	// such key.
+	if got, want := strings.TrimSpace(text(anonymous.Statement)), "type Anonymous_1 = { new: (x: number) -> Foo, self: Anonymous_1, make: () -> Foo }"; got != want {
 		t.Errorf("synthesized alias %q, want %q", got, want)
 	}
 	if anonymous.Placement != hoisted || anonymous.Exported || anonymous.Kind != nativeKindTable {
@@ -462,7 +466,7 @@ func TestLuauTypesBuilderTypeof(t *testing.T) {
 		{name: "importedType", want: "number"},
 		{name: "counterType", want: "number"},
 		{name: "laterType", want: "{ x: number }"},
-		{name: "foo", want: "Foo"},
+		{name: "foo", want: "Foo", losses: []fidelityLossKind{lossClassReadonlyDropped}},
 	}, spell)
 }
 

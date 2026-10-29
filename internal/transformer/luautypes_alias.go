@@ -61,7 +61,7 @@ var luauTypeFunctionNames = map[string]struct{}{
 // before the alias statement; per-use losses (tuples, number literals) stay
 // silent to keep output readable.
 var aliasCommentLossKinds = map[fidelityLossKind]struct{}{
-	lossMappedType: {}, lossConditionalType: {}, lossInferType: {}, lossRecursiveAliasArgs: {},
+	lossMappedType: {}, lossConditionalType: {}, lossInferType: {}, lossKeyRemap: {}, lossRecursiveAliasArgs: {},
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ func (entry *typeAliasEntry) lossComments() []string {
 	return texts
 }
 
-// luauFirstDeclaration is the first interface, type alias or enum
+// luauFirstDeclaration is the first interface, type alias, enum or class
 // declaration of symbol IN THIS FILE, or nil. A declaration emits its alias
 // only when it is that node, so a merged symbol emits one alias.
 func (state *State) luauFirstDeclaration(symbol *ast.Symbol) *ast.Node {
@@ -181,9 +181,11 @@ func (state *State) luauFirstDeclaration(symbol *ast.Symbol) *ast.Node {
 	return nil
 }
 
-// isAliasDeclaration reports a declaration that can own a `type` statement.
+// isAliasDeclaration reports a declaration that can own a `type` statement:
+// an interface, a type alias, an enum, or a class (whose alias is its
+// instance type, luautypes_class.go).
 func isAliasDeclaration(node *ast.Node) bool {
-	return ast.IsInterfaceDeclaration(node) || ast.IsTypeAliasDeclaration(node) || ast.IsEnumDeclaration(node)
+	return ast.IsInterfaceDeclaration(node) || ast.IsTypeAliasDeclaration(node) || ast.IsEnumDeclaration(node) || ast.IsClassLike(node)
 }
 
 // ---------------------------------------------------------------------------
@@ -191,15 +193,17 @@ func isAliasDeclaration(node *ast.Node) bool {
 // ---------------------------------------------------------------------------
 
 // aliasPlacementFor decides where symbol's alias goes: at its declaration
-// when that declaration is a top-level, non-ambient interface or type alias
-// of this file; hoisted otherwise. Enum and class declarations stay hoisted
-// until WP7 routes their statements through luauDeclarationStatements.
+// when that declaration is a top-level, non-ambient interface, type alias,
+// enum or class declaration of this file (the enum and class transforms ask
+// luauDeclarationStatements for it); hoisted otherwise, class expressions
+// included.
 func (state *State) aliasPlacementFor(declaration *ast.Node) aliasPlacement {
 	switch {
 	case ast.GetSourceFileOfNode(declaration) != state.SourceFile,
 		!isTopLevelDeclaration(declaration),
 		ast.HasSyntacticModifier(declaration, ast.ModifierFlagsAmbient),
-		!ast.IsInterfaceDeclaration(declaration) && !ast.IsTypeAliasDeclaration(declaration):
+		!isAliasDeclaration(declaration),
+		ast.IsClassExpression(declaration):
 		return hoisted
 	}
 	return atDeclaration
@@ -284,9 +288,13 @@ func exportedThroughContainers(declaration *ast.Node) bool {
 // file, the local import name (`import { Foo as Bar }` -> `Bar`, `import *
 // as NS` -> `NS_Foo`), else the TS name under its namespace chain. A name
 // Luau cannot spell becomes `Alias`; `export default interface Foo` keeps
-// `Foo`.
+// `Foo`. An unnamed class expression takes the name of the variable it
+// initializes, else AnonymousClass_N.
 func luauAliasBaseName(state *State, symbol *ast.Symbol) string {
 	name := symbol.Name
+	if name == ast.InternalSymbolNameClass {
+		name = classExpressionAliasName(state, symbol)
+	}
 	if name == ast.InternalSymbolNameDefault {
 		name = "Default"
 		for _, declaration := range symbol.Declarations {

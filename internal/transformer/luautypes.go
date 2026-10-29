@@ -187,11 +187,11 @@ func (defaultSpelling) SpellClassValue(*typeBuilder, *checker.Type) luau.TypeNod
 // ShouldAlias accepts every interface, type alias and enum that has a
 // declaration, library types included: a library interface (`Promise<T>`)
 // spelled structurally at each use re-instantiates itself without bound, so
-// it is mirrored once as an alias (WP5 names and hoists it). Two kinds are
+// it is mirrored once as an alias (WP5 names and hoists it). One kind is
 // declined: a LuaTuple alias, because a pack is only spellable as a function
-// return, and a generic alias whose body is a mapped, conditional or other
-// type-level computation, whose instantiations are spelled eagerly from the
-// resolved type until WP8 translates the body into a type function.
+// return. A generic alias whose body is a mapped, conditional or template
+// literal type is accepted and registered as a `type function` (or its
+// `any` fallback) by the registry (luautypes_typefunction.go).
 func (defaultSpelling) ShouldAlias(state *State, symbol *ast.Symbol, declaration *ast.Node) bool {
 	if declaration == nil {
 		return false
@@ -201,21 +201,8 @@ func (defaultSpelling) ShouldAlias(state *State, symbol *ast.Symbol, declaration
 		if declared == nil || IsLuaTupleType(state).Check(declared) {
 			return false
 		}
-		if len(declaredTypeParameters(declaration)) > 0 && isTypeLevelComputation(declared) {
-			return false
-		}
 	}
 	return true
-}
-
-// isTypeLevelComputation reports a type the checker evaluates per
-// instantiation (a mapped type, a conditional, an indexed access, `keyof`, a
-// template literal) rather than a shape.
-func isTypeLevelComputation(t *checker.Type) bool {
-	if t.Flags()&checker.TypeFlagsInstantiable != 0 {
-		return true
-	}
-	return t.Flags()&checker.TypeFlagsObject != 0 && t.ObjectFlags()&checker.ObjectFlagsMapped != 0
 }
 
 // AliasName is the base name an alias wants: the TS name, flattened under
@@ -301,6 +288,9 @@ type typeBuilder struct {
 	// alias synthesized for it; anonymousCount numbers them.
 	anonymous      map[*checker.Type]*typeAliasEntry
 	anonymousCount int
+	// anonymousClassCount numbers the AnonymousClass_N aliases of unnamed,
+	// unassigned class expressions (luautypes_class.go).
+	anonymousClassCount int
 	// reservedTypeParameters, importedNames and importedNamespaces are the
 	// naming pre-passes over this file, computed on first use (see
 	// luautypes_alias.go).
@@ -309,6 +299,9 @@ type typeBuilder struct {
 	importedNamespaces     map[*ast.Symbol]string
 	// constraintLosses dedupes the once-per-declaration constraint loss.
 	constraintLosses map[*ast.Symbol]struct{}
+	// preludes maps a TS helper name (`Partial`) to the prelude type
+	// function registered for it (luautypes_typefunction_prelude.go).
+	preludes map[string]*typeAliasEntry
 }
 
 func newTypeBuilder(state *State, spelling typeSpelling) *typeBuilder {
@@ -320,6 +313,7 @@ func newTypeBuilder(state *State, spelling typeSpelling) *typeBuilder {
 		aliasNames:       make(map[string]struct{}),
 		anonymous:        make(map[*checker.Type]*typeAliasEntry),
 		constraintLosses: make(map[*ast.Symbol]struct{}),
+		preludes:         make(map[string]*typeAliasEntry),
 	}
 }
 

@@ -1,6 +1,8 @@
 package transformer
 
 import (
+	"slices"
+
 	"rotor/internal/luau"
 	"rotor/tsgo/ast"
 	"rotor/tsgo/checker"
@@ -144,10 +146,38 @@ func functionReturnsExplicitly(node *ast.Node) bool {
 }
 
 // getLuauFunctionGenerics lists the type parameters a function declares, for
-// `function f<K, V>`. Class type parameters are the class transform's to
-// re-declare on each member (plan WP7).
+// `function f<K, V>`. An instance member of a class (a method or the
+// constructor) re-declares the class's type parameters first, since Luau has
+// no class-level generic scope (plan WP7); a parameter the member shadows is
+// listed once, under the member's declaration. Statics cannot name the
+// class's parameters in TS and declare only their own.
 func getLuauFunctionGenerics(state *State, node *ast.Node) []luau.TypeGeneric {
-	return state.types().Generics(node)
+	own := state.types().Generics(node)
+	class := enclosingClassOfInstanceMember(node)
+	if class == nil {
+		return own
+	}
+	classGenerics := state.types().Generics(class)
+	generics := make([]luau.TypeGeneric, 0, len(classGenerics)+len(own))
+	for _, generic := range classGenerics {
+		if !slices.ContainsFunc(own, func(existing luau.TypeGeneric) bool { return existing.Name == generic.Name }) {
+			generics = append(generics, generic)
+		}
+	}
+	return append(generics, own...)
+}
+
+// enclosingClassOfInstanceMember is the class a constructor, method or
+// accessor declaration is an instance member of, or nil for a static member
+// and any other function.
+func enclosingClassOfInstanceMember(node *ast.Node) *ast.Node {
+	if node.Parent == nil || !ast.IsClassLike(node.Parent) || ast.HasStaticModifier(node) {
+		return nil
+	}
+	if ast.IsConstructorDeclaration(node) || ast.IsMethodDeclaration(node) || ast.IsAccessor(node) {
+		return node.Parent
+	}
+	return nil
 }
 
 // getLuauSelfType is the annotation of the leading `self` parameter a method
@@ -341,7 +371,17 @@ func typeGenericNames(generics []luau.TypeGeneric) []string {
 // let Luau infer it. A written type is spelled from its node.
 func getLuauLocalType(state *State, identifier *ast.Node, right luau.Expression) luau.TypeNode {
 	symbol := state.Checker.GetSymbolAtLocation(identifier)
-	if symbol == nil || !shouldAnnotateLocal(state, symbol, right) {
+	if symbol == nil {
+		return nil
+	}
+	if right == nil {
+		// A hoisted class or enum local carries the shape its own transform
+		// fills in later (luautypes_class.go).
+		if hoisted := luauHoistedDeclarationType(state, symbol, identifier.Parent); hoisted != nil {
+			return hoisted
+		}
+	}
+	if !shouldAnnotateLocal(state, symbol, right) {
 		return nil
 	}
 	ctx := typeContext{Position: positionLocal, Owner: identifier.Parent}

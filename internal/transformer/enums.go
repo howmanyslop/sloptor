@@ -41,11 +41,17 @@ func needsInverseEntry(s *State, member *ast.Node) bool {
 // interleaved per member. Const enums emit nothing (member accesses are
 // inlined by getConstantValueLiteral); `declare enum` never reaches here (the
 // dispatch-level declare skip catches it).
+//
+// In luauTypes mode the enum's `type` statement (its member union, or
+// `number`) comes first, a const enum emits that alone, and the object local
+// is annotated with the member table (luautypes_class.go).
 func transformEnumDeclaration(s *State, node *ast.Node) *luau.List[luau.Statement] {
+	result := s.luauDeclarationStatements(node)
+
 	// const enum: no emit unless preserveConstEnums
 	if ast.HasSyntacticModifier(node, ast.ModifierFlagsConst) &&
 		(s.Program == nil || !s.Program.Options().PreserveConstEnums.IsTrue()) {
-		return luau.NewList[luau.Statement]()
+		return result
 	}
 
 	symbol := s.Checker.GetSymbolAtLocation(node.Name())
@@ -55,7 +61,7 @@ func transformEnumDeclaration(s *State, node *ast.Node) *luau.List[luau.Statemen
 	}) {
 		AddDiagnosticWithCache(s.Diags, symbol, DiagNoEnumMerging(node),
 			s.Multi.IsReportedByMultipleDefinitionsCache)
-		return luau.NewList[luau.Statement]()
+		return result
 	}
 
 	ValidateIdentifier(s, node.Name())
@@ -83,21 +89,23 @@ func transformEnumDeclaration(s *State, node *ast.Node) *luau.List[luau.Statemen
 		}
 		right := luau.NewMap(fields)
 		if isHoisted {
-			return luau.NewList[luau.Statement](luau.NewAssignment(left, "=", right))
+			result.Push(luau.NewAssignment(left, "=", right))
+		} else {
+			result.Push(luau.NewVariableDeclaration(luauEnumBinding(s, node, left), right))
 		}
-		return luau.NewList[luau.Statement](luau.NewVariableDeclaration(left, right))
+		return result
 	}
 
 	// GENERAL PATH: setmetatable + inverse, inside a do-block
 	statements := s.CaptureStatements(func() {
 		inverseID := s.PushToVar(luau.NewMap(luau.NewList[*luau.MapField]()), "inverse")
-		s.Prereq(luau.NewAssignment(left, "=", luau.NewCall(
+		s.Prereq(luau.NewAssignment(left, "=", luauEnumTableCast(s, luau.NewCall(
 			luau.GlobalID("setmetatable"),
 			luau.NewList[luau.Expression](
 				luau.NewMap(luau.NewList[*luau.MapField]()),
 				luau.NewMap(luau.NewList(luau.NewMapField(luau.Str("__index"), inverseID))),
 			),
-		)))
+		))))
 
 		for _, member := range members {
 			name := transformPropertyName(s, member.Name())
@@ -146,9 +154,9 @@ func transformEnumDeclaration(s *State, node *ast.Node) *luau.List[luau.Statemen
 		}
 	})
 
-	list := luau.NewList[luau.Statement](luau.NewDo(statements))
 	if !isHoisted {
-		list.Unshift(luau.NewVariableDeclaration(left, nil))
+		result.Push(luau.NewVariableDeclaration(luauEnumBinding(s, node, left), nil))
 	}
-	return list
+	result.Push(luau.NewDo(statements))
+	return result
 }

@@ -375,9 +375,12 @@ func (b *typeBuilder) buildNil(ctx typeContext) luau.TypeNode {
 // still being built must repeat the alias's own type arguments: Luau
 // requires recursive aliases to be referenced with identical arguments.
 func (b *typeBuilder) BuildAliasReference(t *checker.Type, ctx typeContext) (builtType, bool) {
-	symbol, _ := b.aliasSymbolOf(t)
+	symbol, declaration := b.aliasSymbolOf(t)
 	if symbol == nil {
 		return builtType{}, false
+	}
+	if b.isTypeLevelSymbol(symbol, declaration) {
+		return b.typeLevelReference(t, symbol, declaration, ctx)
 	}
 	entry := b.aliasFor(symbol)
 	if entry == nil {
@@ -425,11 +428,11 @@ func (b *typeBuilder) aliasSymbolOf(t *checker.Type) (*ast.Symbol, *ast.Node) {
 	return nil, nil
 }
 
-// aliasDeclarationOf is the first interface, type alias or enum declaration
-// of symbol.
+// aliasDeclarationOf is the first interface, type alias, enum or class
+// declaration of symbol.
 func aliasDeclarationOf(symbol *ast.Symbol) *ast.Node {
 	for _, declaration := range symbol.Declarations {
-		if ast.IsInterfaceDeclaration(declaration) || ast.IsTypeAliasDeclaration(declaration) || ast.IsEnumDeclaration(declaration) {
+		if isAliasDeclaration(declaration) {
 			return declaration
 		}
 	}
@@ -456,6 +459,9 @@ func (b *typeBuilder) aliasFor(symbol *ast.Symbol) *typeAliasEntry {
 	if declaration == nil || !b.spelling.ShouldAlias(b.state, symbol, declaration) {
 		b.aliases[symbol] = nil
 		return nil
+	}
+	if entry, ok := b.typeLevelAlias(symbol, declaration); ok {
+		return entry
 	}
 	generics := b.Generics(declaration)
 	name := b.uniqueName(b.spelling.AliasName(b.state, symbol))
@@ -812,24 +818,9 @@ func (b *typeBuilder) buildSet(t *checker.Type, ctx typeContext) builtType {
 	return b.finish(luau.NewTypeTable(luau.NewList[luau.TypeTableField](indexer)), false)
 }
 
-// buildClassInstance spells a class instance as a reference to the class's
-// instance alias (emitted at the class declaration by WP7), with the class's
-// type arguments.
-func (b *typeBuilder) buildClassInstance(t *checker.Type, ctx typeContext) builtType {
-	symbol := t.Symbol()
-	arguments := getTypeArguments(b.state, t)
-	for _, declaration := range symbol.Declarations {
-		if ast.IsClassLike(declaration) {
-			if count := len(declaration.TypeParameters()); len(arguments) > count {
-				arguments = arguments[:count]
-			}
-			break
-		}
-	}
-	reference := luau.NewTypeReference(b.spelling.AliasName(b.state, symbol), b.BuildTypeArgs(arguments, ctx.nested()))
-	b.Origins[reference] = symbol
-	return b.finish(reference, false)
-}
+// buildClassInstance (luautypes_class.go) spells a class instance as a
+// reference to the class's instance alias, or as its member table at the top
+// of that alias's body.
 
 // buildClassValue spells a value with construct signatures (`typeof Foo`, a
 // constructor interface) as the structural `{ new: ..., statics }` table the
@@ -882,6 +873,11 @@ func (b *typeBuilder) BuildTable(t *checker.Type, ctx typeContext) *luau.TypeTab
 				b.record(lossSymbolKey, name, nil, ctx, "symbol-keyed members are skipped")
 				symbolKeyLost = true
 			}
+			continue
+		}
+		if !receivers && name == "prototype" {
+			// A class value's `prototype` is a TS artifact: the instance is
+			// built by `new`, and the emitted class table has no such key.
 			continue
 		}
 		propertyType := b.state.Checker.GetTypeOfSymbol(property)
@@ -1224,15 +1220,22 @@ func (b *typeBuilder) BuildTypeArgs(arguments []*checker.Type, ctx typeContext) 
 // BuildTypeNode spells a written TS type. `typeof x` keeps Luau's own
 // `typeof(x)` when x is a value Luau can see at the annotation site: a
 // top-level `const`, function or class of this file, declared (textually)
-// before the owner, not imported, not renamed by the transformer. Everything
-// else, and every other type node, is spelled from the checker's resolved
-// type.
+// before the owner, not imported, not renamed by the transformer. A written
+// `Name<Args>` naming a type function of this file keeps that call-site
+// spelling when its resolved type no longer names the alias
+// (luautypes_typefunction.go). Everything else, and every other type node,
+// is spelled from the checker's resolved type.
 func (b *typeBuilder) BuildTypeNode(node *ast.Node, ctx typeContext) builtType {
-	if node.Kind == ast.KindTypeQuery {
+	switch node.Kind {
+	case ast.KindTypeQuery:
 		if expression := node.AsTypeQueryNode().ExprName; expression != nil && ast.IsIdentifier(expression) {
 			if identifier, ok := b.localTypeofIdentifier(expression, ctx); ok {
 				return b.finish(luau.NewTypeTypeof(identifier), false)
 			}
+		}
+	case ast.KindTypeReference:
+		if reference, ok := b.typeLevelNodeReference(node, ctx); ok {
+			return reference
 		}
 	}
 	return b.Build(b.state.Checker.GetTypeFromTypeNode(node), ctx)

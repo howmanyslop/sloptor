@@ -43,8 +43,9 @@ import (
 //   - In strict mode, rbxtsc's untyped class and numeric-enum shapes do not
 //     analyze clean: `local Foo` followed by `do Foo = setmetatable(...) end`
 //     types `Foo` as `T?`, so `self:constructor(...)` and `Codes.B` are
-//     rejected. luauTypesStrictDebt carries those fixtures until WP7 lands
-//     the typed shape.
+//     rejected. The luauTypes class and enum shapes (luautypes_class.go)
+//     initialize the table on its declaration line instead; the probes
+//     below pin why.
 
 // luauAnalyzerKind names which analyzer findLuauAnalyzer resolved.
 type luauAnalyzerKind int
@@ -420,12 +421,7 @@ func TestLuauTypesStubDefinitionsHonored(t *testing.T) {
 // its emission lands. A fixture that fails for a reason outside its own
 // package gets an entry here naming the package that owns the fix, not a
 // workaround in the fixture.
-var luauTypesStrictDebt = map[string]string{
-	"src/classes.ts":    "WP7: rbxtsc's `local Foo` + `do Foo = setmetatable(...) end` shape types the class table as `T?`, so `self:constructor(...)` and every `Foo.*` inside the block are rejected",
-	"src/enums.ts":      "WP7: the numeric enum table is assigned inside a `do` block, so `Codes.B` reads through a `T?`",
-	"src/lib/shapes.ts": "WP7: the class shape of classes.ts, plus an unannotated method return the checker asks to annotate",
-	"src/tables.ts":     "WP7: the Foo and Box classes take the shape of classes.ts, so `self:constructor(...)` and `Foo.*` inside the block are rejected",
-}
+var luauTypesStrictDebt = map[string]string{}
 
 // TestLuauTypesFixturesAnalyzeClean renders every fixture under
 // testdata/luautypes/src with luauTypes on and requires the analyzer to
