@@ -78,13 +78,20 @@ func getNativeAliasReference(state *State, checkerType *checker.Type, depth int,
 
 // getNativeAliasSymbol reports the symbol a type can be aliased by, or nil.
 func getNativeAliasSymbol(state *State, checkerType *checker.Type) *ast.Symbol {
+	if IsLuaTupleType(state).Check(checkerType) {
+		// A LuaTuple is a tuple intersected with a nominal marker, and a pack
+		// is only spellable as a function's return type: aliasing it would
+		// emit `type Pair = (A, B)`, which does not parse.
+		return nil
+	}
 	symbol := checkerType.Symbol()
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsInterface != 0 && symbol.Flags&ast.SymbolFlagsClass == 0 {
 		if isNativeLibrarySymbol(state, symbol) || !getNativeAliasableDeclaration(symbol, ast.IsInterfaceDeclaration) {
 			return nil
 		}
-		// A callable interface is a function type, not a table.
-		if len(state.Checker.GetCallSignatures(checkerType)) > 0 || len(state.Checker.GetConstructSignatures(checkerType)) > 0 {
+		// A CALLABLE interface is a function type, not a table. One with only
+		// construct signatures is the class-factory table below.
+		if len(state.Checker.GetCallSignatures(checkerType)) > 0 {
 			return nil
 		}
 		return symbol
@@ -182,7 +189,7 @@ func getNativeAliasBody(state *State, symbol *ast.Symbol, isInterface bool) stri
 		return ""
 	}
 	if !isInterface && len(state.Checker.GetCallSignatures(declared)) > 0 {
-		text, kind, _ := getNativeFunctionType(state, declared, false, 0, nil)
+		text, kind, _ := getNativeFunctionType(state, declared, false, nativePositionNested, 0, nil)
 		if kind == nativeKindFunction && text != nativeTypeAnyFunction {
 			return text
 		}

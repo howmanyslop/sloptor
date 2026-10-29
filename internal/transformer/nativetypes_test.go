@@ -132,6 +132,62 @@ func TestNativeFilesAnnotateFunctionTypes(t *testing.T) {
 	}
 }
 
+// Luau spells far more callable shapes than a `(...any) -> ...any` fallback:
+// several returns, construct signatures, generic signatures, and overload
+// intersections all keep a useful tag or read better than the fallback.
+func TestNativeFilesAnnotateCallableShapes(t *testing.T) {
+	got := renderFunctionsSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// LuaTuple is a return pack, in a declared return and a callback type
+		// alike.
+		"local function multiReturn(): (number, string)\n",
+		"local function optionalReturn(): (number, string?)\n",
+		"local function restReturn(): (number, ...string)\n",
+		"local function emptyReturn(): ()\n",
+		// `?` after a pack means "optional function", never "optional return",
+		// so an optional LuaTuple keeps its parameters and loses the pack; a
+		// declared return then stays unannotated.
+		"local function maybeReturn()\n",
+		// A LuaTuple of a plain array cannot be a pack either, so a callback
+		// type keeps its parameters and returns `...any`.
+		"local function looseTupleCallback(cb: () -> ...any): number\n",
+		"local function tupleCallback(cb: () -> (number, string)): number\n",
+		"local function maybeTupleCallback(cb: (() -> (number, string))?): ()\n",
+		"type TupleHolder = { pair: () -> (number, string), empty: () -> () }\n",
+		// A LuaTuple alias cannot be written, so it is inlined at the return
+		// and widens everywhere else.
+		"type PairHolder = { pair: any }\n",
+		"local function pairAlias(): (number, string)\n",
+		// A construct signature is the table roblox-ts emits: `new` plus the
+		// statics, never an intersection of tables.
+		"type FooFactory = { new: (x: number) -> Foo }\n",
+		"local function factory(f: FooFactory): Foo\n",
+		"type CtorHolder = { create: { new: (x: number) -> Foo } }\n",
+		// A class value is spelled structurally, with its instance widened.
+		"local function makeCounter(): { new: (start: number) -> any, make: (start: number) -> any, prototype: any }\n",
+		// Overloads: the entry guard wins at a top-level parameter (an
+		// intersection has no tag), precision wins everywhere else.
+		"local function overloadedParam(fn: (...any) -> ...any): number\n",
+		"type OverloadedMethod = { run: ((self: any, value: number) -> string) & ((self: any, value: string) -> number) }\n",
+		"local function overloadedMethod(thing: OverloadedMethod): number\n",
+		// A generic call signature is still a function type, and its type
+		// parameters are in scope for the body.
+		"local function genericCallback(identify: <T>(value: T) -> T): number\n",
+		"type IdentityHolder = { identify: <T>(value: T) -> T, replace: <T, U>(value: T, next: U) -> U }\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	// A return pack is not a type: aliasing a LuaTuple would emit
+	// `type Pair = (number, string)`, which does not parse.
+	if strings.Contains(got, "type Pair =") {
+		t.Errorf("a LuaTuple must never become an alias body:\n%s", got)
+	}
+}
+
 // Nested positions mirror Roblox types by name; a top-level parameter never
 // does (an Instance tag is userdata, not a speedup).
 func TestNativeFilesAnnotateRobloxTypesNested(t *testing.T) {
@@ -266,6 +322,10 @@ func TestFilesWithoutNativeDirectiveAreNotAnnotated(t *testing.T) {
 		"function Counter:constructor(start)\n",
 		"local function ownGeneric(key)\n",
 		"local function robloxTypes(lookup, part, nested)\n",
+		"local function multiReturn()\n",
+		"local function tupleCallback(cb)\n",
+		"local function overloadedParam(fn)\n",
+		"local function makeCounter()\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)

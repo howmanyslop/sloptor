@@ -34,8 +34,15 @@ const (
 	nativeTypeNil      = "nil"
 	nativeTypeUnit     = "()"
 
+	// nativeTypeAnyPack is an unknown return pack: the parameters stay exact,
+	// only the values a call yields are lost.
+	nativeTypeAnyPack = "...any"
+
 	// nativeTypeAnyFunction is the fallback for a callable shape Luau cannot
-	// spell (overloads, LuaTuple, construct signatures).
+	// spell, or for an overload set in a tagged position, where an
+	// intersection buys no tag (`(...any) -> ...any` keeps the function
+	// entry guard and accepts every callable instead of being stricter than
+	// TS).
 	nativeTypeAnyFunction = "(...any) -> ...any"
 
 	// nativeTypeMaxDepth bounds how far nested table shapes are followed.
@@ -121,10 +128,10 @@ func getNativeReturnType(state *State, node *ast.Node) *luau.Type {
 	if signature == nil {
 		return nil
 	}
-	text, _, _ := getNativeType(state, state.Checker.GetReturnTypeOfSignature(signature), nativePositionReturn, 0, nil)
-	if text == "" {
+	text := getNativeReturnTypeOfSignature(state, state.Checker.GetReturnTypeOfSignature(signature), nativePositionReturn, 0, nil)
+	if text == "" || text == nativeTypeAnyPack {
 		// A return that cannot be mirrored stays unannotated rather than
-		// claiming `any`.
+		// claiming `any`: the analyzer infers a better pack from the body.
 		return nil
 	}
 	return &luau.Type{Name: text}
@@ -165,6 +172,21 @@ func getNativeDeclarationGenerics(node *ast.Node) []string {
 		if text := name.Text(); luau.IsValidIdentifier(text) {
 			names = append(names, text)
 		}
+	}
+	return names
+}
+
+// getNativeSignatureGenerics is the same for one call or construct signature,
+// ready for `<T>(value: T) -> T`. The names go into scope while the signature
+// body is mirrored, so nested references resolve by name.
+func getNativeSignatureGenerics(signature *checker.Signature) []string {
+	var names []string
+	for _, parameter := range signature.TypeParameters() {
+		symbol := parameter.Symbol()
+		if symbol == nil || !luau.IsValidIdentifier(symbol.Name) {
+			continue
+		}
+		names = append(names, symbol.Name)
 	}
 	return names
 }

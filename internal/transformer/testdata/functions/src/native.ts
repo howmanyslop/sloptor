@@ -194,3 +194,116 @@ export interface table {
 export function reserved(value: table): number {
 	return value.value;
 }
+
+declare function getPair(): LuaTuple<[number, string]>;
+declare function getOptionalPair(): LuaTuple<[number, string?]>;
+declare function getRestPair(): LuaTuple<[number, ...string[]]>;
+declare function getEmptyPair(): LuaTuple<[]>;
+
+export function multiReturn(): LuaTuple<[number, string]> {
+	return getPair();
+}
+
+export function optionalReturn(): LuaTuple<[number, string?]> {
+	return getOptionalPair();
+}
+
+export function restReturn(): LuaTuple<[number, ...string[]]> {
+	return getRestPair();
+}
+
+export function emptyReturn(): LuaTuple<[]> {
+	return getEmptyPair();
+}
+
+export function maybeReturn(): LuaTuple<[number, string]> | undefined {
+	return getPair();
+}
+
+export function looseTupleCallback(cb: () => LuaTuple<string[]>): number {
+	return cb().size();
+}
+
+export function tupleCallback(cb: () => LuaTuple<[number, string]>): number {
+	return cb()[0];
+}
+
+export function maybeTupleCallback(cb?: (() => LuaTuple<[number, string]>) | undefined): void {
+	cb?.();
+}
+
+export interface TupleHolder {
+	pair: () => LuaTuple<[number, string]>;
+	empty: () => LuaTuple<[]>;
+}
+
+export function tupleHolders(holder: TupleHolder): number {
+	holder.empty();
+	return holder.pair()[0];
+}
+
+export interface FooFactory {
+	new (x: number): Foo;
+}
+
+export function factory(f: FooFactory): Foo {
+	return new f(1);
+}
+
+export interface CtorHolder {
+	create: new (x: number) => Foo;
+}
+
+export function ctorHolders(holder: CtorHolder): Foo {
+	return new holder.create(1);
+}
+
+export function makeCounter(): typeof Counter {
+	return Counter;
+}
+
+export interface Overloaded {
+	(value: number): string;
+	(value: string): number;
+}
+
+export function overloadedParam(fn: Overloaded): number {
+	return fn(1).size();
+}
+
+export interface OverloadedMethod {
+	run(value: number): string;
+	run(value: string): number;
+}
+
+export function overloadedMethod(thing: OverloadedMethod): number {
+	return thing.run(1).size();
+}
+
+export function genericCallback(identify: <T>(value: T) => T): number {
+	return identify(1);
+}
+
+export interface IdentityHolder {
+	identify: <T>(value: T) => T;
+	replace: <T, U>(value: T, next: U) => U;
+}
+
+export function identityHolders(holder: IdentityHolder): number {
+	holder.identify(1);
+	return holder.replace(1, "a").size();
+}
+
+export type Pair = LuaTuple<[number, string]>;
+
+export interface PairHolder {
+	pair: Pair;
+}
+
+export function pairHolders(holder: PairHolder): number {
+	return holder.pair[0];
+}
+
+export function pairAlias(): Pair {
+	return getPair();
+}

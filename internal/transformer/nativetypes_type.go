@@ -120,7 +120,9 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 		}
 	}
 	for index, text := range texts {
-		if kinds[index] == nativeKindFunction && len(texts) > 1 {
+		if kinds[index] == nativeKindFunction || doesNativeHaveTopLevelOperator(text, "&") {
+			// A function type needs parentheses before `|`, and mixing `|`
+			// and `&` unparenthesised is a syntax error.
 			texts[index] = "(" + text + ")"
 		}
 	}
@@ -161,10 +163,17 @@ func getNativeObjectType(state *State, checkerType *checker.Type, nativePosition
 		return name, nativeKindVector, false
 	}
 	if len(state.Checker.GetConstructSignatures(checkerType)) > 0 {
-		return getNativeUnspellable(nativePosition), nativeKindUnspellable, false
+		// A value with construct signatures is a class factory: a plain table
+		// at runtime (`new` plus the statics). Class INSTANCES stay excluded
+		// by isNativeTableType.
+		text := getNativeTableTypeAt(state, checkerType, depth, seen)
+		if text == "" {
+			text = nativeTypeAnyTable
+		}
+		return text, nativeKindTable, false
 	}
 	if len(state.Checker.GetCallSignatures(checkerType)) > 0 {
-		text, kind, _ := getNativeFunctionType(state, checkerType, false, depth, seen)
+		text, kind, _ := getNativeFunctionType(state, checkerType, false, nativePosition, depth, seen)
 		if text == "" {
 			return getNativeUnspellable(nativePosition), kind, false
 		}
@@ -185,20 +194,35 @@ func getNativeObjectType(state *State, checkerType *checker.Type, nativePosition
 	return getNativeUnspellable(nativePosition), nativeKindUnspellable, false
 }
 
-// getNativeFunctionType mirrors a single-call-signature object as a Luau function
-// type. Overloads, construct signatures and LuaTuple results have no faithful
-// spelling and fall back to `(...any) -> ...any`. receiver marks an interface
-// METHOD member, whose Luau call form (`obj:method()`) passes the object as an
-// implicit first argument.
-func getNativeFunctionType(state *State, checkerType *checker.Type, receiver bool, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
+// getNativeFunctionType mirrors a callable object as a Luau function type. An
+// overload set becomes an intersection of function types (`((A) -> B) & ((C) ->
+// D)`), which is what Luau's own tests and real projects use; only at a TAGGED
+// parameter position does the set fall back, because an intersection is tagged
+// `any` and is stricter than TS, while `(...any) -> ...any` keeps a real
+// `function` tag. receiver marks an interface METHOD member, whose Luau call
+// form (`obj:method()`) passes the object as an implicit first argument.
+func getNativeFunctionType(state *State, checkerType *checker.Type, receiver bool, nativePosition nativePosition, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
 	signatures := state.Checker.GetCallSignatures(checkerType)
-	if len(signatures) != 1 {
+	switch {
+	case len(signatures) == 1:
+		return getNativeSignatureType(state, signatures[0], receiver, depth, seen), nativeKindFunction, false
+	case len(signatures) == 0 || nativePosition == nativePositionParameter:
 		return nativeTypeAnyFunction, nativeKindFunction, false
 	}
-	signature := signatures[0]
-	if IsLuaTupleType(state).Check(state.Checker.GetReturnTypeOfSignature(signature)) {
-		return nativeTypeAnyFunction, nativeKindFunction, false
+	parts := make([]string, len(signatures))
+	for index, signature := range signatures {
+		parts[index] = "(" + getNativeSignatureType(state, signature, receiver, depth, seen) + ")"
 	}
+	return strings.Join(parts, " & "), nativeKindFunction, false
+}
+
+// getNativeSignatureType spells one call or construct signature. Its own type
+// parameters are declared and put in scope, so `T` resolves by name inside the
+// parameter and return types; constraints are dropped.
+func getNativeSignatureType(state *State, signature *checker.Signature, receiver bool, depth int, seen map[*checker.Type]bool) string {
+	generics := getNativeSignatureGenerics(signature)
+	state.PushNativeGenerics(generics, false)
+	defer state.PopNativeGenerics()
 
 	var parts []string
 	// A method signature carries its receiver, which Luau passes as the
@@ -212,13 +236,13 @@ func getNativeFunctionType(state *State, checkerType *checker.Type, receiver boo
 	for index, parameter := range parameters {
 		parameterType := state.Checker.GetTypeOfSymbol(parameter)
 		if hasRest && index == len(parameters)-1 {
-			element := state.Checker.GetElementTypeOfArrayType(parameterType)
-			if element == nil {
-				return nativeTypeAnyFunction, nativeKindFunction, false
-			}
-			text, _, _ := getNativeType(state, element, nativePositionNested, depth+1, seen)
-			if text == "" {
-				text = nativeTypeAny
+			// A rest parameter Luau cannot unwrap still keeps the exact
+			// parameters before it.
+			text := nativeTypeAny
+			if element := state.Checker.GetElementTypeOfArrayType(parameterType); element != nil {
+				if rendered, _, _ := getNativeType(state, element, nativePositionNested, depth+1, seen); rendered != "" {
+					text = rendered
+				}
 			}
 			parts = append(parts, "..."+text)
 			continue
@@ -237,20 +261,139 @@ func getNativeFunctionType(state *State, checkerType *checker.Type, receiver boo
 		}
 	}
 
-	returnType := state.Checker.GetReturnTypeOfSignature(signature)
-	var result string
-	if isUndefinedTypeCheck(returnType) {
-		result = nativeTypeUnit
-	} else {
-		result, _, _ = getNativeType(state, returnType, nativePositionNested, depth+1, seen)
-		if result == "" {
-			result = nativeTypeAny
+	result := getNativeReturnTypeOfSignature(state, state.Checker.GetReturnTypeOfSignature(signature), nativePositionNested, depth+1, seen)
+	if result == "" {
+		result = nativeTypeAny
+	}
+	return luau.GenericsString(generics) + "(" + strings.Join(parts, ", ") + ") -> " + result
+}
+
+// getNativeReturnTypeOfSignature spells what follows `->`. A LuaTuple becomes a
+// Luau return pack (`(A, B)`, `(A, B?)`, `(A, ...C)`, `()`); everything else is
+// mirrored as one type. "" means the return cannot be written.
+func getNativeReturnTypeOfSignature(state *State, checkerType *checker.Type, nativePosition nativePosition, depth int, seen map[*checker.Type]bool) string {
+	if checkerType == nil {
+		return ""
+	}
+	if isUndefinedTypeCheck(checkerType) {
+		return nativeTypeUnit
+	}
+	if isNativeLuaTupleReturn(state, checkerType) {
+		tuple := getNativeLuaTupleTuple(state, checkerType)
+		if tuple == nil {
+			// LuaTuple<Array<…>>, LuaTuple<T>, a union of tuples, or a
+			// `LuaTuple | undefined`: keep the parameters, lose the pack.
+			// `?` after a pack means "optional function", never "optional
+			// return", so an optional LuaTuple has no pack spelling.
+			return nativeTypeAnyPack
 		}
-		if doesNativeHaveTopLevelOperator(result, "|") {
-			result = "(" + result + ")"
+		return getNativeReturnPack(state, tuple, depth, seen)
+	}
+	text, _, _ := getNativeType(state, checkerType, nativePosition, depth, seen)
+	if text == "" {
+		return ""
+	}
+	// Inside a function type an operator needs parentheses; a declared return
+	// is the whole annotation, so it does not.
+	if nativePosition != nativePositionReturn &&
+		(doesNativeHaveTopLevelOperator(text, "|") || doesNativeHaveTopLevelOperator(text, "&")) {
+		return "(" + text + ")"
+	}
+	return text
+}
+
+// isNativeLuaTupleReturn reports whether a return type is a LuaTuple, or a union
+// with one as a member (`LuaTuple<[A, B]> | undefined`).
+func isNativeLuaTupleReturn(state *State, checkerType *checker.Type) bool {
+	if IsLuaTupleType(state).Check(checkerType) {
+		return true
+	}
+	return checkerType.IsUnion() && slices.ContainsFunc(checkerType.Types(), IsLuaTupleType(state).Check)
+}
+
+// getNativeLuaTupleTuple is the tuple a LuaTuple<T> carries, or nil when T is
+// not one fixed tuple.
+func getNativeLuaTupleTuple(state *State, checkerType *checker.Type) *checker.Type {
+	if alias := checkerType.Alias(); alias != nil {
+		arguments := alias.TypeArguments()
+		if len(arguments) == 1 && arguments[0].IsTupleType() {
+			return arguments[0]
 		}
 	}
-	return "(" + strings.Join(parts, ", ") + ") -> " + result, nativeKindFunction, false
+	if checkerType.IsUnion() || checkerType.IsIntersection() {
+		for _, member := range checkerType.Types() {
+			if member.IsTupleType() {
+				return member
+			}
+		}
+	}
+	return nil
+}
+
+// getNativeReturnPack spells a tuple as the return pack of a function type. A
+// rest element that is not last has no Luau spelling, and an element Luau
+// cannot mirror widens to `any` without giving up the pack.
+func getNativeReturnPack(state *State, tuple *checker.Type, depth int, seen map[*checker.Type]bool) string {
+	infos := tuple.TargetTupleType().ElementInfos()
+	arguments := getTypeArguments(state, tuple)
+	if len(infos) == 0 {
+		return "()"
+	}
+	if len(arguments) != len(infos) {
+		return nativeTypeAnyPack
+	}
+	parts := make([]string, len(infos))
+	for index, info := range infos {
+		elementType := arguments[index]
+		flags := info.TupleElementFlags()
+		if flags&(checker.ElementFlagsRest|checker.ElementFlagsVariadic) != 0 {
+			if index != len(infos)-1 {
+				return nativeTypeAnyPack
+			}
+			// A rest element's type argument is already its element type in a
+			// resolved tuple; an unresolved array still unwraps.
+			if element := state.Checker.GetElementTypeOfArrayType(elementType); element != nil {
+				elementType = element
+			}
+			text, _, _ := getNativeType(state, elementType, nativePositionNested, depth+1, seen)
+			if text == "" {
+				text = nativeTypeAny
+			}
+			// `...number | string` parses, but the parentheses read better.
+			if doesNativeHaveTopLevelOperator(text, "|") {
+				text = "(" + text + ")"
+			}
+			parts[index] = "..." + text
+			continue
+		}
+		text, _, _ := getNativeType(state, elementType, nativePositionNested, depth+1, seen)
+		if text == "" {
+			text = nativeTypeAny
+		}
+		if flags&checker.ElementFlagsOptional != 0 {
+			text = getNativeOptionalType(text)
+		}
+		parts[index] = text
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+// getNativeConstructMember spells the `new` member of a value with construct
+// signatures. An overloaded constructor keeps the intersection on the MEMBER,
+// which is what preserves the table tag; `{…} & {…}` would not.
+func getNativeConstructMember(state *State, checkerType *checker.Type, depth int, seen map[*checker.Type]bool) string {
+	signatures := state.Checker.GetConstructSignatures(checkerType)
+	switch len(signatures) {
+	case 0:
+		return ""
+	case 1:
+		return "new: " + getNativeSignatureType(state, signatures[0], false, depth, seen)
+	}
+	parts := make([]string, len(signatures))
+	for index, signature := range signatures {
+		parts[index] = "(" + getNativeSignatureType(state, signature, false, depth, seen) + ")"
+	}
+	return "new: " + strings.Join(parts, " & ")
 }
 
 // getNativeTableTypeAt spells one table level as a Luau table type literal, or ""
@@ -320,22 +463,13 @@ func getNativeTableTypeAt(state *State, checkerType *checker.Type, depth int, se
 	}
 
 	var parts []string
-	for _, property := range state.Checker.GetPropertiesOfType(checkerType) {
-		name := property.Name
-		if strings.HasPrefix(name, "__@") {
-			// Computed/ES-symbol member: no Luau spelling.
-			continue
-		}
-		value := getNativePropertyType(state, property, depth, seen)
-		if property.Flags&ast.SymbolFlagsOptional != 0 {
-			value = getNativeOptionalType(value)
-		}
-		if luau.IsValidIdentifier(name) {
-			parts = append(parts, name+": "+value)
-		} else {
-			parts = append(parts, `["`+getNativeQuotedKey(name)+`"]: `+value)
-		}
+	// A value with construct signatures is a class factory: its members are
+	// statics, called with `.`, not methods that take a receiver.
+	receivers := len(state.Checker.GetConstructSignatures(checkerType)) == 0
+	if construct := getNativeConstructMember(state, checkerType, depth, seen); construct != "" {
+		parts = append(parts, construct)
 	}
+	parts = append(parts, getNativePropertyMembers(state, checkerType, depth, seen, receivers)...)
 	// Luau allows at most one table indexer, so two TS index signatures have to
 	// collapse into one. When their value types differ the property is still a
 	// table, so the imprecise `any` value stays correct.
@@ -369,13 +503,37 @@ func getNativeTableTypeAt(state *State, checkerType *checker.Type, depth int, se
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
+// getNativePropertyMembers spells every declared member of checkerType as a
+// table member. receivers makes a method member declare the `self` parameter an
+// `obj:method()` call passes; a class's statics are called with `.` instead.
+func getNativePropertyMembers(state *State, checkerType *checker.Type, depth int, seen map[*checker.Type]bool, receivers bool) []string {
+	var parts []string
+	for _, property := range state.Checker.GetPropertiesOfType(checkerType) {
+		name := property.Name
+		if strings.HasPrefix(name, "__@") {
+			// Computed/ES-symbol member: no Luau spelling.
+			continue
+		}
+		value := getNativePropertyType(state, property, receivers, depth, seen)
+		if property.Flags&ast.SymbolFlagsOptional != 0 {
+			value = getNativeOptionalType(value)
+		}
+		if luau.IsValidIdentifier(name) {
+			parts = append(parts, name+": "+value)
+		} else {
+			parts = append(parts, `["`+getNativeQuotedKey(name)+`"]: `+value)
+		}
+	}
+	return parts
+}
+
 // getNativePropertyType mirrors one table member. A METHOD member (`run(): T`)
 // takes its receiver as the implicit first argument, so its Luau function type
 // spells that parameter; a function-typed property does not.
-func getNativePropertyType(state *State, property *ast.Symbol, depth int, seen map[*checker.Type]bool) string {
+func getNativePropertyType(state *State, property *ast.Symbol, receivers bool, depth int, seen map[*checker.Type]bool) string {
 	propertyType := state.Checker.GetTypeOfSymbol(property)
-	if property.Flags&ast.SymbolFlagsMethod != 0 && len(state.Checker.GetCallSignatures(propertyType)) > 0 {
-		if text, kind, _ := getNativeFunctionType(state, propertyType, true, depth+1, seen); text != "" && kind == nativeKindFunction {
+	if receivers && property.Flags&ast.SymbolFlagsMethod != 0 && len(state.Checker.GetCallSignatures(propertyType)) > 0 {
+		if text, kind, _ := getNativeFunctionType(state, propertyType, true, nativePositionNested, depth+1, seen); text != "" && kind == nativeKindFunction {
 			return text
 		}
 	}
@@ -405,7 +563,7 @@ func getNativeOptionalType(text string) string {
 	if text == "" || text == nativeTypeAny || text == nativeTypeNil || strings.HasSuffix(text, "?") {
 		return text
 	}
-	if doesNativeHaveTopLevelOperator(text, "|") || doesNativeHaveTopLevelOperator(text, "->") {
+	if doesNativeHaveTopLevelOperator(text, "|") || doesNativeHaveTopLevelOperator(text, "&") || doesNativeHaveTopLevelOperator(text, "->") {
 		return "(" + text + ")"
 	}
 	return text + "?"
