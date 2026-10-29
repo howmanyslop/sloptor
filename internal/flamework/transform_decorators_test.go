@@ -231,6 +231,7 @@ func TestDecoratorLowering_emitsMacroPrerequisitesBeforeClassAndDecoratorCall(t 
 		`declare const Decorate: (guard: unknown) => FW;`,
 		`@Decorate(guardMacro()) class Counter {}`,
 	}, "\n"), ClassPlan{InternalID: "fixture:out/service@Counter", Decorators: []DecoratorPlan{{Name: "Decorate", InternalID: "fixture:out/service@Decorate"}}})
+	state.guardLibrary = flameworkPreludeModule
 	limit := 2
 	state.project.config.Optimizations.GuardGenerationDedupLimit = &limit
 	classNode := findNamedClass(t, file.AsNode(), "Counter")
