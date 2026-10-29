@@ -40,25 +40,25 @@ var nativeReservedTypeAliasNames = map[string]struct{}{
 	"table": {}, "typeof": {},
 }
 
-func nativeIsVectorTypeName(name string) bool {
+func isNativeVectorTypeName(name string) bool {
 	return name == "vector" || name == "Vector3"
 }
 
-// nativeAliasReference returns the alias spelling for a named interface or a
+// getNativeAliasReference returns the alias spelling for a named interface or a
 // non-generic type alias of an object type, registering the alias on first use.
-func nativeAliasReference(s *State, t *checker.Type, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
-	symbol := nativeAliasSymbol(s, t)
+func getNativeAliasReference(state *State, checkerType *checker.Type, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
+	symbol := getNativeAliasSymbol(state, checkerType)
 	if symbol == nil {
 		return "", nativeKindUnspellable, false
 	}
-	entry := s.nativeAliasBySymbol[symbol]
+	entry := state.nativeAliasBySymbol[symbol]
 	if entry == nil {
-		entry = s.registerNativeAlias(symbol)
+		entry = state.registerNativeAlias(symbol)
 		if entry == nil {
 			return "", nativeKindUnspellable, false
 		}
 	}
-	arguments := getTypeArguments(s, t)
+	arguments := getTypeArguments(state, checkerType)
 	if len(entry.Generics) != len(arguments) {
 		return "", nativeKindUnspellable, false
 	}
@@ -67,7 +67,7 @@ func nativeAliasReference(s *State, t *checker.Type, depth int, seen map[*checke
 	}
 	parts := make([]string, len(arguments))
 	for i, argument := range arguments {
-		text, _, _ := getNativeType(s, argument, nativePositionNested, depth+1, seen)
+		text, _, _ := getNativeType(state, argument, nativePositionNested, depth+1, seen)
 		if text == "" {
 			text = nativeTypeAny
 		}
@@ -76,20 +76,20 @@ func nativeAliasReference(s *State, t *checker.Type, depth int, seen map[*checke
 	return entry.Statement.Name + "<" + strings.Join(parts, ", ") + ">", entry.Kind, true
 }
 
-// nativeAliasSymbol reports the symbol a type can be aliased by, or nil.
-func nativeAliasSymbol(s *State, t *checker.Type) *ast.Symbol {
-	symbol := t.Symbol()
+// getNativeAliasSymbol reports the symbol a type can be aliased by, or nil.
+func getNativeAliasSymbol(state *State, checkerType *checker.Type) *ast.Symbol {
+	symbol := checkerType.Symbol()
 	if symbol != nil && symbol.Flags&ast.SymbolFlagsInterface != 0 && symbol.Flags&ast.SymbolFlagsClass == 0 {
-		if nativeIsLibrarySymbol(s, symbol) || !nativeAliasableDeclaration(symbol, ast.IsInterfaceDeclaration) {
+		if isNativeLibrarySymbol(state, symbol) || !getNativeAliasableDeclaration(symbol, ast.IsInterfaceDeclaration) {
 			return nil
 		}
 		// A callable interface is a function type, not a table.
-		if len(s.Checker.GetCallSignatures(t)) > 0 || len(s.Checker.GetConstructSignatures(t)) > 0 {
+		if len(state.Checker.GetCallSignatures(checkerType)) > 0 || len(state.Checker.GetConstructSignatures(checkerType)) > 0 {
 			return nil
 		}
 		return symbol
 	}
-	alias := t.Alias()
+	alias := checkerType.Alias()
 	if alias == nil {
 		return nil
 	}
@@ -97,19 +97,19 @@ func nativeAliasSymbol(s *State, t *checker.Type) *ast.Symbol {
 	if aliasSymbol == nil || aliasSymbol.Flags&ast.SymbolFlagsTypeAlias == 0 {
 		return nil
 	}
-	if nativeIsLibrarySymbol(s, aliasSymbol) || !nativeAliasableDeclaration(aliasSymbol, ast.IsTypeAliasDeclaration) {
+	if isNativeLibrarySymbol(state, aliasSymbol) || !getNativeAliasableDeclaration(aliasSymbol, ast.IsTypeAliasDeclaration) {
 		return nil
 	}
-	if len(alias.TypeArguments()) > 0 || t.Flags()&checker.TypeFlagsObject == 0 {
+	if len(alias.TypeArguments()) > 0 || checkerType.Flags()&checker.TypeFlagsObject == 0 {
 		// Generic type aliases are expanded inline.
 		return nil
 	}
 	return aliasSymbol
 }
 
-// nativeAliasableDeclaration reports whether the symbol has a declaration of
+// getNativeAliasableDeclaration reports whether the symbol has a declaration of
 // the expected kind whose type parameters Luau can all spell.
-func nativeAliasableDeclaration(symbol *ast.Symbol, isKind func(*ast.Node) bool) bool {
+func getNativeAliasableDeclaration(symbol *ast.Symbol, isKind func(*ast.Node) bool) bool {
 	for _, declaration := range symbol.Declarations {
 		if !isKind(declaration) {
 			continue
@@ -129,12 +129,12 @@ func nativeAliasableDeclaration(symbol *ast.Symbol, isKind func(*ast.Node) bool)
 // alias's own generics in scope. It returns nil when the body cannot be spelled
 // and the type should be expanded inline instead.
 func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
-	declaration := nativeAliasDeclaration(symbol)
+	declaration := getNativeAliasDeclaration(symbol)
 	if declaration == nil {
 		return nil
 	}
 	generics := nativeDeclarationGenerics(declaration)
-	name := state.uniqueNativeAliasName(symbol.Name)
+	name := state.getUniqueNativeAliasName(symbol.Name)
 	statement := luau.NewTypeAlias(name, generics, "")
 	entry := &nativeAliasEntry{Symbol: symbol, Statement: statement, Generics: generics, Kind: nativeKindTable}
 	if !ast.IsInterfaceDeclaration(declaration) && len(state.Checker.GetCallSignatures(state.Checker.GetDeclaredTypeOfSymbol(symbol))) > 0 {
@@ -147,7 +147,7 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 	// A barrier scope: the body sees the alias's own generics, never the
 	// enclosing function's.
 	state.PushNativeGenerics(generics, true)
-	body := nativeAliasBody(state, symbol, ast.IsInterfaceDeclaration(declaration))
+	body := getNativeAliasBody(state, symbol, ast.IsInterfaceDeclaration(declaration))
 	state.PopNativeGenerics()
 
 	if body == "" {
@@ -165,7 +165,7 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 	return entry
 }
 
-func nativeAliasDeclaration(symbol *ast.Symbol) *ast.Node {
+func getNativeAliasDeclaration(symbol *ast.Symbol) *ast.Node {
 	for _, declaration := range symbol.Declarations {
 		if ast.IsInterfaceDeclaration(declaration) || ast.IsTypeAliasDeclaration(declaration) {
 			return declaration
@@ -174,31 +174,31 @@ func nativeAliasDeclaration(symbol *ast.Symbol) *ast.Node {
 	return nil
 }
 
-// nativeAliasBody spells the DECLARED type, so members mention the interface's
+// getNativeAliasBody spells the DECLARED type, so members mention the interface's
 // own type parameter names.
-func nativeAliasBody(s *State, symbol *ast.Symbol, isInterface bool) string {
-	declared := s.Checker.GetDeclaredTypeOfSymbol(symbol)
+func getNativeAliasBody(state *State, symbol *ast.Symbol, isInterface bool) string {
+	declared := state.Checker.GetDeclaredTypeOfSymbol(symbol)
 	if declared == nil {
 		return ""
 	}
-	if !isInterface && len(s.Checker.GetCallSignatures(declared)) > 0 {
-		text, kind, _ := getNativeFunctionType(s, declared, false, 0, nil)
+	if !isInterface && len(state.Checker.GetCallSignatures(declared)) > 0 {
+		text, kind, _ := getNativeFunctionType(state, declared, false, 0, nil)
 		if kind == nativeKindFunction && text != nativeTypeAnyFunction {
 			return text
 		}
 		return ""
 	}
-	return getNativeTableTypeAt(s, declared, 0, nil)
+	return getNativeTableTypeAt(state, declared, 0, nil)
 }
 
-// uniqueNativeAliasName picks a free, spellable alias name, suffixing `_2`,
+// getUniqueNativeAliasName picks a free, spellable alias name, suffixing `_2`,
 // `_3`, ... on a reserved word or a name already taken by another type.
-func (state *State) uniqueNativeAliasName(base string) string {
+func (state *State) getUniqueNativeAliasName(base string) string {
 	name := base
 	if !luau.IsValidIdentifier(name) {
 		name = "Alias"
 	}
-	for suffix := 1; ; suffix++ {
+	for suffix := 1; ; suffix += 1 {
 		candidate := name
 		if suffix > 1 {
 			candidate = name + "_" + strconv.Itoa(suffix)
@@ -211,28 +211,28 @@ func (state *State) uniqueNativeAliasName(base string) string {
 	}
 }
 
-// nativeIsLibrarySymbol reports whether a declaration of symbol lives in a
+// isNativeLibrarySymbol reports whether a declaration of symbol lives in a
 // library file rotor must not alias.
-func nativeIsLibrarySymbol(s *State, symbol *ast.Symbol) bool {
+func isNativeLibrarySymbol(state *State, symbol *ast.Symbol) bool {
 	for _, declaration := range symbol.Declarations {
 		sourceFile := ast.GetSourceFileOfNode(declaration)
 		if sourceFile == nil {
 			continue
 		}
-		if nativeIsLibraryFile(s, sourceFile) {
+		if isNativeLibraryFile(state, sourceFile) {
 			return true
 		}
 	}
 	return false
 }
 
-func nativeIsLibraryFile(s *State, file *ast.SourceFile) bool {
+func isNativeLibraryFile(state *State, file *ast.SourceFile) bool {
 	name := strings.ReplaceAll(file.FileName(), "\\", "/")
 	if strings.Contains(name, "node_modules/@rbxts/") || strings.Contains(name, "node_modules/typescript/") {
 		return true
 	}
-	if s.Program != nil {
-		return s.Program.IsLibFile(file)
+	if state.Program != nil {
+		return state.Program.IsLibFile(file)
 	}
 	return strings.HasPrefix(tspath.GetBaseFileName(name), "lib.")
 }
@@ -252,23 +252,23 @@ var nativeRobloxTypeAllowlist = map[string]struct{}{
 	"vector": {},
 }
 
-// nativeRobloxTypeName is the Luau name of an allowlisted Roblox type: a listed
+// getNativeRobloxTypeName is the Luau name of an allowlisted Roblox type: a listed
 // datatype, an Instance subclass, or "" for anything else (colour sequences and
 // friends are represented by plain tables at runtime).
-func nativeRobloxTypeName(s *State, t *checker.Type) string {
-	if !IsRobloxType(s).Check(t) {
+func getNativeRobloxTypeName(state *State, checkerType *checker.Type) string {
+	if !IsRobloxType(state).Check(checkerType) {
 		return ""
 	}
-	symbol := t.Symbol()
+	symbol := checkerType.Symbol()
 	if symbol == nil || !luau.IsValidIdentifier(symbol.Name) {
 		return ""
 	}
 	if _, ok := nativeRobloxTypeAllowlist[symbol.Name]; ok {
 		return symbol.Name
 	}
-	for _, base := range getRecursiveBaseTypes(s, t) {
+	for _, base := range getRecursiveBaseTypes(state, checkerType) {
 		baseSymbol := base.Symbol()
-		if baseSymbol != nil && baseSymbol.Name == "Instance" && IsRobloxType(s).Check(base) {
+		if baseSymbol != nil && baseSymbol.Name == "Instance" && IsRobloxType(state).Check(base) {
 			return symbol.Name
 		}
 	}

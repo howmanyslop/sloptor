@@ -151,11 +151,11 @@ func getNativeTypeVariable(state *State, checkerType *checker.Type, nativePositi
 // getNativeObjectType mirrors an object type: a named alias, a Roblox datatype by
 // name, a function type, or a structural table.
 func getNativeObjectType(state *State, checkerType *checker.Type, nativePosition nativePosition, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
-	if reference, kind, ok := nativeAliasReference(state, checkerType, depth, seen); ok {
+	if reference, kind, ok := getNativeAliasReference(state, checkerType, depth, seen); ok {
 		return reference, kind, false
 	}
-	if name := nativeRobloxTypeName(state, checkerType); name != "" {
-		if nativePosition == nativePositionParameter && !nativeIsVectorTypeName(name) {
+	if name := getNativeRobloxTypeName(state, checkerType); name != "" {
+		if nativePosition == nativePositionParameter && !isNativeVectorTypeName(name) {
 			return "", nativeKindUnspellable, false
 		}
 		return name, nativeKindVector, false
