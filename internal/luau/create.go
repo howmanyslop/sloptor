@@ -45,6 +45,10 @@ func adoptNodeOrList(parent Node, v NodeOrList) NodeOrList {
 		return adoptList(parent, x)
 	case *List[Statement]:
 		return adoptList(parent, x)
+	case *List[TypeNode]:
+		return adoptList(parent, x)
+	case *List[TypeTableField]:
+		return adoptList(parent, x)
 	case Node:
 		return adopt(parent, x)
 	default:

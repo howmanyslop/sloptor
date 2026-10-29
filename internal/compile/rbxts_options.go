@@ -16,6 +16,8 @@ type RbxtsOptions struct {
 	IncludePath            *string
 	LogTruthyChanges       *bool
 	Luau                   *bool
+	LuauTypes              *bool
+	NativeTypes            *bool
 	NoInclude              *bool
 	OptimizedArrayAppends  *bool
 	OptimizedLoops         *bool
@@ -116,7 +118,13 @@ func parseRbxtsOptions(raw map[string]any, configPath string) (*RbxtsOptions, er
 	if result.Luau, err = rbxtsBoolean(raw, "luau", configPath); err != nil {
 		return nil, err
 	}
+	if result.LuauTypes, err = rbxtsBoolean(raw, "luauTypes", configPath); err != nil {
+		return nil, err
+	}
 	if result.NoInclude, err = rbxtsBoolean(raw, "noInclude", configPath); err != nil {
+		return nil, err
+	}
+	if result.NativeTypes, err = rbxtsBoolean(raw, "nativeTypes", configPath); err != nil {
 		return nil, err
 	}
 	if result.OptimizedArrayAppends, err = rbxtsBoolean(raw, "optimizedArrayAppends", configPath); err != nil {
@@ -150,6 +158,8 @@ var rbxtsOptionKeys = map[string]bool{
 	"includePath":            true,
 	"logTruthyChanges":       true,
 	"luau":                   true,
+	"luauTypes":              true,
+	"nativeTypes":            true,
 	"noInclude":              true,
 	"optimizedArrayAppends":  true,
 	"optimizedLoops":         true,
@@ -222,6 +232,12 @@ func mergeRbxtsOptions(base, overlay *RbxtsOptions) *RbxtsOptions {
 	}
 	if overlay.Luau != nil {
 		result.Luau = overlay.Luau
+	}
+	if overlay.LuauTypes != nil {
+		result.LuauTypes = overlay.LuauTypes
+	}
+	if overlay.NativeTypes != nil {
+		result.NativeTypes = overlay.NativeTypes
 	}
 	if overlay.NoInclude != nil {
 		result.NoInclude = overlay.NoInclude

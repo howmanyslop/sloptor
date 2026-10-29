@@ -10,6 +10,8 @@ Build options can live under the top-level `"rbxts"` key of `tsconfig.json` inst
 
 The `rbxts` values merge through the `extends` chain from parent to child, path values resolve relative to the file that declares them, and command-line values win over tsconfig values. CLI-only values such as `watch`, `verbose`, and `usePolling` are warned about and ignored when placed under `rbxts`.
 
+`nativeTypes` and the experimental `luauTypes` have a second surface: the top-level key of the same name in `rotor.toml`. The tsconfig value wins whenever it is declared (including an explicit `false`); otherwise the `rotor.toml` value applies, and both unset means off. `luauTypes` also has a command-line flag, `--luauTypes`, which wins over both files.
+
 ## Source maps
 
 Enable `compilerOptions.sourceMap` to write a `.luau.map` beside each Luau output:

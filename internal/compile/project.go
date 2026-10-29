@@ -60,6 +60,16 @@ type projectContext struct {
 	// at the project dir; shared by every file's State.
 	files *fileResolver
 
+	// nativeTypes is the resolved `nativeTypes` opt-in for this project (see
+	// effectiveNativeTypes), computed once per pass and handed to every file's
+	// State.
+	nativeTypes bool
+
+	// luauTypes is the resolved experimental `luauTypes` opt-in for this
+	// project (see effectiveLuauTypes), computed once per pass and handed to
+	// every file's State.
+	luauTypes bool
+
 	// sourceTraces maps each file the transformer sidecar reprinted back to the
 	// text on disk. Every position this pass produces is an index into the
 	// reprint, so a diagnostic is only reportable after it has been through
@@ -340,6 +350,8 @@ func newProjectContextWithImportContext(dir string, program *compiler.Program, o
 		projectType: projectType,
 		env:         dotenv.Load(envDir),
 		files:       newFileResolver(envDir),
+		nativeTypes: effectiveNativeTypes(dir, options.ConfigFilePath, opts.NativeTypes),
+		luauTypes:   effectiveLuauTypes(dir, options.ConfigFilePath, opts.SolutionArgv, opts.LuauTypes),
 		rojoContext: &transformer.RojoContext{
 			Resolver:          rojoResolver,
 			PathTranslator:    pathTranslator,
@@ -537,6 +549,23 @@ type ProjectOptions struct {
 	// defaults off, so the zero value preserves rbxtsc output.
 	OptimizedArrayAppends bool
 
+	// NativeTypes gates rotor's `//!native` type annotations. It is resolved
+	// from the two declaration surfaces by effectiveNativeTypes (tsconfig
+	// `rbxts.nativeTypes`, then rotor.toml `nativeTypes`) and reached the
+	// transformer as State.NativeTypes; this field is the fallback layer for
+	// callers that set it directly. Like OptimizedArrayAppends, the rotor
+	// extension defaults off, so the zero value preserves rbxtsc output.
+	NativeTypes bool
+
+	// LuauTypes gates rotor's experimental full Luau type annotations. It is
+	// resolved from the three declaration surfaces by effectiveLuauTypes
+	// (`--luauTypes` through SolutionArgv, then tsconfig `rbxts.luauTypes`,
+	// then rotor.toml `luauTypes`) and reaches the transformer as
+	// State.LuauTypes; this field is the fallback layer for callers that set
+	// it directly. Like NativeTypes, the rotor extension defaults off, so the
+	// zero value preserves rbxtsc output.
+	LuauTypes bool
+
 	// NoOptimizedLoops is the INVERSE of upstream optimizedLoops (default
 	// true, DEFAULT_PROJECT_OPTIONS), inverted so this struct's zero value
 	// keeps the upstream-default (optimized) behavior for all existing
@@ -685,6 +714,8 @@ func resetRbxtsOptions(options *ProjectOptions) {
 	options.LogTruthyChanges = false
 	options.AllowCommentDirectives = false
 	options.OptimizedArrayAppends = false
+	options.NativeTypes = false
+	options.LuauTypes = false
 	options.NoOptimizedLoops = false
 	options.LuaExtension = false
 }
@@ -709,6 +740,12 @@ func applyRbxtsOptions(options *ProjectOptions, layer *RbxtsOptions) {
 	}
 	if layer.OptimizedArrayAppends != nil {
 		options.OptimizedArrayAppends = *layer.OptimizedArrayAppends
+	}
+	if layer.NativeTypes != nil {
+		options.NativeTypes = *layer.NativeTypes
+	}
+	if layer.LuauTypes != nil {
+		options.LuauTypes = *layer.LuauTypes
 	}
 	if layer.OptimizedLoops != nil {
 		options.NoOptimizedLoops = !*layer.OptimizedLoops
@@ -1032,6 +1069,8 @@ func compileProjectSourceFile(ctx context.Context, dir string, program *compiler
 		state.Files = pctx.files
 		state.LogTruthyChanges = opts.LogTruthyChanges
 		state.OptimizedArrayAppends = opts.OptimizedArrayAppends
+		state.NativeTypes = pctx.nativeTypes
+		state.LuauTypes = pctx.luauTypes
 		state.OptimizedLoops = !opts.NoOptimizedLoops
 		state.SkipSemanticDiagnostics = opts.SkipSemanticDiagnostics
 

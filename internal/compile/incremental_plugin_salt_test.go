@@ -189,6 +189,61 @@ func TestIncrementalSaltMovesWithOptimizedArrayAppends(t *testing.T) {
 	}
 }
 
+// nativeTypes changes emitted text, so flipping it must force a rebuild. The
+// payload field is omitempty, so projects without the option keep the exact
+// pre-option salt and are not rebuilt by this change.
+func TestIncrementalSaltMovesWithNativeTypes(t *testing.T) {
+	dir := writeProject(t, "@scope/native-types-salt", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+
+	before, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{NativeTypes: true}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("nativeTypes did not invalidate incremental outputs")
+	}
+}
+
+// luauTypes changes emitted text, so flipping it must force a rebuild from any
+// of its surfaces. The payload field is omitzero, so projects without the
+// option keep the exact pre-option salt, including when the command line
+// turns a declared option off again.
+func TestIncrementalSaltMovesWithLuauTypes(t *testing.T) {
+	dir := writeProject(t, "@scope/luau-types-salt", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+	salt := func(t *testing.T, opts ProjectOptions) string {
+		t.Helper()
+		got, err := incrementalSaltWithFlamework(projectDir, program, opts, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	before := salt(t, ProjectOptions{})
+	after := salt(t, ProjectOptions{LuauTypes: true})
+	if before == after {
+		t.Fatal("luauTypes did not invalidate incremental outputs")
+	}
+	if got := salt(t, ProjectOptions{SolutionArgv: luauTypesArgv(true)}); got != after {
+		t.Fatal("--luauTypes must salt the same as ProjectOptions.LuauTypes")
+	}
+	if got := salt(t, ProjectOptions{LuauTypes: true, SolutionArgv: luauTypesArgv(false)}); got != before {
+		t.Fatal("--luauTypes=false must restore the pre-option salt")
+	}
+}
+
 // A `transform` that names a subpath inside the package resolves to that file,
 // not to the package entry.
 func TestTransformerPluginFingerprintsResolveSubpathSpecifiers(t *testing.T) {

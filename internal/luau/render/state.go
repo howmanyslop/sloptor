@@ -19,6 +19,9 @@ type RenderState struct {
 	ranges         []byteRange
 	contentEnd     int
 	currentRange   int
+	// singleLine ignores Multiline layout flags on type nodes; LayoutTypes
+	// measures a type's one-line width with it.
+	singleLine bool
 }
 
 func NewRenderState() *RenderState {

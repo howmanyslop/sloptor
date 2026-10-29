@@ -14,6 +14,8 @@
         "includePath": {"type": "string", "description": "Path to where the runtime library files should be stored. Resolved relative to this tsconfig.json."},
         "logTruthyChanges": {"type": "boolean", "description": "Log changes to truthiness evaluation from Lua truthiness rules."},
         "luau": {"type": "boolean", "description": "Emit files with .luau extension."},
+        "luauTypes": {"type": "boolean", "description": "Experimental. Emit full Luau type annotations (parameters, returns, locals, class fields, exported type aliases) in compiled output so Luau code can consume it with real types. Off by default; rotor.toml's luauTypes is the fallback when this is not set. Output may change between releases."},
+        "nativeTypes": {"type": "boolean", "description": "Emit Luau parameter and return annotations for files whose leading comments include //!native. Off by default; rotor.toml's nativeTypes is the fallback when this is not set."},
         "noInclude": {"type": "boolean", "description": "Do not copy include files."},
         "optimizedArrayAppends": {"type": "boolean", "description": "Replace eligible Array.push calls in loops with indexed writes."},
         "optimizedLoops": {"type": "boolean", "description": "Enable numeric-for loop optimization."},

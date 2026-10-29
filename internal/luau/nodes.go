@@ -4,14 +4,16 @@ package luau
 
 type Identifier struct {
 	base
-	Name string
+	Name       string
+	Annotation TypeNode // binding annotation, rendered in parameter lists and `local` left sides
 }
 
 type TemporaryIdentifier struct {
 	base
-	Name      string
-	ID        int
-	ExactName bool
+	Name       string
+	ID         int
+	ExactName  bool
+	Annotation TypeNode // binding annotation, rendered in parameter lists and `local` left sides
 }
 
 type ComputedIndexExpression struct {
@@ -67,6 +69,9 @@ type VarArgsLiteral struct{ base }
 
 type FunctionExpression struct {
 	base
+	ReturnType   TypeNode      // `: R` after the parameter list; nil leaves the return unannotated
+	Generics     []TypeGeneric // `<K, V>` rendered after `function`; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -177,8 +182,11 @@ type ForStatement struct {
 
 type FunctionDeclaration struct {
 	base
+	ReturnType   TypeNode // `: R` after the parameter list; nil leaves the return unannotated
 	Localize     bool
-	Name         Expression // AnyIdentifier | PropertyAccessExpression
+	Name         Expression    // AnyIdentifier | PropertyAccessExpression
+	Generics     []TypeGeneric // `<K, V>` rendered after the name; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -186,8 +194,11 @@ type FunctionDeclaration struct {
 
 type MethodDeclaration struct {
 	base
+	ReturnType   TypeNode // `: R` after the parameter list; nil leaves the return unannotated
 	Expression   IndexableExpression
 	Name         string
+	Generics     []TypeGeneric // `<K, V>` rendered after `:name`; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -371,14 +382,20 @@ func (*ComputedIndexExpression) writableNode()  {}
 
 // ---- HasParameters ----
 
-func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
 
-func (n *FunctionDeclaration) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *FunctionExpression) ReturnTypeData() TypeNode { return n.ReturnType }
+
+func (n *FunctionDeclaration) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
 
-func (n *MethodDeclaration) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *FunctionDeclaration) ReturnTypeData() TypeNode { return n.ReturnType }
+
+func (n *MethodDeclaration) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
+
+func (n *MethodDeclaration) ReturnTypeData() TypeNode { return n.ReturnType }

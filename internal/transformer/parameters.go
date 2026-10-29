@@ -81,6 +81,9 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 			}
 		} else {
 			parameters.Push(paramID)
+			if s.IsNative && ast.IsIdentifier(name) {
+				luau.SetBindingType(paramID, getNativeParameterType(s, parameterNode))
+			}
 		}
 
 		if parameter.Initializer != nil {
