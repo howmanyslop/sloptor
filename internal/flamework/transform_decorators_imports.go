@@ -4,10 +4,10 @@ import "rotor/tsgo/ast"
 
 const flameworkPreludeModule = "@flamework/core/out/prelude"
 
-func decoratorRuntimeImports(expressions, prerequisites []*ast.Node, imports []MacroImport) []MacroImport {
+func decoratorRuntimeImports(state *TransformState, file *ast.SourceFile, expressions, prerequisites []*ast.Node, imports []MacroImport) []MacroImport {
 	for _, node := range append(append([]*ast.Node(nil), expressions...), prerequisites...) {
 		if nodeContainsIdentifier(node, "t") {
-			return append(imports, MacroImport{Module: flameworkPreludeModule, Export: "t", Local: "t"})
+			return append(imports, MacroImport{Module: flameworkGuardLibrary(state, file), Export: "t", Local: "t"})
 		}
 	}
 	return imports
