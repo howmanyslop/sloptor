@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -294,6 +295,23 @@ func newProject(t *testing.T, names ...string) project {
 
 func (p project) findTsConfig(string) (string, error) { return p.config, nil }
 
+// overlayText mirrors the compiler's case-insensitive path lookup on Windows.
+// A file URI round-trip normalizes the drive letter's case, which must not make
+// the open buffer disappear from the census.
+func overlayText(overlays map[string]string, file string) string {
+	if text, ok := overlays[file]; ok {
+		return text
+	}
+	if runtime.GOOS == "windows" {
+		for path, text := range overlays {
+			if strings.EqualFold(path, file) {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
 // noAnyCensus stands in for the compiler: it rejects the word "any" in each
 // project file's buffer the way the real transformer rejects the type, at that
 // word's byte offset. It reads the buffers from the overlays, so a result only
@@ -302,7 +320,7 @@ func (p project) noAnyCensus(_ context.Context, _ string, overlays map[string]st
 	result := &compile.ProjectDiagnostics{ConfigPath: filepath.ToSlash(p.config)}
 	for _, file := range p.files {
 		entry := compile.FileDiagnostics{FileName: filepath.ToSlash(file), Outcome: compile.FileOutcomeOK, Transformed: true}
-		text := overlays[file]
+		text := overlayText(overlays, file)
 		if offset := strings.Index(text, "any"); offset >= 0 {
 			entry.Outcome = compile.FileOutcomeTransformerDiagnostic
 			entry.Diagnostics = []compile.DiagnosticInfo{{

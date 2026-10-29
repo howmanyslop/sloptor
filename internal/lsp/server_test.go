@@ -3,6 +3,7 @@ package lsp_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -135,20 +136,22 @@ func TestFixedFileIsCleared(t *testing.T) {
 // editor without one opts in with typeErrors.
 func TestTypeScriptErrorsAreOptIn(t *testing.T) {
 	typeErrorCensus := func(p project) func(context.Context, string, map[string]string) (*compile.ProjectDiagnostics, error) {
+		typeOnlyPath := filepath.ToSlash(p.files[0])
+		bothPath := filepath.ToSlash(p.files[1])
 		return func(context.Context, string, map[string]string) (*compile.ProjectDiagnostics, error) {
 			typeOnly := compile.FileDiagnostics{
-				FileName: p.files[0], Outcome: compile.FileOutcomeTypeError, Transformed: true,
-				Diagnostics: []compile.DiagnosticInfo{{Code: "TS2322", Message: "Type 'string' is not assignable to type 'number'.", FileName: p.files[0], Offset: 4, Len: 1}},
+				FileName: typeOnlyPath, Outcome: compile.FileOutcomeTypeError, Transformed: true,
+				Diagnostics: []compile.DiagnosticInfo{{Code: "TS2322", Message: "Type 'string' is not assignable to type 'number'.", FileName: typeOnlyPath, Offset: 4, Len: 1}},
 			}
 			both := compile.FileDiagnostics{
-				FileName: p.files[1], Outcome: compile.FileOutcomeTransformerDiagnostic, Transformed: true,
+				FileName: bothPath, Outcome: compile.FileOutcomeTransformerDiagnostic, Transformed: true,
 				Diagnostics: []compile.DiagnosticInfo{
-					{Code: "TS2304", Message: "Cannot find name 'q'.", FileName: p.files[1], Offset: 0, Len: 1},
-					{Code: "noAny", Message: "no any", FileName: p.files[1], Offset: 0, Len: 1},
+					{Code: "TS2304", Message: "Cannot find name 'q'.", FileName: bothPath, Offset: 0, Len: 1},
+					{Code: "noAny", Message: "no any", FileName: bothPath, Offset: 0, Len: 1},
 				},
 			}
 			// Warnings must stay warnings.
-			both.Diagnostics = append(both.Diagnostics, compile.DiagnosticInfo{Code: "someWarning", Message: "careful", Warning: true, FileName: p.files[1], Offset: 0, Len: 1})
+			both.Diagnostics = append(both.Diagnostics, compile.DiagnosticInfo{Code: "someWarning", Message: "careful", Warning: true, FileName: bothPath, Offset: 0, Len: 1})
 			return &compile.ProjectDiagnostics{Files: []compile.FileDiagnostics{typeOnly, both}}, nil
 		}
 	}
@@ -198,10 +201,11 @@ func TestTypeScriptErrorsAreOptIn(t *testing.T) {
 // squiggles and conclude it compiled.
 func TestInternalCompilerErrorIsPublished(t *testing.T) {
 	p := newProject(t, "a.ts")
+	fileName := filepath.ToSlash(p.files[0])
 	census := func(context.Context, string, map[string]string) (*compile.ProjectDiagnostics, error) {
 		return &compile.ProjectDiagnostics{Files: []compile.FileDiagnostics{{
-			FileName: p.files[0], Outcome: compile.FileOutcomeInternalCompilerError,
-			InternalError: &compile.InternalCompilerError{FileName: p.files[0], Value: "assertion failed"},
+			FileName: fileName, Outcome: compile.FileOutcomeInternalCompilerError,
+			InternalError: &compile.InternalCompilerError{FileName: fileName, Value: "assertion failed"},
 		}}}, nil
 	}
 	c := startServer(t, serveConfig{census: census, findCfg: p.findTsConfig})
@@ -233,7 +237,7 @@ func TestCensusErrorIsShownOncePerOccurrence(t *testing.T) {
 	// A buffer containing "fail" stands for a project that cannot be set up.
 	census := func(ctx context.Context, config string, overlays map[string]string) (*compile.ProjectDiagnostics, error) {
 		started <- struct{}{}
-		if strings.Contains(overlays[p.files[0]], "fail") {
+		if strings.Contains(overlayText(overlays, p.files[0]), "fail") {
 			return &compile.ProjectDiagnostics{}, errors.New("tsconfig.json is unreadable")
 		}
 		return p.noAnyCensus(ctx, config, overlays)
