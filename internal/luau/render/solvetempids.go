@@ -242,7 +242,12 @@ func solveTempIDs(state *RenderState, ast luau.NodeOrList) (unsolvedIterators []
 		if _, done := state.seenTempNodes[tempID.ID]; done {
 			continue
 		}
-		scope := nodesToScopes[tempID]
+		scope, ok := nodesToScopes[tempID]
+		if !ok {
+			// Unreachable: every processed temp was registered with its scope
+			// during the walk above.
+			panic("render: solveTempIDs missing scope for temp id") // upstream assert
+		}
 		base := tempID.Name
 		separator := "_"
 		if !tempID.ExactName {

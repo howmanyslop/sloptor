@@ -222,8 +222,8 @@ type State struct {
 	// SourceMapEnabled gates expression origins and occurrence-specific clones.
 	SourceMapEnabled bool
 	// sourceMapColumnIndexes stores sparse UTF-8/UTF-16 corrections by source
-	// file identity. ASCII files have a cached nil slice; maps-off builds do
-	// not allocate an index.
+	// file identity. ASCII files cache an empty (never nil) slice; maps-off
+	// builds do not allocate an index.
 	sourceMapColumnIndexes map[*ast.SourceFile][]sourceColumnCheckpoint
 
 	// ClassIdentifierMap maps a ClassLikeDeclaration node to its INTERNAL luau
@@ -484,6 +484,12 @@ func (s *State) CaptureStatements(cb func()) *luau.List[luau.Statement] {
 func (s *State) Capture(cb func() luau.Expression) (luau.Expression, *luau.List[luau.Statement]) {
 	var value luau.Expression
 	prereqs := s.CaptureStatements(func() { value = cb() })
+	if value == nil {
+		// Upstream's capture<T> cannot observe undefined here: every
+		// transform returns a node (banned kinds yield None). Fail loudly
+		// rather than nil-dereffing downstream.
+		panic("transformer: Capture callback returned nil expression") // upstream assert
+	}
 	return value, prereqs
 }
 

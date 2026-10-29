@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.1-beta.1
+-- Compiled with sloptor v3.0.0-beta.1
 local t = true
 local f = false
 local n = 5

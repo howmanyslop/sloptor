@@ -46,10 +46,12 @@ type ParenthesizedExpression struct {
 
 // ---- expressions ----
 
-type None struct{ base }
-type NilLiteral struct{ base }
-type FalseLiteral struct{ base }
-type TrueLiteral struct{ base }
+type (
+	None         struct{ base }
+	NilLiteral   struct{ base }
+	FalseLiteral struct{ base }
+	TrueLiteral  struct{ base }
+)
 
 type NumberLiteral struct {
 	base

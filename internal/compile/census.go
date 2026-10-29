@@ -75,9 +75,10 @@ type ProjectDiagnostics struct {
 	// Transformed counts the entries of Files whose Transformed is true.
 	Transformed int
 	// OverlayMatches counts the ProjectOptions.Overlays keys that named a file
-	// the program actually holds. A key that matches nothing fails the run, so
-	// a consumer can assert this equals the number of overlays it sent and know
-	// its edit was really compiled.
+	// the program actually holds. A key that matches nothing fails the run
+	// unless ProjectOptions.IgnoreUnmatchedOverlays is set, so a consumer can
+	// assert this equals the number of overlays it sent and know its edit was
+	// really compiled.
 	OverlayMatches int
 }
 

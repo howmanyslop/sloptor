@@ -54,6 +54,11 @@ func validateNotAnyType(s *State, node *ast.Node) {
 // getLiteralNumberValue ports offset.ts getLiteralNumberValue: number
 // literals (and unary-minus-wrapped ones) fold to their JS numeric value.
 func getLiteralNumberValue(expression luau.Expression) (float64, bool) {
+	if expression == nil {
+		// A nil expression matches no case below; spell out the
+		// fallthrough so the checker sees it.
+		return 0, false
+	}
 	switch e := expression.(type) {
 	case *luau.NumberLiteral:
 		value, err := luau.JSNumberParse(e.Value)

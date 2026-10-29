@@ -321,6 +321,9 @@ func mirrorSource(t *testing.T, change func(path string, data []byte) []byte) st
 	if err != nil {
 		t.Fatal(err)
 	}
+	if patches == nil {
+		patches = []string{}
+	}
 	targets, err := patchTargets(patches)
 	if err != nil {
 		t.Fatal(err)

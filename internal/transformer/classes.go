@@ -411,10 +411,12 @@ func transformClassLikeDeclaration(s *State, node *ast.Node) (*luau.List[luau.St
 		if ast.IsAutoAccessorPropertyDeclaration(member) {
 			// member must have AccessorKeyword to be AutoAccessorPropertyDeclaration
 			var keyword *ast.Node
-			for _, modifier := range member.Modifiers().Nodes {
-				if modifier.Kind == ast.KindAccessorKeyword {
-					keyword = modifier
-					break
+			if modifiers := member.Modifiers(); modifiers != nil {
+				for _, modifier := range modifiers.Nodes {
+					if modifier.Kind == ast.KindAccessorKeyword {
+						keyword = modifier
+						break
+					}
 				}
 			}
 			s.Diags.Add(DiagNoAutoAccessorModifiers(keyword))

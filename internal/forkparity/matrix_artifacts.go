@@ -53,7 +53,10 @@ func matrixNormalizeSourceMap(contents []byte, tempRoot string) []byte {
 
 func matrixNormalizeCopyFilesManifest(contents []byte, tempRoot string) []byte {
 	var manifest map[string]any
-	if json.Unmarshal(contents, &manifest) != nil {
+	// A JSON null document unmarshals cleanly into a nil map, which would
+	// panic on assignment below; like unparseable input it normalizes to
+	// itself.
+	if json.Unmarshal(contents, &manifest) != nil || manifest == nil {
 		return contents
 	}
 	manifest["key"] = "<ROOT_KEY>"

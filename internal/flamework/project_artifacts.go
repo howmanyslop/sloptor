@@ -45,7 +45,9 @@ func (p *Project) RuntimeArtifacts() ([]byte, []byte, error) {
 			continue
 		}
 		if pkg.Metadata != nil && pkg.Metadata.Config != nil {
-			configPackages[prefix] = *cloneRuntimeConfig(pkg.Metadata.Config)
+			if cloned := cloneRuntimeConfig(pkg.Metadata.Config); cloned != nil {
+				configPackages[prefix] = *cloned
+			}
 		}
 		if pkg.Metadata == nil || pkg.Metadata.Globs == nil || pkg.Metadata.Globs.Paths == nil {
 			continue

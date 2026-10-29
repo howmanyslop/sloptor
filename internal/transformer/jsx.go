@@ -311,6 +311,11 @@ func isSignificantJsxChild(child *ast.Node) bool {
 // JsxText and empty `{}` JsxExpressions and runs the standard
 // ensureTransformOrder walk.
 func transformJsxChildren(s *State, children []*ast.Node) []luau.Expression {
+	if len(children) == 0 {
+		// Self-closing elements pass nil children — the same empty result
+		// the walk below would produce, without indexing into nothing.
+		return []luau.Expression{}
+	}
 	// findLastIndex(children, child => !isJsxText(child) || !child.containsOnlyTriviaWhiteSpaces)
 	lastJsxChildIndex := -1
 	for i := len(children) - 1; i >= 0; i-- {

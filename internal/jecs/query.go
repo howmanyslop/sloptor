@@ -95,6 +95,9 @@ func (s *state) staticCtToTypeNode(node *ast.Node) *ast.Node {
 		return f.NewTypeQueryNode(s.generateQualifiedName(node), nil)
 	case ast.IsCallExpression(node):
 		arguments := node.Arguments()
+		if len(arguments) < 2 {
+			fail("Unsupported query component type: %s", node.Kind)
+		}
 		return s.jecsType("Pair",
 			s.jecsType("InferComponent", s.staticCtToTypeNode(arguments[0])),
 			s.jecsType("InferComponent", s.staticCtToTypeNode(arguments[1])))

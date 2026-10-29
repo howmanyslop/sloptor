@@ -151,7 +151,9 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 		}
 		if isDead {
 			dispatch.set(nil)
-			_ = w.watches[physical].Close()
+			if watch, ok := w.watches[physical]; ok && watch != nil {
+				_ = watch.Close()
+			}
 			delete(w.watches, physical)
 			delete(w.dispatch, physical)
 		}
@@ -224,7 +226,7 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 			} else {
 				watch, err = w.watcher.WatchDirectory(physical.path, dispatch.deliver, fswatch.WithRecursive())
 			}
-			if err != nil {
+			if err != nil || watch == nil {
 				w.armed = false
 				// A failed ancestor must not suppress working child watches.
 				continue
@@ -237,8 +239,12 @@ func (w *solutionWatches) refresh(sets []compile.SolutionWatchSet, dead map[solu
 		if _, keep := wanted[key]; keep {
 			continue
 		}
-		w.dispatch[key].set(nil)
-		_ = watch.Close()
+		if dispatch := w.dispatch[key]; dispatch != nil {
+			dispatch.set(nil)
+		}
+		if watch != nil {
+			_ = watch.Close()
+		}
 		delete(w.watches, key)
 		delete(w.dispatch, key)
 	}

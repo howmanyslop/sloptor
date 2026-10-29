@@ -23,7 +23,7 @@ type residentProtocolFixture struct {
 func residentProtocolRoot(t *testing.T) string {
 	t.Helper()
 	if p := os.Getenv("RESIDENT_READER_ARTIFACT_DIR"); p != "" {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		name := strings.Map(func(c rune) rune {
@@ -51,14 +51,15 @@ func (f *residentProtocolFixture) write(path string, v any) residentFileRef {
 			f.t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		f.t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0o600); err != nil {
 		f.t.Fatal(err)
 	}
 	return residentFileRef{path, residentTestHash(data)}
 }
+
 func (f *residentProtocolFixture) read(path string) map[string]any {
 	f.t.Helper()
 	data, err := os.ReadFile(path)
@@ -67,17 +68,19 @@ func (f *residentProtocolFixture) read(path string) map[string]any {
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.UseNumber()
-	var v map[string]any
+	v := map[string]any{}
 	if err := decoder.Decode(&v); err != nil {
 		f.t.Fatal(err)
 	}
 	return v
 }
+
 func newResidentProtocolFixture(t *testing.T, key ResidentKey) *residentProtocolFixture {
 	f := &residentProtocolFixture{root: residentProtocolRoot(t), t: t, raw: map[string]map[string]any{}}
 	f.plan = residentReaderPlan{Schema: 1, EvidenceKind: "invented-protocol", PolicySHA256: residentPolicySHA, Campaigns: []residentCampaignInput{{Key: key, Calibration: []residentBatchRef{}, Comparison: []residentBatchRef{}}}}
 	return f
 }
+
 func (f *residentProtocolFixture) add(stage string, chronology int, ratioNumerator uint64) residentBatchRef {
 	t := f.t
 	t.Helper()
@@ -93,7 +96,7 @@ func (f *residentProtocolFixture) add(stage string, chronology int, ratioNumerat
 		count = 40
 	}
 	for _, p := range []string{dir, input, parent, work} {
-		if err := os.MkdirAll(p, 0755); err != nil {
+		if err := os.MkdirAll(p, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}

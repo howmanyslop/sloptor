@@ -50,17 +50,31 @@ func TestResourceExactOrderStatisticsAndLargeHalves(t *testing.T) {
 	raw := [][]resourceCounterPair{{{n, n + 1}, {n + 1, n + 2}, {n + 2, n + 3}, {n + 3, n + 4}}}
 	values := [][]pair{resourceTestConstant(2, float64(n), float64(n))}
 	s := newResourceOrderSamples(values, "job_peak_bytes", []string{"median", "p95"}, raw)
-	median := &s.statistics["median"].point.baseline
+	if s == nil {
+		t.Fatal("newResourceOrderSamples returned nil")
+	}
+	medianSamples := s.statistics["median"]
+	if medianSamples == nil {
+		t.Fatal("missing median order statistics")
+	}
+	median := &medianSamples.point.baseline
 	want := new(big.Int).Add(new(big.Int).Lsh(new(big.Int).SetUint64(n), 1), big.NewInt(3))
-	if median.Cmp(want) != 0 || s.statistics["median"].denominator.Cmp(big.NewInt(2)) != 0 {
+	if median.Cmp(want) != 0 || medianSamples.denominator.Cmp(big.NewInt(2)) != 0 {
 		t.Fatal("even median lost its exact half")
 	}
-	p95 := &s.statistics["p95"].point.baseline
+	p95Samples := s.statistics["p95"]
+	if p95Samples == nil {
+		t.Fatal("missing p95 order statistics")
+	}
+	p95 := &p95Samples.point.baseline
 	if p95.Cmp(new(big.Int).Lsh(new(big.Int).SetUint64(n+3), 1)) != 0 {
 		t.Fatal("wrong nearest-rank p95 index")
 	}
 	for _, name := range []string{"median", "p95"} {
 		samples := s.statistics[name]
+		if samples == nil {
+			t.Fatal("missing order statistics")
+		}
 		samples.draws = []resourceMeanTotals{samples.point, samples.point}
 		d := s.direction(name, false)
 		if d.ExactMarginal.Difference.Value.Cmp(big.NewRat(1, 1)) != 0 {
@@ -72,7 +86,14 @@ func TestResourceExactOrderStatisticsAndLargeHalves(t *testing.T) {
 		twenty = append(twenty, resourceCounterPair{uint64(i), uint64(i + 1)})
 	}
 	ranks := newResourceOrderSamples([][]pair{resourceTestConstant(10, 1, 1)}, "job_peak_bytes", []string{"p95"}, [][]resourceCounterPair{twenty})
-	if ranks.statistics["p95"].point.baseline.Cmp(big.NewInt(36)) != 0 {
+	if ranks == nil {
+		t.Fatal("newResourceOrderSamples returned nil")
+	}
+	ranksP95 := ranks.statistics["p95"]
+	if ranksP95 == nil {
+		t.Fatal("missing p95 order statistics")
+	}
+	if ranksP95.point.baseline.Cmp(big.NewInt(36)) != 0 {
 		t.Fatal("twenty observations must select rank 19, not the maximum")
 	}
 }
@@ -82,6 +103,9 @@ func TestResourceExactMarginalUpperInterpolationNeighbors(t *testing.T) {
 	for _, offset := range []int64{-1, 0, 1} {
 		s := &resourceOrderSamples{statistics: map[string]*resourceExactSamples{"median": {denominator: *big.NewInt(1)}}}
 		dist := s.statistics["median"]
+		if dist == nil {
+			t.Fatal("missing median order statistics")
+		}
 		dist.point.baseline.SetInt64(30)
 		dist.point.candidate.SetInt64(47)
 		for i := range bootstrapReplicates {

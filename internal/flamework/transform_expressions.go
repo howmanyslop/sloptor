@@ -198,6 +198,7 @@ func transformFlameworkExpressionsInSourceFileWithRuntime(state *TransformState,
 		transformed.EndOfFileToken,
 	).AsSourceFile(), nil
 }
+
 func defaultFlameworkMacroRuntime() MacroRuntime {
 	return MacroRuntime{UUID: NewUUIDv4, RandomIndex: flameworkMacroRandomIndex, BuildGuard: buildFlameworkGuardForMacro}
 }
@@ -266,6 +267,7 @@ func macroTransformImports(state *TransformState, node *ast.Node, result MacroTr
 	}
 	return imports
 }
+
 func synthesizedGuardReferenceCount(root *ast.Node) int {
 	if root == nil {
 		return 0

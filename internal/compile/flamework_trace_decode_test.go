@@ -57,7 +57,10 @@ func TestFlameworkTraceDirectMatchesGeneratedJSON(t *testing.T) {
 					line, column int
 					want         *transformer.SourcePosition
 				}{
-					{-1, 0, nil}, {0, -1, nil}, {0, 0, nil}, {0, 1, nil},
+					{-1, 0, nil},
+					{0, -1, nil},
+					{0, 0, nil},
+					{0, 1, nil},
 					{0, 2, &transformer.SourcePosition{Line: 0, Column: 0}},
 					{0, 4, &transformer.SourcePosition{Line: 0, Column: 0}},
 					{0, 5, &transformer.SourcePosition{Line: 1, Column: 2}},
@@ -195,6 +198,9 @@ func TestFlameworkTracePrintedSourceMatchesJSONRoute(t *testing.T) {
 	pipeline, diagnostics, err := prepareFlameworkPipeline(filepath.ToSlash(dir), program, ProjectOptions{})
 	if err != nil {
 		t.Fatalf("prepareFlameworkPipeline: %v (%v)", err, diagnostics)
+	}
+	if pipeline == nil {
+		t.Fatal("prepareFlameworkPipeline returned nil pipeline")
 	}
 	checker, release := program.GetTypeChecker(context.Background())
 	defer release()

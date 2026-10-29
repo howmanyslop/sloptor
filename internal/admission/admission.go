@@ -111,8 +111,12 @@ func (l *Lease) Active() int {
 	return active
 }
 
-// Release frees the slot.
+// Release frees the slot. A nil lease is a no-op so unchecked Acquire
+// results cannot panic their releaser.
 func (l *Lease) Release() {
+	if l == nil {
+		return
+	}
 	if l.file != nil {
 		unlock(l.file)
 		l.file = nil

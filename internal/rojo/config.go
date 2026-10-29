@@ -94,7 +94,7 @@ func parseValue(dec *json.Decoder) (jsonValue, error) {
 	case json.Delim:
 		switch t {
 		case '{':
-			var members []jsonMember
+			members := []jsonMember{}
 			index := make(map[string]int)
 			for dec.More() {
 				keyTok, err := dec.Token()

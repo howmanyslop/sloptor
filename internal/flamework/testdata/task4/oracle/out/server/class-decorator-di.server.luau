@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.1-beta.1
+-- Compiled with sloptor v3.0.0-beta.1
 local TS = require(game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("RuntimeLib"))
 local _core = TS.import(script, game:GetService("ReplicatedStorage"), "rbxts_include", "node_modules", "@flamework", "core", "out")
 local Reflect = _core.Reflect

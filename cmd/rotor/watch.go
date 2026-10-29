@@ -468,7 +468,7 @@ func reportBuildPass(u *ui, result *compile.BuildResult, diags []compile.Diagnos
 		fmt.Fprint(os.Stderr, "\a")
 	}
 	stats.lastFailed = failed
-	if failed {
+	if err != nil {
 		n := len(diags)
 		if n == 0 {
 			n = 1 // a config/validation error with no structured diagnostics
@@ -507,7 +507,7 @@ func guessedOutputDir(projectDir string, result *compile.BuildResult) string {
 
 func stat(path string) fileStamp {
 	info, err := os.Stat(path)
-	if err != nil {
+	if err != nil || info == nil {
 		return fileStamp{}
 	}
 	return watchStamp(path, info)
@@ -539,5 +539,5 @@ func watchContentSensitive(path string) bool {
 // isTerminal reports whether the output is an interactive terminal.
 func isTerminal(f *os.File) bool {
 	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return err == nil && info != nil && info.Mode()&os.ModeCharDevice != 0
 }

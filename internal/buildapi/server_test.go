@@ -119,7 +119,10 @@ func TestServerEOFUnblocksTransformerCallback(t *testing.T) {
 		t.Fatal("callback stayed blocked after EOF")
 	}
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run() error = %v, want nil after EOF", err)
+		}
 	case <-time.After(serverTestTimeout):
 		t.Fatal("server stayed blocked after EOF")
 	}

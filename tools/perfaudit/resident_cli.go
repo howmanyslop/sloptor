@@ -312,7 +312,7 @@ func runResidentPlan(path, output string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		fmt.Fprintf(stderr, "create resident output: %v\n", err)
 		return 2

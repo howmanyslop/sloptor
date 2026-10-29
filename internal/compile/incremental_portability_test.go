@@ -376,6 +376,9 @@ func TestBuildSolutionIncrementalManifestsSurviveCheckoutMove(t *testing.T) {
 		}
 		fixtures = append(fixtures, f)
 	}
+	if len(fixtures) != 2 {
+		t.Fatalf("expected two portable fixtures, got %d", len(fixtures))
+	}
 	f := fixtures[1]
 	for _, project := range []string{"shared", "game"} {
 		opts := f.options()
@@ -546,6 +549,9 @@ func TestIncrementalManifestOnAnotherVolumeSurvivesCheckoutMove(t *testing.T) {
 		}
 	}
 	last := len(dirs) - 1
+	if last < 0 || last >= len(dirs) || last >= len(manifestPaths) || len(manifests) == 0 {
+		t.Fatalf("cross-volume fixture produced %d dirs, want one manifest per checkout", len(dirs))
+	}
 	if err := os.WriteFile(manifestPaths[last], manifests[0], 0o644); err != nil {
 		t.Fatal(err)
 	}

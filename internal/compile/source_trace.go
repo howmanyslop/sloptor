@@ -77,7 +77,12 @@ func newSourceTraceMapFromMappings(version int, mappings, fileName, text string)
 
 func (t *sourceTraceMap) OriginalSourceFileName() string { return t.fileName }
 
-func (t *sourceTraceMap) OriginalSourceText() string { return t.text }
+func (t *sourceTraceMap) OriginalSourceText() string {
+	if t == nil {
+		return ""
+	}
+	return t.text
+}
 
 // diagnosticTraces carries a compile's transformer traces, keyed the way
 // normalizeSourceFilePath keys everything else. It is empty for a project with
@@ -192,6 +197,9 @@ func byteOffsetOf(text string, line, column int) (int, bool) {
 }
 
 func (t *sourceTraceMap) OriginalPosition(position transformer.SourcePosition) *transformer.SourcePosition {
+	if t == nil {
+		return nil
+	}
 	index := sort.Search(len(t.mappings), func(index int) bool {
 		mapping := t.mappings[index]
 		return int(mapping.generatedLine) > position.Line ||

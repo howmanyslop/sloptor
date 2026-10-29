@@ -12,8 +12,8 @@ func exactMeanFixture(metric string, blocks int, a, c uint64) ([]pair, []resourc
 	if metric == "job_cpu_ms" {
 		scale = 10000
 	}
-	var values []pair
-	var counters []resourceCounterPair
+	values := make([]pair, 0, 2*blocks)
+	counters := make([]resourceCounterPair, 0, 2*blocks)
 	for i := range 2 * blocks {
 		order := "AB"
 		if i%2 == 1 {
@@ -32,8 +32,12 @@ func TestResourceExactMeanAbsoluteNeighbors(t *testing.T) {
 		scale     int64
 	}{
 		{"job_cpu_ms", 156250, 10000},
-		{"read_operations", 16, 1}, {"write_operations", 16, 1}, {"other_operations", 16, 1},
-		{"read_bytes", 65536, 1}, {"write_bytes", 4096, 1}, {"other_bytes", 65536, 1},
+		{"read_operations", 16, 1},
+		{"write_operations", 16, 1},
+		{"other_operations", 16, 1},
+		{"read_bytes", 65536, 1},
+		{"write_bytes", 4096, 1},
+		{"other_bytes", 65536, 1},
 	} {
 		t.Run(tc.metric, func(t *testing.T) {
 			for _, offset := range []int64{-1, 0, 1} {

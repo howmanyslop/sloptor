@@ -61,9 +61,17 @@ func TestResourceCorrectionRunFieldsAndDescriptors(t *testing.T) {
 		key   string
 		value any
 	}{
-		{"cleanup_error", "ownership-safe cleanup failed"}, {"cleanup_error", false}, {"CLEANUP_ERROR", nil},
-		{"scope", 42}, {"scope", ""}, {"SCOPE", "shadow"},
-		{"tools", 42}, {"tools", []any{}}, {"tools", map[string]any{"go": 42}}, {"tools", map[string]any{"GO": "shadow"}}, {"TOOLS", map[string]any{}},
+		{"cleanup_error", "ownership-safe cleanup failed"},
+		{"cleanup_error", false},
+		{"CLEANUP_ERROR", nil},
+		{"scope", 42},
+		{"scope", ""},
+		{"SCOPE", "shadow"},
+		{"tools", 42},
+		{"tools", []any{}},
+		{"tools", map[string]any{"go": 42}},
+		{"tools", map[string]any{"GO": "shadow"}},
+		{"TOOLS", map[string]any{}},
 	} {
 		t.Run(tc.key+"/"+string(mustResourceJSON(t, tc.value)), func(t *testing.T) {
 			bad := changeResourceRun(t, r, func(run map[string]any) { run[tc.key] = tc.value })

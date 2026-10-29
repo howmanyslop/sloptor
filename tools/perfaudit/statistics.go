@@ -56,6 +56,9 @@ type phaseStatistics struct {
 
 func median(values []float64) float64 {
 	ordered := slices.Clone(values)
+	if ordered == nil {
+		ordered = []float64{}
+	}
 	slices.Sort(ordered)
 	m := len(ordered) / 2
 	if len(ordered)%2 == 1 {
@@ -66,6 +69,9 @@ func median(values []float64) float64 {
 
 func p95(values []float64) float64 {
 	ordered := slices.Clone(values)
+	if ordered == nil {
+		ordered = []float64{}
+	}
 	slices.Sort(ordered)
 	return ordered[(95*len(ordered)+99)/100-1]
 }

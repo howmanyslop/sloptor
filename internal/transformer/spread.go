@@ -318,6 +318,10 @@ func transformSpreadElement(s *State, node *ast.Node) luau.Expression {
 		panic("transformer: transformSpreadElement: unexpected parent " + kindName(parent.Kind)) // upstream assert
 	}
 	arguments := parent.Arguments()
+	if len(arguments) == 0 {
+		// node is itself one of parent's arguments, so this is unreachable.
+		panic("transformer: transformSpreadElement: spread has no parent arguments") // upstream assert
+	}
 	if arguments[len(arguments)-1] != node {
 		s.Diags.Add(DiagNoPrecedingSpreadElement(node))
 	}

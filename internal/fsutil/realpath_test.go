@@ -37,7 +37,6 @@ func TestEvalSymlinksResolvesAliasedDirectories(t *testing.T) {
 
 			// When a file is resolved through the alias
 			got, err := EvalSymlinks(filepath.Join(alias, "a.ts"))
-
 			// Then it has the real spelling
 			if err != nil {
 				t.Fatal(err)

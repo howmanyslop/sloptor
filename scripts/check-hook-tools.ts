@@ -27,31 +27,25 @@ async function runAsync(command: string, parameters: ReadonlyArray<string>, capt
 }
 
 const enum HookTool {
-	Gitleaks = "gitleaks",
+	Deadcode = "deadcode",
 	Shfmt = "shfmt",
 	Typos = "typos",
 }
 
-async function runGitleaksAsync(files: ReadonlyArray<string>): Promise<void> {
-	let next = 0;
-	let failed = false;
-
-	const workers = Array.from({ length: Math.min(8, files.length) }, async () => {
-		while (next < files.length) {
-			const file = files[next++];
-			if (file === undefined) break;
-
-			// oxlint-disable-next-line no-await-in-loop -- sequential to prevent overload
-			const { code } = await runAsync("gitleaks", ["dir", "--redact", "--no-banner", "--log-level=error", file]);
-			if (code !== 0) {
-				console.error(`gitleaks failed: ${file}`);
-				failed = true;
-			}
-		}
-	});
-	await Promise.all(workers);
-	// oxlint-disable-next-line typescript/no-unnecessary-condition -- lol what
-	if (failed) exit(1);
+/**
+ * Fails on any output, since deadcode exits 0 when it reports unreachable
+ * functions.
+ *
+ * @param packages - The Go package patterns to analyze.
+ */
+async function runDeadcodeAsync(packages: ReadonlyArray<string>): Promise<void> {
+	const { code, output } = await runAsync(
+		"deadcode",
+		["-test", "-filter=^rotor/(internal|cmd|tools)", ...packages],
+		true,
+	);
+	if (output) process.stdout.write(output);
+	if (code !== 0 || output.trim()) exit(1);
 }
 async function runShfmtAsync(files: ReadonlyArray<string>): Promise<void> {
 	const { code, output } = await runAsync("shfmt", ["-i", "4", "-l", "--apply-ignore", ...files], true);
@@ -67,19 +61,20 @@ async function runTyposAsync(files: ReadonlyArray<string>): Promise<void> {
 const { command, log } = createScriptCommand("1.0.0", "Runs hooks for `hk`.");
 
 command
-	.type("hook-tool", new EnumType([HookTool.Gitleaks, HookTool.Shfmt, HookTool.Typos]))
+	.type("hook-tool", new EnumType([HookTool.Deadcode, HookTool.Shfmt, HookTool.Typos]))
 	.argument("<tool:hook-tool>", "The hook tool to check.")
-	.argument("[files...:file]", "The files to check.")
+	.argument("[files...:file]", "The files (or, for deadcode, Go packages) to check.")
 	.action(async (_, hookTool, ...files) => {
-		// tag-only pushes and empty diffs hand hk no files; shfmt/typos would scan the cwd
+		if (hookTool === HookTool.Deadcode) {
+			await runDeadcodeAsync(files);
+			return;
+		}
+
+		// tag-only pushes and empty diffs hand hk no files; shfmt/typos would
+		// scan the cwd
 		if (files.length === 0) return;
 
 		switch (hookTool) {
-			case HookTool.Gitleaks: {
-				await runGitleaksAsync(files);
-				break;
-			}
-
 			case HookTool.Shfmt: {
 				await runShfmtAsync(files);
 				break;

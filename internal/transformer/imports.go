@@ -487,6 +487,11 @@ func transformExportEquals(s *State, node *ast.Node) *luau.List[luau.Statement] 
 	s.HasExportEquals = true
 
 	sourceFile := ast.GetSourceFileOfNode(node)
+	if sourceFile == nil {
+		// An export assignment always comes from a real tree, so this is
+		// unreachable — but never emit a half-file if one ever detaches.
+		return luau.NewList[luau.Statement]()
+	}
 	stmts := sourceFile.Statements.Nodes
 	finalStatement := stmts[len(stmts)-1]
 	result := luau.NewList[luau.Statement]()

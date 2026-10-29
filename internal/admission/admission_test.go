@@ -53,11 +53,14 @@ func TestAcquireWaitsForAFreeSlot(t *testing.T) {
 // Catches a build sizing itself as if alone while others run.
 func TestActiveCountsConcurrentBuilds(t *testing.T) {
 	dir := t.TempDir()
-	var leases []*Lease
+	leases := make([]*Lease, 0, 3)
 	for range 3 {
 		lease, err := acquireWithin(t, dir, 4, time.Second)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if lease == nil {
+			t.Fatal("acquireWithin returned nil lease with nil error")
 		}
 		leases = append(leases, lease)
 	}

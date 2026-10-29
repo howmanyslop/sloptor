@@ -284,6 +284,9 @@ func seedPatchBases(candidate, currentMirror string) error {
 	if err != nil {
 		return err
 	}
+	if patches == nil {
+		patches = []string{}
+	}
 	targets, err := patchTargets(patches)
 	if err != nil {
 		return err
