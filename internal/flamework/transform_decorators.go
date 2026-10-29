@@ -123,7 +123,7 @@ func transformDecoratorConfig(
 			return nil, nil, nil, fmt.Errorf("transform component decorator config: %w", err)
 		}
 		transformed := []*ast.Node{state.factory.UpdateObjectLiteralExpression(object, state.factory.NewNodeList(properties), true)}
-		return transformed, prerequisites, decoratorRuntimeImports(transformed, prerequisites, imports), nil
+		return transformed, prerequisites, decoratorRuntimeImports(state, ast.GetSourceFileOfNode(declaration), transformed, prerequisites, imports), nil
 	}
 	transformed := make([]*ast.Node, len(arguments))
 	prerequisites := make([]*ast.Node, 0)
@@ -137,7 +137,7 @@ func transformDecoratorConfig(
 		prerequisites = append(prerequisites, updated.prerequisites...)
 		imports = append(imports, updated.imports...)
 	}
-	return transformed, prerequisites, decoratorRuntimeImports(transformed, prerequisites, imports), nil
+	return transformed, prerequisites, decoratorRuntimeImports(state, ast.GetSourceFileOfNode(declaration), transformed, prerequisites, imports), nil
 }
 
 func transformDecoratorArgument(state *TransformState, argument *ast.Node) (expressionTransformResult, error) {

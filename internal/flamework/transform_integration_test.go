@@ -199,6 +199,8 @@ func TestTransform_placesMacroImportsAndPrerequisitesBeforeOwningClass(t *testin
 	directory := t.TempDir()
 	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
 	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"experimentalDecorators":true,"rootDir":"src","outDir":"out"},"files":["src/service.ts"]}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/package.json", `{"name":"@flamework/core","version":"1.3.2"}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/node_modules/@rbxts/t/package.json", `{"name":"@rbxts/t","version":"3.2.1"}`)
 	writeTransformFixture(t, directory, "src/service.ts", strings.Join([]string{
 		`type Generic<T, M extends string> = { _flamework_macro_generic: [T, M] };`,
 		`interface Leaf { id: string; value: number }`,
@@ -230,4 +232,63 @@ func TestTransform_placesMacroImportsAndPrerequisitesBeforeOwningClass(t *testin
 		t.Fatalf("macro import was not deduplicated:\n%s", printed)
 	}
 	t.Logf("ordered macro/decorator TypeScript:\n%s", printed)
+}
+
+func TestTransform_sharesGuardLibraryImportBetweenMacrosAndComponentDecorators_whenProjectOwnsRbxtsT(t *testing.T) {
+	// Given
+	directory := t.TempDir()
+	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
+	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"experimentalDecorators":true,"strict":true,"rootDir":"src","outDir":"out","moduleResolution":"node"},"files":["src/globals.d.ts","src/thing.ts"]}`)
+	writeTransformFixture(t, directory, "node_modules/@rbxts/t/package.json", `{"name":"@rbxts/t","version":"3.2.1"}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/package.json", `{"name":"@flamework/core","version":"1.3.2","types":"out/index.d.ts"}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/out/index.d.ts", strings.Join([]string{
+		`type Generic<T, M extends string> = { _flamework_macro_generic: [T, M] };`,
+		`export declare namespace Flamework {`,
+		`  /** @metadata macro */`,
+		`  function createGuard<T>(meta?: Generic<T, "guard">): unknown;`,
+		`}`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "node_modules/@flamework/components/package.json", `{"name":"@flamework/components","version":"1.3.2","types":"out/index.d.ts"}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/components/out/index.d.ts", strings.Join([]string{
+		`export declare class BaseComponent<A = {}, I extends Instance = Instance> {`,
+		`  /** @metadata intrinsic-component-attributes */`,
+		`  attributes: A;`,
+		`  /** @metadata intrinsic-component-instance */`,
+		`  instance: I;`,
+		`}`,
+		`export interface ComponentConfig { tag?: string; attributes?: object; instanceGuard?: unknown; }`,
+		`/** @metadata intrinsic-component-decorator */`,
+		`export declare const Component: (opts?: ComponentConfig) => ClassDecorator & { _flamework_Decorator: "Class" };`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/globals.d.ts", strings.Join([]string{
+		`interface Instance { readonly _nominal_Instance: unique symbol; }`,
+		`interface BasePart extends Instance { readonly _nominal_BasePart: unique symbol; }`,
+	}, "\n"))
+	writeTransformFixture(t, directory, "src/thing.ts", strings.Join([]string{
+		`import { Flamework } from "@flamework/core";`,
+		`import { BaseComponent, Component } from "@flamework/components";`,
+		`interface Config { speed: number; }`,
+		`export const isConfig = Flamework.createGuard<Config>();`,
+		`interface Attributes { enabled: boolean; }`,
+		`@Component({ tag: "Thing" })`,
+		`export class Thing extends BaseComponent<Attributes, BasePart> {}`,
+	}, "\n"))
+	input := newClassAnalysisInput(t, directory, "src/thing.ts")
+
+	// When
+	result, err := Transform(input)
+	// Then
+	if err != nil {
+		t.Fatalf("Transform() error = %v", err)
+	}
+	printed := printer.NewPrinter(printer.PrinterOptions{}, printer.PrintHandlers{}, nil).EmitSourceFile(result.Files[0])
+	if !strings.Contains(printed, `"enabled": t["boolean"]`) || !strings.Contains(printed, `"speed": t["number"]`) {
+		t.Fatalf("guard macro and component attributes were not both transformed:\n%s", printed)
+	}
+	if count := strings.Count(printed, `from "@rbxts/t";`); count != 1 {
+		t.Fatalf("@rbxts/t import count = %d, want 1:\n%s", count, printed)
+	}
+	if strings.Contains(printed, `from "@flamework/core/out/prelude"`) {
+		t.Fatalf("component decorator imported t from the prelude instead of the resolved guard library:\n%s", printed)
+	}
 }

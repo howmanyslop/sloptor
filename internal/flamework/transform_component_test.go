@@ -19,6 +19,8 @@ func TestUpdateFlameworkComponentConfig_generatesImportedComponentPayloadAndPrel
 	directory := t.TempDir()
 	writeTransformFixture(t, directory, "package.json", `{"name":"fixture-game","version":"1.0.0"}`)
 	writeTransformFixture(t, directory, "tsconfig.json", `{"compilerOptions":{"experimentalDecorators":true,"strict":true,"rootDir":"src","outDir":"out","moduleResolution":"node"},"files":["src/globals.d.ts","src/component.ts"]}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/package.json", `{"name":"@flamework/core","version":"1.3.2"}`)
+	writeTransformFixture(t, directory, "node_modules/@flamework/core/node_modules/@rbxts/t/package.json", `{"name":"@rbxts/t","version":"3.2.1"}`)
 	writeTransformFixture(t, directory, "node_modules/@flamework/components/package.json", `{"name":"@flamework/components","version":"1.3.2","types":"out/index.d.ts"}`)
 	writeTransformFixture(t, directory, "node_modules/@flamework/components/out/index.d.ts", `export { BaseComponent } from "./baseComponent"; export { Component } from "./components";`)
 	writeTransformFixture(t, directory, "node_modules/@flamework/components/out/baseComponent.d.ts", strings.Join([]string{
@@ -67,7 +69,7 @@ func TestUpdateFlameworkComponentConfig_generatesImportedComponentPayloadAndPrel
 	// When
 	properties, err := updateFlameworkComponentConfig(state, classDeclaration, config.Properties.Nodes)
 	object := state.factory.NewObjectLiteralExpression(state.factory.NewNodeList(properties), true)
-	imports := decoratorRuntimeImports([]*ast.Node{object}, nil, nil)
+	imports := decoratorRuntimeImports(state, sourceFile, []*ast.Node{object}, nil, nil)
 	defaultProperties, defaultErr := updateFlameworkComponentConfig(state, findNamedClass(t, sourceFile.AsNode(), "DefaultInstanceComponent"), nil)
 
 	// Then

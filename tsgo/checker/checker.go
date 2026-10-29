@@ -10414,7 +10414,6 @@ func (c *Checker) checkCollisionsForDeclarationName(node *ast.Node, name *ast.No
 		return
 	}
 	c.checkCollisionWithRequireExportsInGeneratedCode(node, name)
-	c.checkCollisionWithGlobalObjectInGeneratedCode(node, name)
 	c.checkCollisionWithGlobalPromiseInGeneratedCode(node, name)
 	c.recordPotentialCollisionWithWeakMapSetInGeneratedCode(node, name)
 	c.recordPotentialCollisionWithReflectInGeneratedCode(node, name)

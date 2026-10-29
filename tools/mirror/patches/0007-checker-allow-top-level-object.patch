@@ -1,0 +1,12 @@
+diff --git a/tsgo/checker/checker.go b/tsgo/checker/checker.go
+index e46ea5fefacad6a484a03c39be8029d919e783f8..b62c8730d2314eace8a7a566fb5cb785ab6dd5e7 100644
+--- a/tsgo/checker/checker.go
++++ b/tsgo/checker/checker.go
+@@ -10414,7 +10414,6 @@ func (c *Checker) checkCollisionsForDeclarationName(node *ast.Node, name *ast.No
+ 		return
+ 	}
+ 	c.checkCollisionWithRequireExportsInGeneratedCode(node, name)
+-	c.checkCollisionWithGlobalObjectInGeneratedCode(node, name)
+ 	c.checkCollisionWithGlobalPromiseInGeneratedCode(node, name)
+ 	c.recordPotentialCollisionWithWeakMapSetInGeneratedCode(node, name)
+ 	c.recordPotentialCollisionWithReflectInGeneratedCode(node, name)
