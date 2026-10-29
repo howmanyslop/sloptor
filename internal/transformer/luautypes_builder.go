@@ -2,6 +2,7 @@ package transformer
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"rotor/internal/luau"
@@ -374,8 +375,8 @@ func (b *typeBuilder) buildNil(ctx typeContext) luau.TypeNode {
 // still being built must repeat the alias's own type arguments: Luau
 // requires recursive aliases to be referenced with identical arguments.
 func (b *typeBuilder) BuildAliasReference(t *checker.Type, ctx typeContext) (builtType, bool) {
-	symbol, declaration := b.aliasSymbolOf(t)
-	if symbol == nil || !b.spelling.ShouldAlias(b.state, symbol, declaration) {
+	symbol, _ := b.aliasSymbolOf(t)
+	if symbol == nil {
 		return builtType{}, false
 	}
 	entry := b.aliasFor(symbol)
@@ -390,7 +391,7 @@ func (b *typeBuilder) BuildAliasReference(t *checker.Type, ctx typeContext) (bui
 		node := b.lose(lossRecursiveAliasArgs, t, anyType(), ctx, "a recursive alias must be referenced with its own type arguments")
 		return b.finish(node, false), true
 	}
-	reference := luau.NewTypeReference(entry.Name, b.BuildTypeArgs(arguments, ctx.nested()))
+	reference := luau.NewTypeReference(entry.Name, b.BuildTypeArgs(declaredArguments(entry, arguments), ctx.nested()))
 	b.Origins[reference] = symbol
 	return b.finish(reference, false), true
 }
@@ -436,9 +437,11 @@ func aliasDeclarationOf(symbol *ast.Symbol) *ast.Node {
 }
 
 // aliasFor registers symbol's `type` statement on first use and builds its
-// body with the alias's own generics in a barrier scope, then lets the
-// spelling finish (or reject) the body. The entry is registered before the
-// body is built, so a self reference resolves to the name.
+// generic defaults and body with the alias's own generics in a barrier
+// scope, then lets the spelling finish (or reject) the body. The entry is
+// registered before the body is built, so a self reference resolves to the
+// name. nil when the spelling declines the symbol or rejects the body:
+// references are then spelled inline.
 func (b *typeBuilder) aliasFor(symbol *ast.Symbol) *typeAliasEntry {
 	if symbol == nil {
 		return nil
@@ -446,23 +449,38 @@ func (b *typeBuilder) aliasFor(symbol *ast.Symbol) *typeAliasEntry {
 	if entry, seen := b.aliases[symbol]; seen {
 		return entry
 	}
-	declaration := aliasDeclarationOf(symbol)
+	declaration := b.state.luauFirstDeclaration(symbol)
 	if declaration == nil {
+		declaration = aliasDeclarationOf(symbol)
+	}
+	if declaration == nil || !b.spelling.ShouldAlias(b.state, symbol, declaration) {
 		b.aliases[symbol] = nil
 		return nil
 	}
 	generics := b.Generics(declaration)
-	name := b.spelling.AliasName(b.state, symbol)
-	statement := luau.NewTypeAlias(name, generics, nil)
+	name := b.uniqueName(b.spelling.AliasName(b.state, symbol))
 	declared := b.state.Checker.GetDeclaredTypeOfSymbol(symbol)
-	entry := &typeAliasEntry{Symbol: symbol, Statement: statement, Name: name, Generics: generics, Kind: nativeKindTable, building: true}
+	entry := &typeAliasEntry{
+		Symbol:    symbol,
+		Name:      name,
+		Generics:  generics,
+		Kind:      nativeKindTable,
+		Exported:  b.state.isLuauExportedType(symbol),
+		Placement: b.state.aliasPlacementFor(declaration),
+		building:  true,
+	}
 	if declared != nil && !ast.IsInterfaceDeclaration(declaration) && len(b.state.Checker.GetCallSignatures(declared)) > 0 {
 		entry.Kind = nativeKindFunction
 		entry.Callable = true
 	}
-	for _, parameter := range declaredTypeParameters(declaration) {
+	for index, parameter := range declaredTypeParameters(declaration) {
+		var parameterType *checker.Type
 		if parameterSymbol := parameter.Symbol(); parameterSymbol != nil {
-			entry.Params = append(entry.Params, b.state.Checker.GetDeclaredTypeOfSymbol(parameterSymbol))
+			parameterType = b.state.Checker.GetDeclaredTypeOfSymbol(parameterSymbol)
+		}
+		entry.Params = append(entry.Params, parameterType)
+		if parameterName := parameter.Name(); parameterName != nil && luau.IsValidIdentifier(parameterName.Text()) {
+			entry.GenericIndexes = append(entry.GenericIndexes, index)
 		}
 	}
 	b.aliases[symbol] = entry
@@ -487,22 +505,76 @@ func (b *typeBuilder) aliasFor(symbol *ast.Symbol) *typeAliasEntry {
 	b.state.PushTypeGenerics(names, true)
 	savedDepth, savedStack := b.depth, b.stack
 	b.depth, b.stack = 0, nil
+	lossesBefore := len(b.losses)
+	entry.Generics = b.aliasGenerics(entry, declaration)
 	bodyContext := typeContext{Position: positionAliasBody, Receiver: receiver, This: receiver, Owner: declaration}
 	built := b.Build(declared, bodyContext)
+	for _, loss := range b.losses[lossesBefore:] {
+		if loss.Node == declaration {
+			entry.Losses = append(entry.Losses, loss)
+		}
+	}
 	b.depth, b.stack = savedDepth, savedStack
 	b.state.PopTypeGenerics()
 
 	entry.building = false
 	entry.Kind = built.Kind
 	entry.Callable = built.Kind == nativeKindFunction
+	entry.Statement = luau.NewTypeAlias(name, entry.Generics, nil)
 	body, keep := b.spelling.FinishAliasBody(b.state, entry, built.Node)
 	if !keep {
 		b.aliases[symbol] = nil
 		b.aliasOrder = slices.DeleteFunc(b.aliasOrder, func(existing *typeAliasEntry) bool { return existing == entry })
+		delete(b.aliasNames, name)
 		return nil
 	}
-	statement.SetBody(body)
+	entry.Statement.SetBody(body)
 	return entry
+}
+
+// anonymousAlias is the Anonymous_N alias synthesized for a recursive
+// anonymous object type t, registered (still bodyless) the first time the
+// builder meets t inside its own table. The outermost BuildTable call for t
+// then owns the body: finishAnonymousAlias installs it. Luau has no other
+// spelling for a cycle through unnamed types.
+func (b *typeBuilder) anonymousAlias(t *checker.Type) *typeAliasEntry {
+	if entry := b.anonymous[t]; entry != nil {
+		return entry
+	}
+	b.anonymousCount++
+	name := b.uniqueName("Anonymous_" + strconv.Itoa(b.anonymousCount))
+	entry := &typeAliasEntry{
+		Symbol:    &ast.Symbol{Name: name},
+		Statement: luau.NewTypeAlias(name, nil, nil),
+		Name:      name,
+		Kind:      nativeKindTable,
+		Placement: hoisted,
+		building:  true,
+	}
+	b.anonymous[t] = entry
+	b.aliases[entry.Symbol] = entry
+	b.aliasOrder = append(b.aliasOrder, entry)
+	return entry
+}
+
+// anonymousReference spells a reference to t's synthesized alias.
+func (b *typeBuilder) anonymousReference(entry *typeAliasEntry) luau.TypeNode {
+	reference := luau.TypeName(entry.Name)
+	b.Origins[reference] = entry.Symbol
+	return reference
+}
+
+// finishAnonymousAlias installs table as the body of t's synthesized alias
+// when one was registered while table was being built, and returns the
+// reference that stands for t from now on; otherwise it returns table.
+func (b *typeBuilder) finishAnonymousAlias(t *checker.Type, table *luau.TypeTable) luau.TypeNode {
+	entry := b.anonymous[t]
+	if entry == nil || !entry.building {
+		return table
+	}
+	entry.building = false
+	entry.Statement.SetBody(table)
+	return b.anonymousReference(entry)
 }
 
 // aliasTypeArguments are the arguments a reference passes to the alias: the
@@ -646,14 +718,19 @@ func (b *typeBuilder) BuildObject(t *checker.Type, ctx typeContext) builtType {
 		}
 		return b.finish(anyType(), false)
 	}
+	if entry := b.anonymous[t]; entry != nil && !entry.building {
+		return b.finish(b.anonymousReference(entry), false)
+	}
 	table := b.BuildTable(t, ctx)
 	if table == nil {
-		return b.finish(b.lose(lossUnspellable, t, anyType(), ctx, "recursive anonymous object type"), false)
+		// t is on the stack: a cycle through an anonymous type, which only
+		// a synthesized alias can spell.
+		return b.finish(b.anonymousReference(b.anonymousAlias(t)), false)
 	}
 	if symbol != nil && symbol.Flags&(ast.SymbolFlagsInterface|ast.SymbolFlagsEnum|ast.SymbolFlagsClass) != 0 {
 		b.Origins[table] = symbol
 	}
-	return b.finish(table, false)
+	return b.finish(b.finishAnonymousAlias(t, table), false)
 }
 
 // buildArray spells `T[]` as `{ T }`, `ReadonlyArray<T>` as `{ read T }`,
@@ -762,14 +839,19 @@ func (b *typeBuilder) buildClassValue(t *checker.Type, ctx typeContext) builtTyp
 	if node := b.spelling.SpellClassValue(b, t); node != nil {
 		return b.finish(node, false)
 	}
+	if entry := b.anonymous[t]; entry != nil && !entry.building {
+		return b.finish(b.anonymousReference(entry), false)
+	}
 	table := b.BuildTable(t, ctx)
 	if table == nil {
-		return b.finish(b.lose(lossUnspellable, t, anyTable(), ctx, "recursive class value type"), false)
+		// A static typed as its own class value: a cycle through the
+		// anonymous class value table, spelled by a synthesized alias.
+		return b.finish(b.anonymousReference(b.anonymousAlias(t)), false)
 	}
 	if symbol := t.Symbol(); symbol != nil && symbol.Flags&ast.SymbolFlagsClass != 0 {
 		b.Origins[table] = symbol
 	}
-	return b.finish(table, false)
+	return b.finish(b.finishAnonymousAlias(t, table), false)
 }
 
 // BuildTable spells one object level as a table type, or nil when the type
@@ -793,8 +875,9 @@ func (b *typeBuilder) BuildTable(t *checker.Type, ctx typeContext) *luau.TypeTab
 	symbolKeyLost, readonlyLost, privateLost := false, false, false
 	for _, property := range b.state.Checker.GetPropertiesOfType(t) {
 		name := property.Name
-		if strings.HasPrefix(name, "__@") {
-			// Computed/ES-symbol member: no Luau spelling.
+		if strings.HasPrefix(name, "__@") || strings.HasPrefix(name, ast.InternalSymbolNamePrefix) {
+			// Computed/ES-symbol member (tsgo spells a known symbol as
+			// `\xFE@iterator@<id>`): no Luau spelling.
 			if !symbolKeyLost {
 				b.record(lossSymbolKey, name, nil, ctx, "symbol-keyed members are skipped")
 				symbolKeyLost = true

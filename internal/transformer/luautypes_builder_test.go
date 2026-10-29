@@ -330,11 +330,23 @@ func TestLuauTypesBuilderTables(t *testing.T) {
 		{name: "up", want: `"up"`},
 		{name: "directionObject", want: `{ read Up: "up", read Down: "down" }`},
 		{name: "foo", want: "Foo"},
-		// The class value is structural; its recursive `self` static is the
-		// anonymous-recursion guard at work.
-		{name: "fooClass", want: "{ new: (x: number) -> Foo, self: { [any]: any }, make: () -> Foo, prototype: Foo }", losses: []fidelityLossKind{lossUnspellable}},
+		// The class value is structural; its recursive `self` static makes
+		// it a cycle through an anonymous type, which only a synthesized
+		// hoisted alias can spell.
+		{name: "fooClass", want: "Anonymous_1"},
 		{name: "box", want: "Box<number>"},
 	}, func(name string) string { return text(fixture.variableType(name).Node) })
+
+	anonymous := fixture.builder().anonymous[fixture.state.Checker.GetTypeAtLocation(fixture.declaration("fooClass").Name())]
+	if anonymous == nil {
+		t.Fatal("fooClass did not register a synthesized alias")
+	}
+	if got, want := strings.TrimSpace(text(anonymous.Statement)), "type Anonymous_1 = { new: (x: number) -> Foo, self: Anonymous_1, make: () -> Foo, prototype: Foo }"; got != want {
+		t.Errorf("synthesized alias %q, want %q", got, want)
+	}
+	if anonymous.Placement != hoisted || anonymous.Exported || anonymous.Kind != nativeKindTable {
+		t.Errorf("synthesized alias entry = %+v, want a hoisted, unexported table alias", anonymous)
+	}
 }
 
 func TestLuauTypesBuilderFunctions(t *testing.T) {

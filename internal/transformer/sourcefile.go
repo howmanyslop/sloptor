@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"rotor/internal/luau"
+	"rotor/internal/luau/render"
 	"rotor/internal/rojo"
 	"rotor/internal/version"
 	"rotor/tsgo/ast"
@@ -49,6 +50,12 @@ func TransformSourceFile(s *State) *luau.List[luau.Statement] {
 	ensureModuleReturn(statements, isModuleScript)
 
 	prependHeader(s, statements)
+
+	if s.IsLuauTyped {
+		// Full-fidelity aliases run long; break wide tables and alias-body
+		// unions across lines. Native output stays single-line.
+		render.LayoutTypes(statements, render.DefaultTypeLineWidth)
+	}
 
 	return statements
 }
@@ -120,8 +127,10 @@ func (state *State) nativeTypeAliasStatements() *luau.List[luau.Statement] {
 // comments) above it. The header comment text starts with a space so it
 // renders `-- Compiled with sloptor v2.3.0` (or the HeaderComment override).
 //
-// Type aliases gathered from `//!native` annotations follow the header, before
-// the first statement.
+// Hoisted type aliases follow the header, before the first statement: the
+// luauTypes registry's hoisted entries (nested, ambient, imported, library
+// and synthesized types; see luautypes_alias.go) in luauTypes mode, else the
+// aliases gathered from `//!native` annotations.
 func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 	headerStatements := luau.NewList[luau.Statement]()
 	headerStatements.Push(luau.NewComment(HeaderComment))
@@ -130,7 +139,11 @@ func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 		headerStatements.Push(s.CreateRuntimeLibImport(s.SourceFile))
 	}
 
-	headerStatements.PushList(s.nativeTypeAliasStatements())
+	if s.IsLuauTyped {
+		headerStatements.PushList(s.luauHoistedTypeStatements())
+	} else {
+		headerStatements.PushList(s.nativeTypeAliasStatements())
+	}
 
 	// Only a run of comments already at the very head of the list qualifies;
 	// the scan stops at the first non-`!` comment or non-comment.

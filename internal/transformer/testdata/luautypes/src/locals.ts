@@ -1,5 +1,8 @@
-// Placeholder for WP6: an explicitly annotated `let`, an uninitialized `let`
-// and an inferred `const`.
+// Locals: an explicitly annotated `let`, an annotation wider than its
+// initializer, an uninitialized `let`, an inferred `const`, a local hoisted
+// above its declaration, and bindings imported from a sibling module.
+import { aNumber, aString } from "./primitives";
+
 export function locals(): number {
 	let count: number = 0;
 	let label: string | undefined;
@@ -9,4 +12,17 @@ export function locals(): number {
 		label = name;
 	}
 	return label === undefined ? count : count + label.size();
+}
+
+export function widened(flag: boolean): string | number {
+	const value: string | number = flag ? "a" : 1;
+	return value;
+}
+
+export function hoisted(): number {
+	return later() + aNumber + aString.size();
+}
+
+function later(): number {
+	return 1;
 }

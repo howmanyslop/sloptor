@@ -41,6 +41,7 @@ declare extern type Vector3 with
 	Magnitude: number
 	Unit: Vector3
 	function Dot(self, other: Vector3): number
+	function __add(self, other: Vector3): Vector3
 end
 
 declare extern type CFrame with

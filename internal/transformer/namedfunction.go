@@ -40,6 +40,7 @@ func emitNamedFunctionExpression(
 	)
 	declaration.Generics = body.generics
 	declaration.ReturnType = body.returnType
+	declaration.VarArgsType = body.varArgsType
 	statements := luau.NewList[luau.Statement](declaration)
 	s.setNodeSourcePosition(statements.Head.Value, node)
 	if isAsync {

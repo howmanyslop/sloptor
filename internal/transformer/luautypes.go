@@ -172,9 +172,8 @@ type typeSpelling interface {
 }
 
 // defaultSpelling is full fidelity: every named interface, type alias and
-// enum declared outside a library file gets a `type` statement under its own
-// name, and nothing is widened. The alias registry (naming, exports,
-// placement, imported types) is refined by WP5 through these same hooks.
+// enum gets a `type` statement (library and imported types as hoisted
+// mirrors, see luautypes_alias.go), and nothing is widened.
 type defaultSpelling struct{}
 
 func (defaultSpelling) SpellTypeParameter(*typeBuilder, *checker.Type, string) luau.TypeNode {
@@ -219,38 +218,62 @@ func isTypeLevelComputation(t *checker.Type) bool {
 	return t.Flags()&checker.TypeFlagsObject != 0 && t.ObjectFlags()&checker.ObjectFlagsMapped != 0
 }
 
-// AliasName is the TS name when Luau can spell it. Uniqueness against other
-// aliases, builtins and type-function names is WP5's job.
-func (defaultSpelling) AliasName(_ *State, symbol *ast.Symbol) string {
-	if luau.IsValidIdentifier(symbol.Name) {
-		return symbol.Name
-	}
-	return "Alias"
+// AliasName is the base name an alias wants: the TS name, flattened under
+// its enclosing namespaces for a nested declaration, or the local import
+// name for a type from another file (see luauAliasBaseName). The registry
+// makes it unique against other aliases, builtins, type-function names,
+// Roblox extern types and the file's type-parameter names.
+func (defaultSpelling) AliasName(state *State, symbol *ast.Symbol) string {
+	return luauAliasBaseName(state, symbol)
 }
 
 func (defaultSpelling) FinishAliasBody(_ *State, _ *typeAliasEntry, body luau.TypeNode) (luau.TypeNode, bool) {
 	return body, true
 }
 
-// typeAliasEntry is one registered `type` statement. The statement is
-// registered before its body is built, which is what lets a self reference
-// resolve to the name. WP5 extends the entry with export, placement and
-// type-function data.
+// typeAliasEntry is one registered `type` statement (or, for a generic alias
+// WP8 translates, one `type function`). The entry is registered before its
+// body is built, which is what lets a self reference resolve to the name.
+// The Exported marker is applied to Statement or TypeFunction when the alias
+// is placed (luautypes_alias.go), so an entry rendered on its own shows the
+// bare statement.
 type typeAliasEntry struct {
-	Symbol    *ast.Symbol
+	Symbol *ast.Symbol
+	// Statement is the alias statement; nil once TypeFunction is set.
 	Statement *luau.TypeAlias
-	Name      string
-	Generics  []luau.TypeGeneric
+	// TypeFunction replaces Statement for a generic alias whose body is a
+	// type-level computation WP8 could translate. Nil until then.
+	TypeFunction *luau.TypeFunctionDeclaration
+	Name         string
+	// Generics are the declared generics with their defaults, ready for
+	// `<T, U = number>`; a TS parameter Luau cannot name is left out.
+	Generics []luau.TypeGeneric
+	// GenericIndexes maps each generic to the index of its TS parameter in
+	// Params, so references drop the arguments of left-out parameters.
+	GenericIndexes []int
 	// Kind is what the alias names at runtime (a table, a function, a
 	// string...), read off the built body.
 	Kind     nativeTypeKind
 	Callable bool
-	// Params are the alias's own type parameter types, so a recursive
-	// reference can be checked for identical arguments.
+	// Exported marks a type that is part of this module's type surface
+	// (`export type`); mirrored and synthesized aliases never are.
+	Exported bool
+	// Placement is where the statement is emitted: at the TS declaration or
+	// after the header.
+	Placement aliasPlacement
+	// Params are the alias's own type parameter types, in TS order, so a
+	// recursive reference can be checked for identical arguments.
 	Params []*checker.Type
+	// Losses are the losses recorded while the body and defaults were built
+	// and attributed to this declaration; the declaration-level kinds become
+	// comments before the statement.
+	Losses []fidelityLoss
 	// building is set while the body is under construction: a reference at
 	// the top of the body is the alias itself and is spelled structurally.
 	building bool
+	// placed is set once the statement has been emitted, at the declaration
+	// or in the header, so it is never emitted twice.
+	placed bool
 }
 
 // typeBuilder maps checker types to Luau type nodes for one file.
@@ -269,9 +292,21 @@ type typeBuilder struct {
 	// depth counts nested Build calls for the hard recursion guard.
 	depth int
 	// aliases is the in-file alias registry (nil entries mark symbols the
-	// spelling declined); aliasOrder keeps registration order for placement.
+	// spelling declined); aliasOrder keeps registration order for placement;
+	// aliasNames holds every alias name handed out.
 	aliases    map[*ast.Symbol]*typeAliasEntry
 	aliasOrder []*typeAliasEntry
+	aliasNames map[string]struct{}
+	// anonymous maps a recursive anonymous object type to the Anonymous_N
+	// alias synthesized for it; anonymousCount numbers them.
+	anonymous      map[*checker.Type]*typeAliasEntry
+	anonymousCount int
+	// reservedTypeParameters, importedNames and importedNamespaces are the
+	// naming pre-passes over this file, computed on first use (see
+	// luautypes_alias.go).
+	reservedTypeParameters map[string]struct{}
+	importedNames          map[*ast.Symbol]string
+	importedNamespaces     map[*ast.Symbol]string
 	// constraintLosses dedupes the once-per-declaration constraint loss.
 	constraintLosses map[*ast.Symbol]struct{}
 }
@@ -282,6 +317,8 @@ func newTypeBuilder(state *State, spelling typeSpelling) *typeBuilder {
 		spelling:         spelling,
 		Origins:          make(map[luau.TypeNode]*ast.Symbol),
 		aliases:          make(map[*ast.Symbol]*typeAliasEntry),
+		aliasNames:       make(map[string]struct{}),
+		anonymous:        make(map[*checker.Type]*typeAliasEntry),
 		constraintLosses: make(map[*ast.Symbol]struct{}),
 	}
 }

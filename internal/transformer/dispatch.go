@@ -178,9 +178,15 @@ func transformStatementDispatch(s *State, node *ast.Node) *luau.List[luau.Statem
 	}
 
 	switch node.Kind {
-	// no emit, except that a top-level interface or type alias of a `//!native`
-	// file carries its Luau `type` statement in place.
+	// no emit, except that a top-level interface or type alias carries its
+	// Luau `type` statement in place: from the shared registry in luauTypes
+	// mode (luautypes_alias.go), else from the `//!native` alias code. A
+	// `//!native` file with both options on takes the luauTypes registry
+	// until WP3 moves the native aliases onto it.
 	case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
+		if s.IsLuauTyped {
+			return s.luauDeclarationStatements(node)
+		}
 		return s.nativeDeclarationAlias(node)
 	case ast.KindEmptyStatement:
 		return luau.NewList[luau.Statement]()

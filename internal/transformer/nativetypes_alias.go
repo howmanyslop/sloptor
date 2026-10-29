@@ -307,7 +307,10 @@ func (state *State) getUniqueNativeAliasName(base string) string {
 }
 
 // isNativeLibrarySymbol reports whether a declaration of symbol lives in a
-// library file rotor must not alias.
+// library file. The `//!native` aliases never alias such a symbol; the
+// luauTypes registry mirrors it as a hoisted alias instead (see
+// luautypes_alias.go), so isNativeLibraryFile answers "is this a library
+// file", not "must this stay unaliased".
 func isNativeLibrarySymbol(state *State, symbol *ast.Symbol) bool {
 	for _, declaration := range symbol.Declarations {
 		sourceFile := ast.GetSourceFileOfNode(declaration)
