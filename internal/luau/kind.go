@@ -46,6 +46,9 @@ const (
 	KindVariableDeclaration
 	KindReturnStatement
 	KindComment
+	// KindTypeAlias is a rotor extension (roblox-ts has no type aliases):
+	// `type Name<K, V> = <body>`.
+	KindTypeAlias
 
 	// fields
 	KindMapField
@@ -56,7 +59,7 @@ const (
 	FirstExpression          = KindIdentifier
 	LastExpression           = KindMixedTable
 	FirstStatement           = KindAssignment
-	LastStatement            = KindComment
+	LastStatement            = KindTypeAlias
 	FirstField               = KindMapField
 	LastField                = KindInterpolatedStringPart
 )
@@ -100,6 +103,7 @@ var kindNames = [...]string{
 	KindVariableDeclaration:      "VariableDeclaration",
 	KindReturnStatement:          "ReturnStatement",
 	KindComment:                  "Comment",
+	KindTypeAlias:                "TypeAlias",
 	KindMapField:                 "MapField",
 	KindInterpolatedStringPart:   "InterpolatedStringPart",
 }

@@ -6,6 +6,10 @@
 	"type": "object",
 	"additionalProperties": false,
 	"properties": {
+		"nativeTypes": {
+			"type": "boolean",
+			"description": "Emit Luau parameter and return annotations for files whose leading comments include //!native. Opt-in and off when unset. When tsconfig.json also sets rbxts.nativeTypes, the tsconfig value wins."
+		},
 		"parallelTransformers": {
 			"type": "object",
 			"description": "Experimental project-owned batch-independence attestation for two transformer workers in a one-shot CLI build, including --build. One split may be outstanding per CLI invocation. Missing, mismatched or unsupported attestations use serial execution.",

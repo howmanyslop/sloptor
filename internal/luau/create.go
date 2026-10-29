@@ -125,6 +125,11 @@ func ID(name string) *Identifier      { return NewIdentifier(name) }
 
 func NewComment(text string) *Comment { return &Comment{Text: text} }
 
+// NewTypeAlias builds `type Name<Generics> = typeText`.
+func NewTypeAlias(name string, generics []string, typeText string) *TypeAlias {
+	return &TypeAlias{Name: name, Generics: generics, Type: typeText}
+}
+
 func NewFunctionExpression(params *List[AnyIdentifier], hasDotDotDot bool, statements *List[Statement]) *FunctionExpression {
 	n := &FunctionExpression{HasDotDotDot: hasDotDotDot}
 	n.Parameters = adoptList(n, params)

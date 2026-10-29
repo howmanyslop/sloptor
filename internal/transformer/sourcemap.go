@@ -31,7 +31,7 @@ type sourceMapMapping struct {
 }
 
 // RenderWithSourceMap renders statements once and returns their deterministic V3 source map.
-func (s *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourceFile *ast.SourceFile) (text, mapJSON string) {
+func (state *State) RenderWithSourceMap(statements *luau.List[luau.Statement], sourceFile *ast.SourceFile) (text, mapJSON string) {
 	text, ranges := render.RenderASTWithPositions(statements)
 	positions := make([]*luau.Position, strings.Count(text, "\n")+1)
 	for _, r := range ranges {

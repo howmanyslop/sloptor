@@ -36,6 +36,19 @@ func (s *RenderState) identifiers(identifiers *luau.List[luau.AnyIdentifier]) {
 	}
 }
 
+func (s *RenderState) typedParameters(identifiers *luau.List[luau.AnyIdentifier]) {
+	for current := identifiers.Head; current != nil; current = current.Next {
+		if current != identifiers.Head {
+			s.write(", ")
+		}
+		s.render(current.Value)
+		if annotation := luau.ParameterType(current.Value); annotation != nil {
+			s.write(": ")
+			s.write(annotation.String())
+		}
+	}
+}
+
 func (s *RenderState) parameters(node luau.HasParameters) {
 	params, hasDotDotDot := node.ParamData()
 	if params == nil {
@@ -44,12 +57,19 @@ func (s *RenderState) parameters(node luau.HasParameters) {
 		// in identifiers below.
 		panic("render: parameters got nil parameter list") // upstream assert
 	}
-	s.identifiers(params)
+	s.typedParameters(params)
 	if hasDotDotDot {
 		if params.IsNonEmpty() {
 			s.write(", ")
 		}
 		s.write("...")
+	}
+}
+
+func (s *RenderState) returnType(node luau.HasParameters) {
+	if annotation := node.ReturnTypeData(); annotation != nil {
+		s.write(": ")
+		s.write(annotation.String())
 	}
 }
 

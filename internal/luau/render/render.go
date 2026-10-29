@@ -147,6 +147,8 @@ func renderNode(s *RenderState, node luau.Node) {
 		renderReturnStatement(s, n)
 	case *luau.Comment:
 		renderComment(s, n)
+	case *luau.TypeAlias:
+		renderTypeAlias(s, n)
 	// fields
 	case *luau.MapField:
 		renderMapField(s, n)

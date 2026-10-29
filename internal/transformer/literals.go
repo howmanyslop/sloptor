@@ -244,10 +244,10 @@ func transformObjectLiteralExpression(s *State, node *ast.Node) luau.Expression 
 	return ptr.Value
 }
 
-func (s *State) setMapFieldSourcePosition(ptr *MapPointer, property *ast.Node) {
-	if s.SourceMapEnabled {
+func (state *State) setMapFieldSourcePosition(ptr *MapPointer, property *ast.Node) {
+	if state.SourceMapEnabled {
 		if table, ok := ptr.Value.(*luau.Map); ok && table.Fields.Tail != nil {
-			s.setSourcePosition(table.Fields.Tail.Value, s.getOriginalSourcePosition(property, false))
+			state.setSourcePosition(table.Fields.Tail.Value, state.getOriginalSourcePosition(property, false))
 		}
 	}
 }
