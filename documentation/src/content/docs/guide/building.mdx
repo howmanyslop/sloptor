@@ -15,7 +15,7 @@ sloptor build testdata/diff/project
 
 A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`). The fixture project above is a minimal working example of that setup.
 
-`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--luauTypes` (experimental), `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
 
 TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
 
@@ -114,6 +114,28 @@ A parameter that callers may omit becomes optional: a `?` marker, a default valu
 sloptor never emits a bare `table`. Luau's compiler tags it as userdata, so the native entry guard would fail on every call.
 
 Return annotations don't affect native code generation. They only help Luau's type checker. A wrong annotation costs an interpreter fallback, never a crash. Luau's analyzer may still warn that a defaulted parameter is `number?` where the body uses it in arithmetic after the `if x == nil then x = default end` check. That only affects Studio script-analysis warnings, and the `?` is required: an omitted argument arrives as `nil`, and a plain `number` annotation would send every such call back to the interpreter.
+
+## Luau type annotations (experimental)
+
+`luauTypes` is an experimental, opt-in rotor extension and off by default. When it is on, sloptor emits full Luau type annotations — parameters, returns, locals, class fields, and exported type aliases — in every compiled file, so Luau code that requires the output sees real types instead of untyped values. The emitted Luau differs from rbxtsc, and the output may change between releases. This section covers only the option; what the annotations look like is described in a later change.
+
+Enable it on the command line, in `tsconfig.json`, or in `rotor.toml`:
+
+```sh
+sloptor build --luauTypes
+```
+
+```json
+{
+	"rbxts": { "luauTypes": true }
+}
+```
+
+```toml
+luauTypes = true
+```
+
+`--luauTypes` wins over both files (`--luauTypes=false` turns a declared option off again), `rbxts.luauTypes` wins over `rotor.toml`, and `rotor.toml`'s value applies only when neither of the others declares the key. Toggling the option changes the incremental salt, so the next build rewrites every output. With `nativeTypes` also on, a `//!native` file keeps the native policy for its parameter and return annotations, and `luauTypes` owns the locals, class fields, and type aliases.
 
 ## Shell completion
 

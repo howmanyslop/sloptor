@@ -15,7 +15,7 @@ func TestSchemaOnlyAdvertisesCompilerSettings(t *testing.T) {
 	if err := json.Unmarshal([]byte(Schema), &schema); err != nil {
 		t.Fatal(err)
 	}
-	if schema.AdditionalProperties || len(schema.Properties) != 3 || schema.Properties["flamework"] == nil || schema.Properties["parallelTransformers"] == nil || schema.Properties["nativeTypes"] == nil {
+	if schema.AdditionalProperties || len(schema.Properties) != 4 || schema.Properties["flamework"] == nil || schema.Properties["parallelTransformers"] == nil || schema.Properties["nativeTypes"] == nil || schema.Properties["luauTypes"] == nil {
 		t.Fatalf("unexpected compiler schema: %s", Schema)
 	}
 }
@@ -57,6 +57,44 @@ func TestLoadNativeTypes(t *testing.T) {
 	}
 	if len(cfg.Warnings) != 0 {
 		t.Fatalf("nativeTypes must not warn: %v", cfg.Warnings)
+	}
+}
+
+// luauTypes is optional too: unset must stay distinguishable from false so
+// the command line and the tsconfig declaration can win over rotor.toml.
+func TestLoadLuauTypes(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, ConfigFileName, "")
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LuauTypes != nil {
+		t.Fatalf("unset luauTypes = %v, want nil", *cfg.LuauTypes)
+	}
+
+	writeConfigFile(t, dir, ConfigFileName, "luauTypes = false\n")
+	cfg, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LuauTypes == nil || *cfg.LuauTypes {
+		t.Fatalf("luauTypes = %v, want an explicit false", cfg.LuauTypes)
+	}
+
+	writeConfigFile(t, dir, ConfigFileName, "luauTypes = true\nnativeTypes = true\n")
+	cfg, err = Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LuauTypes == nil || !*cfg.LuauTypes {
+		t.Fatalf("luauTypes = %v, want true", cfg.LuauTypes)
+	}
+	if cfg.NativeTypes == nil || !*cfg.NativeTypes {
+		t.Fatalf("nativeTypes = %v, want true beside luauTypes", cfg.NativeTypes)
+	}
+	if len(cfg.Warnings) != 0 {
+		t.Fatalf("luauTypes must not warn: %v", cfg.Warnings)
 	}
 }
 

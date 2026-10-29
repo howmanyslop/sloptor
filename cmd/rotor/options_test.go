@@ -46,6 +46,23 @@ func TestMergeProjectOptions(t *testing.T) {
 			rbxts: &partialProjectOptions{typeName: strPtr("package"), rojo: strPtr("custom.project.json")},
 			want:  projectOptions{optimizedLoops: true, luau: true, typeName: "package", rojo: "custom.project.json"},
 		},
+		{
+			name:  "rbxts luauTypes applies when the CLI is silent",
+			rbxts: &partialProjectOptions{luauTypes: boolPtr(true)},
+			argv:  &partialProjectOptions{},
+			want:  projectOptions{optimizedLoops: true, luau: true, luauTypes: true},
+		},
+		{
+			name:  "CLI --luauTypes=false overrides rbxts true",
+			rbxts: &partialProjectOptions{luauTypes: boolPtr(true)},
+			argv:  &partialProjectOptions{luauTypes: boolPtr(false)},
+			want:  projectOptions{optimizedLoops: true, luau: true, luauTypes: false},
+		},
+		{
+			name: "CLI --luauTypes turns the experimental option on",
+			argv: &partialProjectOptions{luauTypes: boolPtr(true)},
+			want: projectOptions{optimizedLoops: true, luau: true, luauTypes: true},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -129,6 +146,7 @@ func TestReadRbxtsOptions(t *testing.T) {
 			"rbxts": {
 				"luau": false,
 				"optimizedArrayAppends": true,
+				"luauTypes": true,
 				"type": "model", /* block */
 				"includePath": "runtime",
 			},
@@ -145,6 +163,9 @@ func TestReadRbxtsOptions(t *testing.T) {
 		}
 		if got.optimizedArrayAppends == nil || !*got.optimizedArrayAppends {
 			t.Error("optimizedArrayAppends=true not parsed")
+		}
+		if got.luauTypes == nil || !*got.luauTypes {
+			t.Error("luauTypes=true not parsed")
 		}
 		if got.typeName == nil || *got.typeName != "model" {
 			t.Error("type not parsed")

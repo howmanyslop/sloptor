@@ -73,10 +73,10 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 	if err != nil {
 		return "", err
 	}
-	// nativeTypes is omitzero, not omitempty: tsgo's json shim ignores
-	// omitempty, and dropping the field entirely while the option is off keeps
-	// the payload (and so every existing manifest) byte-identical for a
-	// project that never opts in.
+	// nativeTypes and luauTypes are omitzero, not omitempty: tsgo's json shim
+	// ignores omitempty, and dropping the field entirely while the option is
+	// off keeps the payload (and so every existing manifest) byte-identical
+	// for a project that never opts in.
 	payload, err := tsjson.Marshal(struct {
 		MacroInputs           map[string]string              `json:"macroInputs,omitempty"`
 		Version               string                         `json:"version"`
@@ -93,6 +93,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		EmitDeclarationOnly   bool                           `json:"emitDeclarationOnly"`
 		OptimizedArrayAppends bool                           `json:"optimizedArrayAppends"`
 		NativeTypes           bool                           `json:"nativeTypes,omitzero"`
+		LuauTypes             bool                           `json:"luauTypes,omitzero"`
 		NoOptimizedLoops      bool                           `json:"noOptimizedLoops"`
 		FlameworkSalt         string                         `json:"flameworkSalt,omitempty"`
 		TransformerPlugins    []transformerPluginFingerprint `json:"transformerPlugins,omitempty"`
@@ -115,6 +116,7 @@ func incrementalSaltWithFlamework(dir string, program *compiler.Program, opts Pr
 		EmitDeclarationOnly:   opts.EmitDeclarationOnly,
 		OptimizedArrayAppends: opts.OptimizedArrayAppends,
 		NativeTypes:           effectiveNativeTypes(dir, options.ConfigFilePath, opts.NativeTypes),
+		LuauTypes:             effectiveLuauTypes(dir, options.ConfigFilePath, opts.SolutionArgv, opts.LuauTypes),
 		NoOptimizedLoops:      opts.NoOptimizedLoops,
 		FlameworkSalt:         flameworkSalt,
 		TransformerPlugins:    plugins,

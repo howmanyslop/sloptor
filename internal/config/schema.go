@@ -31,6 +31,10 @@ const Schema = `{
 			"type": "boolean",
 			"description": "Emit Luau parameter and return annotations for files whose leading comments include //!native. Opt-in and off when unset. When tsconfig.json also sets rbxts.nativeTypes, the tsconfig value wins."
 		},
+		"luauTypes": {
+			"type": "boolean",
+			"description": "Experimental. Emit full Luau type annotations (parameters, returns, locals, class fields, exported type aliases) in compiled output so Luau code can consume it with real types. Opt-in and off when unset. When tsconfig.json also sets rbxts.luauTypes, the tsconfig value wins, and --luauTypes on the command line wins over both. Output may change between releases."
+		},
 		"parallelTransformers": {
 			"type": "object",
 			"description": "Experimental project-owned batch-independence attestation for two transformer workers in a one-shot CLI build, including --build. One split may be outstanding per CLI invocation. Missing, mismatched or unsupported attestations use serial execution.",

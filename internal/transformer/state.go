@@ -173,6 +173,16 @@ type State struct {
 	// directive comment itself is emitted either way, as rbxtsc does.
 	NativeTypes bool
 
+	// LuauTypes enables rotor's experimental full Luau type annotations: when
+	// true, every file gets parameter, return, local, class-field and exported
+	// type-alias annotations so Luau code can consume the output with real
+	// types. It defaults off because the emitted code intentionally differs
+	// from rbxtsc, and the output may change between releases. When both
+	// LuauTypes and NativeTypes are on in a `//!native` file, the native
+	// policy owns parameter and return annotations and LuauTypes owns locals,
+	// class fields and type aliases.
+	LuauTypes bool
+
 	// IsNative is set when the file carries a `//!native` directive AND
 	// NativeTypes is enabled; only then are Luau type annotations emitted
 	// (see nativetypes.go).
