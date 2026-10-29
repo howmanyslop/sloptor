@@ -85,6 +85,8 @@ func TestNativeFilesAnnotateSignatures(t *testing.T) {
 		"local function addVector(a: vector, b: vector): vector\n",
 		"local function maybeAddVector(a: vector, b: vector?): vector\n",
 		"local function addVector3(a: Vector3, b: Vector3): Vector3\n",
+		// Both names carry the same vector tag, so the union stays annotated.
+		"local function lengthOf(value: Vector3 | vector): number\n",
 		"local function scale(x: number, factor: number?, label: string?): number\n",
 		"local function nameOf(value: string?): string?\n",
 		// A constrained generic uses its constraint, which is the perf type.

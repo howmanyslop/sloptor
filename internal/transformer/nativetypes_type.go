@@ -113,10 +113,11 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 		return text, members[0].kind, outerGeneric
 	}
 	if nativePosition == nativePositionParameter {
-		// Luau tags every table member of a union as TABLE, but a union that
-		// mixes a table with another kind has no single useful tag.
+		// Luau tags every table member of a union as TABLE and both `vector`
+		// and `Vector3` as VECTOR, but a union that mixes kinds has no single
+		// useful tag.
 		for _, existing := range members {
-			if existing.kind != nativeKindTable {
+			if existing.kind != members[0].kind || (existing.kind != nativeKindTable && existing.kind != nativeKindVector) {
 				return "", nativeKindUnspellable, outerGeneric
 			}
 		}

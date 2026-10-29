@@ -10,6 +10,10 @@ export function addVector3(a: Vector3, b: Vector3): Vector3 {
 	return a.add(b);
 }
 
+export function lengthOf(value: vector | Vector3): number {
+	return 1;
+}
+
 export function scale(x: number, factor = 2, label?: string): number {
 	return x * factor;
 }
