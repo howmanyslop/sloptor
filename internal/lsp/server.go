@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/url"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -440,7 +441,19 @@ func sourcePath(uri lsproto.DocumentUri) (path string, ok bool) {
 	default:
 		return "", false
 	}
-	return filepath.FromSlash(uri.FileName()), true
+	return sourcePathKey(uri.FileName()), true
+}
+
+// sourcePathKey canonicalizes paths used as open-buffer and overlay keys. URI
+// conversion normalizes a Windows drive letter's case, while compiler results
+// may preserve the original casing; using one key form keeps both pointed at
+// the same editor buffer.
+func sourcePathKey(path string) string {
+	path = filepath.Clean(filepath.FromSlash(path))
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
 }
 
 // response is the wire form of a JSON-RPC response. Result is raw JSON so that

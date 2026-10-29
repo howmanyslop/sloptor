@@ -2,7 +2,6 @@ package lsp
 
 import (
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -139,7 +138,7 @@ func (s *server) fileDiagnostics(file *compile.FileDiagnostics, overlays map[str
 // read yields empty text, which clamps every position to the start rather than
 // dropping the diagnostic.
 func sourceText(fileName string, overlays map[string]string) string {
-	path := filepath.FromSlash(fileName)
+	path := sourcePathKey(fileName)
 	if text, ok := overlays[path]; ok {
 		return text
 	}
