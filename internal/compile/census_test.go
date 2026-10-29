@@ -480,7 +480,6 @@ func TestCompileProjectIgnoreUnmatchedOverlaysDropsOnlyTheUnmatched(t *testing.T
 			Overlays:                overlays,
 			IgnoreUnmatchedOverlays: true,
 		})
-
 		// Then it succeeds, the matching overlay still applied, and only that
 		// one is counted
 		if err != nil {
