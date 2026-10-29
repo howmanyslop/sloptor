@@ -113,7 +113,7 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 	if len(opts.Overlays) > 0 {
 		var unmatched []string
 		overlays, unmatched = rekeyOverlaysToProgram(program, opts.Overlays)
-		if len(unmatched) > 0 && opts.solutionOverlays == nil {
+		if len(unmatched) > 0 && opts.solutionOverlays == nil && !opts.IgnoreUnmatchedOverlays {
 			sort.Strings(unmatched)
 			err = fmt.Errorf("compile: overlay matches no file in the program: %s", strings.Join(unmatched, ", "))
 			return "", nil, []string{err.Error()}, err
@@ -140,10 +140,15 @@ func newProjectProgramWithOptions(projectDir, tsConfigPath string, opts ProjectO
 // The rule — every overlay must match something — is scoped to one program when
 // there is only one, and to the whole solution when opts came from
 // CompileSolutionDiagnostics. See matchSolutionOverlaysToProgram for why it
-// cannot be applied per project under --build.
+// cannot be applied per project under --build. IgnoreUnmatchedOverlays lifts
+// the rule and counts only the overlays that matched.
 func matchProgramOverlays(program *compiler.Program, opts ProjectOptions) (int, error) {
 	if opts.solutionOverlays != nil {
 		return matchSolutionOverlaysToProgram(program, opts.Overlays, opts.solutionOverlays)
+	}
+	if opts.IgnoreUnmatchedOverlays {
+		matched, _ := overlayKeysInProgram(program, opts.Overlays)
+		return len(matched), nil
 	}
 	return matchOverlaysToProgram(program, opts.Overlays)
 }
@@ -583,14 +588,24 @@ type ProjectOptions struct {
 	//   - Overlays REPLACE files; they cannot ADD one. newOverlayFS overrides
 	//     FileExists and ReadFile, not directory enumeration, so a path the
 	//     tsconfig include never walks to is never asked for.
-	//   - A key naming no file in the resulting program is an error. See
-	//     matchOverlaysToProgram: a silently ignored overlay yields a clean
-	//     report on the UNMODIFIED tree, which a caller cannot detect.
+	//   - A key naming no file in the resulting program is an error, unless
+	//     IgnoreUnmatchedOverlays is set. See matchOverlaysToProgram: a
+	//     silently ignored overlay yields a clean report on the UNMODIFIED
+	//     tree, which a caller cannot detect.
 	//
 	// Projects with transformer plugins are not a limit. changedFilesFor ships
 	// every overlay to the Node worker, whose overrides map backs the
 	// LanguageService the plugins and the declaration emit both run against.
 	Overlays map[string]string
+
+	// IgnoreUnmatchedOverlays drops Overlays keys that name no file in the
+	// program instead of failing the run, and ProjectDiagnostics.OverlayMatches
+	// then counts only the keys that did match. It is for a caller that cannot
+	// know what the program holds, such as an editor whose open buffers include
+	// files outside the tsconfig include, unsaved new files, and files from
+	// other projects. Matching overlays are still applied. Default false keeps
+	// the strict rule above.
+	IgnoreUnmatchedOverlays bool
 
 	// solutionOverlays is set only by CompileSolutionDiagnostics, and only on
 	// the per-project options it derives. Its presence is what tells

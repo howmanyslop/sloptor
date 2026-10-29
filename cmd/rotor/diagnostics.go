@@ -98,27 +98,10 @@ func runDiagnosticsCommand(streams cliStreams, args *diagnosticsArgs, cmd *cobra
 	}
 	dir := filepath.Dir(tsConfigPath)
 
-	// The tsconfig `rbxts` key still decides the project's SHAPE — type, Rojo
-	// project, include path — without which some projects cannot be censused
-	// at all. allowCommentDirectives is the one option deliberately not
-	// honored.
-	//
-	// Note what that does and does not buy. It does NOT stop @ts-ignore from
-	// suppressing type errors: the directive is honored inside the checker and
-	// no flag rotor sets undoes that. What it does is add rotor's own
-	// "comment directives are not supported" diagnostic, so a file leaning on
-	// them shows up as transformerDiagnostic instead of passing as `ok`. The
-	// cost is a divergence from `sloptor build` for a project that legitimately
-	// sets allowCommentDirectives: true.
-	rbxtsOptions, err := readRbxtsOptionsChecked(tsConfigPath)
+	opts, err := diagnosticsCompileOptions(tsConfigPath)
 	if err != nil {
 		return runtimeFailure(err)
 	}
-	merged := mergeProjectOptions(defaultProjectOptions, rbxtsOptions)
-	merged.argv = &partialProjectOptions{}
-	merged.allowCommentDirectives = false
-
-	opts := projectCompileOptions(tsConfigPath, merged)
 	opts.Checkers = args.checkers
 	opts.Builders = args.builders
 	opts.Overlays = request.Overlays
@@ -136,6 +119,34 @@ func runDiagnosticsCommand(streams cliStreams, args *diagnosticsArgs, cmd *cobra
 		return reportedFailure(censusErr)
 	}
 	return nil
+}
+
+// diagnosticsCompileOptions resolves the compile options a diagnostics census
+// runs with, shared by `sloptor diagnostics` and `sloptor lsp` so the two
+// cannot drift. The caller layers on whatever is specific to it, such as
+// Checkers, Builders and Overlays.
+func diagnosticsCompileOptions(tsConfigPath string) (compile.ProjectOptions, error) {
+	// The tsconfig `rbxts` key still decides the project's SHAPE — type, Rojo
+	// project, include path — without which some projects cannot be censused
+	// at all. allowCommentDirectives is the one option deliberately not
+	// honored.
+	//
+	// Note what that does and does not buy. It does NOT stop @ts-ignore from
+	// suppressing type errors: the directive is honored inside the checker and
+	// no flag rotor sets undoes that. What it does is add rotor's own
+	// "comment directives are not supported" diagnostic, so a file leaning on
+	// them shows up as transformerDiagnostic instead of passing as `ok`. The
+	// cost is a divergence from `sloptor build` for a project that legitimately
+	// sets allowCommentDirectives: true.
+	rbxtsOptions, err := readRbxtsOptionsChecked(tsConfigPath)
+	if err != nil {
+		return compile.ProjectOptions{}, err
+	}
+	merged := mergeProjectOptions(defaultProjectOptions, rbxtsOptions)
+	merged.argv = &partialProjectOptions{}
+	merged.allowCommentDirectives = false
+
+	return projectCompileOptions(tsConfigPath, merged), nil
 }
 
 // diagnosticsRequest is the JSON object read from stdin. Overlays replace the

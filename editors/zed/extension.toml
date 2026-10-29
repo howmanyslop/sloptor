@@ -1,0 +1,16 @@
+id = "sloptor"
+name = "sloptor"
+description = "Shows sloptor's roblox-ts transformer diagnostics in TypeScript files."
+version = "0.1.0"
+schema_version = 1
+authors = ["HowManySmall"]
+repository = "https://github.com/howmanyslop/sloptor"
+license = "MIT"
+
+[language_servers.sloptor]
+name = "sloptor"
+languages = ["TypeScript", "TSX"]
+
+[language_servers.sloptor.language_ids]
+TypeScript = "typescript"
+TSX = "typescriptreact"

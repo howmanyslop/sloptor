@@ -33,6 +33,9 @@ internal/compile/testdata/**/include/
 /rotor
 bin/
 
+# Zed extension build output
+/editors/zed/target/
+
 .envrc
 
 .vale/styles/*

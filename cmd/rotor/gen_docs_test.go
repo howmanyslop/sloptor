@@ -22,7 +22,7 @@ func TestGenDocsWritesPagePerVisibleCommand(t *testing.T) {
 	if !strings.HasPrefix(index, "---\ntitle: Commands\n") {
 		t.Errorf("index.mdx frontmatter:\n%s", index)
 	}
-	for _, name := range []string{"build", "check", "diagnostics", "clean", "schema", "completion", "version"} {
+	for _, name := range []string{"build", "check", "diagnostics", "lsp", "clean", "schema", "completion", "version"} {
 		page := readDocsPage(t, dir, name)
 		if !strings.HasPrefix(page, "---\ntitle: "+name+"\n") {
 			t.Errorf("%s.mdx does not open with its frontmatter title:\n%s", name, page)
