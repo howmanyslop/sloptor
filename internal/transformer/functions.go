@@ -106,7 +106,7 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 // type parameters are in scope while both are transformed, so a nested
 // annotation can name them (and the return type can still use them).
 func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
-	generics := nativeFunctionGenerics(s, node)
+	generics := getNativeFunctionGenerics(s, node)
 	s.PushNativeGenerics(generics, false)
 	defer s.PopNativeGenerics()
 
@@ -134,7 +134,7 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 		statements:   statements,
 		hasDotDotDot: hasDotDotDot,
 		generics:     generics,
-		returnType:   nativeReturnType(s, node),
+		returnType:   getNativeReturnType(s, node),
 	}
 }
 
@@ -216,7 +216,7 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 
 	// A method is its own function: its type parameters are in scope for its
 	// parameters, body, and return type.
-	generics := nativeFunctionGenerics(s, node)
+	generics := getNativeFunctionGenerics(s, node)
 	s.PushNativeGenerics(generics, false)
 	defer s.PopNativeGenerics()
 
@@ -226,7 +226,7 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 	if restParam != nil {
 		s.unregisterOptimizableVarArgs(restParam)
 	}
-	returnType := nativeReturnType(s, node)
+	returnType := getNativeReturnType(s, node)
 
 	name := transformPropertyName(s, nameNode)
 

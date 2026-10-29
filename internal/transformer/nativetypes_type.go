@@ -135,7 +135,7 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 // usable type, otherwise its name when the generic is in scope, otherwise
 // nothing.
 func getNativeTypeVariable(state *State, checkerType *checker.Type, nativePosition nativePosition, depth int, seen map[*checker.Type]bool) (string, nativeTypeKind, bool) {
-	name, own, ok := nativeTypeParameterName(state, checkerType)
+	name, own, ok := getNativeTypeParameterName(state, checkerType)
 	if !ok {
 		return getNativeUnspellable(nativePosition), nativeKindUnspellable, false
 	}

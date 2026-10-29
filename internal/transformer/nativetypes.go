@@ -75,30 +75,30 @@ const (
 )
 
 // hasNativeDirective reports whether the file's leading comments contain
-// `//!native`. Luau honours the hot comment anywhere before the first token,
+// `//!native`. Luau honors the hot comment anywhere before the first token,
 // so every leading comment is considered.
-func hasNativeDirective(s *State) bool {
-	if s.RemoveComments() {
+func hasNativeDirective(state *State) bool {
+	if state.RemoveComments() {
 		return false
 	}
 	var factory ast.NodeFactory
-	for commentRange := range scanner.GetLeadingCommentRanges(&factory, s.SourceFileText, 0) {
+	for commentRange := range scanner.GetLeadingCommentRanges(&factory, state.SourceFileText, 0) {
 		end := commentRange.End()
 		if commentRange.Kind != ast.KindSingleLineCommentTrivia {
 			end -= 2
 		}
-		if strings.TrimSpace(s.SourceFileText[commentRange.Pos()+2:end]) == "!native" {
+		if strings.TrimSpace(state.SourceFileText[commentRange.Pos()+2:end]) == "!native" {
 			return true
 		}
 	}
 	return false
 }
 
-// nativeParameterType is the annotation for one plain-identifier parameter, or
+// getNativeParameterType is the annotation for one plain-identifier parameter, or
 // nil when the parameter must stay unannotated.
-func nativeParameterType(s *State, parameterNode *ast.Node) *luau.Type {
+func getNativeParameterType(state *State, parameterNode *ast.Node) *luau.Type {
 	parameter := parameterNode.AsParameterDeclaration()
-	text, _, outerGeneric := getNativeType(s, s.Checker.GetTypeAtLocation(parameter.Name()), nativePositionParameter, 0, nil)
+	text, _, outerGeneric := getNativeType(state, state.Checker.GetTypeAtLocation(parameter.Name()), nativePositionParameter, 0, nil)
 	if text == "" || outerGeneric {
 		// R1: an outer generic (or any other unusable bare name) would tag
 		// the argument as userdata.
@@ -110,10 +110,10 @@ func nativeParameterType(s *State, parameterNode *ast.Node) *luau.Type {
 	return &luau.Type{Name: text}
 }
 
-// nativeReturnType is the annotation for a function's return, nil outside
+// getNativeReturnType is the annotation for a function's return, nil outside
 // `--!native` files. Async and generator functions return a wrapper, so they
 // get none.
-func nativeReturnType(state *State, node *ast.Node) *luau.Type {
+func getNativeReturnType(state *State, node *ast.Node) *luau.Type {
 	if !state.IsNative || ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync) || isGeneratorFunction(node) {
 		return nil
 	}
@@ -142,20 +142,20 @@ func isGeneratorFunction(node *ast.Node) bool {
 	return false
 }
 
-// nativeFunctionGenerics returns the generic parameter names a function
+// getNativeFunctionGenerics returns the generic parameter names a function
 // declares, ready for `function f<K, V>`. Constraints are dropped: Luau has no
 // `extends` clause on type parameters.
-func nativeFunctionGenerics(state *State, node *ast.Node) []string {
+func getNativeFunctionGenerics(state *State, node *ast.Node) []string {
 	if !state.IsNative {
 		return nil
 	}
-	return nativeDeclarationGenerics(node)
+	return getNativeDeclarationGenerics(node)
 }
 
-// nativeDeclarationGenerics lists the Luau-spellable type parameter names of a
+// getNativeDeclarationGenerics lists the Luau-spellable type parameter names of a
 // function, interface, or type alias declaration. A parameter Luau cannot
 // spell is skipped; references to it then widen to `any`.
-func nativeDeclarationGenerics(node *ast.Node) []string {
+func getNativeDeclarationGenerics(node *ast.Node) []string {
 	var names []string
 	for _, parameter := range node.TypeParameters() {
 		name := parameter.Name()
@@ -196,10 +196,10 @@ func (state *State) PopNativeGenerics() {
 	}
 }
 
-// nativeGenericInScope reports whether name is a generic visible from the
+// getNativeGenericInScope reports whether name is a generic visible from the
 // current annotation, and whether it belongs to the innermost function (rule
 // R1: only those may appear bare in a tagged position).
-func (state *State) nativeGenericInScope(name string) (inScope, own bool) {
+func (state *State) getNativeGenericInScope(name string) (inScope, own bool) {
 	for index := len(state.nativeScopes) - 1; index >= 0; index-- {
 		scope := state.nativeScopes[index]
 		if slices.Contains(scope.names, name) {
@@ -212,10 +212,10 @@ func (state *State) nativeGenericInScope(name string) (inScope, own bool) {
 	return false, false
 }
 
-// nativeTypeParameterName resolves a type variable to its Luau generic name
+// getNativeTypeParameterName resolves a type variable to its Luau generic name
 // when that generic is in scope. Class type parameters (and any other variable
 // Luau cannot declare) resolve to nothing and widen to `any`.
-func nativeTypeParameterName(state *State, checkerType *checker.Type) (name string, own, ok bool) {
+func getNativeTypeParameterName(state *State, checkerType *checker.Type) (name string, own, ok bool) {
 	symbol := checkerType.Symbol()
 	if symbol == nil || symbol.Flags&ast.SymbolFlagsTypeParameter == 0 {
 		return "", false, false
@@ -224,7 +224,7 @@ func nativeTypeParameterName(state *State, checkerType *checker.Type) (name stri
 	if !luau.IsValidIdentifier(name) {
 		return "", false, false
 	}
-	inScope, own := state.nativeGenericInScope(name)
+	inScope, own := state.getNativeGenericInScope(name)
 	if !inScope {
 		return "", false, false
 	}

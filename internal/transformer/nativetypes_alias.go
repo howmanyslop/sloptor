@@ -133,7 +133,7 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 	if declaration == nil {
 		return nil
 	}
-	generics := nativeDeclarationGenerics(declaration)
+	generics := getNativeDeclarationGenerics(declaration)
 	name := state.getUniqueNativeAliasName(symbol.Name)
 	statement := luau.NewTypeAlias(name, generics, "")
 	entry := &nativeAliasEntry{Symbol: symbol, Statement: statement, Generics: generics, Kind: nativeKindTable}
