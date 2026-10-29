@@ -189,6 +189,29 @@ func TestIncrementalSaltMovesWithOptimizedArrayAppends(t *testing.T) {
 	}
 }
 
+// nativeTypes changes emitted text, so flipping it must force a rebuild. The
+// payload field is omitempty, so projects without the option keep the exact
+// pre-option salt and are not rebuilt by this change.
+func TestIncrementalSaltMovesWithNativeTypes(t *testing.T) {
+	dir := writeProject(t, "@scope/native-types-salt", "")
+	projectDir, program, diags, err := newProjectProgram(dir, "")
+	if err != nil {
+		t.Fatalf("newProjectProgram: %v (diags: %v)", err, diags)
+	}
+
+	before, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := incrementalSaltWithFlamework(projectDir, program, ProjectOptions{NativeTypes: true}, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before == after {
+		t.Fatal("nativeTypes did not invalidate incremental outputs")
+	}
+}
+
 // A `transform` that names a subpath inside the package resolves to that file,
 // not to the package entry.
 func TestTransformerPluginFingerprintsResolveSubpathSpecifiers(t *testing.T) {

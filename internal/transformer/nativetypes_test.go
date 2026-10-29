@@ -6,12 +6,79 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"rotor/internal/luau/render"
+	"rotor/internal/transformer"
 )
+
+// renderNativeSourceFile renders a fixture with the nativeTypes option on.
+// The option is opt-in and off by default, so every annotation case states it
+// explicitly; TransformSourceFile still annotates only files that carry
+// `//!native`.
+func renderNativeSourceFile(t *testing.T, relPath string) string {
+	t.Helper()
+	return renderSourceFileWithNativeTypes(t, relPath, true)
+}
+
+// renderSourceFileWithNativeTypes renders a fixture with the option on or off.
+func renderSourceFileWithNativeTypes(t *testing.T, relPath string, nativeTypes bool) string {
+	t.Helper()
+	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s.NativeTypes = nativeTypes
+	statements := transformer.TransformSourceFile(s)
+	if ds := s.Diags.Flush(); len(ds) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", ds)
+	}
+	return render.RenderAST(statements)
+}
+
+// With nativeTypes off, `//!native` is inert: the directive comment is still
+// emitted (as rbxtsc does) but no annotation, alias, or generic reaches the
+// output, so the file matches its non-native twin line for line.
+func TestNativeTypesOffEmitsDirectiveOnly(t *testing.T) {
+	got := renderSourceFileWithNativeTypes(t, "src/native.ts", false)
+
+	if !strings.Contains(got, "--!native\n") {
+		t.Fatalf("the directive comment must still be emitted:\n%s", got)
+	}
+	for _, unwanted := range []string{": number", ": vector", "type ", "local function addVector3(a: Vector3"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("nativeTypes is off but output contains %q:\n%s", unwanted, got)
+		}
+	}
+
+	plain := renderSourceFileWithNativeTypes(t, "src/nonative.ts", false)
+	var stripped []string
+	for _, line := range strings.Split(got, "\n") {
+		if line == "--!native" {
+			continue
+		}
+		stripped = append(stripped, line)
+	}
+	if got := strings.Join(stripped, "\n"); got != plain {
+		t.Errorf("directive-only output differs from the non-native twin beyond the directive line:\ngot:\n%s\nwant:\n%s", got, plain)
+	}
+}
+
+// With nativeTypes on, the same file is annotated exactly as before the option
+// existed.
+func TestNativeTypesOnAnnotatesDirectiveFiles(t *testing.T) {
+	got := renderSourceFileWithNativeTypes(t, "src/native.ts", true)
+	if !strings.Contains(got, "local function addVector(a: vector, b: vector): vector\n") {
+		t.Errorf("nativeTypes is on but the file is not annotated:\n%s", got)
+	}
+	// The opt-in gates the directive, not the project: a file without it stays
+	// plain even with the option on.
+	plain := renderSourceFileWithNativeTypes(t, "src/nonative.ts", true)
+	if strings.Contains(plain, ": number") {
+		t.Errorf("a file without //!native must stay unannotated:\n%s", plain)
+	}
+}
 
 // Under `--!native` Luau only gets a speedup from parameter annotations it
 // understands; these cases pin which TS types are annotated and how.
 func TestNativeFilesAnnotateSignatures(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"--!native\n",
@@ -35,7 +102,7 @@ func TestNativeFilesAnnotateSignatures(t *testing.T) {
 // Table types that are not named interfaces are spelled structurally so Luau's
 // compiler tags them TABLE.
 func TestNativeFilesAnnotateTablesStructurally(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"local function sum(values: { number }, lookup: { [string]: number }, options: { size: number }): number\n",
@@ -67,7 +134,7 @@ func TestNativeFilesAnnotateTablesStructurally(t *testing.T) {
 // Named interfaces and non-generic type aliases of object types become file
 // level aliases, which is what keeps a recursive type recursive.
 func TestNativeFilesAliasNamedTypes(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		// Optional members use `?` and readonly is dropped: `read` is not
@@ -108,7 +175,7 @@ func TestNativeFilesAliasNamedTypes(t *testing.T) {
 
 // Function types are spelled out in parameters and returns.
 func TestNativeFilesAnnotateFunctionTypes(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"local function callback(fn: (n: number) -> number): number\n",
@@ -136,7 +203,7 @@ func TestNativeFilesAnnotateFunctionTypes(t *testing.T) {
 // several returns, construct signatures, generic signatures, and overload
 // intersections all keep a useful tag or read better than the fallback.
 func TestNativeFilesAnnotateCallableShapes(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		// LuaTuple is a return pack, in a declared return and a callback type
@@ -191,7 +258,7 @@ func TestNativeFilesAnnotateCallableShapes(t *testing.T) {
 // Nested positions mirror Roblox types by name; a top-level parameter never
 // does (an Instance tag is userdata, not a speedup).
 func TestNativeFilesAnnotateRobloxTypesNested(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"local function robloxTypes(lookup: { [string]: Vector3 }, part, nested: { part: Part, flag: boolean }): { [string]: Vector3 }\n",
@@ -206,7 +273,7 @@ func TestNativeFilesAnnotateRobloxTypesNested(t *testing.T) {
 // A class type parameter cannot be declared in Luau, so it maps to `any`: the
 // parameter is left unannotated and a nested use widens to `any`.
 func TestNativeFilesTreatClassTypeParametersAsAny(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"function Box:constructor(value)\n",
@@ -224,7 +291,7 @@ func TestNativeFilesTreatClassTypeParametersAsAny(t *testing.T) {
 // function itself; an outer function's generic tags the argument as userdata,
 // so that parameter stays unannotated (rule R1).
 func TestNativeFilesOnlyAnnotateOwnGenericsAtTopLevel(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		"local function ownGeneric<K>(key: K): K\n",
@@ -240,7 +307,7 @@ func TestNativeFilesOnlyAnnotateOwnGenericsAtTopLevel(t *testing.T) {
 }
 
 func TestNativeFilesLeaveUnhelpfulTypesUnannotated(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 
 	for _, want := range []string{
 		// Roblox types other than the two vectors are datatypes, not tables.
@@ -264,7 +331,7 @@ func TestNativeFilesLeaveUnhelpfulTypesUnannotated(t *testing.T) {
 // A bare `table` annotation is tagged userdata by Luau's compiler, which makes
 // the native entry guard fail on every call.
 func TestNativeFilesNeverEmitBareTable(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/native.ts")
+	got := renderNativeSourceFile(t, "src/native.ts")
 	for _, line := range strings.Split(got, "\n") {
 		if bareTableAnnotation.MatchString(line) {
 			t.Errorf("bare table annotation: %s", line)
@@ -279,7 +346,7 @@ var bareTableAnnotation = regexp.MustCompile(`: table($|[^A-Za-z0-9_])`)
 // The LRU program the owner reviewed: recursive generic interface, function
 // types, and a nested function whose parameter names an outer generic.
 func TestNativeFilesAnnotateRecursiveGenericCache(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/lru.ts")
+	got := renderNativeSourceFile(t, "src/lru.ts")
 
 	for _, want := range []string{
 		"type Node<K, V> = { key: K, nextNode: Node<K, V>?, previousNode: Node<K, V>?, value: V }\n",
@@ -307,7 +374,7 @@ func TestNativeFilesAnnotateRecursiveGenericCache(t *testing.T) {
 }
 
 func TestFilesWithoutNativeDirectiveAreNotAnnotated(t *testing.T) {
-	got := renderFunctionsSourceFile(t, "src/nonative.ts")
+	got := renderNativeSourceFile(t, "src/nonative.ts")
 
 	for _, want := range []string{
 		"local function addVector(a, b)\n",

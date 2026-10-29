@@ -19,7 +19,9 @@ var HeaderComment = " Compiled with sloptor v" + version.Version
 // rendering.
 func TransformSourceFile(s *State) *luau.List[luau.Statement] {
 	node := s.SourceFile
-	s.IsNative = hasNativeDirective(s)
+	// The `//!native` directive only annotates when the nativeTypes option is
+	// on; the comment itself is emitted by the printers regardless.
+	s.IsNative = s.NativeTypes && hasNativeDirective(s)
 
 	// The file's module symbol maps to the identifier `exports`.
 	symbol := s.Checker.GetSymbolAtLocation(node.AsNode())

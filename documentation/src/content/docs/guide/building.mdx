@@ -40,7 +40,23 @@ Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; me
 
 ## Native code generation annotations
 
-A file whose leading comments include `//!native` gets Luau type annotations on its function parameters and return types, which is what Luau's native compiler specializes on. sloptor emits the directive as `--!native` and annotates every function in the file. Files without the directive produce the same Luau as rbxtsc.
+This is an opt-in rotor extension and off by default. Enable it in either project file — `tsconfig.json`:
+
+```json
+{
+	"rbxts": { "nativeTypes": true }
+}
+```
+
+or `rotor.toml`:
+
+```toml
+nativeTypes = true
+```
+
+`rbxts.nativeTypes` wins when both are set; `rotor.toml`'s value applies only when the tsconfig does not declare the key. With the option off, a `//!native` file compiles exactly like rbxtsc: the directive comment is still emitted as `--!native`, but no annotations, type aliases, or generic declarations are added.
+
+With it on, a file whose leading comments include `//!native` gets Luau type annotations on its function parameters and return types, which is what Luau's native compiler specializes on. sloptor emits the directive as `--!native` and annotates every function in the file. Files without the directive produce the same Luau as rbxtsc.
 
 ```ts
 //!native

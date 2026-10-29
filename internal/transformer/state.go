@@ -166,8 +166,16 @@ type State struct {
 	// intentionally differs from rbxtsc.
 	OptimizedArrayAppends bool
 
-	// IsNative is set when the file carries a `//!native` directive; only
-	// then are Luau type annotations emitted (see nativetypes.go).
+	// NativeTypes enables rotor's `//!native` type annotations. It defaults
+	// off because the emitted code intentionally differs from rbxtsc: only
+	// when true does a file whose leading comments include `//!native` get
+	// Luau parameter and return annotations (see nativetypes.go). The
+	// directive comment itself is emitted either way, as rbxtsc does.
+	NativeTypes bool
+
+	// IsNative is set when the file carries a `//!native` directive AND
+	// NativeTypes is enabled; only then are Luau type annotations emitted
+	// (see nativetypes.go).
 	IsNative bool
 
 	// nativeScopes tracks the generic names in scope while a `//!native`
