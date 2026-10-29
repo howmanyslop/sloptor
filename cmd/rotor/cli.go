@@ -153,6 +153,7 @@ func newRootCommand(streams cliStreams) *cobra.Command {
 		newCheckCommand(streams),
 		newCleanCommand(streams),
 		newDiagnosticsCommand(streams),
+		newLSPCommand(streams),
 		newSchemaCommand(streams),
 		newCompletionCommand(),
 		newVersionCommand(),

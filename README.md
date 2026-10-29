@@ -33,7 +33,7 @@ sloptor build ./my-game -w     # compile to Luau with incremental rebuilds
 - **Compiler outputs**: emit Luau, TypeScript declarations, and source maps. Integrate builds through the typed JavaScript `createBuildSession()` API.
 - **Compiler extensions**: native Flamework and JECS transforms, plus compile-time [macros](https://docs.howmanysmall.com/sloptor/macros/) such as `$env`, `$file`, and `$keys`.
 
-The public commands are `build`, `check`, `diagnostics`, `clean`, `schema`, `completion`, and `version`. Every command and flag: [Commands](https://docs.howmanysmall.com/sloptor/commands/).
+The public commands are `build`, `check`, `diagnostics`, `lsp`, `clean`, `schema`, `completion`, and `version`. Every command and flag: [Commands](https://docs.howmanysmall.com/sloptor/commands/).
 
 ## Benchmarks
 

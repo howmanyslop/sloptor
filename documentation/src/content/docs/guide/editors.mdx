@@ -1,0 +1,83 @@
+---
+title: "Editors"
+description: "Show sloptor's transformer diagnostics in Neovim, Helix and Zed with sloptor lsp."
+---
+
+`sloptor lsp` is a language server over stdio. It runs the same census as
+[`sloptor diagnostics`](/sloptor/guide/diagnostics/) over your unsaved buffers
+and publishes the result as editor diagnostics with the source `sloptor`.
+
+It reports what your TypeScript server cannot: transformer diagnostics such as
+`noAny`, unsupported Luau constructs, macro failures, comment-directive
+refusals and internal compiler errors. TypeScript errors (`TS####`) are left to
+the editor's own TypeScript server, so nothing shows up twice. Run it next to
+that server, not instead of it.
+
+Edits are checked shortly after you stop typing, and immediately on open and
+save. Each check is a full compile of the project, and it finds the project by
+walking up from the file to the nearest `tsconfig.json`. A project with no
+`node_modules/@rbxts` in that directory or above it is not a roblox-ts project,
+and the server ignores its files.
+
+To also show TypeScript errors, for an editor that runs no TypeScript server,
+pass `initializationOptions: { typeErrors: true }`. The snippets below show the
+option in its default, off state.
+
+## Neovim
+
+Neovim 0.11 or later:
+
+```lua
+vim.lsp.config("sloptor", {
+	cmd = { "sloptor", "lsp", "--stdio" },
+	filetypes = { "typescript", "typescriptreact" },
+	root_markers = { "tsconfig.json" },
+	init_options = { typeErrors = false },
+})
+vim.lsp.enable("sloptor")
+```
+
+## Helix
+
+In `languages.toml`:
+
+```toml
+[language-server.sloptor]
+command = "sloptor"
+args = ["lsp", "--stdio"]
+config = { typeErrors = false }
+
+[[language]]
+name = "typescript"
+language-servers = ["typescript-language-server", "sloptor"]
+
+[[language]]
+name = "tsx"
+language-servers = ["typescript-language-server", "sloptor"]
+```
+
+## Zed
+
+Zed only launches language servers that an extension registers. The sloptor
+repository has one in `editors/zed`. Open the command palette, run
+`zed: install dev extension` and select that directory. It needs a Rust
+toolchain installed through `rustup`, since Zed builds the extension itself.
+
+The extension finds `sloptor` on your `PATH`. To point it elsewhere, or to turn
+on TypeScript errors, add this to `settings.json`:
+
+```json
+{
+	"lsp": {
+		"sloptor": {
+			"binary": { "path": "/path/to/sloptor" },
+			"initialization_options": { "typeErrors": true }
+		}
+	}
+}
+```
+
+## VS Code
+
+VS Code only launches language servers that an extension registers, and sloptor
+does not ship one yet.
