@@ -270,8 +270,8 @@ func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier
 	// A constructor is its own function WITH NO generics: a class type
 	// parameter is not declarable in Luau, so it must widen to `any` here
 	// instead of inheriting an enclosing function's names.
-	s.PushNativeGenerics(nil, false)
-	defer s.PopNativeGenerics()
+	s.PushTypeGenerics(nil, false)
+	defer s.PopTypeGenerics()
 
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)

@@ -316,8 +316,8 @@ func getNativeFunctionType(state *State, checkerType *checker.Type, receiver boo
 // parameter and return types; constraints are dropped.
 func getNativeSignatureType(state *State, signature *checker.Signature, receiver bool, depth int, seen map[*checker.Type]bool) string {
 	generics := getNativeSignatureGenerics(signature)
-	state.PushNativeGenerics(generics, false)
-	defer state.PopNativeGenerics()
+	state.PushTypeGenerics(generics, false)
+	defer state.PopTypeGenerics()
 
 	var parts []string
 	// A method signature carries its receiver, which Luau passes as the

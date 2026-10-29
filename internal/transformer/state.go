@@ -188,11 +188,19 @@ type State struct {
 	// (see nativetypes.go).
 	IsNative bool
 
-	// nativeScopes tracks the generic names in scope while a `//!native`
-	// annotation is rendered: one entry per enclosing function that declares
-	// type parameters, in addition to one barrier entry per type alias body
-	// being built (see nativetypes.go).
-	nativeScopes []nativeGenericScope
+	// IsLuauTyped is set when the LuauTypes option is on. Unlike IsNative it
+	// needs no comment directive, so removeComments cannot disable it.
+	IsLuauTyped bool
+
+	// typeScopes tracks the generic names in scope while a type annotation
+	// is built: one entry per enclosing function that declares type
+	// parameters, in addition to one barrier entry per type alias body being
+	// built (see nativetypes.go). Both the native annotations and the
+	// luauTypes builder consult it.
+	typeScopes []typeGenericScope
+	// luauTypeBuilder is the file's TS-to-Luau type builder, created on first
+	// use by State.types (see luautypes.go).
+	luauTypeBuilder *typeBuilder
 	// nativeAliases holds the emitted `type` statements in registration order;
 	// prependHeader places them after the header.
 	nativeAliases []*luau.TypeAlias

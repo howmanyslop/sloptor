@@ -153,9 +153,9 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 
 	// A barrier scope: the body sees the alias's own generics, never the
 	// enclosing function's.
-	state.PushNativeGenerics(generics, true)
+	state.PushTypeGenerics(generics, true)
 	body := getNativeAliasBody(state, symbol, ast.IsInterfaceDeclaration(declaration))
-	state.PopNativeGenerics()
+	state.PopTypeGenerics()
 
 	if body == "" {
 		if !ast.IsInterfaceDeclaration(declaration) {

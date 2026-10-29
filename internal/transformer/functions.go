@@ -107,8 +107,8 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 // annotation can name them (and the return type can still use them).
 func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 	generics := getNativeFunctionGenerics(s, node)
-	s.PushNativeGenerics(generics, false)
-	defer s.PopNativeGenerics()
+	s.PushTypeGenerics(generics, false)
+	defer s.PopTypeGenerics()
 
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)
@@ -217,8 +217,8 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 	// A method is its own function: its type parameters are in scope for its
 	// parameters, body, and return type.
 	generics := getNativeFunctionGenerics(s, node)
-	s.PushNativeGenerics(generics, false)
-	defer s.PopNativeGenerics()
+	s.PushTypeGenerics(generics, false)
+	defer s.PopTypeGenerics()
 
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)

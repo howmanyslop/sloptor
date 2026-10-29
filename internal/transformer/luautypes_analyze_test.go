@@ -424,6 +424,7 @@ var luauTypesStrictDebt = map[string]string{
 	"src/classes.ts":    "WP7: rbxtsc's `local Foo` + `do Foo = setmetatable(...) end` shape types the class table as `T?`, so `self:constructor(...)` and every `Foo.*` inside the block are rejected",
 	"src/enums.ts":      "WP7: the numeric enum table is assigned inside a `do` block, so `Codes.B` reads through a `T?`",
 	"src/lib/shapes.ts": "WP7: the class shape of classes.ts, plus an unannotated method return the checker asks to annotate",
+	"src/tables.ts":     "WP7: the Foo and Box classes take the shape of classes.ts, so `self:constructor(...)` and `Foo.*` inside the block are rejected",
 }
 
 // TestLuauTypesFixturesAnalyzeClean renders every fixture under

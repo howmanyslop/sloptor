@@ -208,37 +208,40 @@ func getNativeSignatureGenerics(signature *checker.Signature) []string {
 // Generic scope
 // ---------------------------------------------------------------------------
 
-// nativeGenericScope is one level of generic names visible to the annotation
-// currently being rendered. barrier marks a type alias body: names declared by
-// the enclosing function are not in scope inside a file-level alias.
-type nativeGenericScope struct {
+// typeGenericScope is one level of generic names visible to the annotation
+// currently being rendered, shared by the native annotations and the luauTypes
+// builder. barrier marks a type alias body: names declared by the enclosing
+// function are not in scope inside a file-level alias.
+type typeGenericScope struct {
 	names   []string
 	barrier bool
 }
 
-// PushNativeGenerics enters the generic scope of a function (or alias body)
+// PushTypeGenerics enters the generic scope of a function (or alias body)
 // while its signature and body are transformed. Every function pushes a scope,
 // even one that declares no generics, so "the current function's own generic"
 // is always the innermost entry.
-func (state *State) PushNativeGenerics(names []string, barrier bool) {
-	state.nativeScopes = append(state.nativeScopes, nativeGenericScope{names: names, barrier: barrier})
+func (state *State) PushTypeGenerics(names []string, barrier bool) {
+	state.typeScopes = append(state.typeScopes, typeGenericScope{names: names, barrier: barrier})
 }
 
-// PopNativeGenerics leaves the innermost generic scope.
-func (state *State) PopNativeGenerics() {
-	if n := len(state.nativeScopes); n > 0 {
-		state.nativeScopes = state.nativeScopes[:n-1]
+// PopTypeGenerics leaves the innermost generic scope.
+func (state *State) PopTypeGenerics() {
+	if n := len(state.typeScopes); n > 0 {
+		state.typeScopes = state.typeScopes[:n-1]
 	}
 }
 
-// getNativeGenericInScope reports whether name is a generic visible from the
+// typeGenericInScope reports whether name is a generic visible from the
 // current annotation, and whether it belongs to the innermost function (rule
-// R1: only those may appear bare in a tagged position).
-func (state *State) getNativeGenericInScope(name string) (inScope, own bool) {
-	for index := len(state.nativeScopes) - 1; index >= 0; index-- {
-		scope := state.nativeScopes[index]
+// R1: only those may appear bare in a tagged position). R1 stays a query: the
+// luauTypes builder reports the answer through builtType.OuterGeneric and the
+// native policy decides what to do with it.
+func (state *State) typeGenericInScope(name string) (inScope, own bool) {
+	for index := len(state.typeScopes) - 1; index >= 0; index-- {
+		scope := state.typeScopes[index]
 		if slices.Contains(scope.names, name) {
-			return true, index == len(state.nativeScopes)-1 && !scope.barrier
+			return true, index == len(state.typeScopes)-1 && !scope.barrier
 		}
 		if scope.barrier {
 			return false, false
@@ -259,7 +262,7 @@ func getNativeTypeParameterName(state *State, checkerType *checker.Type) (name s
 	if !luau.IsValidIdentifier(name) {
 		return "", false, false
 	}
-	inScope, own := state.getNativeGenericInScope(name)
+	inScope, own := state.typeGenericInScope(name)
 	if !inScope {
 		return "", false, false
 	}
