@@ -89,6 +89,9 @@ func TestAbandonedDeclarationPrefetchLeavesNoResult(t *testing.T) {
 		t.Fatalf("program: %v (%v)", err, diags)
 	}
 	prefetch := newDeclarationPrefetch(program, nil, nil)
+	if prefetch == nil {
+		t.Fatal("newDeclarationPrefetch returned nil for a declaration-emitting project")
+	}
 	abandon := make(chan struct{})
 	close(abandon)
 	prefetch.run(abandon)

@@ -118,7 +118,6 @@ func TestEvaluate_reports_exact_boundary_statistics(t *testing.T) {
 
 	// When
 	verdict, err := evaluate(manifest)
-
 	// Then
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)

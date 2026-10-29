@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -25,7 +25,9 @@ jobs:
     steps:
       # Pushes are diffed with git; pull requests ask the API instead.
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - id: filter
         name: Detect Go-relevant changes
@@ -58,16 +60,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
-          install_args: go golangci-lint
+          install_args: go golangci-lint go:go.uber.org/nilaway/cmd/nilaway go:golang.org/x/tools/cmd/deadcode
           experimental: true
 
       - name: Restore Go module, build, and lint caches
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/go/pkg/mod
@@ -81,6 +85,21 @@ jobs:
         # Same package set as vet; the vendored tsgo mirror is excluded.
         run: golangci-lint run ./internal/... ./cmd/... ./tools/...
 
+      - name: nilaway
+        # Findings in the vendored tsgo mirror are never actionable.
+        run: nilaway -exclude-errors-in-files=tsgo ./internal/... ./cmd/... ./tools/...
+
+      - name: deadcode
+        # deadcode exits 0 when it reports unreachable functions, so any
+        # output fails the step. The filter keeps it to first-party packages.
+        run: |
+          set -euo pipefail
+          findings="$(deadcode -test '-filter=^rotor/(internal|cmd|tools)' ./internal/... ./cmd/... ./tools/...)"
+          if [ -n "$findings" ]; then
+            echo "$findings"
+            exit 1
+          fi
+
     timeout-minutes: 15
 
   race:
@@ -89,7 +108,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -117,17 +138,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
 
       - name: Check formatting
         run: |
-          unformatted="$(gofmt -l internal cmd tools)"
+          unformatted="$(gofumpt -l internal cmd tools)"
           if [ -n "$unformatted" ]; then
-            echo "gofmt needs to run on:"
+            echo "gofumpt needs to run on:"
             echo "$unformatted"
+            exit 1
+          fi
+          unformatted_imports="$(goimports -l internal cmd tools)"
+          if [ -n "$unformatted_imports" ]; then
+            echo "goimports needs to run on:"
+            echo "$unformatted_imports"
             exit 1
           fi
 
@@ -153,7 +182,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -177,7 +208,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -203,16 +236,18 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Mise toolchain
-        uses: jdx/mise-action@v2
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
         with:
           install_args: go go:golang.org/x/vuln/cmd/govulncheck
           experimental: true
 
       - name: Restore Go module and build caches
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/go/pkg/mod
@@ -226,13 +261,17 @@ jobs:
         # execute.
         run: govulncheck ./...
 
+    timeout-minutes: 15
+
   windows-compile:
     if: needs.changes.outputs.go == 'true'
     needs: changes
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -265,7 +304,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -286,7 +327,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -318,7 +361,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -341,7 +386,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -362,7 +409,9 @@ jobs:
     runs-on: windows-2025
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up rotor toolchain
         uses: ./.github/actions/setup
@@ -382,3 +431,25 @@ jobs:
         working-directory: tools/sidecar
 
     timeout-minutes: 20
+
+  # Not gated on the Go filter: release.yaml, docs.yaml, and
+  # ci-documentation.yaml count as Go-free there, and they need linting most.
+  workflow-lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          experimental: true
+          install_args: jactionlint
+
+      - name: jactionlint
+        # Same profile (.github/jactionlint.yaml) and exit policy as the hook.
+        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup/action.yaml
+
+    timeout-minutes: 5

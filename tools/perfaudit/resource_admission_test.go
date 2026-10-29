@@ -44,9 +44,11 @@ func resourceAdmissionFixture(t *testing.T, coldPairs, noChangePairs int) (manif
 			prefix = fmt.Sprintf("%s-%.0f-%s", r["phase"], r["pair"], r["binary"])
 		}
 		arm := inv["binary"].(string)
-		entry := map[string]any{"event": "started", "invocation": inv, "at_utc": stamp.Add(time.Duration(2*i) * time.Millisecond).Format(time.RFC3339Nano), "status": "incomplete",
+		entry := map[string]any{
+			"event": "started", "invocation": inv, "at_utc": stamp.Add(time.Duration(2*i) * time.Millisecond).Format(time.RFC3339Nano), "status": "incomplete",
 			"executable": before[arm].(map[string]any)["path"], "working_directory": filepath.Join(work, arm),
-			"stdout": filepath.Join(dir, prefix+".stdout.json"), "stderr": filepath.Join(dir, prefix+".stderr.txt"), "diagnostics_digest_format": "sha256-diagnostics-v2", "resource_accounting_format": resourceFormat}
+			"stdout": filepath.Join(dir, prefix+".stdout.json"), "stderr": filepath.Join(dir, prefix+".stderr.txt"), "diagnostics_digest_format": "sha256-diagnostics-v2", "resource_accounting_format": resourceFormat,
+		}
 		line, err := json.Marshal(entry)
 		if err != nil {
 			t.Fatal(err)
@@ -54,16 +56,22 @@ func resourceAdmissionFixture(t *testing.T, coldPairs, noChangePairs int) (manif
 		journal = append(append(journal, line...), '\n')
 		entry["event"], entry["status"], entry["error"], entry["validation_completed"] = "finished", "completed", nil, true
 		entry["at_utc"] = stamp.Add(time.Duration(2*i+1) * time.Millisecond).Format(time.RFC3339Nano)
-		job := map[string]any{"UserTicks100ns": 156250, "KernelTicks100ns": 156250, "TotalProcesses": 1, "ActiveProcesses": 0, "LimitTerminatedProcesses": 0, "TotalPageFaults": 20,
-			"ReadOperations": 1, "WriteOperations": 2, "OtherOperations": 3, "ReadBytes": 1024, "WriteBytes": 2048, "OtherBytes": 4096, "StructureBytes": 96}
+		job := map[string]any{
+			"UserTicks100ns": 156250, "KernelTicks100ns": 156250, "TotalProcesses": 1, "ActiveProcesses": 0, "LimitTerminatedProcesses": 0, "TotalPageFaults": 20,
+			"ReadOperations": 1, "WriteOperations": 2, "OtherOperations": 3, "ReadBytes": 1024, "WriteBytes": 2048, "OtherBytes": 4096, "StructureBytes": 96,
+		}
 		available := func(values map[string]any) map[string]any {
 			return map[string]any{"Status": "available", "Error": nil, "Values": values}
 		}
-		resources := map[string]any{"Schema": 1, "Status": "available", "Completion": "complete", "CompletionError": nil, "QueryElapsedMS": 0.01,
+		resources := map[string]any{
+			"Schema": 1, "Status": "available", "Completion": "complete", "CompletionError": nil, "QueryElapsedMS": 0.01,
 			"JobAccounting": available(job), "JobMemory": available(map[string]any{"PeakJobMemoryBytes": 1048576, "PeakProcessMemoryBytes": 1048576, "StructureBytes": 144}),
-			"RootCpu": available(map[string]any{"UserTicks100ns": 156250, "KernelTicks100ns": 156250}), "OtherOwnedCpu": available(map[string]any{"UserTicks100ns": 0, "KernelTicks100ns": 0})}
-		entry["result"] = map[string]any{"DurationMS": duration, "ElapsedMS": duration, "ExitCode": 0, "Status": "completed", "Error": nil, "EvidencePersistenceMS": 0.1, "CaptureLimitBytes": 16777216,
-			"ResourceAccounting": resources, "StdoutBytes": 100, "StderrBytes": 0, "CaptureOverflow": false, "CaptureSpoolWriteMS": 0.1, "DiagnosticsDigest": "sha256-diagnostics-v2:" + hash, "OutputTreeDigest": "sha256-tree-v2:" + hash}
+			"RootCpu": available(map[string]any{"UserTicks100ns": 156250, "KernelTicks100ns": 156250}), "OtherOwnedCpu": available(map[string]any{"UserTicks100ns": 0, "KernelTicks100ns": 0}),
+		}
+		entry["result"] = map[string]any{
+			"DurationMS": duration, "ElapsedMS": duration, "ExitCode": 0, "Status": "completed", "Error": nil, "EvidencePersistenceMS": 0.1, "CaptureLimitBytes": 16777216,
+			"ResourceAccounting": resources, "StdoutBytes": 100, "StderrBytes": 0, "CaptureOverflow": false, "CaptureSpoolWriteMS": 0.1, "DiagnosticsDigest": "sha256-diagnostics-v2:" + hash, "OutputTreeDigest": "sha256-tree-v2:" + hash,
+		}
 		line, err = json.Marshal(entry)
 		if err != nil {
 			t.Fatal(err)
@@ -71,12 +79,14 @@ func resourceAdmissionFixture(t *testing.T, coldPairs, noChangePairs int) (manif
 		journal = append(append(journal, line...), '\n')
 	}
 	manifest, _ = json.Marshal(m)
-	r := map[string]any{"schema": 1, "status": "evaluated", "started_utc": stamp.Format(time.RFC3339Nano), "finished_utc": stamp.Add(time.Hour).Format(time.RFC3339Nano),
+	r := map[string]any{
+		"schema": 1, "status": "evaluated", "started_utc": stamp.Format(time.RFC3339Nano), "finished_utc": stamp.Add(time.Hour).Format(time.RFC3339Nano),
 		"error": "perfcompare rejected benchmark evidence: synthetic legacy failure", "before": before, "after": before,
 		"evaluation": map[string]any{"ExitCode": 1, "Status": "FAIL", "Output": "synthetic legacy failure"}, "invocation_journal": filepath.Join(dir, "invocations.ndjson"),
 		"tree_digest_format": "sha256-tree-v2", "diagnostics_digest_format": "sha256-diagnostics-v2", "project_mode": "separate-work-copies", "project_state": nil,
 		"resource_accounting":  map[string]any{"format": resourceFormat, "invocation_journal": filepath.Join(dir, "invocations.ndjson"), "boundary": "post-wall", "cpu_units": "100ns ticks", "memory": "job peak bytes, not RSS", "io": "OS I/O, not filesystem-only"},
-		"measurement_boundary": resourceBoundary, "capture_limit_bytes_per_stream": 16777216, "machine": m["machine"]}
+		"measurement_boundary": resourceBoundary, "capture_limit_bytes_per_stream": 16777216, "machine": m["machine"],
+	}
 	run, _ = json.Marshal(r)
 	return
 }
@@ -93,6 +103,9 @@ func resourceAdmissionHasKind(b resourceBatch, kind string) bool {
 func changeResourceJournal(t *testing.T, journal []byte, line int, change func(map[string]any)) []byte {
 	t.Helper()
 	lines := bytes.Split(bytes.TrimSuffix(journal, []byte{'\n'}), []byte{'\n'})
+	if lines == nil {
+		t.Fatal("empty journal")
+	}
 	var entry map[string]any
 	if err := json.Unmarshal(lines[line], &entry); err != nil {
 		t.Fatal(err)
@@ -270,6 +283,9 @@ func TestResourceAdmissionExactIntegerRangeAndStrictExtensions(t *testing.T) {
 func TestResourceAdmissionCountRunAndPathValidation(t *testing.T) {
 	m, j, r := resourceAdmissionFixture(t, 10, 20)
 	lines := bytes.Split(bytes.TrimSuffix(j, []byte{'\n'}), []byte{'\n'})
+	if lines == nil {
+		t.Fatal("empty journal")
+	}
 	for name, bad := range map[string][]byte{
 		"no diagnostic":   bytes.Join(lines[:120], []byte{'\n'}),
 		"unfinished":      bytes.Join(lines[:121], []byte{'\n'}),
@@ -438,19 +454,25 @@ func resourceAdmissionStableFixture(t *testing.T) (m, j, r []byte) {
 	t.Helper()
 	m, j, r = resourceAdmissionFixture(t, 10, 20)
 	var root map[string]any
-	_ = json.Unmarshal(r, &root)
+	if err := json.Unmarshal(r, &root); err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Dir(root["invocation_journal"].(string))
 	work := filepath.Join(dir, "work-0123456789abcdef0123456789abcdef")
 	active := filepath.Join(work, "active")
 	root["project_mode"] = "stable-project-path-v1"
-	root["project_state"] = map[string]any{"mode": "stable-project-path-v1", "evidence_root": dir, "work_root": work, "active_path": active,
+	root["project_state"] = map[string]any{
+		"mode": "stable-project-path-v1", "evidence_root": dir, "work_root": work, "active_path": active,
 		"arms": map[string]any{"baseline": filepath.Join(work, "baseline"), "candidate": filepath.Join(work, "candidate")}, "active_owner": nil, "pending_arm": nil,
 		"transition": "cleaned", "preserve_work": false, "cleanup_completed": true, "locations": map[string]any{"active_exists": false, "baseline_exists": false, "candidate_exists": false}, "error": nil,
 		"state_file": filepath.Join(dir, "project-state.json"), "journal": filepath.Join(dir, "project-state.ndjson"), "canonical_root": root["before"].(map[string]any)["fixture"].(map[string]any)["path"],
-		"input_metadata_file": filepath.Join(dir, "project-input-metadata.json"), "input_metadata_sha256": "sha256-project-state-v1:" + strings.Repeat("a", 64)}
+		"input_metadata_file": filepath.Join(dir, "project-input-metadata.json"), "input_metadata_sha256": "sha256-project-state-v1:" + strings.Repeat("a", 64),
+	}
 	r, _ = json.Marshal(root)
 	var manifest map[string]any
-	_ = json.Unmarshal(m, &manifest)
+	if err := json.Unmarshal(m, &manifest); err != nil {
+		t.Fatal(err)
+	}
 	for _, arm := range []string{"baseline", "candidate"} {
 		manifest[arm].(map[string]any)["command"] = root["before"].(map[string]any)[arm].(map[string]any)["path"].(string) + " build --project " + active + " --json"
 	}
@@ -458,7 +480,9 @@ func resourceAdmissionStableFixture(t *testing.T) (m, j, r []byte) {
 	lines := bytes.Split(bytes.TrimSuffix(j, []byte{'\n'}), []byte{'\n'})
 	for i, line := range lines {
 		var entry map[string]any
-		_ = json.Unmarshal(line, &entry)
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatal(err)
+		}
 		entry["working_directory"] = active
 		lines[i], _ = json.Marshal(entry)
 	}

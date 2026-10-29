@@ -33,8 +33,10 @@ func residentInventedBatch(id, stage, purpose string, chronology int, key Reside
 			if key.Role == residentCost && purpose == "comparison" {
 				semantic = "expected-stale-B"
 			}
-			s := ResidentSession{ID: fmt.Sprintf("invented/%s/%d/%d", id, i, j), Launch: 4*i + j + 1, Pair: 2*i + j/2 + 1, Arm: arm, Order: order, Semantic: semantic,
-				Resources: ResidentResources{UserTicks: residentTestUint(625001), KernelTicks: residentTestUint(0), PeakBytes: residentTestUint(1024)}}
+			s := ResidentSession{
+				ID: fmt.Sprintf("invented/%s/%d/%d", id, i, j), Launch: 4*i + j + 1, Pair: 2*i + j/2 + 1, Arm: arm, Order: order, Semantic: semantic,
+				Resources: ResidentResources{UserTicks: residentTestUint(625001), KernelTicks: residentTestUint(0), PeakBytes: residentTestUint(1024)},
+			}
 			for p := range 30 {
 				s.Cycles = append(s.Cycles, ResidentCycle{p + 1, value})
 			}
@@ -276,7 +278,7 @@ func TestResidentIndependentBlockEnumeration(t *testing.T) {
 			for y := range 3 {
 				for z := range 3 {
 					var weights [15]uint8
-					var forward, reversed []float64
+					forward, reversed := []float64{}, []float64{}
 					for _, i := range []int{x, y, z} {
 						weights[i]++
 						forward = append(forward, perBlock[i]...)

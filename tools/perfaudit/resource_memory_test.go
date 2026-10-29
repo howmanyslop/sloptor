@@ -46,6 +46,9 @@ func assertResourceMemoryRetention(t *testing.T, b resourceBatch, manifest, jour
 		t.Fatalf("wrong admission or lost evidence: %+v", b.Issues)
 	}
 	lines := bytes.Split(bytes.TrimSuffix(journal, []byte{'\n'}), []byte{'\n'})
+	if lines == nil {
+		t.Fatal("empty journal")
+	}
 	for i, o := range b.Observations {
 		if !bytes.Equal(o.Raw, lines[i]) {
 			t.Fatal("journal observation changed")

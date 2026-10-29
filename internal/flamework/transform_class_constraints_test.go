@@ -125,7 +125,11 @@ func TestAnalyzeFlameworkClasses_inheritsMemberMetadataFromImplementedInterface(
 	if err != nil {
 		t.Fatalf("newTransformState() error = %v", err)
 	}
-	member := input.Files[0].Statements.Nodes[1].Members()[0]
+	members := input.Files[0].Statements.Nodes[1].Members()
+	if len(members) == 0 {
+		t.Fatal("Implementation class has no members")
+	}
+	member := members[0]
 
 	// When
 	metadata := collectNodeMetadata(state, member)

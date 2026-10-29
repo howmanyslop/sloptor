@@ -10,8 +10,10 @@ func fixture(t *testing.T, coldCandidate, noChangeCandidate int64, coldCount, no
 	t.Helper()
 	root := map[string]any{
 		"schema": 1,
-		"machine": map[string]any{"os": "Windows", "version": "11", "cpu": "fixture", "ram_bytes": 1024,
-			"storage": "fixture", "power": "fixture", "run_order": []string{"AB", "BA"}, "sidecar_timeout": "300s", "environment": map[string]string{"x": "y"}},
+		"machine": map[string]any{
+			"os": "Windows", "version": "11", "cpu": "fixture", "ram_bytes": 1024,
+			"storage": "fixture", "power": "fixture", "run_order": []string{"AB", "BA"}, "sidecar_timeout": "300s", "environment": map[string]string{"x": "y"},
+		},
 		"baseline":  map[string]string{"revision": "baseline", "command": "baseline build"},
 		"candidate": map[string]string{"revision": "candidate", "command": "candidate build"},
 	}

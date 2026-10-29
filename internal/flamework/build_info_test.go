@@ -179,6 +179,9 @@ func TestBuildInfoPackages_whenNestedPackagesOverlap(t *testing.T) {
 	shared, sharedOK := root.Identifier("shared")
 	deep, deepOK := root.Identifier("deep")
 	packages := root.PackageSnapshots()
+	if len(packages) == 0 {
+		t.Fatal("PackageSnapshots() returned no snapshots")
+	}
 
 	// Then: first registration wins, recursion works, and snapshots are ordered copies.
 	if !sharedOK || shared != "first" || !deepOK || deep != "grand" {

@@ -13,7 +13,6 @@ func TestNewSourceTraceMapDecodesMappingsInGeneratedPositionOrder(t *testing.T) 
 
 	// When
 	trace, err := newSourceTraceMap(raw, "original.ts", "first\nsecond\n")
-
 	// Then
 	if err != nil {
 		t.Fatal(err)

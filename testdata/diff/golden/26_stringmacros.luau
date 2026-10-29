@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.1-beta.1
+-- Compiled with sloptor v3.0.0-beta.1
 local s = "Hello, World"
 print(#s, #"abc")
 print(string.upper(s), string.lower(s), string.reverse(s))

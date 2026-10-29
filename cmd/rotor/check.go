@@ -373,5 +373,5 @@ func useColor(out io.Writer) bool {
 		return false
 	}
 	info, err := f.Stat()
-	return err == nil && info.Mode()&os.ModeCharDevice != 0
+	return err == nil && info != nil && info.Mode()&os.ModeCharDevice != 0
 }

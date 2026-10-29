@@ -320,6 +320,9 @@ func addPathsModules(state *TransformState, file *ast.SourceFile, pattern string
 // then each parent, without preparing the same glob and path again. Matching
 // stays lazy so unreachable invalid pattern segments do not report errors.
 func matchAddPathsGlobSegmentsOrAncestor(pattern, relative []string) (bool, error) {
+	if len(relative) == 0 {
+		return false, nil
+	}
 	for length := len(relative); length > 0; length-- {
 		if length == 1 && (relative[0] == "." || relative[0] == "") {
 			break

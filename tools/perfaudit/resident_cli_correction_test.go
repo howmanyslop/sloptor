@@ -74,6 +74,9 @@ func residentChronologyFixture(t *testing.T, primary, secondary [3]int) (*reside
 	}
 	hostBytes := mustReadTest(t, filepath.Join(p.refs[0].Directory, "host.before.json"))
 	host := p.read(filepath.Join(p.refs[0].Directory, "host.before.json"))
+	if host["qpc_support"] == nil {
+		t.Fatal("host fixture lost qpc_support")
+	}
 	for _, ref := range s.refs {
 		s.write(filepath.Join(ref.Directory, "host.before.json"), hostBytes)
 		s.write(filepath.Join(ref.Directory, "host.after.json"), hostBytes)

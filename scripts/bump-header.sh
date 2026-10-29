@@ -26,7 +26,7 @@ if [[ -z "$version" ]]; then
 fi
 
 new_header="-- Compiled with sloptor v$version"
-header_re='-- Compiled with (roblox-ts|@isentinel/roblox-ts|sloptor) v[0-9]+\.[0-9]+\.[0-9]+'
+header_re='-- Compiled with (roblox-ts|@isentinel/roblox-ts|sloptor) v[0-9]+\.[0-9]+\.[0-9]+(-[-0-9A-Za-z.]+)?(\+[-0-9A-Za-z.]+)?'
 
 stale=0
 

@@ -29,10 +29,10 @@ func captureStderr(t *testing.T, fn func() int) (string, int) {
 
 func fileExists(path string) bool {
 	st, err := os.Stat(path)
-	return err == nil && st.Mode().IsRegular()
+	return err == nil && st != nil && st.Mode().IsRegular()
 }
 
 func dirExists(path string) bool {
 	st, err := os.Stat(path)
-	return err == nil && st.IsDir()
+	return err == nil && st != nil && st.IsDir()
 }

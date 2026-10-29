@@ -63,9 +63,11 @@ func TestParallelRealNodeWholeResponseMatchesSerial(t *testing.T) {
 	for _, plugin := range plugins {
 		profile.Plugins = append(profile.Plugins, config.ParallelTransformerPlugin{Config: string(plugin), SHA256: digest})
 	}
-	request := sidecarRequest{Protocol: 1, Operation: "transform", ProjectDir: dir, TsConfigPath: filepath.Join(dir, "tsconfig.json"), Plugins: plugins,
+	request := sidecarRequest{
+		Protocol: 1, Operation: "transform", ProjectDir: dir, TsConfigPath: filepath.Join(dir, "tsconfig.json"), Plugins: plugins,
 		CompileFileNames: []string{filepath.Join(dir, "src/main.ts"), filepath.Join(dir, "src/missing-a.ts"), filepath.Join(dir, "src/second.ts"), filepath.Join(dir, "src/missing-b.ts")},
-		ChangedFiles:     []sidecarChangedFile{{FileName: filepath.Join(dir, "src/second.ts"), Text: `export const b = "overlaid";`}}}
+		ChangedFiles:     []sidecarChangedFile{{FileName: filepath.Join(dir, "src/second.ts"), Text: `export const b = "overlaid";`}},
+	}
 	serial, err := spawnSidecarSessionMode(dir, sidecarDir, true)
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +116,9 @@ func TestParallelRealNodeWholeResponseMatchesSerial(t *testing.T) {
 	response, handled, err := runParallelTransformerWithSpawner(ctx, 30*time.Second, sidecarDir, &sidecarSlot{session: first}, request, profile, &sidecarCallStats{}, spawn)
 	if err != nil || !handled {
 		t.Fatalf("parallel: handled=%v %v", handled, err)
+	}
+	if response == nil {
+		t.Fatal("parallel transformer returned nil response")
 	}
 	baseline.Metrics, response.Metrics = nil, nil
 	if len(baseline.Diagnostics) != 3 || len(baseline.Transformed) != 2 || !reflect.DeepEqual(baseline, response) || baselineStderr != forwarded.String() {

@@ -220,6 +220,9 @@ func (g *guardGenerator) buildProperties(typeValue *checker.Type, interfaceType 
 func (g *guardGenerator) buildMap(typeValue *checker.Type) (*ast.Node, error) {
 	arguments := guardTypeArguments(typeValue, g.state.checker)
 	guards := []*ast.Node{guardField(g.state.factory, "t", "any"), guardField(g.state.factory, "t", "any")}
+	if len(arguments) == 0 {
+		return guardCall(g.state.factory, "map", guards...), nil
+	}
 	for index := range min(len(arguments), 2) {
 		guard, err := g.build(arguments[index])
 		if err != nil {
