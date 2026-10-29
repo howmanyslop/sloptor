@@ -114,6 +114,8 @@ func renderNode(s *RenderState, node luau.Node) {
 		renderSet(s, n)
 	case *luau.MixedTable:
 		renderMixedTable(s, n)
+	case *luau.CastExpression:
+		renderCastExpression(s, n)
 	// statements
 	case *luau.Assignment:
 		renderAssignment(s, n)
@@ -149,11 +151,47 @@ func renderNode(s *RenderState, node luau.Node) {
 		renderComment(s, n)
 	case *luau.TypeAlias:
 		renderTypeAlias(s, n)
+	case *luau.TypeFunctionDeclaration:
+		renderTypeFunctionDeclaration(s, n)
 	// fields
 	case *luau.MapField:
 		renderMapField(s, n)
 	case *luau.InterpolatedStringPart:
 		renderInterpolatedStringPart(s, n)
+	// types
+	case *luau.TypeReference:
+		renderTypeReference(s, n)
+	case *luau.TypeStringSingleton:
+		renderTypeStringSingleton(s, n)
+	case *luau.TypeBooleanSingleton:
+		renderTypeBooleanSingleton(s, n)
+	case *luau.TypeOptional:
+		renderTypeOptional(s, n)
+	case *luau.TypeUnion:
+		renderTypeUnion(s, n)
+	case *luau.TypeIntersection:
+		renderTypeIntersection(s, n)
+	case *luau.TypeTable:
+		renderTypeTable(s, n)
+	case *luau.TypeArray:
+		renderTypeArray(s, n)
+	case *luau.TypeFunction:
+		renderTypeFunction(s, n)
+	case *luau.TypeTypeof:
+		renderTypeTypeof(s, n)
+	case *luau.TypePack:
+		renderTypePack(s, n)
+	case *luau.TypeVariadic:
+		renderTypeVariadic(s, n)
+	case *luau.TypeGenericPack:
+		renderTypeGenericPack(s, n)
+	case *luau.TypeRaw:
+		renderTypeRaw(s, n)
+	// type table fields
+	case *luau.TypeTableProp:
+		renderTypeTableProp(s, n)
+	case *luau.TypeTableIndexer:
+		renderTypeTableIndexer(s, n)
 	default:
 		panic("render: no renderer for " + node.Kind().String())
 	}

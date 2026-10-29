@@ -44,3 +44,23 @@ func needsParentheses(node luau.Node) bool {
 	}
 	return false
 }
+
+// castNeedsParentheses: `::` is the highest-precedence postfix (Luau `asexp
+// ::= simpleexp ['::' Type]`), so a cast needs parentheses only as the left
+// operand of `<`, where the type parser would read `T < y` as the start of a
+// type argument list. A cast under another cast is parenthesized by the outer
+// one (castOperandNeedsParentheses): `x :: any :: Foo` is a syntax error.
+func castNeedsParentheses(node *luau.CastExpression) bool {
+	parent, ok := node.Parent().(*luau.BinaryExpression)
+	return ok && parent.Operator == "<" && luau.Node(parent.Left) == luau.Node(node)
+}
+
+// castOperandNeedsParentheses: the operand of `::` is a simpleexp, so a
+// cast, binary, unary, or if-expression operand must be parenthesized
+// (`(a + b) :: number`; bare `a + b :: number` casts only `b`).
+func castOperandNeedsParentheses(operand luau.Expression) bool {
+	if _, ok := operand.(*luau.CastExpression); ok {
+		return true
+	}
+	return luau.IsExpressionWithPrecedence(operand)
+}

@@ -114,6 +114,8 @@ func isIdentifierDeclaration(identifier *luau.Identifier) bool {
 		return identifierListContains(parent.Parameters, identifier)
 	case *luau.MethodDeclaration:
 		return identifierListContains(parent.Parameters, identifier)
+	case *luau.TypeFunctionDeclaration:
+		return identifierListContains(parent.Parameters, identifier)
 	case *luau.ForStatement:
 		return identifierListContains(parent.IDs, identifier)
 	case *luau.NumericForStatement:
@@ -218,7 +220,7 @@ func solveTempIDs(state *RenderState, ast luau.NodeOrList) (unsolvedIterators []
 				}
 			default:
 				if luau.IsFunctionLike(node) {
-					params, _ := node.(luau.HasParameters).ParamData()
+					params, _, _ := node.(luau.HasParameters).ParamData()
 					params.ForEach(func(id luau.AnyIdentifier) {
 						if ident, ok := id.(*luau.Identifier); ok {
 							registerID(ident.Name)

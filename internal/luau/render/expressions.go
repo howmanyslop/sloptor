@@ -140,7 +140,7 @@ func renderStringLiteral(s *RenderState, node *luau.StringLiteral) {
 
 func renderFunctionExpression(s *RenderState, node *luau.FunctionExpression) {
 	s.write("function")
-	s.write(luau.GenericsString(node.Generics))
+	s.typeGenerics(node.Generics, false)
 	s.write("(")
 	s.parameters(node)
 	s.write(")")

@@ -103,7 +103,7 @@ func hasNativeDirective(state *State) bool {
 
 // getNativeParameterType is the annotation for one plain-identifier parameter, or
 // nil when the parameter must stay unannotated.
-func getNativeParameterType(state *State, parameterNode *ast.Node) *luau.Type {
+func getNativeParameterType(state *State, parameterNode *ast.Node) luau.TypeNode {
 	parameter := parameterNode.AsParameterDeclaration()
 	text, _, outerGeneric := getNativeType(state, state.Checker.GetTypeAtLocation(parameter.Name()), nativePositionParameter, 0, nil)
 	if text == "" || outerGeneric {
@@ -114,13 +114,13 @@ func getNativeParameterType(state *State, parameterNode *ast.Node) *luau.Type {
 	if parameter.QuestionToken != nil || parameter.Initializer != nil {
 		text = getNativeOptionalType(text)
 	}
-	return &luau.Type{Name: text}
+	return luau.NewTypeRaw(text)
 }
 
 // getNativeReturnType is the annotation for a function's return, nil outside
 // `--!native` files. Async and generator functions return a wrapper, so they
 // get none.
-func getNativeReturnType(state *State, node *ast.Node) *luau.Type {
+func getNativeReturnType(state *State, node *ast.Node) luau.TypeNode {
 	if !state.IsNative || ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync) || isGeneratorFunction(node) {
 		return nil
 	}
@@ -134,7 +134,7 @@ func getNativeReturnType(state *State, node *ast.Node) *luau.Type {
 		// claiming `any`: the analyzer infers a better pack from the body.
 		return nil
 	}
-	return &luau.Type{Name: text}
+	return luau.NewTypeRaw(text)
 }
 
 func isGeneratorFunction(node *ast.Node) bool {
@@ -174,6 +174,19 @@ func getNativeDeclarationGenerics(node *ast.Node) []string {
 		}
 	}
 	return names
+}
+
+// nativeGenericList lifts generic names into the typed AST's generic list;
+// native generics never carry defaults or packs.
+func nativeGenericList(names []string) []luau.TypeGeneric {
+	if len(names) == 0 {
+		return nil
+	}
+	generics := make([]luau.TypeGeneric, len(names))
+	for index, name := range names {
+		generics[index] = luau.TypeGeneric{Name: name}
+	}
+	return generics
 }
 
 // getNativeSignatureGenerics is the same for one call or construct signature,

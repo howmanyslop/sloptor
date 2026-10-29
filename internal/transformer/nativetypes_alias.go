@@ -142,7 +142,7 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 	}
 	generics := getNativeDeclarationGenerics(declaration)
 	name := state.getUniqueNativeAliasName(symbol.Name)
-	statement := luau.NewTypeAlias(name, generics, "")
+	statement := luau.NewTypeAlias(name, nativeGenericList(generics), nil)
 	entry := &nativeAliasEntry{Symbol: symbol, Statement: statement, Generics: generics, Kind: nativeKindTable}
 	if !ast.IsInterfaceDeclaration(declaration) && len(state.Checker.GetCallSignatures(state.Checker.GetDeclaredTypeOfSymbol(symbol))) > 0 {
 		entry.Kind = nativeKindFunction
@@ -168,7 +168,7 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 		// A table that cannot be written out is still a table.
 		body = nativeTypeAnyTable
 	}
-	statement.Type = body
+	statement.SetBody(luau.NewTypeRaw(body))
 	return entry
 }
 

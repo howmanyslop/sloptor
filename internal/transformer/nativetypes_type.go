@@ -360,7 +360,16 @@ func getNativeSignatureType(state *State, signature *checker.Signature, receiver
 	if result == "" {
 		result = nativeTypeAny
 	}
-	return luau.GenericsString(generics) + "(" + strings.Join(parts, ", ") + ") -> " + result
+	return nativeGenericsString(generics) + "(" + strings.Join(parts, ", ") + ") -> " + result
+}
+
+// nativeGenericsString renders a generic parameter list as `<K, V>`, or ""
+// when the list is empty.
+func nativeGenericsString(generics []string) string {
+	if len(generics) == 0 {
+		return ""
+	}
+	return "<" + strings.Join(generics, ", ") + ">"
 }
 
 // getNativeReturnTypeOfSignature spells what follows `->`. A LuaTuple becomes a

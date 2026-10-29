@@ -41,3 +41,27 @@ func TestCompositeGuards(t *testing.T) {
 		t.Error("IsExpressionWithPrecedence")
 	}
 }
+
+func TestTypeGuards(t *testing.T) {
+	if !IsTypeNode(TypeName("x")) || !IsTypeNode(NewTypeRaw("x")) || IsTypeNode(ID("x")) || IsTypeNode(NewTypeTableProp(TypeAccessNone, "a", TypeName("x"))) {
+		t.Error("IsTypeNode")
+	}
+	if !IsTypePack(NewTypePack(NewList[TypeNode]())) || !IsTypePack(NewTypeVariadic(TypeName("x"))) || !IsTypePack(NewTypeGenericPack("T")) {
+		t.Error("IsTypePack must accept every pack shape")
+	}
+	if IsTypePack(TypeName("x")) || IsTypePack(NewTypeOptional(TypeName("x"))) || IsTypePack(ID("x")) {
+		t.Error("IsTypePack must reject types and expressions")
+	}
+	cast := NewCast(ID("x"), TypeName("T"))
+	if !IsExpression(cast) || IsIndexableExpression(cast) || IsStatement(cast) || IsExpressionWithPrecedence(cast) {
+		t.Error("CastExpression guards")
+	}
+	declaration := NewTypeFunctionDeclaration("F", NewList[AnyIdentifier](), false, NewList[Statement]())
+	if !IsStatement(declaration) || !IsFunctionLike(declaration) || !HasStatements(declaration) || StatementsOf(declaration) != declaration.Statements {
+		t.Error("TypeFunctionDeclaration guards")
+	}
+	alias := NewTypeAlias("T", nil, TypeName("x"))
+	if !IsStatement(alias) || IsFunctionLike(alias) || HasStatements(alias) || StatementsOf(alias) != nil {
+		t.Error("TypeAlias guards")
+	}
+}

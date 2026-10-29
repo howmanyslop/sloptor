@@ -29,6 +29,9 @@ const (
 	KindMap
 	KindSet
 	KindMixedTable
+	// KindCastExpression is a rotor extension (roblox-ts never emits casts):
+	// `expression :: Type`.
+	KindCastExpression
 
 	// statements
 	KindAssignment
@@ -46,22 +49,50 @@ const (
 	KindVariableDeclaration
 	KindReturnStatement
 	KindComment
-	// KindTypeAlias is a rotor extension (roblox-ts has no type aliases):
-	// `type Name<K, V> = <body>`.
+	// KindTypeAlias and KindTypeFunctionDeclaration are rotor extensions
+	// (roblox-ts has no type statements): `type Name<K, V> = <body>` and
+	// `type function Name(params) ... end`.
 	KindTypeAlias
+	KindTypeFunctionDeclaration
 
 	// fields
 	KindMapField
 	KindInterpolatedStringPart
 
+	// types (rotor extension): every production of the Luau type grammar
+	KindTypeReference
+	KindTypeStringSingleton
+	KindTypeBooleanSingleton
+	KindTypeOptional
+	KindTypeUnion
+	KindTypeIntersection
+	KindTypeTable
+	KindTypeArray
+	KindTypeFunction
+	KindTypeTypeof
+	KindTypePack
+	KindTypeVariadic
+	KindTypeGenericPack
+	// KindTypeRaw carries pre-rendered type text while the native annotation
+	// builder still produces strings; it goes away with that builder.
+	KindTypeRaw
+
+	// type table fields
+	KindTypeTableProp
+	KindTypeTableIndexer
+
 	FirstIndexableExpression = KindIdentifier
 	LastIndexableExpression  = KindParenthesizedExpression
 	FirstExpression          = KindIdentifier
-	LastExpression           = KindMixedTable
+	LastExpression           = KindCastExpression
 	FirstStatement           = KindAssignment
-	LastStatement            = KindTypeAlias
+	LastStatement            = KindTypeFunctionDeclaration
 	FirstField               = KindMapField
 	LastField                = KindInterpolatedStringPart
+	FirstType                = KindTypeReference
+	LastType                 = KindTypeRaw
+	FirstTypeField           = KindTypeTableProp
+	LastTypeField            = KindTypeTableIndexer
 )
 
 var kindNames = [...]string{
@@ -88,6 +119,7 @@ var kindNames = [...]string{
 	KindMap:                      "Map",
 	KindSet:                      "Set",
 	KindMixedTable:               "MixedTable",
+	KindCastExpression:           "CastExpression",
 	KindAssignment:               "Assignment",
 	KindBreakStatement:           "BreakStatement",
 	KindCallStatement:            "CallStatement",
@@ -104,8 +136,25 @@ var kindNames = [...]string{
 	KindReturnStatement:          "ReturnStatement",
 	KindComment:                  "Comment",
 	KindTypeAlias:                "TypeAlias",
+	KindTypeFunctionDeclaration:  "TypeFunctionDeclaration",
 	KindMapField:                 "MapField",
 	KindInterpolatedStringPart:   "InterpolatedStringPart",
+	KindTypeReference:            "TypeReference",
+	KindTypeStringSingleton:      "TypeStringSingleton",
+	KindTypeBooleanSingleton:     "TypeBooleanSingleton",
+	KindTypeOptional:             "TypeOptional",
+	KindTypeUnion:                "TypeUnion",
+	KindTypeIntersection:         "TypeIntersection",
+	KindTypeTable:                "TypeTable",
+	KindTypeArray:                "TypeArray",
+	KindTypeFunction:             "TypeFunction",
+	KindTypeTypeof:               "TypeTypeof",
+	KindTypePack:                 "TypePack",
+	KindTypeVariadic:             "TypeVariadic",
+	KindTypeGenericPack:          "TypeGenericPack",
+	KindTypeRaw:                  "TypeRaw",
+	KindTypeTableProp:            "TypeTableProp",
+	KindTypeTableIndexer:         "TypeTableIndexer",
 }
 
 func (k SyntaxKind) String() string { return kindNames[k] }
