@@ -345,6 +345,85 @@ func TestNativeFilesNeverEmitBareTable(t *testing.T) {
 // that merely starts with it (an interface named `table` becomes `table_2`).
 var bareTableAnnotation = regexp.MustCompile(`: table($|[^A-Za-z0-9_])`)
 
+// A top-level interface or type alias of the compiled file emits its Luau alias
+// AT the declaration (after that declaration's leading comments), not at the top
+// of the file. Luau aliases are visible before their declaration line within the
+// same block, so a use above the declaration still resolves.
+func TestNativeFilesEmitAliasesAtTheDeclaration(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	// The owner's merged `Hi`: ONE alias with both declarations' members.
+	alias := "type Hi = { hi: string, there: \"there\" }\n"
+	if count := strings.Count(got, alias); count != 1 {
+		t.Fatalf("a merged interface must emit exactly one alias, got %d:\n%s", count, got)
+	}
+	// The doc comment belongs to the first declaration, so it stays attached
+	// and the alias follows it — not the header.
+	if leading := "-- Where the hit landed, merged across two declarations.\n" + alias; !strings.Contains(got, leading) {
+		t.Errorf("the alias must follow its declaration's leading comment:\n%s", got)
+	}
+	aliasIndex := strings.Index(got, alias)
+	if earlier := strings.Index(got, "local function nameOf"); earlier < 0 || aliasIndex < earlier {
+		t.Errorf("the alias must not be hoisted above an unrelated earlier statement:\n%s", got)
+	}
+	if useIndex := strings.Index(got, "local function getHi(): Hi"); useIndex < 0 || aliasIndex > useIndex {
+		t.Errorf("the alias must precede the function that uses it:\n%s", got)
+	}
+
+	// Declared after the use: the alias is still at the declaration.
+	laterAlias := strings.Index(got, "type Later = { value: number }")
+	laterUse := strings.Index(got, "local function usesLater(): Later")
+	if laterAlias < 0 || laterUse < 0 || laterAlias < laterUse {
+		t.Errorf("an alias declared after its use belongs at the declaration:\n%s", got)
+	}
+
+	// Declared before its only use: the alias sits between the statements that
+	// surround the declaration instead of in the header.
+	fooAlias := strings.Index(got, "type Foo = { a: number, b: string? }")
+	before := strings.Index(got, "local function collectionTypes")
+	after := strings.Index(got, "local function structs")
+	if fooAlias < 0 || fooAlias < before || fooAlias > after {
+		t.Errorf("an alias belongs at its declaration, not the header:\n%s", got)
+	}
+
+	// Fallbacks stay hoisted to the header: a namespace-scoped interface…
+	firstStatement := strings.Index(got, "local function addVector")
+	hoisted := strings.Index(got, "type Node_2 = { text: string }")
+	if hoisted < 0 || hoisted > firstStatement {
+		t.Errorf("a namespace-scoped interface must stay hoisted:\n%s", got)
+	}
+	// …and one declared inside a function body.
+	local := strings.Index(got, "type Local = { value: number }")
+	localUse := strings.Index(got, "local function localInterface(): number")
+	if local < 0 || local > firstStatement || localUse < 0 || local > localUse {
+		t.Errorf("a function-scoped interface must stay hoisted:\n%s", got)
+	}
+}
+
+// Luau has singleton string and boolean types, so a literal member must not
+// widen to the primitive.
+func TestNativeFilesMirrorLiteralTypes(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// String literals, their optional form, boolean literals, `true |
+		// false` collapsing to `boolean?`, quoted keys, an escaped literal,
+		// literals in a function type, and `number` staying `number`.
+		`type Literals = { a: "x" | "y", b: ("x" | "y")?, c: true, d: false, e: boolean, f: boolean?, g: number, lit: "solo", count: number, escaped: "a\"b\\c", format: (value: "x" | "y") -> ("x" | "y"), template: string }`,
+		// An enum member keeps the primitive spelling, string or number.
+		"type EnumHolder = { direction: string, code: number }\n",
+		// A string literal parameter is tagged `string` by Luau's compiler,
+		// so the annotation is free; a boolean literal stays unannotated at a
+		// top-level parameter.
+		`local function literals(value: Literals, holder: EnumHolder, a: "x" | "y", b: ("x" | "y")?, c): string`,
+		`local function literalReturn(): "yes"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 // The LRU program the owner reviewed: recursive generic interface, function
 // types, and a nested function whose parameter names an outer generic.
 func TestNativeFilesAnnotateRecursiveGenericCache(t *testing.T) {
@@ -395,6 +474,12 @@ func TestFilesWithoutNativeDirectiveAreNotAnnotated(t *testing.T) {
 		"local function tupleCallback(cb)\n",
 		"local function overloadedParam(fn)\n",
 		"local function makeCounter()\n",
+		// The literal and declaration fixtures stay plain too: no singleton
+		// types and no alias, in place or hoisted.
+		"local function getHi()\n",
+		"local function usesLater()\n",
+		"local function literals(value, holder, a, b, c)\n",
+		"local function literalReturn()\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
@@ -402,6 +487,9 @@ func TestFilesWithoutNativeDirectiveAreNotAnnotated(t *testing.T) {
 	}
 	if strings.Contains(got, "type ") {
 		t.Errorf("type aliases are only emitted for //!native files:\n%s", got)
+	}
+	if strings.Contains(got, `: "solo"`) || strings.Contains(got, ") -> (") {
+		t.Errorf("literal types are only mirrored for //!native files:\n%s", got)
 	}
 }
 

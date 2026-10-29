@@ -178,8 +178,11 @@ func transformStatementDispatch(s *State, node *ast.Node) *luau.List[luau.Statem
 	}
 
 	switch node.Kind {
-	// no emit
-	case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration, ast.KindEmptyStatement:
+	// no emit, except that a top-level interface or type alias of a `//!native`
+	// file carries its Luau `type` statement in place.
+	case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
+		return s.nativeDeclarationAlias(node)
+	case ast.KindEmptyStatement:
 		return luau.NewList[luau.Statement]()
 
 	// banned statements

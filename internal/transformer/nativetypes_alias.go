@@ -172,6 +172,94 @@ func (state *State) registerNativeAlias(symbol *ast.Symbol) *nativeAliasEntry {
 	return entry
 }
 
+// nativeDeclarationAlias returns the `type` statement to emit AT a top-level
+// interface or type alias declaration of this file, or an empty list. The alias
+// is registered here instead of on first use, so it sits with the TS
+// declaration (after its leading comments) rather than at the top of the file.
+//
+// Luau aliases are visible before their declaration line within the same block,
+// so a use above the declaration keeps working. A merged symbol emits one alias,
+// at its FIRST declaration: the checker's declared type already carries every
+// merged member. Declarations anywhere but at the top level of this file (a
+// namespace, function, or block; an import; an ambient/library type) stay on the
+// hoist-to-header path, where they cannot fall out of scope.
+func (state *State) nativeDeclarationAlias(node *ast.Node) *luau.List[luau.Statement] {
+	statements := luau.NewList[luau.Statement]()
+	if !state.IsNative || state.SourceFile == nil || node.Parent != state.SourceFile.AsNode() {
+		return statements
+	}
+	name := node.Name()
+	if name == nil {
+		return statements
+	}
+	symbol := state.Checker.GetSymbolAtLocation(name)
+	if symbol == nil || state.getNativeFirstDeclaration(symbol) != node {
+		return statements
+	}
+	if !isNativeAliasableSymbol(state, symbol) {
+		return statements
+	}
+	entry := state.nativeAliasBySymbol[symbol]
+	if entry == nil {
+		entry = state.registerNativeAlias(symbol)
+		if entry == nil {
+			return statements
+		}
+	}
+	// A reference earlier in the file already registered (and hoisted) the
+	// alias; move it to the declaration instead of emitting it twice.
+	state.nativeAliases = slices.DeleteFunc(state.nativeAliases, func(alias *luau.TypeAlias) bool {
+		return alias == entry.Statement
+	})
+	statements.Push(entry.Statement)
+	return statements
+}
+
+// getNativeFirstDeclaration is the first interface or type alias declaration of
+// symbol IN THIS FILE; a declaration emits its alias only when it is that node,
+// so a merged symbol emits one alias and the other blocks emit nothing.
+func (state *State) getNativeFirstDeclaration(symbol *ast.Symbol) *ast.Node {
+	for _, declaration := range symbol.Declarations {
+		if !ast.IsInterfaceDeclaration(declaration) && !ast.IsTypeAliasDeclaration(declaration) {
+			continue
+		}
+		if ast.GetSourceFileOfNode(declaration) != state.SourceFile {
+			continue
+		}
+		return declaration
+	}
+	return nil
+}
+
+// isNativeAliasableSymbol is the symbol-level half of getNativeAliasSymbol's
+// test: whether references to the declared symbol are spelled by a `type`
+// statement at all.
+func isNativeAliasableSymbol(state *State, symbol *ast.Symbol) bool {
+	if isNativeLibrarySymbol(state, symbol) {
+		return false
+	}
+	declared := state.Checker.GetDeclaredTypeOfSymbol(symbol)
+	if declared == nil || IsLuaTupleType(state).Check(declared) {
+		// A pack is only spellable as a function return, so `type Pair =
+		// (A, B)` would not parse.
+		return false
+	}
+	if symbol.Flags&ast.SymbolFlagsInterface != 0 && symbol.Flags&ast.SymbolFlagsClass == 0 {
+		// A CALLABLE interface is spelled as a function type inline.
+		return getNativeAliasableDeclaration(symbol, ast.IsInterfaceDeclaration) &&
+			len(state.Checker.GetCallSignatures(declared)) == 0
+	}
+	if symbol.Flags&ast.SymbolFlagsTypeAlias == 0 || !getNativeAliasableDeclaration(symbol, ast.IsTypeAliasDeclaration) {
+		return false
+	}
+	declaration := getNativeAliasDeclaration(symbol)
+	if declaration == nil || len(declaration.TypeParameters()) > 0 {
+		// A generic type alias is expanded inline.
+		return false
+	}
+	return declared.Flags()&checker.TypeFlagsObject != 0
+}
+
 func getNativeAliasDeclaration(symbol *ast.Symbol) *ast.Node {
 	for _, declaration := range symbol.Declarations {
 		if ast.IsInterfaceDeclaration(declaration) || ast.IsTypeAliasDeclaration(declaration) {

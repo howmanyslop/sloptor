@@ -39,7 +39,22 @@ func getNativeType(state *State, checkerType *checker.Type, nativePosition nativ
 	}
 
 	switch {
+	case isNativeStringLiteralType(checkerType):
+		// Luau has singleton string types, and its compiler tags one (or a
+		// union of them) as `string`, so the mirror is free.
+		return getNativeStringLiteralTypeText(checkerType), nativeKindString, false
+	case isNativeBooleanLiteralType(checkerType):
+		if nativePosition == nativePositionParameter {
+			// Policy unchanged: booleans are tagged correctly already, and a
+			// `true` annotation would only add an entry guard.
+			return "", nativeKindBoolean, false
+		}
+		if getNativeBooleanLiteralValue(checkerType) {
+			return "true", nativeKindBoolean, false
+		}
+		return "false", nativeKindBoolean, false
 	case isNumberTypeCheck(checkerType):
+		// Luau has no number singletons, so a number literal stays `number`.
 		return nativeTypeNumber, nativeKindNumber, false
 	case isStringTypeCheck(checkerType):
 		return nativeTypeString, nativeKindString, false
@@ -74,6 +89,61 @@ func getNativeUnspellable(nativePosition nativePosition) string {
 	return ""
 }
 
+// isNativeStringLiteralType reports a single string literal type, which Luau
+// spells as a string singleton. An enum member carries the literal flags too but
+// keeps the primitive spelling (`string`).
+func isNativeStringLiteralType(checkerType *checker.Type) bool {
+	return checkerType.Flags()&checker.TypeFlagsStringLiteral != 0 &&
+		checkerType.Flags()&checker.TypeFlagsEnumLiteral == 0
+}
+
+// isNativeBooleanLiteralType is the same for `true`/`false`.
+func isNativeBooleanLiteralType(checkerType *checker.Type) bool {
+	return checkerType.Flags()&checker.TypeFlagsBooleanLiteral != 0 &&
+		checkerType.Flags()&checker.TypeFlagsEnumLiteral == 0
+}
+
+// getNativeBooleanLiteralValue is the value of a boolean literal type.
+func getNativeBooleanLiteralValue(checkerType *checker.Type) bool {
+	value, _ := checkerType.AsLiteralType().Value().(bool)
+	return value
+}
+
+// hasNativeBooleanLiteralPair reports whether the union contains both `true` and
+// `false`, i.e. spells the whole `boolean`.
+func hasNativeBooleanLiteralPair(checkerType *checker.Type) bool {
+	hasTrue, hasFalse := false, false
+	for _, unionMember := range checkerType.Types() {
+		if !isNativeBooleanLiteralType(unionMember) {
+			continue
+		}
+		if getNativeBooleanLiteralValue(unionMember) {
+			hasTrue = true
+		} else {
+			hasFalse = true
+		}
+	}
+	return hasTrue && hasFalse
+}
+
+// getNativeStringLiteralTypeText spells a string literal type as a Luau string
+// singleton, escaped so it stays on one valid line. A literal without a value
+// (a computed enum member) keeps `string`.
+func getNativeStringLiteralTypeText(checkerType *checker.Type) string {
+	value, ok := checkerType.AsLiteralType().Value().(string)
+	if !ok {
+		return nativeTypeString
+	}
+	escaped := strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"\t", `\t`,
+	).Replace(value)
+	return `"` + escaped + `"`
+}
+
 // getNativeUnionType mirrors every union member. `undefined` becomes the optional
 // marker; a member that cannot be mirrored widens the whole nested union to
 // `any` and disqualifies a tagged one.
@@ -87,9 +157,18 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 	outerGeneric := false
 	unspellable := false
 
+	// `true | false` IS `boolean`: Luau's compiler accepts the literal pair but
+	// only the primitive has a tag, so the pair collapses to `boolean` (and an
+	// `undefined` member then makes `boolean?`). The checker usually reduces
+	// the pair already; spelling it out covers the unions it does not.
+	booleanLiteralUnion := hasNativeBooleanLiteralPair(checkerType)
+
 	for _, unionMember := range checkerType.Types() {
 		if isUndefinedTypeCheck(unionMember) {
 			optional = true
+			continue
+		}
+		if booleanLiteralUnion && isNativeBooleanLiteralType(unionMember) {
 			continue
 		}
 		text, kind, outer := getNativeType(state, unionMember, nativePosition, depth, seen)
@@ -100,6 +179,15 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 		outerGeneric = outerGeneric || outer
 		if !slices.ContainsFunc(members, func(existing member) bool { return existing.text == text }) {
 			members = append(members, member{text: text, kind: kind})
+		}
+	}
+	if booleanLiteralUnion {
+		if nativePosition == nativePositionParameter {
+			// Boolean literals stay unannotated at a top-level parameter, so
+			// `boolean` there does too (policy unchanged).
+			unspellable = true
+		} else {
+			members = append([]member{{text: nativeTypeBoolean, kind: nativeKindBoolean}}, members...)
 		}
 	}
 	if unspellable || len(members) == 0 {
@@ -113,11 +201,13 @@ func getNativeUnionType(state *State, checkerType *checker.Type, nativePosition 
 		return text, members[0].kind, outerGeneric
 	}
 	if nativePosition == nativePositionParameter {
-		// Luau tags every table member of a union as TABLE and both `vector`
-		// and `Vector3` as VECTOR, but a union that mixes kinds has no single
-		// useful tag.
+		// Luau tags every table member of a union as TABLE, both `vector` and
+		// `Vector3` as VECTOR, and every string singleton (like `string`
+		// itself) as STRING, but a union that mixes kinds has no single useful
+		// tag.
 		for _, existing := range members {
-			if existing.kind != members[0].kind || (existing.kind != nativeKindTable && existing.kind != nativeKindVector) {
+			if existing.kind != members[0].kind ||
+				(existing.kind != nativeKindTable && existing.kind != nativeKindVector && existing.kind != nativeKindString) {
 				return "", nativeKindUnspellable, outerGeneric
 			}
 		}
@@ -574,15 +664,30 @@ func getNativeOptionalType(text string) string {
 	return text + "?"
 }
 
-// doesNativeHaveTopLevelOperator reports whether op appears outside every bracket.
-// `->` is an arrow, not a closing `>`.
+// doesNativeHaveTopLevelOperator reports whether op appears outside every bracket
+// and quoted string literal. `->` is an arrow, not a closing `>`.
 func doesNativeHaveTopLevelOperator(text, operator string) bool {
 	depth := 0
+	inString := false
 	for index := 0; index < len(text); index += 1 {
+		character := text[index]
+		if inString {
+			switch character {
+			case '\\':
+				index += 1 // skip the escaped byte
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		if character == '"' {
+			inString = true
+			continue
+		}
 		if depth == 0 && strings.HasPrefix(text[index:], operator) {
 			return true
 		}
-		switch text[index] {
+		switch character {
 		case '(', '[', '{', '<':
 			depth++
 		case ')', ']', '}':

@@ -23,6 +23,20 @@ export function nameOf(value: string | undefined): string | undefined {
 	return value;
 }
 
+// Where the hit landed, merged across two declarations.
+export interface Hi { readonly hi: string; }
+export interface Hi { readonly there: "there" }
+export function getHi(): Hi { return { hi: "hi", there: "there" }; }
+void getHi()
+
+export function usesLater(): Later {
+	return { value: 1 };
+}
+
+export interface Later {
+	value: number;
+}
+
 export function mixed(value: number | string, flag: boolean, anything: unknown) {
 	return [value, flag, anything];
 }
@@ -296,6 +310,52 @@ export interface IdentityHolder {
 export function identityHolders(holder: IdentityHolder): number {
 	holder.identify(1);
 	return holder.replace(1, "a").size();
+}
+
+export interface Literals {
+	a: "x" | "y";
+	b?: "x" | "y";
+	c: true;
+	d: false;
+	e: boolean;
+	f: true | false | undefined;
+	g: number;
+	lit: "solo";
+	count: 1 | 2;
+	escaped: "a\"b\\c";
+	format: (value: "x" | "y") => "x" | "y";
+	template: `hi${string}`;
+}
+
+export enum Direction {
+	Up = "up",
+	Down = "down",
+}
+
+export enum Codes {
+	A = 1,
+	B = 2,
+}
+
+export interface EnumHolder {
+	direction: Direction;
+	code: Codes;
+}
+
+export function literals(value: Literals, holder: EnumHolder, a: "x" | "y", b?: "x" | "y", c?: true): string {
+	return holder.code > 0 ? b ?? a : value.a;
+}
+
+export function literalReturn(): "yes" {
+	return "yes";
+}
+
+export function localInterface(): number {
+	interface Local {
+		value: number;
+	}
+	const readLocal = (value: Local): number => value.value;
+	return readLocal({ value: 1 });
 }
 
 export type Pair = LuaTuple<[number, string]>;
