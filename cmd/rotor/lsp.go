@@ -51,7 +51,15 @@ func newLSPCommand(streams cliStreams) *cobra.Command {
 					if !hasRbxtsTypes(filepath.Dir(tsConfigPath)) {
 						return "", errNotRobloxTS
 					}
-					return tsConfigPath, nil
+					// The nearest tsconfig.json is often a solution coordinator
+					// with no files of its own; censusing it checks an empty
+					// program, so find the referenced project that owns the file.
+					owner, err := compile.OwningConfig(tsConfigPath, fileName)
+					if err != nil {
+						logservice.WriteLine("sloptor lsp: " + fileName + ": " + err.Error())
+						return "", err
+					}
+					return owner, nil
 				},
 				Census: func(ctx context.Context, tsConfigPath string, overlays map[string]string) (*compile.ProjectDiagnostics, error) {
 					censusMu.Lock()
