@@ -56,22 +56,33 @@ local function scale(x: number, factor: number?, label: string?): number
 
 Annotations follow the TypeScript type:
 
-| TypeScript type                                                        | Emitted                       |
-| ---------------------------------------------------------------------- | ----------------------------- |
-| `number`, numeric literals and enums, generics constrained to `number` | `number`                      |
-| `string`                                                               | `string`                      |
-| `vector`, `Vector3`                                                    | `vector`, `Vector3`           |
-| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`         |
-| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }` |
-| interfaces and object types                                            | `{ a: number, b: string? }`   |
-| a shape that cannot be written out                                     | `{ [any]: any }`              |
-| anything else                                                          | none                          |
+| TypeScript type                                                        | Emitted                         |
+| ---------------------------------------------------------------------- | ------------------------------- |
+| `number`, numeric literals and enums, generics constrained to `number` | `number`                        |
+| `string`                                                               | `string`                        |
+| `vector`, `Vector3`                                                    | `vector`, `Vector3`             |
+| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`           |
+| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }`   |
+| named interfaces and non-generic object type aliases                   | a file-level `type` alias       |
+| anonymous object types                                                 | `{ a: number, b: string? }`     |
+| function types                                                         | `(key: K, other: T?) -> V`      |
+| a `void` return                                                        | `()`, so a function gets `: ()` |
+| a shape that cannot be written out                                     | `{ [any]: any }`, or none       |
+| anything else                                                          | none                            |
 
-Table shapes are followed into nested members, so `Map<string, number[]>` becomes `{ [string]: { number } }`; names that are not Luau identifiers are quoted (`["kebab-case"]: number`), and a shape that recurses or nests past four levels falls back to `{ [any]: any }`.
+A named interface — and a non-generic `type X = { ... }` alias — is emitted once as a file-level type alias, and every reference uses it, so a recursive type stays recursive instead of collapsing to `{ [any]: any }`:
 
-"Anything else" covers `boolean`, functions, `any` and `unknown`, unions that mix a table with a non-table, Roblox datatypes and `Instance`s other than `Vector3`, and class instances. Class instances stay out because their metatable makes Luau's analyzer reject the table type literal.
+```lua
+type Node<K, V> = { key: K, nextNode: Node<K, V>?, value: V }
+```
 
-A parameter that callers may omit becomes optional: a `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest, and destructured parameters stay unannotated. So do async functions, generators, `void` and `LuaTuple` returns, and constructors.
+`readonly` is dropped because `read` is illegal inside a Luau table type; optional members are spelled `T?`. A function's own type parameters are declared and used by name (`local function f<K, V>(callback: (key: K) -> V): (key: K) -> V`). Constraints are dropped, because Luau has no `extends` clause, and a class type parameter maps to `any` — Luau cannot declare one.
+
+Table shapes are followed into nested members, so `Map<string, number[]>` becomes `{ [string]: { number } }`; names that are not Luau identifiers are quoted (`["kebab-case"]: number`), and a shape that recurses or nests past four levels falls back to `{ [any]: any }`. Nested positions — alias bodies, members, elements, keys and values, and function parameters and returns — mirror in full: `boolean`, function types, and Roblox types by name from a fixed allowlist (`CFrame`, `Color3`, `TweenInfo`, `Vector3`, …) plus interfaces that extend `Instance`.
+
+Top-level parameters are what Luau actually tags, so their policy is narrower. Only `number`, `string`, `vector`/`Vector3`, table types, function types, and the function's own generics are annotated. `boolean`, Roblox datatypes and `Instance`s, class instances, unions that mix a table with a non-table, and a bare generic from an enclosing function stay unannotated. The last one matters: Luau only tags a bare generic name as `any` when the annotated function declares that generic. An outer function's generic is tagged userdata, so the native entry guard would fail on every call.
+
+A parameter that callers may omit becomes optional: a `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest, and destructured parameters stay unannotated. So do async functions, generators, `LuaTuple` returns, and constructors.
 
 sloptor never emits a bare `table`. Luau's compiler tags it as userdata, so the native entry guard would fail on every call.
 

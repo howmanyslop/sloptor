@@ -10,7 +10,9 @@ func TestKindOrdering(t *testing.T) {
 	if FirstExpression != KindIdentifier || LastExpression != KindMixedTable {
 		t.Error("expression range wrong")
 	}
-	if FirstStatement != KindAssignment || LastStatement != KindComment {
+	// LastStatement is KindTypeAlias, a rotor extension appended after
+	// upstream's last statement kind (KindComment).
+	if FirstStatement != KindAssignment || LastStatement != KindTypeAlias {
 		t.Error("statement range wrong")
 	}
 	if FirstField != KindMapField || LastField != KindInterpolatedStringPart {
@@ -25,6 +27,7 @@ func TestKindName(t *testing.T) {
 		KindSet:                     "Set",
 		KindAssignment:              "Assignment",
 		KindComment:                 "Comment",
+		KindTypeAlias:               "TypeAlias",
 		KindMapField:                "MapField",
 		KindInterpolatedString:      "InterpolatedString",
 		KindNumericForStatement:     "NumericForStatement",

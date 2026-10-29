@@ -15,18 +15,18 @@ type sourceColumnCheckpoint struct {
 	extraBytes int32
 }
 
-func (s *State) sourcePositionAt(file *ast.SourceFile, offset int) SourcePosition {
-	if !s.SourceMapEnabled {
+func (state *State) sourcePositionAt(file *ast.SourceFile, offset int) SourcePosition {
+	if !state.SourceMapEnabled {
 		line, column := scanner.GetECMALineAndUTF16CharacterOfPosition(file, offset)
 		return SourcePosition{Line: line, Column: int(column)}
 	}
-	checkpoints, ok := s.sourceMapColumnIndexes[file]
+	checkpoints, ok := state.sourceMapColumnIndexes[file]
 	if !ok {
-		if s.sourceMapColumnIndexes == nil {
-			s.sourceMapColumnIndexes = make(map[*ast.SourceFile][]sourceColumnCheckpoint)
+		if state.sourceMapColumnIndexes == nil {
+			state.sourceMapColumnIndexes = make(map[*ast.SourceFile][]sourceColumnCheckpoint)
 		}
 		checkpoints = sourceColumnCheckpoints(file.Text())
-		s.sourceMapColumnIndexes[file] = checkpoints
+		state.sourceMapColumnIndexes[file] = checkpoints
 	}
 	line, column := scanner.GetECMALineAndByteOffsetOfPosition(file, offset)
 	lineStart := offset - column

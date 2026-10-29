@@ -1,5 +1,7 @@
 package luau
 
+import "strings"
+
 // Type is a Luau type annotation attached to a function parameter or return.
 // Name is rendered verbatim; Optional appends `?`.
 type Type struct {
@@ -37,4 +39,13 @@ func ParameterType(parameter AnyIdentifier) *Type {
 		return id.Annotation
 	}
 	return nil
+}
+
+// GenericsString renders a generic parameter list as `<K, V>`, or "" when the
+// list is empty.
+func GenericsString(generics []string) string {
+	if len(generics) == 0 {
+		return ""
+	}
+	return "<" + strings.Join(generics, ", ") + ">"
 }

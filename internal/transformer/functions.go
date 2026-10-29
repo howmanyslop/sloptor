@@ -9,6 +9,11 @@ type transformedFunctionBody struct {
 	parameters   *luau.List[luau.AnyIdentifier]
 	statements   *luau.List[luau.Statement]
 	hasDotDotDot bool
+	// generics are the function's own type parameter names (//!native only),
+	// rendered as `<K, V>` on the emitted function.
+	generics []string
+	// returnType is the native return annotation, if any.
+	returnType *luau.Type
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +86,7 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 	// TS.generator return.
 	if isAsync {
 		callback := luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
+		callback.Generics = body.generics
 		s.setNodeSourcePosition(callback, node)
 		right := luau.NewCall(s.RuntimeLib(node, "async"), luau.NewList[luau.Expression](
 			callback))
@@ -91,11 +97,19 @@ func transformFunctionDeclaration(s *State, node *ast.Node) *luau.List[luau.Stat
 	}
 
 	declarationNode := luau.NewFunctionDeclaration(localize, name, body.parameters, body.hasDotDotDot, body.statements)
-	declarationNode.ReturnType = nativeReturnType(s, node)
+	declarationNode.Generics = body.generics
+	declarationNode.ReturnType = body.returnType
 	return luau.NewList[luau.Statement](declarationNode)
 }
 
+// transformFunctionBody transforms a function's parameters and body. Its own
+// type parameters are in scope while both are transformed, so a nested
+// annotation can name them (and the return type can still use them).
 func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
+	generics := nativeFunctionGenerics(s, node)
+	s.PushNativeGenerics(generics, false)
+	defer s.PopNativeGenerics()
+
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)
 
@@ -119,6 +133,8 @@ func transformFunctionBody(s *State, node *ast.Node) transformedFunctionBody {
 		parameters:   parameters,
 		statements:   statements,
 		hasDotDotDot: hasDotDotDot,
+		generics:     generics,
+		returnType:   nativeReturnType(s, node),
 	}
 }
 
@@ -166,7 +182,8 @@ func transformFunctionExpression(s *State, node *ast.Node) luau.Expression {
 	}
 
 	functionExpression := luau.NewFunctionExpression(body.parameters, body.hasDotDotDot, body.statements)
-	functionExpression.ReturnType = nativeReturnType(s, node)
+	functionExpression.Generics = body.generics
+	functionExpression.ReturnType = body.returnType
 	var expression luau.Expression = functionExpression
 	s.setNodeSourcePosition(expression, node)
 
@@ -197,12 +214,19 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 		return luau.NewList[luau.Statement]()
 	}
 
+	// A method is its own function: its type parameters are in scope for its
+	// parameters, body, and return type.
+	generics := nativeFunctionGenerics(s, node)
+	s.PushNativeGenerics(generics, false)
+	defer s.PopNativeGenerics()
+
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)
 	statements.PushList(TransformStatementList(s, declaration.Body, declaration.Body.AsBlock().Statements.Nodes, nil))
 	if restParam != nil {
 		s.unregisterOptimizableVarArgs(restParam)
 	}
+	returnType := nativeReturnType(s, node)
 
 	name := transformPropertyName(s, nameNode)
 
@@ -250,14 +274,16 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 			parameters.Shift() // remove `self`
 			method := luau.NewMethodDeclaration(
 				ptr.Value.(luau.IndexableExpression), nameStr.Value, parameters, hasDotDotDot, statements)
-			method.ReturnType = nativeReturnType(s, node)
+			method.Generics = generics
+			method.ReturnType = returnType
 			result.Push(method)
 		} else {
 			function := luau.NewFunctionDeclaration(
 				false, /*localize*/
 				luau.NewPropertyAccess(ptr.Value.(luau.IndexableExpression), nameStr.Value),
 				parameters, hasDotDotDot, statements)
-			function.ReturnType = nativeReturnType(s, node)
+			function.Generics = generics
+			function.ReturnType = returnType
 			result.Push(function)
 		}
 		s.setNodeSourcePosition(result.Tail.Value, node)
@@ -265,7 +291,8 @@ func transformMethodDeclaration(s *State, node *ast.Node, ptr *MapPointer) *luau
 	}
 
 	methodExpression := luau.NewFunctionExpression(parameters, hasDotDotDot, statements)
-	methodExpression.ReturnType = nativeReturnType(s, node)
+	methodExpression.Generics = generics
+	methodExpression.ReturnType = returnType
 	var expression luau.Expression = methodExpression
 	s.setNodeSourcePosition(expression, node)
 

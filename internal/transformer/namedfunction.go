@@ -38,7 +38,8 @@ func emitNamedFunctionExpression(
 		body.hasDotDotDot,
 		body.statements,
 	)
-	declaration.ReturnType = nativeReturnType(s, node)
+	declaration.Generics = body.generics
+	declaration.ReturnType = body.returnType
 	statements := luau.NewList[luau.Statement](declaration)
 	s.setNodeSourcePosition(statements.Head.Value, node)
 	if isAsync {

@@ -170,6 +170,19 @@ type State struct {
 	// then are Luau type annotations emitted (see nativetypes.go).
 	IsNative bool
 
+	// nativeScopes tracks the generic names in scope while a `//!native`
+	// annotation is rendered: one entry per enclosing function that declares
+	// type parameters, in addition to one barrier entry per type alias body
+	// being built (see nativetypes_generics.go).
+	nativeScopes []nativeGenericScope
+	// nativeAliases holds the emitted `type` statements in registration order;
+	// prependHeader places them after the header.
+	nativeAliases []*luau.TypeAlias
+	// nativeAliasBySymbol and nativeAliasByName dedupe aliases (a symbol keeps
+	// one alias however many times it is referenced) and detect name clashes.
+	nativeAliasBySymbol map[*ast.Symbol]*nativeAliasEntry
+	nativeAliasByName   map[string]*nativeAliasEntry
+
 	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
 	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
 	// that would have been TS2304 can reach the transformer with no symbol.
@@ -273,6 +286,9 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 
 		ClassIdentifierMap:         make(map[*ast.Node]luau.AnyIdentifier),
 		classElementToObjectKeyMap: make(map[*ast.Node]luau.Expression),
+
+		nativeAliasBySymbol: make(map[*ast.Symbol]*nativeAliasEntry),
+		nativeAliasByName:   make(map[string]*nativeAliasEntry),
 	}
 	if sourceFile != nil {
 		s.SourceFileText = sourceFile.Text()
@@ -288,15 +304,15 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 	return s
 }
 
-func (s *State) withArrayAppendPlan(plan *arrayAppendPlan, callback func()) {
-	s.arrayAppendPlans = append(s.arrayAppendPlans, plan)
-	defer func() { s.arrayAppendPlans = s.arrayAppendPlans[:len(s.arrayAppendPlans)-1] }()
+func (state *State) withArrayAppendPlan(plan *arrayAppendPlan, callback func()) {
+	state.arrayAppendPlans = append(state.arrayAppendPlans, plan)
+	defer func() { state.arrayAppendPlans = state.arrayAppendPlans[:len(state.arrayAppendPlans)-1] }()
 	callback()
 }
 
-func (s *State) getArrayAppendTarget(call *ast.Node) *arrayAppendTarget {
-	for index := len(s.arrayAppendPlans) - 1; index >= 0; index-- {
-		if target := s.arrayAppendPlans[index].calls[call]; target != nil {
+func (state *State) getArrayAppendTarget(call *ast.Node) *arrayAppendTarget {
+	for index := len(state.arrayAppendPlans) - 1; index >= 0; index-- {
+		if target := state.arrayAppendPlans[index].calls[call]; target != nil {
 			return target
 		}
 	}
@@ -307,21 +323,21 @@ func (s *State) getArrayAppendTarget(call *ast.Node) *arrayAppendTarget {
 // UTF-16 code units, matching TypeScript and the Source Map v3 specification.
 type SourcePosition = luau.Position
 
-func (s *State) getOriginalSourcePosition(node *ast.Node, useEnd bool) *SourcePosition {
-	position, ok := s.getOriginalSourcePositionValue(node, useEnd)
+func (state *State) getOriginalSourcePosition(node *ast.Node, useEnd bool) *SourcePosition {
+	position, ok := state.getOriginalSourcePositionValue(node, useEnd)
 	if !ok {
 		return nil
 	}
 	return &position
 }
 
-func (s *State) getOriginalSourcePositionValue(node *ast.Node, useEnd bool) (SourcePosition, bool) {
+func (state *State) getOriginalSourcePositionValue(node *ast.Node, useEnd bool) (SourcePosition, bool) {
 	if node == nil {
 		return SourcePosition{}, false
 	}
 	sourceFile := ast.GetSourceFileOfNode(node)
 	if sourceFile == nil {
-		sourceFile = s.SourceFile
+		sourceFile = state.SourceFile
 	}
 	if sourceFile == nil {
 		return SourcePosition{}, false
@@ -334,36 +350,36 @@ func (s *State) getOriginalSourcePositionValue(node *ast.Node, useEnd bool) (Sou
 			position = node.Pos()
 		}
 	}
-	return s.sourcePositionAt(sourceFile, position), true
+	return state.sourcePositionAt(sourceFile, position), true
 }
 
-func (s *State) setSourcePosition(node luau.Node, position *SourcePosition) {
+func (state *State) setSourcePosition(node luau.Node, position *SourcePosition) {
 	if position != nil {
 		luau.SetOrigin(node, &luau.Origin{Start: *position})
 	}
 }
 
-func (s *State) setSourceEndPosition(node luau.Node, position *SourcePosition) {
+func (state *State) setSourceEndPosition(node luau.Node, position *SourcePosition) {
 	if origin := node.Origin(); origin != nil && origin.Closing == nil && position != nil {
 		origin.Closing = position
 	}
 }
 
-func (s *State) getSourceOrigin(sourceNode *ast.Node) *luau.Origin {
-	start, ok := s.getOriginalSourcePositionValue(sourceNode, false)
+func (state *State) getSourceOrigin(sourceNode *ast.Node) *luau.Origin {
+	start, ok := state.getOriginalSourcePositionValue(sourceNode, false)
 	if !ok {
 		return nil
 	}
-	return &luau.Origin{Start: start, Closing: s.getOriginalSourcePosition(sourceNode, true)}
+	return &luau.Origin{Start: start, Closing: state.getOriginalSourcePosition(sourceNode, true)}
 }
 
-func (s *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
+func (state *State) setNodeSourcePosition(node luau.Node, sourceNode *ast.Node) {
 	if origin := node.Origin(); origin == nil || origin.StartUnset || origin.Closing == nil {
-		luau.SetOrigin(node, s.getSourceOrigin(sourceNode))
+		luau.SetOrigin(node, state.getSourceOrigin(sourceNode))
 	}
 }
 
-func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*luau.List[luau.Statement]) {
+func (state *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*luau.List[luau.Statement]) {
 	var origin *luau.Origin
 	for _, statements := range lists {
 		for item := statements.Head; item != nil; item = item.Next {
@@ -371,7 +387,7 @@ func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*
 				continue
 			}
 			if origin == nil {
-				origin = s.getSourceOrigin(sourceNode)
+				origin = state.getSourceOrigin(sourceNode)
 				if origin == nil {
 					return
 				}
@@ -381,26 +397,26 @@ func (s *State) setStatementListSourcePositions(sourceNode *ast.Node, lists ...*
 	}
 }
 
-func (s *State) setOperatorSourcePosition(node luau.Node, token *ast.Node) {
-	if s.SourceMapEnabled {
-		luau.SetOrigin(node, &luau.Origin{StartUnset: true, Operator: s.getOriginalSourcePosition(token, false)})
+func (state *State) setOperatorSourcePosition(node luau.Node, token *ast.Node) {
+	if state.SourceMapEnabled {
+		luau.SetOrigin(node, &luau.Origin{StartUnset: true, Operator: state.getOriginalSourcePosition(token, false)})
 	}
 }
 
-func (s *State) setUpdateOperatorSourcePosition(node luau.Node, update *ast.Node) {
-	if !s.SourceMapEnabled {
+func (state *State) setUpdateOperatorSourcePosition(node luau.Node, update *ast.Node) {
+	if !state.SourceMapEnabled {
 		return
 	}
-	position := s.getOriginalSourcePosition(update, false)
+	position := state.getOriginalSourcePosition(update, false)
 	if ast.IsPostfixUnaryExpression(update) {
 		// ++ and -- are the last two ASCII bytes, including when comments
 		// separate them from their operand.
 		file := ast.GetSourceFileOfNode(update)
 		if file == nil {
-			file = s.SourceFile
+			file = state.SourceFile
 		}
 		if file != nil {
-			value := s.sourcePositionAt(file, update.End()-2)
+			value := state.sourcePositionAt(file, update.End()-2)
 			position = &value
 		}
 	}
@@ -412,13 +428,13 @@ func (s *State) setUpdateOperatorSourcePosition(node luau.Node, update *ast.Node
 // constructor does (TransformState.ts:62-65). Call before TransformSourceFile;
 // upstream takes these as constructor arguments, rotor keeps NewState's
 // signature stable for existing call sites.
-func (s *State) SetRojoContext(rc *RojoContext, projectType ProjectType) {
-	s.Rojo = rc
-	s.ProjectType = projectType
-	if rc != nil && s.SourceFile != nil {
-		sourceOutPath := rc.PathTranslator.GetOutputPath(s.SourceFile.FileName())
+func (state *State) SetRojoContext(rc *RojoContext, projectType ProjectType) {
+	state.Rojo = rc
+	state.ProjectType = projectType
+	if rc != nil && state.SourceFile != nil {
+		sourceOutPath := rc.PathTranslator.GetOutputPath(state.SourceFile.FileName())
 		rbxPath, ok := rc.Resolver.GetRbxPathFromFilePath(sourceOutPath)
-		s.IsInReplicatedFirst = ok && len(rbxPath) > 0 && rbxPath[0] == "ReplicatedFirst"
+		state.IsInReplicatedFirst = ok && len(rbxPath) > 0 && rbxPath[0] == "ReplicatedFirst"
 	}
 }
 
@@ -436,58 +452,58 @@ func NewTestState() *State {
 // (upstream prereq). Calling with an empty stack panics, matching the
 // upstream JS crash (`undefined.push`); every transformStatement call site is
 // wrapped in Capture, so a list is always present during transformation.
-func (s *State) Prereq(stmt luau.Statement) {
-	s.prereqStack[len(s.prereqStack)-1].Push(stmt)
+func (state *State) Prereq(stmt luau.Statement) {
+	state.prereqStack[len(state.prereqStack)-1].Push(stmt)
 }
 
 // PrereqList splices an entire statement list onto the top of the prereq
 // stack (upstream prereqList; the source list must not be reused).
-func (s *State) PrereqList(list *luau.List[luau.Statement]) {
-	s.prereqStack[len(s.prereqStack)-1].PushList(list)
+func (state *State) PrereqList(list *luau.List[luau.Statement]) {
+	state.prereqStack[len(state.prereqStack)-1].PushList(list)
 }
 
-func (s *State) pushPrereqStack() *luau.List[luau.Statement] {
+func (state *State) pushPrereqStack() *luau.List[luau.Statement] {
 	list := luau.NewList[luau.Statement]()
-	s.prereqStack = append(s.prereqStack, list)
+	state.prereqStack = append(state.prereqStack, list)
 	return list
 }
 
-func (s *State) popPrereqStack() *luau.List[luau.Statement] {
-	n := len(s.prereqStack)
+func (state *State) popPrereqStack() *luau.List[luau.Statement] {
+	n := len(state.prereqStack)
 	if n == 0 {
 		panic("transformer: popPrereqStack on empty stack") // upstream assert
 	}
-	top := s.prereqStack[n-1]
-	s.prereqStack = s.prereqStack[:n-1]
+	top := state.prereqStack[n-1]
+	state.prereqStack = state.prereqStack[:n-1]
 	return top
 }
 
 // CaptureStatements runs cb with a fresh prereq list on the stack and returns
 // the statements it produced (upstream capturePrereqs).
-func (s *State) CaptureStatements(cb func()) *luau.List[luau.Statement] {
-	depth := len(s.prereqStack)
-	list := s.pushPrereqStack()
+func (state *State) CaptureStatements(cb func()) *luau.List[luau.Statement] {
+	depth := len(state.prereqStack)
+	list := state.pushPrereqStack()
 	// DIVERGENCE: upstream JS has no try/finally — an exception aborts the
 	// whole compile, so stack hygiene doesn't matter there. In Go a recovered
 	// panic (e.g. NoPrereqs' assert caught by a test) would leave the stack
 	// dirty, so restore the entry depth on the way out. This is a no-op on
 	// the normal path, which pops exactly the list pushed above.
 	defer func() {
-		if len(s.prereqStack) > depth {
-			s.prereqStack = s.prereqStack[:depth]
+		if len(state.prereqStack) > depth {
+			state.prereqStack = state.prereqStack[:depth]
 		}
 	}()
 	cb()
-	s.popPrereqStack()
+	state.popPrereqStack()
 	return list
 }
 
 // Capture returns the expression produced by cb along with its prerequisite
 // statements (upstream capture<T>; Go methods cannot be generic, so this is
 // specialized to the dominant luau.Expression case).
-func (s *State) Capture(cb func() luau.Expression) (luau.Expression, *luau.List[luau.Statement]) {
+func (state *State) Capture(cb func() luau.Expression) (luau.Expression, *luau.List[luau.Statement]) {
 	var value luau.Expression
-	prereqs := s.CaptureStatements(func() { value = cb() })
+	prereqs := state.CaptureStatements(func() { value = cb() })
 	if value == nil {
 		// Upstream's capture<T> cannot observe undefined here: every
 		// transform returns a node (banned kinds yield None). Fail loudly
@@ -499,9 +515,9 @@ func (s *State) Capture(cb func() luau.Expression) (luau.Expression, *luau.List[
 
 // NoPrereqs runs cb and asserts it created no prerequisite statements
 // (upstream noPrereqs; the assert is a panic, as upstream).
-func (s *State) NoPrereqs(cb func() luau.Expression) luau.Expression {
+func (state *State) NoPrereqs(cb func() luau.Expression) luau.Expression {
 	var expression luau.Expression
-	statements := s.CaptureStatements(func() { expression = cb() })
+	statements := state.CaptureStatements(func() { expression = cb() })
 	if statements.IsNonEmpty() {
 		panic("transformer: NoPrereqs callback created prerequisite statements")
 	}
@@ -522,39 +538,41 @@ type TryUses struct {
 
 // PushTryUsesStack ports pushTryUsesStack: push a fresh all-false TryUses and
 // RETURN it — the caller keeps the pointer and reads the flags after pop.
-func (s *State) PushTryUsesStack() *TryUses {
+func (state *State) PushTryUsesStack() *TryUses {
 	uses := &TryUses{}
-	s.tryUsesStack = append(s.tryUsesStack, uses)
+	state.tryUsesStack = append(state.tryUsesStack, uses)
 	return uses
 }
 
 // PopTryUsesStack ports popTryUsesStack.
-func (s *State) PopTryUsesStack() {
-	n := len(s.tryUsesStack)
+func (state *State) PopTryUsesStack() {
+	n := len(state.tryUsesStack)
 	if n == 0 {
 		panic("transformer: PopTryUsesStack on empty stack") // upstream assert
 	}
-	s.tryUsesStack = s.tryUsesStack[:n-1]
+	state.tryUsesStack = state.tryUsesStack[:n-1]
 }
 
 // markTryUses ports markTryUses(property): set a flag on the TOP entry;
 // a NO-OP when the stack is empty (upstream L87-89) — this is what makes
 // return/break/continue outside any try free.
-func (s *State) markTryUses(mark func(*TryUses)) {
-	if len(s.tryUsesStack) == 0 {
+func (state *State) markTryUses(mark func(*TryUses)) {
+	if len(state.tryUsesStack) == 0 {
 		return
 	}
-	mark(s.tryUsesStack[len(s.tryUsesStack)-1])
+	mark(state.tryUsesStack[len(state.tryUsesStack)-1])
 }
 
 // MarkTryUsesReturn ports markTryUses("usesReturn").
-func (s *State) MarkTryUsesReturn() { s.markTryUses(func(u *TryUses) { u.UsesReturn = true }) }
+func (state *State) MarkTryUsesReturn() { state.markTryUses(func(u *TryUses) { u.UsesReturn = true }) }
 
 // MarkTryUsesBreak ports markTryUses("usesBreak").
-func (s *State) MarkTryUsesBreak() { s.markTryUses(func(u *TryUses) { u.UsesBreak = true }) }
+func (state *State) MarkTryUsesBreak() { state.markTryUses(func(u *TryUses) { u.UsesBreak = true }) }
 
 // MarkTryUsesContinue ports markTryUses("usesContinue").
-func (s *State) MarkTryUsesContinue() { s.markTryUses(func(u *TryUses) { u.UsesContinue = true }) }
+func (state *State) MarkTryUsesContinue() {
+	state.markTryUses(func(u *TryUses) { u.UsesContinue = true })
+}
 
 // ---------------------------------------------------------------------------
 // Loop labels (rotor extension — no upstream counterpart in rbxtsc 3.0.0)
@@ -591,32 +609,32 @@ type labelEntry struct {
 func (e *labelEntry) used() bool { return e.EverBroken || e.EverContinued }
 
 // PushLabel opens a new label scope for the construct about to be transformed.
-func (s *State) PushLabel(name string, isLoop bool) *labelEntry {
+func (state *State) PushLabel(name string, isLoop bool) *labelEntry {
 	entry := &labelEntry{
 		ID:     luau.TempID(name),
 		Name:   name,
-		Depth:  s.breakDepth + 1,
+		Depth:  state.breakDepth + 1,
 		IsLoop: isLoop,
 	}
-	s.labelStack = append(s.labelStack, entry)
+	state.labelStack = append(state.labelStack, entry)
 	return entry
 }
 
 // PopLabel closes the innermost label scope.
-func (s *State) PopLabel() {
-	n := len(s.labelStack)
+func (state *State) PopLabel() {
+	n := len(state.labelStack)
 	if n == 0 {
 		panic("transformer: PopLabel on empty stack")
 	}
-	s.labelStack = s.labelStack[:n-1]
+	state.labelStack = state.labelStack[:n-1]
 }
 
 // FindLabel resolves a label name innermost-first, returning nil when no such
 // label is in scope (only reachable when the TS error was suppressed).
-func (s *State) FindLabel(name string) *labelEntry {
-	for i := len(s.labelStack) - 1; i >= 0; i-- {
-		if s.labelStack[i].Name == name {
-			return s.labelStack[i]
+func (state *State) FindLabel(name string) *labelEntry {
+	for i := len(state.labelStack) - 1; i >= 0; i-- {
+		if state.labelStack[i].Name == name {
+			return state.labelStack[i]
 		}
 	}
 	return nil
@@ -625,28 +643,28 @@ func (s *State) FindLabel(name string) *labelEntry {
 // EnterBreakScope opens a break boundary; every loop, switch and labeled
 // non-loop statement transform must pair it with ExitBreakScope (use defer —
 // one missed exit corrupts every later depth).
-func (s *State) EnterBreakScope() { s.breakDepth++ }
+func (state *State) EnterBreakScope() { state.breakDepth++ }
 
 // ExitBreakScope closes a break boundary.
-func (s *State) ExitBreakScope() {
-	if s.breakDepth == 0 {
+func (state *State) ExitBreakScope() {
+	if state.breakDepth == 0 {
 		panic("transformer: ExitBreakScope below zero")
 	}
-	s.breakDepth--
+	state.breakDepth--
 }
 
 // BreakDepth reports the current break-boundary depth.
-func (s *State) BreakDepth() int { return s.breakDepth }
+func (state *State) BreakDepth() int { return state.breakDepth }
 
 // LabelResets returns the `<id> = "none"` statements to unshift into the body
 // of the loop currently being transformed. Only continued labels need one: a
 // "break" value can never be observed twice, since a break always unwinds out
 // of the labeled construct, whereas a "continue" that reached its target loop
 // would otherwise still be set on the next iteration.
-func (s *State) LabelResets() *luau.List[luau.Statement] {
+func (state *State) LabelResets() *luau.List[luau.Statement] {
 	result := luau.NewList[luau.Statement]()
-	for _, entry := range s.labelStack {
-		if entry.Depth == s.breakDepth && entry.EverContinued {
+	for _, entry := range state.labelStack {
+		if entry.Depth == state.breakDepth && entry.EverContinued {
 			result.Push(luau.NewAssignment(entry.ID, "=", luau.Str(labelNone)))
 		}
 	}
@@ -665,9 +683,9 @@ func (s *State) LabelResets() *luau.List[luau.Statement] {
 // labels on the same loop both work. Everything left over ORs into one break
 // check: a flag targeting a construct further out than the enclosing one must
 // keep unwinding, whichever value it holds.
-func (s *State) LabelChecks() *luau.List[luau.Statement] {
+func (state *State) LabelChecks() *luau.List[luau.Statement] {
 	result := luau.NewList[luau.Statement]()
-	depth := s.breakDepth
+	depth := state.breakDepth
 
 	var continueCondition luau.Expression
 	var breakCondition luau.Expression
@@ -681,7 +699,7 @@ func (s *State) LabelChecks() *luau.List[luau.Statement] {
 		return luau.NewBinary(entry.ID, "==", luau.Str(value))
 	}
 
-	for _, entry := range s.labelStack {
+	for _, entry := range state.labelStack {
 		if entry.Depth >= depth {
 			continue
 		}
@@ -714,10 +732,10 @@ func (s *State) LabelChecks() *luau.List[luau.Statement] {
 // cannot cross a function boundary and a flag variable read across one would
 // target the wrong loop, so a nested function body (and the functions rotor's
 // try lowering emits) starts from a clean slate.
-func (s *State) WithoutLabels(fn func()) {
-	savedStack, savedDepth := s.labelStack, s.breakDepth
-	s.labelStack, s.breakDepth = nil, 0
-	defer func() { s.labelStack, s.breakDepth = savedStack, savedDepth }()
+func (state *State) WithoutLabels(fn func()) {
+	savedStack, savedDepth := state.labelStack, state.breakDepth
+	state.labelStack, state.breakDepth = nil, 0
+	defer func() { state.labelStack, state.breakDepth = savedStack, savedDepth }()
 	fn()
 }
 
@@ -730,7 +748,7 @@ func (s *State) WithoutLabels(fn func()) {
 // pre-declare a temp without a value (`local _temp`). The temp's name hint is
 // nameHint if non-empty, else derived via ValueToIdStr — exactly upstream's
 // `name || (expression && valueToIdStr(expression))` ("" is falsy in JS).
-func (s *State) PushToVar(expr luau.Expression, nameHint string) *luau.TemporaryIdentifier {
+func (state *State) PushToVar(expr luau.Expression, nameHint string) *luau.TemporaryIdentifier {
 	name := nameHint
 	if name == "" && expr != nil {
 		name = ValueToIdStr(expr)
@@ -740,28 +758,28 @@ func (s *State) PushToVar(expr luau.Expression, nameHint string) *luau.Temporary
 	if expr != nil {
 		right = expr
 	}
-	s.Prereq(luau.NewVariableDeclaration(temp, right))
+	state.Prereq(luau.NewVariableDeclaration(temp, right))
 	return temp
 }
 
 // PushToVarIfComplex returns expr unchanged when it is simple (upstream
 // luau.isSimple: Identifier, TemporaryIdentifier, NilLiteral, TrueLiteral,
 // FalseLiteral, NumberLiteral, StringLiteral), else pushes it to a temp.
-func (s *State) PushToVarIfComplex(expr luau.Expression, nameHint string) luau.Expression {
+func (state *State) PushToVarIfComplex(expr luau.Expression, nameHint string) luau.Expression {
 	if luau.IsSimple(expr) {
 		return expr
 	}
-	return s.PushToVar(expr, nameHint)
+	return state.PushToVar(expr, nameHint)
 }
 
 // PushToVarIfNonID returns expr unchanged when it is already an identifier
 // (upstream luau.isAnyIdentifier: Identifier | TemporaryIdentifier only),
 // else pushes it to a temp.
-func (s *State) PushToVarIfNonID(expr luau.Expression, nameHint string) luau.AnyIdentifier {
+func (state *State) PushToVarIfNonID(expr luau.Expression, nameHint string) luau.AnyIdentifier {
 	if id, ok := expr.(luau.AnyIdentifier); ok {
 		return id
 	}
-	return s.PushToVar(expr, nameHint)
+	return state.PushToVar(expr, nameHint)
 }
 
 // ---------------------------------------------------------------------------
@@ -771,23 +789,23 @@ func (s *State) PushToVarIfNonID(expr luau.Expression, nameHint string) luau.Any
 // SetClassElementObjectKey ports TransformState.setClassElementObjectKey
 // (TransformState.ts:392-395): record the pinned key for a decorated class
 // element, asserting no overwrite.
-func (s *State) SetClassElementObjectKey(classElement *ast.Node, identifier luau.Expression) {
-	if _, ok := s.classElementToObjectKeyMap[classElement]; ok {
+func (state *State) SetClassElementObjectKey(classElement *ast.Node, identifier luau.Expression) {
+	if _, ok := state.classElementToObjectKeyMap[classElement]; ok {
 		panic("transformer: SetClassElementObjectKey: key already set") // upstream assert
 	}
-	s.classElementToObjectKeyMap[classElement] = identifier
-	if s.SourceMapEnabled {
-		if s.sourceMapObjectKeys == nil {
-			s.sourceMapObjectKeys = make(map[luau.Expression]struct{})
+	state.classElementToObjectKeyMap[classElement] = identifier
+	if state.SourceMapEnabled {
+		if state.sourceMapObjectKeys == nil {
+			state.sourceMapObjectKeys = make(map[luau.Expression]struct{})
 		}
-		s.sourceMapObjectKeys[identifier] = struct{}{}
+		state.sourceMapObjectKeys[identifier] = struct{}{}
 	}
 }
 
 // GetClassElementObjectKey ports TransformState.getClassElementObjectKey
 // (TransformState.ts:397-399).
-func (s *State) GetClassElementObjectKey(classElement *ast.Node) luau.Expression {
-	return s.classElementToObjectKeyMap[classElement]
+func (state *State) GetClassElementObjectKey(classElement *ast.Node) luau.Expression {
+	return state.classElementToObjectKeyMap[classElement]
 }
 
 // ---------------------------------------------------------------------------
@@ -797,12 +815,12 @@ func (s *State) GetClassElementObjectKey(classElement *ast.Node) luau.Expression
 // GetType returns the type at SkipUpwards(node), memoized by the original
 // node pointer (upstream getType). The nil-recompute mirrors upstream
 // getOrSetDefault, which re-computes when the stored value is undefined.
-func (s *State) GetType(node *ast.Node) *checker.Type {
-	if t := s.getTypeCache[node]; t != nil {
+func (state *State) GetType(node *ast.Node) *checker.Type {
+	if t := state.getTypeCache[node]; t != nil {
 		return t
 	}
-	t := s.Checker.GetTypeAtLocation(SkipUpwards(node))
-	s.getTypeCache[node] = t
+	t := state.Checker.GetTypeAtLocation(SkipUpwards(node))
+	state.getTypeCache[node] = t
 	return t
 }
 
@@ -814,11 +832,11 @@ func (s *State) GetType(node *ast.Node) *checker.Type {
 // UsesRuntimeLib — this is the SOLE place UsesRuntimeLib is set. The node
 // parameter exists solely for the warning's source location and may be nil
 // outside Game/ReplicatedFirst files.
-func (s *State) RuntimeLib(node *ast.Node, name string) luau.IndexableExpression {
-	s.UsesRuntimeLib = true
-	if s.ProjectType == ProjectTypeGame && s.IsInReplicatedFirst {
+func (state *State) RuntimeLib(node *ast.Node, name string) luau.IndexableExpression {
+	state.UsesRuntimeLib = true
+	if state.ProjectType == ProjectTypeGame && state.IsInReplicatedFirst {
 		// Emitted once per call, not deduped (upstream).
-		s.Diags.Add(DiagRuntimeLibUsedInReplicatedFirst(node))
+		state.Diags.Add(DiagRuntimeLibUsedInReplicatedFirst(node))
 	}
 	return luau.GlobalProperty("TS", name)
 }
@@ -836,13 +854,13 @@ func (s *State) RuntimeLib(node *ast.Node, name string) luau.IndexableExpression
 // rebases the file onto the symlink side. Returns "" when no ancestor is
 // known to the cache (upstream returns undefined; the caller falls back to
 // the realpath).
-func (s *State) GuessVirtualPath(fsPath string) string {
+func (state *State) GuessVirtualPath(fsPath string) string {
 	// s.Program may be nil in mechanics tests; upstream's optional chain on
 	// getSymlinkCache covers the analogous TS-version probe.
-	if s.Program == nil {
+	if state.Program == nil {
 		return ""
 	}
-	byRealpath := s.Program.GetSymlinkCache().DirectoriesByRealpath()
+	byRealpath := state.Program.GetSymlinkCache().DirectoriesByRealpath()
 	original := fsPath
 	for {
 		// reverseSymlinkMap always has trailing slashes as it is constructed
@@ -855,11 +873,11 @@ func (s *State) GuessVirtualPath(fsPath string) string {
 			break
 		}
 		fsPath = parent
-		key := tspath.ToPath(fsPath, s.Program.GetCurrentDirectory(), s.Program.UseCaseSensitiveFileNames())
+		key := tspath.ToPath(fsPath, state.Program.GetCurrentDirectory(), state.Program.UseCaseSensitiveFileNames())
 		if set, ok := byRealpath.Load(key); ok {
 			nodeModulesPath := ""
-			if s.Rojo != nil {
-				nodeModulesPath = s.Rojo.NodeModulesPath
+			if state.Rojo != nil {
+				nodeModulesPath = state.Rojo.NodeModulesPath
 			}
 			symlink := selectSymlinkPath(set.ToSlice(), nodeModulesPath)
 			if symlink != "" {
@@ -892,8 +910,8 @@ func (s *State) GuessVirtualPath(fsPath string) string {
 // (groupSourceFilesByChecker) and runs program.GetSemanticDiagnostics(ctx,
 // file) before transforming each file — proven by TestCompileProjectImports's
 // elision cases and the multi-checker grouping tests.
-func (s *State) EmitResolver() *checker.EmitResolver {
-	return s.Checker.GetEmitResolver()
+func (state *State) EmitResolver() *checker.EmitResolver {
+	return state.Checker.GetEmitResolver()
 }
 
 // ---------------------------------------------------------------------------
@@ -903,25 +921,25 @@ func (s *State) EmitResolver() *checker.EmitResolver {
 // Macros returns the pass-wide MacroManager (upstream
 // state.services.macroManager), creating an empty one lazily for
 // checker-free mechanics states.
-func (s *State) Macros() *MacroManager {
-	if s.Multi.macroManager == nil {
-		s.Multi.macroManager = NewMacroManager(s.Checker)
+func (state *State) Macros() *MacroManager {
+	if state.Multi.macroManager == nil {
+		state.Multi.macroManager = NewMacroManager(state.Checker)
 	}
-	return s.Multi.macroManager
+	return state.Multi.macroManager
 }
 
 // AmbientSymbol resolves a global ambient symbol by name through the
 // MacroManager's SYMBOL_NAMES registry (upstream
 // macroManager.getSymbolOrThrow; rotor returns nil instead of throwing so
 // checker-light test projects keep working — callers nil-guard).
-func (s *State) AmbientSymbol(name string) *ast.Symbol {
-	return s.Macros().Symbol(name)
+func (state *State) AmbientSymbol(name string) *ast.Symbol {
+	return state.Macros().Symbol(name)
 }
 
 // LuaTupleNominalSymbol resolves the `_nominal_LuaTuple` property symbol from
 // the ambient LuaTuple<T> type alias (see MacroManager.LuaTupleNominalSymbol).
-func (s *State) LuaTupleNominalSymbol() *ast.Symbol {
-	return s.Macros().LuaTupleNominalSymbol()
+func (state *State) LuaTupleNominalSymbol() *ast.Symbol {
+	return state.Macros().LuaTupleNominalSymbol()
 }
 
 // ---------------------------------------------------------------------------
@@ -931,14 +949,14 @@ func (s *State) LuaTupleNominalSymbol() *ast.Symbol {
 // SetModuleIDBySymbol records the luau id holding moduleSymbol's exports
 // table (upstream setModuleIdBySymbol; transformSourceFile maps the file's
 // module symbol to `exports`).
-func (s *State) SetModuleIDBySymbol(moduleSymbol *ast.Symbol, moduleID luau.AnyIdentifier) {
-	s.moduleIDBySymbol[moduleSymbol] = moduleID
+func (state *State) SetModuleIDBySymbol(moduleSymbol *ast.Symbol, moduleID luau.AnyIdentifier) {
+	state.moduleIDBySymbol[moduleSymbol] = moduleID
 }
 
 // GetModuleIDFromSymbol returns the recorded module id, panicking if absent
 // (upstream getModuleIdFromSymbol assert).
-func (s *State) GetModuleIDFromSymbol(moduleSymbol *ast.Symbol) luau.AnyIdentifier {
-	id, ok := s.moduleIDBySymbol[moduleSymbol]
+func (state *State) GetModuleIDFromSymbol(moduleSymbol *ast.Symbol) luau.AnyIdentifier {
+	id, ok := state.moduleIDBySymbol[moduleSymbol]
 	if !ok {
 		panic("transformer: GetModuleIDFromSymbol: no module id recorded for symbol")
 	}
@@ -948,35 +966,35 @@ func (s *State) GetModuleIDFromSymbol(moduleSymbol *ast.Symbol) luau.AnyIdentifi
 // GetModuleIDFromNode ports TransformState.getModuleIdFromNode: the module id
 // of the nearest module ancestor (file level => `exports`). Consumed by
 // transformExportDeclaration and transformExportAssignment.
-func (s *State) GetModuleIDFromNode(node *ast.Node) luau.AnyIdentifier {
-	return s.GetModuleIDFromSymbol(s.getModuleSymbolFromNode(node))
+func (state *State) GetModuleIDFromNode(node *ast.Node) luau.AnyIdentifier {
+	return state.GetModuleIDFromSymbol(state.getModuleSymbolFromNode(node))
 }
 
-func (s *State) registerOptimizableVarArgs(declaration *ast.Node, data *VarArgsData) {
-	s.declarationToOptimizableVarArgs[declaration] = data
+func (state *State) registerOptimizableVarArgs(declaration *ast.Node, data *VarArgsData) {
+	state.declarationToOptimizableVarArgs[declaration] = data
 }
 
-func (s *State) unregisterOptimizableVarArgs(declaration *ast.Node) {
-	delete(s.declarationToOptimizableVarArgs, declaration)
+func (state *State) unregisterOptimizableVarArgs(declaration *ast.Node) {
+	delete(state.declarationToOptimizableVarArgs, declaration)
 }
 
-func (s *State) getOptimizableVarArgsData(node *ast.Node) *VarArgsData {
+func (state *State) getOptimizableVarArgsData(node *ast.Node) *VarArgsData {
 	expression := SkipDownwards(node)
 	if !ast.IsIdentifier(expression) {
 		return nil
 	}
 
-	symbol := s.Checker.GetSymbolAtLocation(expression)
+	symbol := state.Checker.GetSymbolAtLocation(expression)
 	if symbol == nil || symbol.ValueDeclaration == nil {
 		return nil
 	}
-	return s.declarationToOptimizableVarArgs[symbol.ValueDeclaration]
+	return state.declarationToOptimizableVarArgs[symbol.ValueDeclaration]
 }
 
 // getModuleSymbolFromNode ports TransformState.getModuleSymbolFromNode: the
 // export symbol of the nearest SourceFile or ModuleDeclaration ancestor
 // (traversal.ts getModuleAncestor).
-func (s *State) getModuleSymbolFromNode(node *ast.Node) *ast.Symbol {
+func (state *State) getModuleSymbolFromNode(node *ast.Node) *ast.Symbol {
 	moduleAncestor := ast.FindAncestor(node, func(n *ast.Node) bool {
 		return ast.IsSourceFile(n) || ast.IsModuleDeclaration(n)
 	})
@@ -984,7 +1002,7 @@ func (s *State) getModuleSymbolFromNode(node *ast.Node) *ast.Symbol {
 	if !ast.IsSourceFile(moduleAncestor) {
 		location = moduleAncestor.Name()
 	}
-	exportSymbol := s.Checker.GetSymbolAtLocation(location)
+	exportSymbol := state.Checker.GetSymbolAtLocation(location)
 	if exportSymbol == nil {
 		panic("transformer: getModuleSymbolFromNode: no module symbol") // upstream assert
 	}
@@ -996,11 +1014,11 @@ func (s *State) getModuleSymbolFromNode(node *ast.Node) *ast.Symbol {
 // from its module, else nil. This is how `export let x` reads/writes become
 // `exports.x` (transformIdentifier.ts:161-171, transformVariableStatement.ts:
 // 26-40).
-func (s *State) GetModuleIDPropertyAccess(idSymbol *ast.Symbol) *luau.PropertyAccessExpression {
+func (state *State) GetModuleIDPropertyAccess(idSymbol *ast.Symbol) *luau.PropertyAccessExpression {
 	if idSymbol.ValueDeclaration != nil {
-		moduleSymbol := s.getModuleSymbolFromNode(idSymbol.ValueDeclaration)
-		if alias, ok := s.GetModuleExportsAliasMap(moduleSymbol)[idSymbol]; ok {
-			return luau.NewPropertyAccess(s.GetModuleIDFromSymbol(moduleSymbol), alias)
+		moduleSymbol := state.getModuleSymbolFromNode(idSymbol.ValueDeclaration)
+		if alias, ok := state.GetModuleExportsAliasMap(moduleSymbol)[idSymbol]; ok {
+			return luau.NewPropertyAccess(state.GetModuleIDFromSymbol(moduleSymbol), alias)
 		}
 	}
 	return nil

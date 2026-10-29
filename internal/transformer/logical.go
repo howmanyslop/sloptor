@@ -88,9 +88,9 @@ func buildLogicalChainPrereqs(s *State, chain []logicalChainItem, conditionID *l
 	}
 }
 
-func (s *State) tagConditionOperator(condition luau.Expression, token *ast.Node) luau.Expression {
-	if s.SourceMapEnabled {
-		if position := s.getOriginalSourcePosition(token, false); position != nil {
+func (state *State) tagConditionOperator(condition luau.Expression, token *ast.Node) luau.Expression {
+	if state.SourceMapEnabled {
+		if position := state.getOriginalSourcePosition(token, false); position != nil {
 			return luau.WithOrigin(condition, &luau.Origin{Start: *position, Operator: position}).(luau.Expression)
 		}
 	}

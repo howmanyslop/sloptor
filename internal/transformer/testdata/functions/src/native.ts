@@ -120,3 +120,77 @@ export function instanceOf(value: Instance): Instance {
 export function unionOptional(value?: number[] | string[]): number {
 	return value === undefined ? 0 : value.size();
 }
+
+export class Box<T> {
+	public constructor(public readonly value: T) {}
+
+	public get(): T {
+		return this.value;
+	}
+
+	public boxed(): { inner: T } {
+		return { inner: this.value };
+	}
+}
+
+export function boxed(box: Box<number>): number {
+	return box.get();
+}
+
+export function ownGeneric<K>(key: K): K {
+	return key;
+}
+
+export function outerGeneric<K>(key: K): (other: K) => void {
+	return (other: K): void => {};
+}
+
+export function functionReturn(make: (n: number) => (s: string) => boolean): (n: number) => (s: string) => boolean {
+	return make;
+}
+
+export interface Handler {
+	onEvent: (value: number) => void;
+	readonly optional?: (value: string) => number;
+}
+
+export function handlers(handler?: Handler): void {
+	if (handler !== undefined && handler.onEvent !== undefined) {
+		handler.onEvent(1);
+	}
+}
+
+export function robloxTypes(lookup: Map<string, Vector3>, part: Part, nested: { part: Part; flag: boolean }): Map<string, Vector3> {
+	return lookup;
+}
+
+export interface Node {
+	value: number;
+}
+
+namespace Inner {
+	export interface Node {
+		text: string;
+	}
+}
+
+export function collision(a: Node, b: Inner.Node): number {
+	return a.value + b.text.size();
+}
+
+export type Notify = (value: number) => void;
+
+export type Callback<T> = (value: T) => void;
+
+export function notify(cb: Notify, generic: Callback<string>): void {
+	cb(1);
+	generic("x");
+}
+
+export interface table {
+	value: number;
+}
+
+export function reserved(value: table): number {
+	return value.value;
+}

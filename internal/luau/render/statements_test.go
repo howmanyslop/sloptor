@@ -203,3 +203,48 @@ func TestRenderTypedFunctionSignatures(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestRenderTypeAlias(t *testing.T) {
+	cases := []struct {
+		ast  *luau.List[luau.Statement]
+		want string
+	}{
+		{
+			stmts(luau.NewTypeAlias("Node", []string{"K", "V"}, "{ key: K, value: V }")),
+			"type Node<K, V> = { key: K, value: V }\n",
+		},
+		{
+			stmts(luau.NewTypeAlias("Both", nil, "{ [any]: number }")),
+			"type Both = { [any]: number }\n",
+		},
+	}
+	for _, c := range cases {
+		if got := renderAST(t, c.ast); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
+	}
+}
+
+func TestRenderFunctionGenerics(t *testing.T) {
+	body := stmts(luau.NewReturn(luau.ID("x")))
+	params := luau.NewList[luau.AnyIdentifier](luau.ID("x"))
+
+	declaration := luau.NewFunctionDeclaration(true, luau.ID("f"), params, false, body.Clone())
+	declaration.Generics = []string{"K", "V"}
+	if got, want := renderAST(t, stmts(declaration)), "local function f<K, V>(x)\n\treturn x\nend\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	method := luau.NewMethodDeclaration(luau.ID("Class"), "method", luau.NewList[luau.AnyIdentifier](), false, body.Clone())
+	method.Generics = []string{"T"}
+	if got, want := renderAST(t, stmts(method)), "function Class:method<T>()\n\treturn x\nend\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+
+	expression := luau.NewFunctionExpression(luau.NewList[luau.AnyIdentifier](), false, body.Clone())
+	expression.Generics = []string{"T"}
+	variable := luau.NewVariableDeclaration(luau.ID("f"), expression)
+	if got, want := renderAST(t, stmts(variable)), "local f = function<T>()\n\treturn x\nend\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

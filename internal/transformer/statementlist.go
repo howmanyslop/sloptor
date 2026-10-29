@@ -172,8 +172,8 @@ func isNodeDescendantOf(node, ancestor *ast.Node) bool {
 // upstream transformStatementList checks before emitting leading comments.
 // Checker-free test states (nil Program) emit comments, matching the
 // upstream default of removeComments being unset.
-func (s *State) RemoveComments() bool {
-	return s.Program != nil && s.Program.Options().RemoveComments.IsTrue()
+func (state *State) RemoveComments() bool {
+	return state.Program != nil && state.Program.Options().RemoveComments.IsTrue()
 }
 
 // GetLeadingComments ports TransformState.getLeadingComments (upstream lines
@@ -181,15 +181,15 @@ func (s *State) RemoveComments() bool {
 // each to a luau comment. `// foo` -> text " foo" (keeps the space, drops
 // "//"); `/* foo */` -> " foo " (drops both delimiters; multi-line text
 // renders as a --[[ ... ]] block).
-func (s *State) GetLeadingComments(node *ast.Node) *luau.List[luau.Statement] {
+func (state *State) GetLeadingComments(node *ast.Node) *luau.List[luau.Statement] {
 	result := luau.NewList[luau.Statement]()
 	var factory ast.NodeFactory
-	for commentRange := range scanner.GetLeadingCommentRanges(&factory, s.SourceFileText, node.Pos()) {
+	for commentRange := range scanner.GetLeadingCommentRanges(&factory, state.SourceFileText, node.Pos()) {
 		end := commentRange.End()
 		if commentRange.Kind != ast.KindSingleLineCommentTrivia {
 			end -= 2 // strip trailing "*/"
 		}
-		result.Push(luau.NewComment(s.SourceFileText[commentRange.Pos()+2 : end]))
+		result.Push(luau.NewComment(state.SourceFileText[commentRange.Pos()+2 : end]))
 	}
 	return result
 }

@@ -70,6 +70,7 @@ type VarArgsLiteral struct{ base }
 type FunctionExpression struct {
 	base
 	ReturnType   *Type
+	Generics     []string // `<K, V>` rendered after `function`
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -183,6 +184,7 @@ type FunctionDeclaration struct {
 	ReturnType   *Type
 	Localize     bool
 	Name         Expression // AnyIdentifier | PropertyAccessExpression
+	Generics     []string   // `<K, V>` rendered after the name
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -193,6 +195,7 @@ type MethodDeclaration struct {
 	ReturnType   *Type
 	Expression   IndexableExpression
 	Name         string
+	Generics     []string // `<K, V>` rendered after `:name`
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -212,6 +215,15 @@ type ReturnStatement struct {
 type Comment struct {
 	base
 	Text string
+}
+
+// TypeAlias is a rotor extension: `type Name<K, V> = <Type>`. Type is
+// pre-rendered Luau type text; the node has no child nodes.
+type TypeAlias struct {
+	base
+	Name     string
+	Generics []string
+	Type     string
 }
 
 // ---- fields ----
@@ -267,6 +279,7 @@ func (*MethodDeclaration) Kind() SyntaxKind        { return KindMethodDeclaratio
 func (*VariableDeclaration) Kind() SyntaxKind      { return KindVariableDeclaration }
 func (*ReturnStatement) Kind() SyntaxKind          { return KindReturnStatement }
 func (*Comment) Kind() SyntaxKind                  { return KindComment }
+func (*TypeAlias) Kind() SyntaxKind                { return KindTypeAlias }
 func (*MapField) Kind() SyntaxKind                 { return KindMapField }
 func (*InterpolatedStringPart) Kind() SyntaxKind   { return KindInterpolatedStringPart }
 
@@ -310,6 +323,7 @@ func (n *MethodDeclaration) shallowClone() Node        { c := *n; return &c }
 func (n *VariableDeclaration) shallowClone() Node      { c := *n; return &c }
 func (n *ReturnStatement) shallowClone() Node          { c := *n; return &c }
 func (n *Comment) shallowClone() Node                  { c := *n; return &c }
+func (n *TypeAlias) shallowClone() Node                { c := *n; return &c }
 func (n *MapField) shallowClone() Node                 { c := *n; return &c }
 func (n *InterpolatedStringPart) shallowClone() Node   { c := *n; return &c }
 
@@ -362,6 +376,7 @@ func (*MethodDeclaration) statementNode()   {}
 func (*VariableDeclaration) statementNode() {}
 func (*ReturnStatement) statementNode()     {}
 func (*Comment) statementNode()             {}
+func (*TypeAlias) statementNode()           {}
 
 func (*MapField) fieldNode()               {}
 func (*InterpolatedStringPart) fieldNode() {}
