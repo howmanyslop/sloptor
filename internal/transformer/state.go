@@ -181,7 +181,7 @@ type State struct {
 	// nativeScopes tracks the generic names in scope while a `//!native`
 	// annotation is rendered: one entry per enclosing function that declares
 	// type parameters, in addition to one barrier entry per type alias body
-	// being built (see nativetypes_generics.go).
+	// being built (see nativetypes.go).
 	nativeScopes []nativeGenericScope
 	// nativeAliases holds the emitted `type` statements in registration order;
 	// prependHeader places them after the header.
