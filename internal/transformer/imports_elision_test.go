@@ -122,7 +122,7 @@ func TestIsReferencedAliasValue_qualifiedTypeNames(t *testing.T) {
 			name: "type-only declared namespace used as A.T",
 			files: map[string]string{
 				"src/webhook.d.ts": `export declare namespace Webhook { export interface Post { content: string } }`,
-				"src/main.ts":      `import { Webhook } from "./webhook";
+				"src/main.ts": `import { Webhook } from "./webhook";
 export function send(body: Webhook.Post) {}
 export type P = Webhook.Post;
 export function many(body: Array<Webhook.Post>, other: { inner: Webhook.Post }) {}
@@ -146,7 +146,7 @@ export function send(body: Webhook.Post) {}
 		{
 			name: "nested type-only namespace used as A.B.T",
 			files: map[string]string{
-				"src/a.ts":    `export namespace A { export namespace B { export interface Post { content: string } } }`,
+				"src/a.ts": `export namespace A { export namespace B { export interface Post { content: string } } }`,
 				"src/main.ts": `import { A } from "./a";
 export function send(body: A.B.Post) {}
 `,
@@ -157,7 +157,7 @@ export function send(body: A.B.Post) {}
 		{
 			name: "instantiated namespace used only as a value",
 			files: map[string]string{
-				"src/n.ts":    `export namespace N { export const v = 1; }`,
+				"src/n.ts": `export namespace N { export const v = 1; }`,
 				"src/main.ts": `import { N } from "./n";
 export const x = N.v;
 `,
@@ -168,7 +168,7 @@ export const x = N.v;
 		{
 			name: "instantiated namespace used as type and value",
 			files: map[string]string{
-				"src/n.ts":    `export namespace N { export const v = 1; export interface T { a: number } }`,
+				"src/n.ts": `export namespace N { export const v = 1; export interface T { a: number } }`,
 				"src/main.ts": `import { N } from "./n";
 export function f(body: N.T) { return N.v; }
 `,
