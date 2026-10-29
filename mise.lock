@@ -761,6 +761,56 @@ url = "https://github.com/jdx/jactionlint/releases/download/v2.3.0/jactionlint_2
 url_api = "https://api.github.com/repos/jdx/jactionlint/releases/assets/662210534"
 provenance = "github-attestations"
 
+[[tools.luau]]
+version = "0.730"
+backend = "aqua:luau-lang/luau"
+specifiers = ["latest"]
+
+[tools.luau."platforms.linux-arm64"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.linux-arm64-musl"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.linux-x64"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.linux-x64-baseline"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.linux-x64-musl"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:de51b1bee2e9d0d0e0d90c75ba3c7817e176cc802bbaacb73694ccc9f62fa8e9"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-ubuntu.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757430"
+
+[tools.luau."platforms.macos-arm64"]
+checksum = "sha256:36a90a8e6c80468ff00edd7057159325d1f7adc8708bebf69d782a7882e52d4e"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-macos.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480757379"
+
+[tools.luau."platforms.windows-x64"]
+checksum = "sha256:692cee7366e474af312f50962b6ca055c36779aebdec8a1b0bef15f1ccf6d418"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-windows.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480758597"
+
+[tools.luau."platforms.windows-x64-baseline"]
+checksum = "sha256:692cee7366e474af312f50962b6ca055c36779aebdec8a1b0bef15f1ccf6d418"
+url = "https://github.com/luau-lang/luau/releases/download/0.730/luau-windows.zip"
+url_api = "https://api.github.com/repos/luau-lang/luau/releases/assets/480758597"
+
 [[tools.ni]]
 version = "30.6.0"
 aube = { path = ".mise/locks/ni/30.6.0", digest = "sha256:20b74bf748f72a8a087775b6d97b0777259798f7a8ea040bf332ff172bfb6d3e" }

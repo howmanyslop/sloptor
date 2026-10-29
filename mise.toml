@@ -35,6 +35,7 @@ shellcheck = "latest"
 shfmt = "latest"
 typos = "latest"
 vale = "latest"
+luau = "latest"
 
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
