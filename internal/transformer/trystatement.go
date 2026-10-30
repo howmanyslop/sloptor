@@ -117,22 +117,23 @@ func createFlowControlCondition(s *State, node *ast.Node, exitTypeID *luau.Tempo
 }
 
 // flowControlCase ports the FlowControlCase shape: a nil condition means an
-// unconditional tail (collapse substitutes the bare exitTypeId truthy test).
+// unconditional tail (guarded by exitTypeId when normal completion is possible).
 type flowControlCase struct {
 	condition  luau.Expression
 	statements *luau.List[luau.Statement]
 }
 
-// collapseFlowControlCases ports collapseFlowControlCases (L89-107): builds an
-// elseif chain from the cases, with one twist — the LAST case's condition is
-// REPLACED by the bare `exitTypeId` truthiness test (never emit
-// `elseif _exitType == TS.TRY_CONTINUE then` as the final branch).
-func collapseFlowControlCases(exitTypeID *luau.TemporaryIdentifier, cases []flowControlCase) *luau.List[luau.Statement] {
+// collapseFlowControlCases builds an elseif chain. The last case checks only
+// exitTypeId unless normal completion has been ruled out, when it is unconditional.
+func collapseFlowControlCases(exitTypeID *luau.TemporaryIdentifier, cases []flowControlCase, alwaysExits bool) *luau.List[luau.Statement] {
 	if len(cases) == 0 {
 		panic("transformer: collapseFlowControlCases: no cases") // upstream assert
 	}
 
-	next := luau.NewIf(exitTypeID, cases[len(cases)-1].statements, luau.NewList[luau.Statement]())
+	var next luau.NodeOrList = cases[len(cases)-1].statements
+	if !alwaysExits {
+		next = luau.NewIf(exitTypeID, cases[len(cases)-1].statements, luau.NewList[luau.Statement]())
+	}
 
 	for i := len(cases) - 2; i >= 0; i-- {
 		condition := cases[i].condition
@@ -142,7 +143,58 @@ func collapseFlowControlCases(exitTypeID *luau.TemporaryIdentifier, cases []flow
 		next = luau.NewIf(condition, cases[i].statements, next)
 	}
 
-	return luau.NewList[luau.Statement](next)
+	if statements, ok := next.(*luau.List[luau.Statement]); ok {
+		return statements
+	}
+	return luau.NewList[luau.Statement](next.(*luau.IfStatement))
+}
+
+// statementAlwaysExits is deliberately syntactic: a call typed never can still
+// return at runtime. Loops and switches are not exits from their containing block.
+func statementAlwaysExits(node *ast.Node) bool {
+	if node == nil {
+		return false
+	}
+	switch node.Kind {
+	case ast.KindReturnStatement, ast.KindThrowStatement, ast.KindBreakStatement, ast.KindContinueStatement:
+		return true
+	case ast.KindIfStatement:
+		statement := node.AsIfStatement()
+		return statementAlwaysExits(statement.ThenStatement) && statementAlwaysExits(statement.ElseStatement)
+	case ast.KindBlock:
+		for _, statement := range node.AsBlock().Statements.Nodes {
+			if statementAlwaysExits(statement) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func tryAlwaysExits(node *ast.Node) bool {
+	statement := node.AsTryStatement()
+	if !statementAlwaysExits(statement.TryBlock) ||
+		(statement.CatchClause != nil && !statementAlwaysExits(statement.CatchClause.AsCatchClause().Block)) {
+		return false
+	}
+	// Keep the guarded output when more statements follow. In particular, a
+	// bare Luau return must be the last statement, including in generated blocks.
+	if node.Parent == nil {
+		return false
+	}
+	if ast.IsIfStatement(node.Parent) || ast.IsIterationStatement(node.Parent, false) {
+		return true
+	}
+	var statements []*ast.Node
+	switch node.Parent.Kind {
+	case ast.KindBlock:
+		statements = node.Parent.AsBlock().Statements.Nodes
+	case ast.KindCaseClause, ast.KindDefaultClause:
+		statements = node.Parent.AsCaseOrDefaultClause().Statements.Nodes
+	default:
+		return false
+	}
+	return len(statements) > 0 && statements[len(statements)-1] == node
 }
 
 // transformFlowControl ports transformFlowControl (L109-186): the post-try
@@ -157,6 +209,7 @@ func collapseFlowControlCases(exitTypeID *luau.TemporaryIdentifier, cases []flow
 // `!returnBlocked && breakBlocked` combination is unreachable.
 func transformFlowControl(s *State, node *ast.Node, exitTypeID, returnsID *luau.TemporaryIdentifier, tryUses *TryUses) *luau.List[luau.Statement] {
 	var flowControlCases []flowControlCase
+	alwaysExits := tryAlwaysExits(node)
 
 	if !tryUses.UsesReturn && !tryUses.UsesBreak && !tryUses.UsesContinue {
 		return luau.NewList[luau.Statement]()
@@ -184,7 +237,7 @@ func transformFlowControl(s *State, node *ast.Node, exitTypeID, returnsID *luau.
 				),
 			})
 			if breakBlocked {
-				return collapseFlowControlCases(exitTypeID, flowControlCases)
+				return collapseFlowControlCases(exitTypeID, flowControlCases, alwaysExits)
 			}
 		} else {
 			flowControlCases = append(flowControlCases, flowControlCase{
@@ -217,7 +270,7 @@ func transformFlowControl(s *State, node *ast.Node, exitTypeID, returnsID *luau.
 		}
 	}
 
-	return collapseFlowControlCases(exitTypeID, flowControlCases)
+	return collapseFlowControlCases(exitTypeID, flowControlCases, alwaysExits)
 }
 
 // transformTryStatement ports transformTryStatement (L188-200). ORDERING IS
