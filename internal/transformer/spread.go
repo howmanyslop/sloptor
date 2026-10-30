@@ -36,7 +36,7 @@ func transformSpreadAssignment(s *State, ptr *MapPointer, property *ast.Node) {
 	}
 
 	t := s.GetType(expression) // NOT the non-optional type!
-	definitelyObject := IsDefinitelyType(s, t, IsObjectType)
+	definitelyObject := IsDefinitelyType(s, t, IsObjectType, IsNonPrimitiveType)
 
 	if m, ok := ptr.Value.(*luau.Map); definitelyObject && ok && m.Fields.IsEmpty() {
 		ptr.Value = s.PushToVar(

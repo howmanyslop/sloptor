@@ -249,6 +249,12 @@ var IsObjectType = TypeCheck{check: func(t *checker.Type) bool {
 	return t.Flags()&checker.TypeFlagsObject != 0
 }}
 
+// IsNonPrimitiveType recognizes the object keyword, separately from structural
+// object types so spread checks do not change destructuring accessor selection.
+var IsNonPrimitiveType = TypeCheck{check: func(t *checker.Type) bool {
+	return t.Flags()&checker.TypeFlagsNonPrimitive != 0
+}}
+
 func isUndefinedTypeCheck(t *checker.Type) bool {
 	return t.Flags()&(checker.TypeFlagsUndefined|checker.TypeFlagsVoid) != 0
 }
