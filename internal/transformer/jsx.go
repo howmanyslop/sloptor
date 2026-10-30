@@ -193,7 +193,7 @@ func transformJsxTagName(s *State, tagName *ast.Node) luau.Expression {
 // truthiness `if` (and with the expression pinned to an `attribute` temp) when
 // the spread operand is not definitely an object.
 func createJsxAttributeLoop(s *State, attributesPtrValue luau.AnyIdentifier, expression luau.Expression, tsExpression *ast.Node) luau.Statement {
-	definitelyObject := IsDefinitelyType(s, s.GetType(tsExpression), IsObjectType)
+	definitelyObject := IsDefinitelyType(s, s.GetType(tsExpression), IsObjectType, IsNonPrimitiveType)
 	if !definitelyObject {
 		expression = s.PushToVarIfComplex(expression, "attribute")
 	}
@@ -276,7 +276,7 @@ func transformJsxAttributes(s *State, attributes *ast.Node, attributesPtr *MapPo
 
 			expression := TransformExpression(s, tsExpression)
 
-			if attribute == properties[0] && IsDefinitelyType(s, expType, IsObjectType) {
+			if attribute == properties[0] && IsDefinitelyType(s, expType, IsObjectType, IsNonPrimitiveType) {
 				// first property overall AND definitely an object: clone
 				// fast path (digest §7.5).
 				attributesPtr.Value = s.PushToVar(
