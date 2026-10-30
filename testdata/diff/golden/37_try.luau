@@ -58,7 +58,7 @@ local function f7()
 		end)
 		if _exitType == TS.TRY_RETURN then
 			return unpack(_returns)
-		elseif _exitType then
+		else
 			break
 		end
 	end
@@ -176,9 +176,7 @@ local tryInAsync = TS.async(function()
 	end, function(e)
 		return TS.TRY_RETURN, { 2 }
 	end)
-	if _exitType then
-		return unpack(_returns)
-	end
+	return unpack(_returns)
 end)
 local function loopInTry()
 	TS.try(function()

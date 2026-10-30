@@ -51,9 +51,7 @@ return function()
 			end, function()
 				return TS.TRY_RETURN, { "foo" }
 			end)
-			if _exitType then
-				return unpack(_returns)
-			end
+			return unpack(_returns)
 		end
 		expect(foo()).to.equal("foo")
 	end)
@@ -64,9 +62,7 @@ return function()
 			end, nil, function()
 				return TS.TRY_RETURN, { 2 }
 			end)
-			if _exitType then
-				return unpack(_returns)
-			end
+			return unpack(_returns)
 		end
 		expect(foo()).to.equal(2)
 	end)
