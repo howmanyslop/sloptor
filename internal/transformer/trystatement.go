@@ -182,7 +182,7 @@ func tryAlwaysExits(node *ast.Node) bool {
 	if node.Parent == nil {
 		return false
 	}
-	if ast.IsIfStatement(node.Parent) || ast.IsIterationStatement(node.Parent, false) {
+	if ast.IsIfStatement(node.Parent) || ast.IsIterationStatement(node.Parent, false) || ast.IsLabeledStatement(node.Parent) {
 		return true
 	}
 	var statements []*ast.Node

@@ -131,6 +131,11 @@ func TestTryExitDispatch(t *testing.T) {
 			want:   "\t\tcontinue\n\tend\n",
 		},
 		{
+			name:   "direct labeled try",
+			source: `function f() { done: try { return 1; } catch { return 0; } }`,
+			want:   "\t\treturn unpack(_returns)\n\tuntil true\n",
+		},
+		{
 			name: "switch clause tail",
 			source: `function f(value: number) {
 				switch (value) { case 1: try { return 1; } catch { return 0; } }
