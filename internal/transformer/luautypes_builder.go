@@ -10,13 +10,12 @@ import (
 	"rotor/tsgo/checker"
 )
 
-// The TS-to-Luau mapping. Every rule here is a full-fidelity version of the
-// corresponding rule in nativetypes_type.go: the same checker calls decide the
-// shape, but nothing is widened for the sake of a bytecode tag, `unknown` and
-// `never` stay themselves, `readonly` becomes `read`, overloads stay
-// intersections, and so on. What Luau cannot say (number singletons, tuples,
-// template literals, symbols, `keyof T` on a resolved type...) becomes the
-// closest spelling plus a fidelityLoss.
+// The TS-to-Luau mapping, at full fidelity: nothing is widened for the sake
+// of a bytecode tag, `unknown` and `never` stay themselves, `readonly` becomes
+// `read`, overloads stay intersections, and so on. What Luau cannot say
+// (number singletons, tuples, template literals, symbols, `keyof T` on a
+// resolved type...) becomes the closest spelling plus a fidelityLoss. The
+// `//!native` annotations widen this tree afterwards (nativetypes_policy.go).
 
 // luauTypeMaxDepth is the hard guard on nested Build calls. Named types
 // recurse through their alias and anonymous object cycles are caught by the
@@ -262,10 +261,12 @@ func (b *typeBuilder) BuildTypeParameter(t *checker.Type, ctx typeContext) built
 	if !ok {
 		return b.finish(b.lose(lossUnspellable, t, anyType(), ctx, "the type parameter is not declarable at this site"), false)
 	}
-	outerGeneric := ctx.Position == positionParameter && !own
-	if node := b.spelling.SpellTypeParameter(b, t, name); node != nil {
-		return b.finish(node, outerGeneric)
+	if node := b.spelling.SpellTypeParameter(b, t, name, ctx); node != nil {
+		// The spelling stands in for the parameter (its constraint, say), so
+		// the annotation no longer names the generic.
+		return b.finish(node, false)
 	}
+	outerGeneric := ctx.Position == positionParameter && !own
 	reference := luau.TypeName(name)
 	b.Origins[reference] = t.Symbol()
 	return b.finish(reference, outerGeneric)
@@ -527,7 +528,7 @@ func (b *typeBuilder) aliasFor(symbol *ast.Symbol) *typeAliasEntry {
 	entry.Kind = built.Kind
 	entry.Callable = built.Kind == nativeKindFunction
 	entry.Statement = luau.NewTypeAlias(name, entry.Generics, nil)
-	body, keep := b.spelling.FinishAliasBody(b.state, entry, built.Node)
+	body, keep := b.spelling.FinishAliasBody(b, entry, built.Node)
 	if !keep {
 		b.aliases[symbol] = nil
 		b.aliasOrder = slices.DeleteFunc(b.aliasOrder, func(existing *typeAliasEntry) bool { return existing == entry })
@@ -1286,4 +1287,66 @@ func (b *typeBuilder) clone(node luau.TypeNode) luau.TypeNode {
 		b.Origins[clone] = symbol
 	}
 	return clone
+}
+
+// ---------------------------------------------------------------------------
+// Checker predicates
+// ---------------------------------------------------------------------------
+
+// isNativeBooleanLiteralType reports `true` or `false`; an enum member carries
+// the literal flags too but is spelled by its enum.
+func isNativeBooleanLiteralType(checkerType *checker.Type) bool {
+	return checkerType.Flags()&checker.TypeFlagsBooleanLiteral != 0 &&
+		checkerType.Flags()&checker.TypeFlagsEnumLiteral == 0
+}
+
+// getNativeBooleanLiteralValue is the value of a boolean literal type.
+func getNativeBooleanLiteralValue(checkerType *checker.Type) bool {
+	value, _ := checkerType.AsLiteralType().Value().(bool)
+	return value
+}
+
+// hasNativeBooleanLiteralPair reports whether the union contains both `true` and
+// `false`, i.e. spells the whole `boolean`.
+func hasNativeBooleanLiteralPair(checkerType *checker.Type) bool {
+	hasTrue, hasFalse := false, false
+	for _, unionMember := range checkerType.Types() {
+		if !isNativeBooleanLiteralType(unionMember) {
+			continue
+		}
+		if getNativeBooleanLiteralValue(unionMember) {
+			hasTrue = true
+		} else {
+			hasFalse = true
+		}
+	}
+	return hasTrue && hasFalse
+}
+
+// isNativeLuaTupleReturn reports whether a return type is a LuaTuple, or a union
+// with one as a member (`LuaTuple<[A, B]> | undefined`).
+func isNativeLuaTupleReturn(state *State, checkerType *checker.Type) bool {
+	if IsLuaTupleType(state).Check(checkerType) {
+		return true
+	}
+	return checkerType.IsUnion() && slices.ContainsFunc(checkerType.Types(), IsLuaTupleType(state).Check)
+}
+
+// getNativeLuaTupleTuple is the tuple a LuaTuple<T> carries, or nil when T is
+// not one fixed tuple.
+func getNativeLuaTupleTuple(state *State, checkerType *checker.Type) *checker.Type {
+	if alias := checkerType.Alias(); alias != nil {
+		arguments := alias.TypeArguments()
+		if len(arguments) == 1 && arguments[0].IsTupleType() {
+			return arguments[0]
+		}
+	}
+	if checkerType.IsUnion() || checkerType.IsIntersection() {
+		for _, member := range checkerType.Types() {
+			if member.IsTupleType() {
+				return member
+			}
+		}
+	}
+	return nil
 }

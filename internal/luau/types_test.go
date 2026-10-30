@@ -178,7 +178,6 @@ func TestTypeKinds(t *testing.T) {
 		NewTypePack(NewList[TypeNode]()):                                  KindTypePack,
 		NewTypeVariadic(TypeName("x")):                                    KindTypeVariadic,
 		NewTypeGenericPack("T"):                                           KindTypeGenericPack,
-		NewTypeRaw("x"):                                                   KindTypeRaw,
 		NewTypeTableProp(TypeAccessNone, "a", TypeName("x")):              KindTypeTableProp,
 		NewTypeTableIndexer(TypeAccessNone, TypeName("k"), TypeName("v")): KindTypeTableIndexer,
 		NewCast(ID("x"), TypeName("T")):                                   KindCastExpression,

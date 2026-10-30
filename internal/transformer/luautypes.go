@@ -151,15 +151,16 @@ type builtType struct {
 }
 
 // typeSpelling carries the decisions a post-pass over the built tree cannot
-// reverse. luauTypes uses defaultSpelling (full fidelity); nativeTypes plugs in
-// its own spelling (WP3). The three Spell hooks return nil to take the
-// default; the alias hooks decide which named types get a `type` statement,
-// what it is called, and whether its body is kept (false unregisters the alias
-// and the reference is spelled inline).
+// reverse. luauTypes uses defaultSpelling (full fidelity); the `//!native`
+// annotations use nativeSpelling (nativetypes_spelling.go) and then run
+// applyNativePolicy over the result. The three Spell hooks return nil to take
+// the default; the alias hooks decide which named types get a `type`
+// statement, what it is called, and whether its body is kept (false
+// unregisters the alias and the reference is spelled inline).
 type typeSpelling interface {
-	// SpellTypeParameter spells an in-scope type parameter; nil keeps the
-	// bare `T` reference.
-	SpellTypeParameter(b *typeBuilder, t *checker.Type, name string) luau.TypeNode
+	// SpellTypeParameter spells an in-scope type parameter at the site ctx
+	// describes; nil keeps the bare `T` reference.
+	SpellTypeParameter(b *typeBuilder, t *checker.Type, name string, ctx typeContext) luau.TypeNode
 	// SpellEnumMember spells one enum member literal; nil keeps the singleton
 	// (`number` for a numeric member).
 	SpellEnumMember(b *typeBuilder, t *checker.Type) luau.TypeNode
@@ -168,7 +169,9 @@ type typeSpelling interface {
 	SpellClassValue(b *typeBuilder, t *checker.Type) luau.TypeNode
 	ShouldAlias(state *State, symbol *ast.Symbol, declaration *ast.Node) bool
 	AliasName(state *State, symbol *ast.Symbol) string
-	FinishAliasBody(state *State, entry *typeAliasEntry, body luau.TypeNode) (luau.TypeNode, bool)
+	// FinishAliasBody is called by the builder that registered entry, with
+	// the body it built.
+	FinishAliasBody(b *typeBuilder, entry *typeAliasEntry, body luau.TypeNode) (luau.TypeNode, bool)
 }
 
 // defaultSpelling is full fidelity: every named interface, type alias and
@@ -176,7 +179,7 @@ type typeSpelling interface {
 // mirrors, see luautypes_alias.go), and nothing is widened.
 type defaultSpelling struct{}
 
-func (defaultSpelling) SpellTypeParameter(*typeBuilder, *checker.Type, string) luau.TypeNode {
+func (defaultSpelling) SpellTypeParameter(*typeBuilder, *checker.Type, string, typeContext) luau.TypeNode {
 	return nil
 }
 
@@ -214,7 +217,7 @@ func (defaultSpelling) AliasName(state *State, symbol *ast.Symbol) string {
 	return luauAliasBaseName(state, symbol)
 }
 
-func (defaultSpelling) FinishAliasBody(_ *State, _ *typeAliasEntry, body luau.TypeNode) (luau.TypeNode, bool) {
+func (defaultSpelling) FinishAliasBody(_ *typeBuilder, _ *typeAliasEntry, body luau.TypeNode) (luau.TypeNode, bool) {
 	return body, true
 }
 
@@ -317,10 +320,15 @@ func newTypeBuilder(state *State, spelling typeSpelling) *typeBuilder {
 	}
 }
 
-// spellingFor picks the spelling for a file: luauTypes and plain files use
-// full fidelity. A `//!native` file without luauTypes keeps the native
-// string emitter until WP3 lands nativeSpelling here.
-func spellingFor(_ *State) typeSpelling {
+// spellingFor picks the spelling of the file's shared builder. A `//!native`
+// file annotated by nativeTypes alone spells for Luau's native code
+// generator; with luauTypes on as well the shared builder and its registry
+// belong to luauTypes (State.LuauTypes documents the split) and the native
+// annotations take a builder of their own (State.nativeTypes).
+func spellingFor(state *State) typeSpelling {
+	if state.IsNative && !state.IsLuauTyped {
+		return nativeSpelling{}
+	}
 	return defaultSpelling{}
 }
 
@@ -330,6 +338,21 @@ func (state *State) types() *typeBuilder {
 		state.luauTypeBuilder = newTypeBuilder(state, spellingFor(state))
 	}
 	return state.luauTypeBuilder
+}
+
+// nativeTypes is the builder the `//!native` annotations use: the shared
+// builder, which spellingFor made native, unless luauTypes owns it (both
+// options on in a `//!native` file). A second, native-spelled builder then
+// serves the parameter and return annotations alone, so they come out as
+// they do under nativeTypes by itself, while luauTypes places the aliases.
+func (state *State) nativeTypes() *typeBuilder {
+	if !state.IsLuauTyped {
+		return state.types()
+	}
+	if state.nativeTypeBuilder == nil {
+		state.nativeTypeBuilder = newTypeBuilder(state, nativeSpelling{})
+	}
+	return state.nativeTypeBuilder
 }
 
 // LuauTypeLosses lists every fidelity loss recorded while this file's types

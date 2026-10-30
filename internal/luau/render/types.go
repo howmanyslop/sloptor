@@ -25,7 +25,7 @@ const (
 )
 
 // typeNeedsParens is the parenthesization table. Atoms (references,
-// singletons, tables, arrays, typeof, packs, raw text) never take parentheses.
+// singletons, tables, arrays, typeof, packs) never take parentheses.
 //
 //	child \ slot          Top  Union  Intersection  Optional  FunctionReturn  Variadic
 //	Union / Intersection  no   yes    yes           yes       yes             yes
@@ -347,10 +347,6 @@ func renderTypeVariadic(s *RenderState, node *luau.TypeVariadic) {
 func renderTypeGenericPack(s *RenderState, node *luau.TypeGenericPack) {
 	s.write(typeName("generic pack name", node.Name))
 	s.write("...")
-}
-
-func renderTypeRaw(s *RenderState, node *luau.TypeRaw) {
-	s.write(node.Text)
 }
 
 // typeGenerics writes `<K, V = number, U... = ...string>`, or nothing for an

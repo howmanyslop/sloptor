@@ -89,8 +89,6 @@ func TestRenderTypeAtoms(t *testing.T) {
 		{"trailing generic pack", luau.NewTypeReference("List", typeNodes(tn("number"), luau.NewTypeGenericPack("Rest"))), "List<number, Rest...>"},
 		{"union argument", luau.NewTypeReference("Foo", typeNodes(union(tn("A"), tn("B")))), "Foo<A | B>"},
 		{"function argument", luau.NewTypeReference("Foo", typeNodes(fnType([]luau.TypeFunctionParameter{param("", tn("A"))}, nil, tn("B")))), "Foo<(A) -> B>"},
-		{"raw", luau.NewTypeRaw("{ [any]: any }"), "{ [any]: any }"},
-		{"raw in optional is never parenthesized", luau.NewTypeOptional(luau.NewTypeRaw("A | B")), "A | B?"},
 	})
 }
 

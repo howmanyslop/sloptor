@@ -140,14 +140,6 @@ type TypeGenericPack struct {
 	Name string
 }
 
-// TypeRaw renders Text verbatim and is never parenthesized. It bridges the
-// native annotation builder, which still produces strings, and goes away with
-// that builder.
-type TypeRaw struct {
-	base
-	Text string
-}
-
 // ---- cast expression ----
 
 // CastExpression is `expression :: Type` (Luau `asexp`). It is not indexable:
@@ -195,7 +187,6 @@ func (*TypeTypeof) Kind() SyntaxKind              { return KindTypeTypeof }
 func (*TypePack) Kind() SyntaxKind                { return KindTypePack }
 func (*TypeVariadic) Kind() SyntaxKind            { return KindTypeVariadic }
 func (*TypeGenericPack) Kind() SyntaxKind         { return KindTypeGenericPack }
-func (*TypeRaw) Kind() SyntaxKind                 { return KindTypeRaw }
 func (*TypeTableProp) Kind() SyntaxKind           { return KindTypeTableProp }
 func (*TypeTableIndexer) Kind() SyntaxKind        { return KindTypeTableIndexer }
 func (*CastExpression) Kind() SyntaxKind          { return KindCastExpression }
@@ -217,7 +208,6 @@ func (n *TypeTypeof) shallowClone() Node              { c := *n; return &c }
 func (n *TypePack) shallowClone() Node                { c := *n; return &c }
 func (n *TypeVariadic) shallowClone() Node            { c := *n; return &c }
 func (n *TypeGenericPack) shallowClone() Node         { c := *n; return &c }
-func (n *TypeRaw) shallowClone() Node                 { c := *n; return &c }
 func (n *TypeTableProp) shallowClone() Node           { c := *n; return &c }
 func (n *TypeTableIndexer) shallowClone() Node        { c := *n; return &c }
 func (n *CastExpression) shallowClone() Node          { c := *n; return &c }
@@ -239,7 +229,6 @@ func (*TypeTypeof) typeNode()           {}
 func (*TypePack) typeNode()             {}
 func (*TypeVariadic) typeNode()         {}
 func (*TypeGenericPack) typeNode()      {}
-func (*TypeRaw) typeNode()              {}
 
 func (*TypeTableProp) typeTableFieldNode()    {}
 func (*TypeTableIndexer) typeTableFieldNode() {}
@@ -394,8 +383,6 @@ func NewTypeVariadic(inner TypeNode) *TypeVariadic {
 }
 
 func NewTypeGenericPack(name string) *TypeGenericPack { return &TypeGenericPack{Name: name} }
-
-func NewTypeRaw(text string) *TypeRaw { return &TypeRaw{Text: text} }
 
 // NewCast builds `expression :: t`.
 func NewCast(expression Expression, t TypeNode) *CastExpression {

@@ -210,11 +210,11 @@ func TestRenderTypeAlias(t *testing.T) {
 		want string
 	}{
 		{
-			stmts(luau.NewTypeAlias("Node", []luau.TypeGeneric{{Name: "K"}, {Name: "V"}}, luau.NewTypeRaw("{ key: K, value: V }"))),
+			stmts(luau.NewTypeAlias("Node", []luau.TypeGeneric{{Name: "K"}, {Name: "V"}}, luau.NewTypeTable(luau.NewList[luau.TypeTableField](luau.NewTypeTableProp(luau.TypeAccessNone, "key", luau.TypeName("K")), luau.NewTypeTableProp(luau.TypeAccessNone, "value", luau.TypeName("V")))))),
 			"type Node<K, V> = { key: K, value: V }\n",
 		},
 		{
-			stmts(luau.NewTypeAlias("Both", nil, luau.NewTypeRaw("{ [any]: number }"))),
+			stmts(luau.NewTypeAlias("Both", nil, luau.NewTypeTable(luau.NewList[luau.TypeTableField](luau.NewTypeTableIndexer(luau.TypeAccessNone, luau.TypeName("any"), luau.TypeName("number")))))),
 			"type Both = { [any]: number }\n",
 		},
 	}

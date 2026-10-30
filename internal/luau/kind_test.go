@@ -21,7 +21,7 @@ func TestKindOrdering(t *testing.T) {
 	if FirstField != KindMapField || LastField != KindInterpolatedStringPart {
 		t.Error("field range wrong")
 	}
-	if FirstType != KindTypeReference || LastType != KindTypeRaw {
+	if FirstType != KindTypeReference || LastType != KindTypeGenericPack {
 		t.Error("type range wrong")
 	}
 	if FirstTypeField != KindTypeTableProp || LastTypeField != KindTypeTableIndexer {
@@ -46,7 +46,6 @@ func TestKindName(t *testing.T) {
 		KindInterpolatedString:      "InterpolatedString",
 		KindNumericForStatement:     "NumericForStatement",
 		KindTypeReference:           "TypeReference",
-		KindTypeRaw:                 "TypeRaw",
 		KindTypeTableIndexer:        "TypeTableIndexer",
 	}
 	for k, want := range cases {

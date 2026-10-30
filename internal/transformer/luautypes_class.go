@@ -49,12 +49,14 @@ import (
 // buildClassInstance spells a class instance: at the top of the class's own
 // alias body it is the structural member table; everywhere else a reference
 // to the alias, registered on first use so no reference dangles. A class the
-// spelling declined is spelled structurally with `self: any`.
+// spelling declined (nativeSpelling: an instance carries a metatable, which no
+// table type describes) is `any` with a loss; spelling it structurally would
+// re-expand the class at every self-reference instead.
 func (b *typeBuilder) buildClassInstance(t *checker.Type, ctx typeContext) builtType {
 	symbol := t.Symbol()
 	entry := b.aliasFor(symbol)
 	if entry == nil {
-		return b.finish(b.buildClassInstanceTable(t, ctx), false)
+		return b.finish(b.lose(lossUnspellable, t, anyType(), ctx, "the class has no instance alias"), false)
 	}
 	if entry.building && ctx.Position == positionAliasBody {
 		table := b.buildClassInstanceTable(t, ctx)

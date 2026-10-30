@@ -333,7 +333,7 @@ func signatureGenerics(state *State, node *ast.Node) []luau.TypeGeneric {
 	if state.luauTypedSignatures() {
 		return getLuauFunctionGenerics(state, node)
 	}
-	return nativeGenericList(getNativeFunctionGenerics(state, node))
+	return getNativeFunctionGenerics(state, node)
 }
 
 func signatureReturnType(state *State, node *ast.Node) luau.TypeNode {

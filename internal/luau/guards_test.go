@@ -43,7 +43,7 @@ func TestCompositeGuards(t *testing.T) {
 }
 
 func TestTypeGuards(t *testing.T) {
-	if !IsTypeNode(TypeName("x")) || !IsTypeNode(NewTypeRaw("x")) || IsTypeNode(ID("x")) || IsTypeNode(NewTypeTableProp(TypeAccessNone, "a", TypeName("x"))) {
+	if !IsTypeNode(TypeName("x")) || IsTypeNode(ID("x")) || IsTypeNode(NewTypeTableProp(TypeAccessNone, "a", TypeName("x"))) {
 		t.Error("IsTypeNode")
 	}
 	if !IsTypePack(NewTypePack(NewList[TypeNode]())) || !IsTypePack(NewTypeVariadic(TypeName("x"))) || !IsTypePack(NewTypeGenericPack("T")) {

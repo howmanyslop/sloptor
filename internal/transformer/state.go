@@ -179,8 +179,9 @@ type State struct {
 	// types. It defaults off because the emitted code intentionally differs
 	// from rbxtsc, and the output may change between releases. When both
 	// LuauTypes and NativeTypes are on in a `//!native` file, the native
-	// policy owns parameter and return annotations and LuauTypes owns locals,
-	// class fields and type aliases.
+	// policy owns the signatures (parameters, returns, generics and the
+	// colon-form class methods that come with them) and LuauTypes owns the
+	// locals, enums and type aliases.
 	LuauTypes bool
 
 	// IsNative is set when the file carries a `//!native` directive AND
@@ -199,15 +200,11 @@ type State struct {
 	// luauTypes builder consult it.
 	typeScopes []typeGenericScope
 	// luauTypeBuilder is the file's TS-to-Luau type builder, created on first
-	// use by State.types (see luautypes.go).
-	luauTypeBuilder *typeBuilder
-	// nativeAliases holds the emitted `type` statements in registration order;
-	// prependHeader places them after the header.
-	nativeAliases []*luau.TypeAlias
-	// nativeAliasBySymbol and nativeAliasByName dedupe aliases (a symbol keeps
-	// one alias however many times it is referenced) and detect name clashes.
-	nativeAliasBySymbol map[*ast.Symbol]*nativeAliasEntry
-	nativeAliasByName   map[string]*nativeAliasEntry
+	// use by State.types (see luautypes.go). Its alias registry serves the
+	// `//!native` annotations too, unless luauTypes is on as well: the native
+	// annotations then build through nativeTypeBuilder (State.nativeTypes).
+	luauTypeBuilder   *typeBuilder
+	nativeTypeBuilder *typeBuilder
 
 	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
 	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
@@ -312,9 +309,6 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 
 		ClassIdentifierMap:         make(map[*ast.Node]luau.AnyIdentifier),
 		classElementToObjectKeyMap: make(map[*ast.Node]luau.Expression),
-
-		nativeAliasBySymbol: make(map[*ast.Symbol]*nativeAliasEntry),
-		nativeAliasByName:   make(map[string]*nativeAliasEntry),
 	}
 	if sourceFile != nil {
 		s.SourceFileText = sourceFile.Text()

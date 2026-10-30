@@ -23,27 +23,18 @@ import (
 // the native entry guard fail on every call. That rule (R1) is why a parameter
 // annotation is dropped when it would contain a bare outer generic.
 //
-// The mirroring rules live in nativetypes_type.go, the named-type aliases in
+// The annotations are built in two steps: the shared TS-to-Luau builder
+// (luautypes_builder.go) spells the type at full fidelity, consulting
+// nativeSpelling (nativetypes_spelling.go) for the few decisions a post-pass
+// cannot reverse, and applyNativePolicy (nativetypes_policy.go) then widens or
+// drops what would hurt native codegen. The alias predicates live in
 // nativetypes_alias.go.
 const (
-	nativeTypeNumber   = "number"
-	nativeTypeString   = "string"
-	nativeTypeBoolean  = "boolean"
-	nativeTypeAny      = "any"
-	nativeTypeAnyTable = "{ [any]: any }"
-	nativeTypeNil      = "nil"
-	nativeTypeUnit     = "()"
-
-	// nativeTypeAnyPack is an unknown return pack: the parameters stay exact,
-	// only the values a call yields are lost.
-	nativeTypeAnyPack = "...any"
-
-	// nativeTypeAnyFunction is the fallback for a callable shape Luau cannot
-	// spell, or for an overload set in a tagged position, where an
-	// intersection buys no tag (`(...any) -> ...any` keeps the function
-	// entry guard and accepts every callable instead of being stricter than
-	// TS).
-	nativeTypeAnyFunction = "(...any) -> ...any"
+	nativeTypeNumber  = "number"
+	nativeTypeString  = "string"
+	nativeTypeBoolean = "boolean"
+	nativeTypeAny     = "any"
+	nativeTypeNil     = "nil"
 
 	// nativeTypeMaxDepth bounds how far nested table shapes are followed.
 	nativeTypeMaxDepth = 4
@@ -65,7 +56,19 @@ const (
 	nativePositionParameter
 )
 
-// nativeTypeKind classifies a rendered type so union handling can decide
+// nativePositionOf maps the builder's position onto the three the native
+// policy distinguishes.
+func nativePositionOf(position typePosition) nativePosition {
+	switch position {
+	case positionParameter:
+		return nativePositionParameter
+	case positionReturn:
+		return nativePositionReturn
+	}
+	return nativePositionNested
+}
+
+// nativeTypeKind classifies a spelled type so union handling can decide
 // whether a top-level parameter annotation is worth emitting.
 type nativeTypeKind uint8
 
@@ -102,24 +105,26 @@ func hasNativeDirective(state *State) bool {
 }
 
 // getNativeParameterType is the annotation for one plain-identifier parameter, or
-// nil when the parameter must stay unannotated.
+// nil when the parameter must stay unannotated: the built type under the
+// parameter policy, optional when the parameter has `?` or an initializer.
 func getNativeParameterType(state *State, parameterNode *ast.Node) luau.TypeNode {
 	parameter := parameterNode.AsParameterDeclaration()
-	text, _, outerGeneric := getNativeType(state, state.Checker.GetTypeAtLocation(parameter.Name()), nativePositionParameter, 0, nil)
-	if text == "" || outerGeneric {
-		// R1: an outer generic (or any other unusable bare name) would tag
-		// the argument as userdata.
+	b := state.nativeTypes()
+	built := b.Build(state.Checker.GetTypeAtLocation(parameter.Name()), typeContext{Position: positionParameter, Owner: parameterNode})
+	node, _, _ := applyNativePolicy(built.Node, b, nativePositionParameter, 0)
+	if node == nil {
 		return nil
 	}
 	if parameter.QuestionToken != nil || parameter.Initializer != nil {
-		text = getNativeOptionalType(text)
+		node = luau.OptionalType(node)
 	}
-	return luau.NewTypeRaw(text)
+	return node
 }
 
 // getNativeReturnType is the annotation for a function's return, nil outside
 // `--!native` files. Async and generator functions return a wrapper, so they
-// get none.
+// get none; a return the policy cannot mirror stays unannotated rather than
+// claiming `any`, because the analyzer infers a better pack from the body.
 func getNativeReturnType(state *State, node *ast.Node) luau.TypeNode {
 	if !state.IsNative || ast.HasSyntacticModifier(node, ast.ModifierFlagsAsync) || isGeneratorFunction(node) {
 		return nil
@@ -128,13 +133,10 @@ func getNativeReturnType(state *State, node *ast.Node) luau.TypeNode {
 	if signature == nil {
 		return nil
 	}
-	text := getNativeReturnTypeOfSignature(state, state.Checker.GetReturnTypeOfSignature(signature), nativePositionReturn, 0, nil)
-	if text == "" || text == nativeTypeAnyPack {
-		// A return that cannot be mirrored stays unannotated rather than
-		// claiming `any`: the analyzer infers a better pack from the body.
-		return nil
-	}
-	return luau.NewTypeRaw(text)
+	b := state.nativeTypes()
+	pack := b.BuildReturnPack(state.Checker.GetReturnTypeOfSignature(signature), typeContext{Position: positionReturn, Owner: node})
+	annotation, _, _ := applyNativePolicy(pack, b, nativePositionReturn, 0)
+	return annotation
 }
 
 func isGeneratorFunction(node *ast.Node) bool {
@@ -149,59 +151,15 @@ func isGeneratorFunction(node *ast.Node) bool {
 	return false
 }
 
-// getNativeFunctionGenerics returns the generic parameter names a function
+// getNativeFunctionGenerics returns the generic parameters a function
 // declares, ready for `function f<K, V>`. Constraints are dropped: Luau has no
-// `extends` clause on type parameters.
-func getNativeFunctionGenerics(state *State, node *ast.Node) []string {
+// `extends` clause on type parameters. A parameter Luau cannot name is
+// skipped; references to it then widen to `any`.
+func getNativeFunctionGenerics(state *State, node *ast.Node) []luau.TypeGeneric {
 	if !state.IsNative {
 		return nil
 	}
-	return getNativeDeclarationGenerics(node)
-}
-
-// getNativeDeclarationGenerics lists the Luau-spellable type parameter names of a
-// function, interface, or type alias declaration. A parameter Luau cannot
-// spell is skipped; references to it then widen to `any`.
-func getNativeDeclarationGenerics(node *ast.Node) []string {
-	var names []string
-	for _, parameter := range node.TypeParameters() {
-		name := parameter.Name()
-		if name == nil {
-			continue
-		}
-		if text := name.Text(); luau.IsValidIdentifier(text) {
-			names = append(names, text)
-		}
-	}
-	return names
-}
-
-// nativeGenericList lifts generic names into the typed AST's generic list;
-// native generics never carry defaults or packs.
-func nativeGenericList(names []string) []luau.TypeGeneric {
-	if len(names) == 0 {
-		return nil
-	}
-	generics := make([]luau.TypeGeneric, len(names))
-	for index, name := range names {
-		generics[index] = luau.TypeGeneric{Name: name}
-	}
-	return generics
-}
-
-// getNativeSignatureGenerics is the same for one call or construct signature,
-// ready for `<T>(value: T) -> T`. The names go into scope while the signature
-// body is mirrored, so nested references resolve by name.
-func getNativeSignatureGenerics(signature *checker.Signature) []string {
-	var names []string
-	for _, parameter := range signature.TypeParameters() {
-		symbol := parameter.Symbol()
-		if symbol == nil || !luau.IsValidIdentifier(symbol.Name) {
-			continue
-		}
-		names = append(names, symbol.Name)
-	}
-	return names
+	return state.nativeTypes().Generics(node)
 }
 
 // ---------------------------------------------------------------------------
@@ -235,8 +193,9 @@ func (state *State) PopTypeGenerics() {
 // typeGenericInScope reports whether name is a generic visible from the
 // current annotation, and whether it belongs to the innermost function (rule
 // R1: only those may appear bare in a tagged position). R1 stays a query: the
-// luauTypes builder reports the answer through builtType.OuterGeneric and the
-// native policy decides what to do with it.
+// builder reports it through builtType.OuterGeneric, and the native policy
+// asks it again (typeBuilder.ownGeneric) for the bare generics left at the
+// top of a parameter annotation.
 func (state *State) typeGenericInScope(name string) (inScope, own bool) {
 	for index := len(state.typeScopes) - 1; index >= 0; index-- {
 		scope := state.typeScopes[index]

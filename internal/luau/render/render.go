@@ -185,8 +185,6 @@ func renderNode(s *RenderState, node luau.Node) {
 		renderTypeVariadic(s, n)
 	case *luau.TypeGenericPack:
 		renderTypeGenericPack(s, n)
-	case *luau.TypeRaw:
-		renderTypeRaw(s, n)
 	// type table fields
 	case *luau.TypeTableProp:
 		renderTypeTableProp(s, n)

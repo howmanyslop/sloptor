@@ -73,9 +73,6 @@ const (
 	KindTypePack
 	KindTypeVariadic
 	KindTypeGenericPack
-	// KindTypeRaw carries pre-rendered type text while the native annotation
-	// builder still produces strings; it goes away with that builder.
-	KindTypeRaw
 
 	// type table fields
 	KindTypeTableProp
@@ -90,7 +87,7 @@ const (
 	FirstField               = KindMapField
 	LastField                = KindInterpolatedStringPart
 	FirstType                = KindTypeReference
-	LastType                 = KindTypeRaw
+	LastType                 = KindTypeGenericPack
 	FirstTypeField           = KindTypeTableProp
 	LastTypeField            = KindTypeTableIndexer
 )
@@ -152,7 +149,6 @@ var kindNames = [...]string{
 	KindTypePack:                 "TypePack",
 	KindTypeVariadic:             "TypeVariadic",
 	KindTypeGenericPack:          "TypeGenericPack",
-	KindTypeRaw:                  "TypeRaw",
 	KindTypeTableProp:            "TypeTableProp",
 	KindTypeTableIndexer:         "TypeTableIndexer",
 }

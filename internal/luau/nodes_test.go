@@ -50,7 +50,6 @@ func TestCategoryMarkers(t *testing.T) {
 	var _ TypeNode = (*TypePack)(nil)
 	var _ TypeNode = (*TypeVariadic)(nil)
 	var _ TypeNode = (*TypeGenericPack)(nil)
-	var _ TypeNode = (*TypeRaw)(nil)
 
 	var _ TypeTableField = (*TypeTableProp)(nil)
 	var _ TypeTableField = (*TypeTableIndexer)(nil)
@@ -59,7 +58,7 @@ func TestCategoryMarkers(t *testing.T) {
 // Type nodes are neither statements nor expressions: the renderer indents
 // statements, and solveTempIDs reserves identifier names as values.
 func TestTypeNodesAreNotStatementsOrExpressions(t *testing.T) {
-	for _, node := range []Node{TypeName("x"), NewTypeTableProp(TypeAccessNone, "a", TypeName("x")), NewTypeRaw("x")} {
+	for _, node := range []Node{TypeName("x"), NewTypeTableProp(TypeAccessNone, "a", TypeName("x"))} {
 		if IsStatement(node) || IsExpression(node) || IsField(node) {
 			t.Errorf("%T must only be a type node", node)
 		}
