@@ -188,8 +188,8 @@ Pinned by `luautypes_emit_test.go` over `emission.ts` and `locals.ts`.
   end, and `...nil` satisfies both).
 - Async functions: the emitted callback returns the settled type, `TS.async(function(n: number):
   number`, and the local that holds it gets the full type,
-  `local fetched: (n: number) -> Promise<number> = ...`. `local value: number = TS.await(...)`
-  and a destructured `_binding: { number }` follow the locals rule.
+  `local fetched: (n: number) -> Promise<number> = ...`. `local value = TS.await(...)` and a
+  destructured `local _binding = TS.await(...)` follow the locals rule and stay unannotated.
 - Generators keep the mirrored alias: `counter(limit: number): Generator<number, nil, unknown>`.
 - Generics: `local identity = function<T>(value: T): T`; a function's own type parameters are
   declared on the function, an enclosing function's stay in scope by name.
@@ -198,13 +198,17 @@ Pinned by `luautypes_emit_test.go` over `emission.ts` and `locals.ts`.
   (probe `method-colon-self.luau`). Class methods become `function Foo.get(self: Foo)`;
   object-literal methods become `inc = function(self: Counter): ()` with the literal's contextual
   alias or a written `this`, and `self: any` (ObjectLiteralSelf) when the literal has no name.
-- Locals get `: T` only where Luau's inference has nothing to go on: a written TypeScript type
-  (which may be wider than the initializer, `local value: string | number = if flag then "a"
-  else 1`), no initializer (`local label: string?`, the hoisted `local later: () -> number`), an
-  imported binding (`local aNumber: number = _primitives.aNumber`), or a value rooted in the
-  RuntimeLib (`TS.import(...)`, `TS.async(...)`, `TS.await(...)`, `TS.Promise`), whose members
-  are `any` to Luau. `local names = { "a", "b" }` stays unannotated. Classes, enums and
-  namespaces are declared by their own transforms.
+- Locals read like hand-written Luau: an initialized local takes its type from the value, so
+  `local count = 0`, `local value = if flag then "a" else 1`, `local aNumber =
+  _primitives.aNumber` and `local typed = { ... }` stay unannotated even when the TypeScript
+  declaration has a written type or the value comes out of `TS.import` or `TS.await`. A local
+  gets `: T` only when it has no initializer (`local label: string?`, the hoisted
+  `local later: () -> number`), when its written type is not the initializer's own widened type
+  (an upcast such as `local box: Box<number> = pair`, or a narrowing such as
+  `local mode: "r" | "w" = "r"`, where inference would keep the wrong type), or when it holds a
+  `TS.async` function, whose only signature is the annotation. "Its own type" means mutual
+  assignability between the written type and the initializer's type with literals widened to
+  their base. Classes, enums and namespaces are declared by their own transforms.
 - Logical chains: the `_condition` temp of `a ?? b`, `a || b`, `a && b` is re-bound to the
   expression's TypeScript type once the chain has assigned it (`local _condition = _condition ::
   string`), because Luau types the temp as the union of everything assigned to it. A literal

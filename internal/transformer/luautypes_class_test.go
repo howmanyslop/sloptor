@@ -33,16 +33,17 @@ func TestLuauTypesClasses(t *testing.T) {
 	// The imported class is mirrored as a hoisted alias (with the interface
 	// it implements, which types the `self` of its `area`), the class
 	// expressions' aliases are hoisted under the class name or the assigned
-	// variable, and the import local is annotated with the class value.
+	// variable, and the import local is left to inference like any other
+	// initialized local.
 	assertLinesInOrder(t, got, []string{
 		"local TS = _G[script]",
+		"type Inner = { id: number, twice: (self: Inner) -> number }",
+		"type Anonymous = { label: string }",
 		"type Circle = { kind: ShapeKind, radius: number, area: (self: Shape) -> number }",
 		`type ShapeKind = "circle" | "square"`,
 		"type Shape = { kind: ShapeKind, area: (self: Shape) -> number }",
-		"type Inner = { id: number, twice: (self: Inner) -> number }",
-		"type Anonymous = { label: string }",
 		"-- Classes (plan WP7): a base class with a static and a toString, a derived",
-		`local Circle: { new: (radius: number) -> Circle } = TS.import(script, script.Parent, "lib", "shapes").Circle`,
+		`local Circle = TS.import(script, script.Parent, "lib", "shapes").Circle`,
 	})
 
 	// A base class: alias at the declaration without `constructor`, private

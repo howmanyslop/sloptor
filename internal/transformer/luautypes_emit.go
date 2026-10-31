@@ -393,14 +393,19 @@ func getLuauLocalType(state *State, identifier *ast.Node, right luau.Expression)
 	return state.types().Build(state.Checker.GetTypeOfSymbol(symbol), ctx).Node
 }
 
-// shouldAnnotateLocal decides whether a local gets a `: T`. Luau infers a
-// local's type from its initializer as well as TS does, so an annotation is
-// only written where inference has nothing to go on: no initializer (a
-// hoisted or uninitialized local), a written TS type (which may be wider
-// than the initializer), an imported binding, or a value that comes out of
-// the RuntimeLib, whose members are `any` to Luau. Classes, enums and
-// namespaces are declared by their own transforms and are never annotated
-// here.
+// shouldAnnotateLocal decides whether a local gets a `: T`. Code with an
+// initializer reads like hand-written Luau: the type comes from the value.
+// A local is annotated only where that would lose or change its type:
+//
+//   - it has no initializer (a hoisted or uninitialized local);
+//   - its written TS type is not the initializer's own (widened) type, such
+//     as an upcast to a base class or an interface the value only satisfies,
+//     because Luau would otherwise keep the narrower inferred type;
+//   - its value is a function wrapped by `TS.async`, whose result is `any`
+//     to Luau, so the annotation is the function's only signature.
+//
+// Classes, enums and namespaces are declared by their own transforms and
+// are never annotated here.
 func shouldAnnotateLocal(state *State, symbol *ast.Symbol, right luau.Expression) bool {
 	if !state.IsLuauTyped || symbol.Flags&(ast.SymbolFlagsClass|ast.SymbolFlagsEnum|ast.SymbolFlagsModule) != 0 {
 		return false
@@ -408,39 +413,34 @@ func shouldAnnotateLocal(state *State, symbol *ast.Symbol, right luau.Expression
 	if right == nil {
 		return true
 	}
-	if declaration := symbol.ValueDeclaration; declaration != nil && ast.IsVariableDeclaration(declaration) &&
-		declaration.AsVariableDeclaration().Type != nil {
+	if isRuntimeLibCall(right, "async") {
 		return true
 	}
-	if getDeclarationFromImport(symbol) != nil {
-		return true
+	declaration := symbol.ValueDeclaration
+	if declaration == nil || !ast.IsVariableDeclaration(declaration) {
+		return false
 	}
-	return isRuntimeLibRooted(right)
+	variable := declaration.AsVariableDeclaration()
+	if variable.Type == nil || variable.Initializer == nil {
+		return false
+	}
+	written := state.Checker.GetTypeFromTypeNode(variable.Type)
+	inferred := state.Checker.GetWidenedType(state.Checker.GetBaseTypeOfLiteralType(state.Checker.GetTypeAtLocation(variable.Initializer)))
+	return !state.Checker.IsTypeAssignableTo(written, inferred) || !state.Checker.IsTypeAssignableTo(inferred, written)
 }
 
-// isRuntimeLibRooted reports an expression whose leftmost operand is the
-// RuntimeLib table: `TS.import(...)`, `TS.import(...).Foo`, `TS.async(f)`,
-// `TS.await(p)`, `TS.Promise.new(...)`. `TS` is a reserved global name
-// (luau.IsReservedIdentifier), so the bare identifier is unambiguous.
-func isRuntimeLibRooted(expression luau.Expression) bool {
-	for {
-		switch e := expression.(type) {
-		case *luau.CallExpression:
-			expression = e.Expression
-		case *luau.MethodCallExpression:
-			expression = e.Expression
-		case *luau.PropertyAccessExpression:
-			expression = e.Expression
-		case *luau.ComputedIndexExpression:
-			expression = e.Expression
-		case *luau.ParenthesizedExpression:
-			expression = e.Expression
-		case *luau.Identifier:
-			return e.Name == "TS"
-		default:
-			return false
-		}
+// isRuntimeLibCall reports a direct call of `TS.<name>(...)`.
+func isRuntimeLibCall(expression luau.Expression, name string) bool {
+	call, ok := expression.(*luau.CallExpression)
+	if !ok {
+		return false
 	}
+	access, ok := call.Expression.(*luau.PropertyAccessExpression)
+	if !ok || access.Name != name {
+		return false
+	}
+	root, ok := access.Expression.(*luau.Identifier)
+	return ok && root.Name == "TS"
 }
 
 // luauTypedBinding annotates the identifier a local is bound to. An
@@ -465,18 +465,4 @@ func cloneIdentifier(id luau.AnyIdentifier) luau.AnyIdentifier {
 		panic("transformer: cloneIdentifier: clone is not an identifier")
 	}
 	return clone
-}
-
-// annotateLuauBindingTemp annotates the `_binding` temp a destructuring
-// declaration reads from when its initializer comes out of the RuntimeLib
-// (`const { a } = await import("./m")`): the temp gets the initializer's
-// type, and the per-member locals infer theirs from it.
-func annotateLuauBindingTemp(state *State, declaration *ast.Node, target luau.AnyIdentifier, value luau.Expression) {
-	temp, ok := target.(*luau.TemporaryIdentifier)
-	if !ok || luau.Expression(temp) == value || !isRuntimeLibRooted(value) {
-		return
-	}
-	initializer := declaration.AsVariableDeclaration().Initializer
-	ctx := typeContext{Position: positionLocal, Owner: declaration}
-	luau.SetBindingType(temp, state.types().Build(state.GetType(initializer), ctx).Node)
 }

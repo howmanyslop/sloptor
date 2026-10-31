@@ -93,14 +93,14 @@ local fetchArrow: (n: number) -> Promise<number> = TS.async(function(n: number):
 	return n + 1
 end)
 local awaited: () -> Promise<number> = TS.async(function(): number
-	local value: number = TS.await(fetched(1))
+	local value = TS.await(fetched(1))
 	return value
 end)
 local pair: () -> Promise<{ number }> = TS.async(function(): { number }
 	return { 1, 2 }
 end)
 local summed: () -> Promise<number> = TS.async(function(): number
-	local _binding: { number } = TS.await(pair())
+	local _binding = TS.await(pair())
 	local a = _binding[1]
 	local b = _binding[2]
 	return a + b
@@ -125,7 +125,7 @@ local function counter(limit: number): Generator<number, nil, unknown>
 	end)
 end
 export type Counter = { count: number, inc: (self: Counter) -> () }
-local typed: Counter = {
+local typed = {
 	count = 0,
 	inc = function(self: Counter): ()
 		self.count += 1

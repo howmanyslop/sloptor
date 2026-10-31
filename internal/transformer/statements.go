@@ -153,27 +153,17 @@ func transformVariableDeclaration(s *State, declaration *ast.Node) *luau.List[lu
 				statements.PushList(transformOptimizedArrayBindingPattern(s, name, array.Members))
 			} else {
 				statements.PushList(s.CaptureStatements(func() {
-					transformArrayBindingPattern(s, name, bindingPatternTarget(s, declaration, name, value))
+					transformArrayBindingPattern(s, name, getTargetIDForBindingPattern(s, name, value))
 				}))
 			}
 		} else {
 			statements.PushList(s.CaptureStatements(func() {
-				transformObjectBindingPattern(s, name, bindingPatternTarget(s, declaration, name, value))
+				transformObjectBindingPattern(s, name, getTargetIDForBindingPattern(s, name, value))
 			}))
 		}
 	}
 
 	return statements
-}
-
-// bindingPatternTarget is getTargetIDForBindingPattern plus, with luauTypes
-// on, the annotation of the `_binding` temp it may create.
-func bindingPatternTarget(s *State, declaration, name *ast.Node, value luau.Expression) luau.AnyIdentifier {
-	target := getTargetIDForBindingPattern(s, name, value)
-	if s.IsLuauTyped {
-		annotateLuauBindingTemp(s, declaration, target, value)
-	}
-	return target
 }
 
 // isVarDeclaration ports transformVariableStatement.ts isVarDeclaration

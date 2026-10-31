@@ -26,3 +26,11 @@ export function hoisted(): number {
 function later(): number {
 	return 1;
 }
+
+export function narrowed(write: boolean): "r" | "w" {
+	let mode: "r" | "w" = "r";
+	if (write) {
+		mode = "w";
+	}
+	return mode;
+}

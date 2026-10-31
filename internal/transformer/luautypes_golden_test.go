@@ -31,15 +31,18 @@ const luauTypesGoldenUpdateHint = "go test ./internal/transformer -run TestLuauT
 
 // luauTypesGoldenPins are lines that must appear in a fixture's rendered
 // output no matter what `-update` rewrites. They pin the policy decisions a
-// blind golden refresh could silently regress: the locals rule (an explicit
-// `let` annotation is kept, an inferred `const` is not), the async spelling
+// blind golden refresh could silently regress: the locals rule (an
+// initialized local is inferred even with a written type, unless that type
+// differs from the initializer's; an uninitialized one is annotated), the
+// async spelling
 // (the local carries the Promise type, the TS.async body the awaited one),
 // the pack spellings of LuaTuple and void, the flat class alias with
 // `self`-typed methods, the non-exported import mirrors and the loss comment
 // a type function the translator cannot express leaves behind.
 var luauTypesGoldenPins = map[string][]string{
 	"src/locals.ts": {
-		"\tlocal count: number = 0\n",
+		"\tlocal count = 0\n",
+		"\tlocal mode: \"r\" | \"w\" = \"r\"\n",
 		"\tlocal label: string?\n",
 		"\tlocal names = { \"a\", \"b\" }\n",
 	},
@@ -49,6 +52,7 @@ var luauTypesGoldenPins = map[string][]string{
 		"local function nothing(): ()\n",
 	},
 	"src/classes.ts": {
+		"\tlocal box: Box<number> = pair\n",
 		"export type Animal = {\n",
 		"\tspeak: (self: Animal) -> string,\n",
 		"\tfunction Animal.new(name: string): Animal\n",

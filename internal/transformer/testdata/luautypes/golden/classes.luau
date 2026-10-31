@@ -1,16 +1,16 @@
 -- Compiled with sloptor v3.0.0-beta.1
 local TS = _G[script]
+type Inner = { id: number, twice: (self: Inner) -> number }
+type Anonymous = { label: string }
 type Circle = { kind: ShapeKind, radius: number, area: (self: Shape) -> number }
 type ShapeKind = "circle" | "square"
 type Shape = { kind: ShapeKind, area: (self: Shape) -> number }
-type Inner = { id: number, twice: (self: Inner) -> number }
-type Anonymous = { label: string }
 -- Classes (plan WP7): a base class with a static and a toString, a derived
 -- class with an override and a super call, an abstract base with a concrete
 -- subclass, a generic class with a generic method and a generic subclass, a
 -- class referenced before its declaration (hoisted), class expressions, and
 -- an imported class constructed through its mirrored alias.
-local Circle: { new: (radius: number) -> Circle } = TS.import(script, script.Parent, "lib", "shapes").Circle
+local Circle = TS.import(script, script.Parent, "lib", "shapes").Circle
 export type Animal = {
 	secret: number,
 	tag: string?,

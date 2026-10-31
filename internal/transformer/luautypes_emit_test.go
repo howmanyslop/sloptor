@@ -63,8 +63,8 @@ func TestLuauTypesEmissionSignatures(t *testing.T) {
 		"local fetched: (n: number) -> Promise<number> = TS.async(function(n: number): number",
 		"local fetchArrow: (n: number) -> Promise<number> = TS.async(function(n: number): number",
 		"local awaited: () -> Promise<number> = TS.async(function(): number",
-		"\tlocal value: number = TS.await(fetched(1))",
-		"\tlocal _binding: { number } = TS.await(pair())",
+		"\tlocal value = TS.await(fetched(1))",
+		"\tlocal _binding = TS.await(pair())",
 		"local function counter(limit: number): Generator<number, nil, unknown>",
 		"local identity = function<T>(value: T): T",
 		"local function nested(): (n: number) -> number",
@@ -98,12 +98,12 @@ func TestLuauTypesEmissionRefinesConditionTemps(t *testing.T) {
 
 // Object-literal methods take an explicit `self`: the literal's contextual
 // alias when there is one, a written `this` parameter's type, and `any`
-// otherwise. The local declaring a typed literal is annotated with the
-// written type.
+// otherwise. The local declaring a typed literal is not annotated: the
+// literal already is a Counter.
 func TestLuauTypesEmissionObjectLiteralMethods(t *testing.T) {
 	rendered := renderLuauTypes(t, "src/emission.ts")
 	requireLines(t, rendered, []string{
-		"local typed: Counter = {",
+		"local typed = {",
 		"\tinc = function(self: Counter): ()",
 		"\tinc = function(self: any): ()",
 	})
@@ -112,17 +112,19 @@ func TestLuauTypesEmissionObjectLiteralMethods(t *testing.T) {
 	}
 }
 
-// Locals are annotated only where Luau cannot infer the type TS gives
-// them: a written annotation (which may be wider than the initializer), no
-// initializer, a hoisted local, and a binding read out of TS.import.
+// Locals read like hand-written Luau: an initialized local is left to
+// inference, even with a written TS type or a TS.import value. Only a local
+// with no initializer, a hoisted one, or one whose written type differs from
+// its initializer's widened type is annotated.
 func TestLuauTypesEmissionLocals(t *testing.T) {
 	rendered := renderLuauTypes(t, "src/locals.ts")
 	requireLines(t, rendered, []string{
-		"local aNumber: number = _primitives.aNumber",
-		"local aString: string = _primitives.aString",
-		"\tlocal count: number = 0",
+		"local aNumber = _primitives.aNumber",
+		"local aString = _primitives.aString",
+		"\tlocal count = 0",
 		"\tlocal label: string?",
-		"\tlocal value: string | number = if flag then \"a\" else 1",
+		"\tlocal value = if flag then \"a\" else 1",
+		"\tlocal mode: \"r\" | \"w\" = \"r\"",
 		"local later: () -> number",
 		"function later(): number",
 	})

@@ -29,8 +29,8 @@ type Promise_Status = "Cancelled" | "Rejected" | "Resolved" | "Started"
 -- non-exported alias under its local name, because `TS.import` is opaque to
 -- Luau's checker.
 local _shapes = TS.import(script, script.Parent, "lib", "shapes")
-local circle: (radius: number) -> Shape = _shapes.circle
-local describe: (shape: Shape) -> string = _shapes.describe
+local circle = _shapes.circle
+local describe = _shapes.describe
 export type Wrapped = {
 	shape: Shape,
 	kind: ShapeKind,
