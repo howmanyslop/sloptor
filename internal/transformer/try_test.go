@@ -9,8 +9,8 @@ import (
 	"rotor/internal/transformer"
 )
 
-// All expected text in this file is byte-for-byte what rbxtsc 3.0.0 emits for
-// the same source (compiled through testdata/diff/project on 2026-06-07;
+// Expected text follows rbxtsc 3.0.0 except for the redundant try-exit guards
+// intentionally removed by issue #181 (compiled through testdata/diff/project;
 // header and trailing return stripped — those belong to TransformSourceFile,
 // not the statement list under test).
 
@@ -108,7 +108,7 @@ end
 //     `if _exitType == TS.TRY_BREAK then break elseif _exitType then continue end`
 //     (the LAST case's condition is replaced by the bare truthiness test);
 //   - f7: return + break -> `if _exitType == TS.TRY_RETURN then return
-//     unpack(_returns) elseif _exitType then break end`;
+//     unpack(_returns) else break end` when both paths exit;
 //   - f8: nested try — the OUTER pair gets the unsuffixed `_exitType`/`_returns`
 //     names even though the inner declaration renders first textually (temps
 //     created BEFORE the body transform), and the inner try re-tunnels
@@ -161,7 +161,7 @@ local function f7()
 		end)
 		if _exitType == TS.TRY_RETURN then
 			return unpack(_returns)
-		elseif _exitType then
+		else
 			break
 		end
 	end
@@ -276,9 +276,7 @@ local tryInAsync = TS.async(function()
 	end, function(e)
 		return TS.TRY_RETURN, { 2 }
 	end)
-	if _exitType then
-		return unpack(_returns)
-	end
+	return unpack(_returns)
 end)
 local function loopInTry()
 	TS.try(function()

@@ -6,8 +6,12 @@ byte-compared against (`internal/conformance`). Fork-divergent fixtures use
 fork-authoritative Rotor goldens instead: `tests/array.spec.luau`,
 `tests/class.spec.luau`, `tests/destructure.spec.luau`,
 `tests/exportLet.spec.luau`, `tests/function.spec.luau`,
-`tests/loop.spec.luau`, and `tests/object.spec.luau`. Phase 5 now has three
-harnesses:
+`tests/loop.spec.luau`, and `tests/object.spec.luau`.
+
+`tests/try.spec.luau` also includes the intentional issue #181 optimization:
+Rotor omits the exit guard when try and catch cannot complete normally.
+
+Phase 5 now has three harnesses:
 
 - `TestDiagnosticsCorpus` compiles the vendored `excluded/diagnostics/*` files
   one by one and asserts rotor's diagnostic IDs.
