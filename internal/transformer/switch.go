@@ -92,19 +92,7 @@ func transformCaseClause(
 		s, clause.Expression, switchExpression, fallThroughFlagID, canFallThroughTo,
 	)
 
-	nonEmptyStatements := make([]*ast.Node, 0, len(clause.Statements.Nodes))
-	for _, statement := range clause.Statements.Nodes {
-		if !ast.IsEmptyStatement(statement) {
-			nonEmptyStatements = append(nonEmptyStatements, statement)
-		}
-	}
-	var statements *luau.List[luau.Statement]
-	if len(nonEmptyStatements) == 1 && ast.IsBlock(nonEmptyStatements[0]) {
-		firstStatement := nonEmptyStatements[0]
-		statements = TransformStatementList(s, firstStatement, firstStatement.AsBlock().Statements.Nodes, nil)
-	} else {
-		statements = TransformStatementList(s, node, clause.Statements.Nodes, nil)
-	}
+	statements := transformSwitchClauseBody(s, node)
 
 	canFallThroughFrom := statements.Tail == nil || !luau.IsFinalStatement(statements.Tail.Value)
 	var fallThroughAssignment *luau.Assignment
@@ -131,6 +119,58 @@ func transformCaseClause(
 		prereqs:            prereqStatements,
 		clauseStatements:   clauseStatements,
 	}
+}
+
+// transformSwitchClauseBody dissolves a single clause block just as the
+// trailing-default lowering does.
+func transformSwitchClauseBody(s *State, node *ast.Node) *luau.List[luau.Statement] {
+	clause := node.AsCaseOrDefaultClause()
+	nonEmptyStatements := make([]*ast.Node, 0, len(clause.Statements.Nodes))
+	for _, statement := range clause.Statements.Nodes {
+		if !ast.IsEmptyStatement(statement) {
+			nonEmptyStatements = append(nonEmptyStatements, statement)
+		}
+	}
+	var statements *luau.List[luau.Statement]
+	if len(nonEmptyStatements) == 1 && ast.IsBlock(nonEmptyStatements[0]) {
+		firstStatement := nonEmptyStatements[0]
+		statements = TransformStatementList(s, firstStatement, firstStatement.AsBlock().Statements.Nodes, nil)
+	} else {
+		statements = TransformStatementList(s, node, clause.Statements.Nodes, nil)
+	}
+
+	return statements
+}
+
+// transformSwitchWithMiddleDefault selects the first matching case before
+// running any bodies. The default is selected only after all labels miss;
+// executing bodies in source order then preserves fall-through across it.
+func transformSwitchWithMiddleDefault(s *State, clauses []*ast.Node, expression luau.Expression, defaultIndex int) *luau.List[luau.Statement] {
+	entry := luau.TempID("caseIndex")
+	statements := luau.NewList[luau.Statement](luau.NewVariableDeclaration(entry, luau.Num(-1)))
+	for i, clause := range clauses {
+		if ast.IsDefaultClause(clause) {
+			continue
+		}
+		condition, prereqs := transformCaseClauseExpression(s, clause.AsCaseOrDefaultClause().Expression, expression, nil, false)
+		prereqs.Push(luau.NewIf(condition, luau.NewList[luau.Statement](luau.NewAssignment(entry, "=", luau.Num(float64(i)))), nil))
+		selection := luau.NewIf(luau.NewBinary(entry, "==", luau.Num(-1)), prereqs, nil)
+		s.setNodeSourcePosition(selection, clause)
+		statements.Push(selection)
+	}
+	statements.Push(luau.NewIf(luau.NewBinary(entry, "==", luau.Num(-1)), luau.NewList[luau.Statement](luau.NewAssignment(entry, "=", luau.Num(float64(defaultIndex)))), nil))
+	hoists := luau.NewList[luau.Statement]()
+	for i, clause := range clauses {
+		body := transformSwitchClauseBody(s, clause)
+		if declaration := createHoistDeclaration(s, clause); declaration != nil {
+			hoists.Push(declaration)
+		}
+		clauseIf := luau.NewIf(luau.NewBinary(entry, "<=", luau.Num(float64(i))), body, nil)
+		s.setNodeSourcePosition(clauseIf, clause)
+		statements.Push(clauseIf)
+	}
+	hoists.PushList(statements)
+	return hoists
 }
 
 // canCompareSwitchIdentifierDirectly keeps literal-only switches compact when
@@ -169,9 +209,9 @@ func canCompareSwitchIdentifierDirectly(s *State, node *ast.Node, expression lua
 //   - `local _fallthrough = false` is unshifted ONLY when some case clause can
 //     fall through (isFallThroughFlagNeeded — set even when the falling clause
 //     is the LAST case clause, which declares a never-read flag; verbatim).
-//   - A DefaultClause's statements are emitted INLINE (no condition) and the
-//     clause loop BREAKS: any clauses after a default are silently dropped
-//     (upstream quirk — TS would still match them; port verbatim).
+//   - A trailing DefaultClause is emitted inline. A default before other
+//     clauses uses a separate selection pass to preserve case matching and
+//     source-order fall-through.
 //
 // PORT NOTE: a TS `continue` inside a switch inside a loop emits a Luau
 // `continue` inside the repeat, which jumps to the `until` of the REPEAT
@@ -193,13 +233,21 @@ func transformSwitchStatement(s *State, node *ast.Node) *luau.List[luau.Statemen
 	} else {
 		expression = s.PushToVarIfComplex(expression, "exp")
 	}
+	clauses := switchStatement.CaseBlock.AsCaseBlock().Clauses.Nodes
+	for i, clause := range clauses {
+		if ast.IsDefaultClause(clause) && i < len(clauses)-1 {
+			statements := transformSwitchWithMiddleDefault(s, clauses, expression, i)
+			result := luau.NewList[luau.Statement](luau.NewRepeat(luau.Bool(true), statements))
+			result.PushList(s.LabelChecks())
+			return result
+		}
+	}
 	fallThroughFlagID := luau.TempID("fallthrough")
 
 	isFallThroughFlagNeeded := false
 
 	statements := luau.NewList[luau.Statement]()
 	canFallThroughTo := false
-	clauses := switchStatement.CaseBlock.AsCaseBlock().Clauses.Nodes
 	for i, caseClauseNode := range clauses {
 		if ast.IsCaseClause(caseClauseNode) {
 			shouldUpdateFallThroughFlag := i < len(clauses)-1 && ast.IsCaseClause(clauses[i+1])

@@ -1,14 +1,17 @@
 package transformer_test
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"rotor/internal/luau/render"
 	"rotor/internal/transformer"
 )
 
-// The expected text in every test below is byte-for-byte what rbxtsc 3.0.0
+// The expected text in the byte-parity tests below is byte-for-byte what rbxtsc 3.0.0
 // emits for the same source (verified via scratch files compiled through
 // testdata/diff/project — see tools/oracle/oracle.ps1 for the technique),
 // minus the version header and the synthesized `return nil` module tail.
@@ -87,24 +90,41 @@ print(describe(0), describe(1))
 	}
 }
 
-// TestSwitchClausesAfterDefaultDropped: upstream quirk — the clause loop
-// breaks at the default clause, so `case 1` and `case 2` AFTER it vanish from
-// the output entirely (TS would still match them; ported verbatim). Clauses
-// BEFORE the default emit normally.
-func TestSwitchClausesAfterDefaultDropped(t *testing.T) {
-	want := `local x = 5
-local y = 0
-repeat
-	if x == 0 then
-		y = 9
-		break
-	end
-	y = 1
-until true
-print(y)
-`
-	if got := renderSwitchFile(t, "src/afterdefault.ts"); got != want {
-		t.Errorf("rendered output differs from rbxtsc:\ngot:\n%s\nwant:\n%s", got, want)
+// This output regression also runs when the optional Luau CLI is absent.
+func TestSwitchEmitsClausesAfterDefault(t *testing.T) {
+	output := renderSwitchFile(t, "src/afterdefault.ts")
+	for _, want := range []string{"y = 2", "y = 3"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("missing %q:\n%s", want, output)
+		}
+	}
+}
+
+// Cases after default must still match, and default must fall through.
+func TestSwitchClausesAfterDefault(t *testing.T) {
+	path, err := exec.LookPath("luau")
+	if err != nil {
+		t.Skip("luau is required for switch runtime regression tests")
+	}
+	for _, tc := range []struct{ file, want string }{
+		{"src/afterdefault.ts", "2"},
+		{"src/defaultedges.ts", "12\t12\t123\n2\t3\n1\t8\n11\t20\n11"},
+		{"src/defaultselection.ts", "1\t2\t0\n12\t2\t12\n0\t2\t1"},
+	} {
+		t.Run(tc.file, func(t *testing.T) {
+			output := renderSwitchFile(t, tc.file)
+			script := filepath.Join(t.TempDir(), "switch.luau")
+			if err := os.WriteFile(script, []byte(output), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := exec.Command(path, script).CombinedOutput()
+			if err != nil {
+				t.Fatalf("Luau failed: %v\n%s\n%s", err, got, output)
+			}
+			if strings.TrimSpace(strings.ReplaceAll(string(got), "\r\n", "\n")) != tc.want {
+				t.Fatalf("got %q, want %q\n%s", got, tc.want, output)
+			}
+		})
 	}
 }
 
