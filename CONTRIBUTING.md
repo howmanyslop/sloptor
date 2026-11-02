@@ -36,6 +36,12 @@ The try-exit optimization in issue #181 is an intentional byte-parity exception:
 `testdata/conformance/golden/tests/try.spec.luau` include Rotor's omission of
 provably redundant exit guards. Preserve these corrections when running the oracle.
 
+The switch correction in issue #184 is also an intentional byte-parity
+exception: when `default` precedes a `case`, Rotor selects the first matching
+case before executing bodies in source order. This preserves JavaScript matching
+and fall-through instead of dropping all clauses after `default`. Switches with
+`default` last retain their existing output.
+
 ## Working on the documentation
 
 The site is an Astro Starlight package in [`documentation/`](https://github.com/howmanyslop/sloptor/blob/main/documentation/). The command reference is generated from the CLI by `sloptor gen-docs`, which the docs `dev`, `check`, and `build` scripts run first:
@@ -67,6 +73,6 @@ The tag triggers the `release` GitHub Actions workflow, which verifies the tag, 
 
 ## Ground rules
 
-- **Byte-parity is law**: except for the documented try-exit optimization above, everything that compiles must be byte-identical to `rbxtsc` 3.0.0. Never silently emit different output — fail loudly with a "not yet supported" diagnostic instead.
+- **Byte-parity is law**: except for the documented try-exit and switch corrections above, everything that compiles must be byte-identical to `rbxtsc` 3.0.0. Never silently emit different output — fail loudly with a "not yet supported" diagnostic instead.
 - `tsgo/` is a generated mirror — never edit it by hand; regenerate with `go run ./tools/mirror`.
 - `go vet ./internal/...` must be clean before commits.

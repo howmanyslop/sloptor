@@ -72,10 +72,16 @@ func checkVariableHoist(s *State, identifier *ast.Node, symbol *ast.Symbol) {
 	}
 
 	caseClause := statement.Parent
-	if caseClause == nil || !ast.IsCaseClause(caseClause) {
+	if caseClause == nil || (!ast.IsCaseClause(caseClause) && !ast.IsDefaultClause(caseClause)) {
 		return
 	}
 	caseBlock := caseClause.Parent
+	// A trailing default stays inline; earlier defaults use separate body
+	// guards, so their locals need the same sibling visibility as case locals.
+	clauses := caseBlock.AsCaseBlock().Clauses.Nodes
+	if ast.IsDefaultClause(caseClause) && clauses[len(clauses)-1] == caseClause {
+		return
+	}
 
 	isUsedOutsideOfCaseClause := ForEachSymbolReference(s.Checker, identifier, caseBlock,
 		func(token *ast.Node) bool {
