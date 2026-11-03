@@ -1,0 +1,9 @@
+# Reviewed differences between the Go and Rust compilers' output.
+#
+# One path or glob per line, relative to the project, with "/" separators. "*" matches within a
+# path segment, "**" across segments. A trailing " # reason" is a comment. Every entry needs the
+# owner's sign-off; any difference not listed here is a port bug.
+#
+# Expected categories, to be added with review once Stage 5 produces output:
+#   - .d.ts emit differences between the two TypeScript versions
+#   - the sourceRoot field in sourcemaps
