@@ -5,6 +5,7 @@ extend-exclude = [
 	"dist",
 	"bin",
 	"tsgo",
+	"third_party",
 	"reference",
 	"include",
 	"**/testdata/**",
@@ -34,6 +35,7 @@ inferrable = "inferrable"
 mis = "mis"
 onces = "onces"
 pn = "pn"
+tru = "tru"
 unparseable = "unparseable"
 writables = "writables"
 
