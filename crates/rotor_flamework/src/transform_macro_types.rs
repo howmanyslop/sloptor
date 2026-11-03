@@ -319,3 +319,17 @@ pub(crate) fn build_caller_macro(
 		_ => Ok(factory.new_identifier("undefined")),
 	}
 }
+
+/// `generateUniversalTypeNode`: the type as a fully qualified type node. Only tests call it, as in
+/// Go.
+#[cfg(test)]
+pub(crate) fn generate_universal_type_node(
+	state: &mut TransformState<'_>,
+	location: P<Node>,
+	target: P<Type>,
+) -> Option<(P<Node>, Vec<P<Node>>)> {
+	use rotor_tsrs::checker::NodeBuilderFlags;
+	let flags = NodeBuilderFlags::UseFullyQualifiedType | NodeBuilderFlags::WriteClassExpressionAsTypeLiteral;
+	let type_node = state.ck().type_to_type_node(target, Some(location), flags)?;
+	Some((type_node, Vec::new()))
+}

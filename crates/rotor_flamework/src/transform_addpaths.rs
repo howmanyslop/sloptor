@@ -1,7 +1,7 @@
 //! `transform_addpaths.go`: expanding `Flamework.addPaths` calls into static imports.
 
 use std::collections::{BTreeMap, HashSet};
-use std::rc::Rc;
+use std::sync::Arc;
 
 use rotor_rojo::RbxType;
 use rotor_support::gopath;
@@ -275,19 +275,19 @@ fn add_paths_pattern(state: &TransformState<'_>, input: &str) -> Option<String> 
 
 /// `addPathsSourceIndex`: every program source with a project-relative path, in program order.
 pub(crate) struct AddPathsSourceIndex {
-	entries: Vec<AddPathsSource>,
-	sources: HashSet<String>,
+	pub(crate) entries: Vec<AddPathsSource>,
+	pub(crate) sources: HashSet<String>,
 }
 
-struct AddPathsSource {
+pub(crate) struct AddPathsSource {
 	file: P<SourceFile>,
 	relative: String,
 	segments: Vec<String>,
 }
 
-fn program_add_paths_sources(state: &mut TransformState<'_>) -> Rc<AddPathsSourceIndex> {
+fn program_add_paths_sources(state: &mut TransformState<'_>) -> Arc<AddPathsSourceIndex> {
 	if let Some(index) = &state.add_paths_sources {
-		return Rc::clone(index);
+		return Arc::clone(index);
 	}
 	let root = state.project.root_directory.clone();
 	let mut index = AddPathsSourceIndex {
@@ -309,16 +309,16 @@ fn program_add_paths_sources(state: &mut TransformState<'_>) -> Rc<AddPathsSourc
 			segments,
 		});
 	}
-	let index = Rc::new(index);
-	state.add_paths_sources = Some(Rc::clone(&index));
+	let index = Arc::new(index);
+	state.add_paths_sources = Some(Arc::clone(&index));
 	index
 }
 
-type AddPathsModules = (Vec<String>, Rc<AddPathsSourceIndex>);
+pub(crate) type AddPathsModules = (Vec<String>, Arc<AddPathsSourceIndex>);
 
 /// `addPathsModules`: import specifiers, relative to `file`, for every program source the
 /// pattern matches (itself or an ancestor directory) that Rojo places as a module.
-fn add_paths_modules(
+pub(crate) fn add_paths_modules(
 	state: &mut TransformState<'_>,
 	file: P<SourceFile>,
 	pattern: &str,
@@ -361,7 +361,10 @@ fn glob_error(message: &'static str) -> Error {
 	Error::msg(message)
 }
 
-fn match_add_paths_glob_segments_or_ancestor(pattern: &[&str], relative: &[&str]) -> Result<bool, &'static str> {
+pub(crate) fn match_add_paths_glob_segments_or_ancestor(
+	pattern: &[&str],
+	relative: &[&str],
+) -> Result<bool, &'static str> {
 	for length in (1..=relative.len()).rev() {
 		if length == 1 && (relative[0] == "." || relative[0].is_empty()) {
 			break;
@@ -460,11 +463,11 @@ fn glob_literal_prefix(pattern: &str) -> String {
 	String::new()
 }
 
-const fn is_script_rbx_type(rbx_type: RbxType) -> bool {
+pub(crate) const fn is_script_rbx_type(rbx_type: RbxType) -> bool {
 	matches!(rbx_type, RbxType::Script | RbxType::LocalScript)
 }
 
-fn match_glob_or_ancestor(pattern: &str, relative: &str) -> Result<bool, &'static str> {
+pub(crate) fn match_glob_or_ancestor(pattern: &str, relative: &str) -> Result<bool, &'static str> {
 	let mut candidate = relative.to_owned();
 	while candidate != "." {
 		if match_glob(pattern, &candidate)? {
@@ -475,7 +478,7 @@ fn match_glob_or_ancestor(pattern: &str, relative: &str) -> Result<bool, &'stati
 	Ok(false)
 }
 
-fn module_specifier(from_directory: &str, to: &str, compare: &ComparePathsOptions) -> String {
+pub(crate) fn module_specifier(from_directory: &str, to: &str, compare: &ComparePathsOptions) -> String {
 	ensure_path_is_non_module_name(remove_file_extension(&get_relative_path_from_directory(
 		from_directory,
 		to,

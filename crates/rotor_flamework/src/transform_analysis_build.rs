@@ -72,7 +72,17 @@ fn package_prefix_for_internal_id(project: &Project, internal_id: &str) -> Resul
 /// `buildClassByInternalID`: a binary search, then a linear one (the classes need not be
 /// sorted).
 fn build_class_by_internal_id(classes: &[BuildClass], internal_id: &str) -> Option<BuildClass> {
-	let index = classes.partition_point(|class| class.internal_id.as_str() < internal_id);
+	// Go's `sort.Search`, whose probe order picks among duplicates on unsorted input.
+	let (mut low, mut high) = (0, classes.len());
+	while low < high {
+		let middle = low + (high - low) / 2;
+		if classes[middle].internal_id.as_str() >= internal_id {
+			high = middle;
+		} else {
+			low = middle + 1;
+		}
+	}
+	let index = low;
 	if let Some(class) = classes.get(index).filter(|class| class.internal_id == internal_id) {
 		return Some(class.clone());
 	}

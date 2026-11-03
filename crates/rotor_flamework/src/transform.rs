@@ -75,8 +75,13 @@ pub fn transform(input: TransformInput<'_>) -> Result<TransformResult, Error> {
 		state.add_diagnostic(diagnostic);
 	}
 
-	if parallel && transform_files_parallel() {
-		return Err(Error::msg("flamework: parallel transform is unavailable"));
+	if parallel && let Some((transformed_files, sources)) = transform_files_parallel(&mut state, &files, &mut print) {
+		return Ok(TransformResult {
+			files: transformed_files,
+			plans,
+			diagnostics: state.ordered_diagnostics(),
+			sources,
+		});
 	}
 	let runtime = state.macro_runtime();
 	let mut transformed_files = Vec::with_capacity(files.len());
@@ -266,7 +271,10 @@ fn visit_planned_classes(
 
 /// `sourceNeedsFlameworkExpressionTransform`: a cheap, over-inclusive prefilter for the
 /// expression visitor.
-fn source_needs_flamework_expression_transform(state: &mut TransformState<'_>, source_file: P<SourceFile>) -> bool {
+pub(crate) fn source_needs_flamework_expression_transform(
+	state: &mut TransformState<'_>,
+	source_file: P<SourceFile>,
+) -> bool {
 	source_declares_flamework_expression_surface(state, source_file) || reaches_expression_surface(state, source_file)
 }
 
@@ -445,7 +453,10 @@ pub(crate) fn lua_file_name(file_name: &str) -> String {
 }
 
 /// `sourceDeclaresFlameworkExpressionSurface`: the file itself triggers expression transforms.
-fn source_declares_flamework_expression_surface(state: &mut TransformState<'_>, source_file: P<SourceFile>) -> bool {
+pub(crate) fn source_declares_flamework_expression_surface(
+	state: &mut TransformState<'_>,
+	source_file: P<SourceFile>,
+) -> bool {
 	if let Some(cached) = state.flamework_expression_surface(source_file) {
 		return cached;
 	}

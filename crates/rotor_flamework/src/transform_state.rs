@@ -2,7 +2,6 @@
 
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
 use rotor_support::gopath;
 use rotor_tsrs::P;
@@ -179,7 +178,7 @@ pub struct TransformState<'a> {
 	pub(crate) expression_surfaces: HashMap<P<SourceFile>, bool>,
 	/// `flameworkExpressionSurfaces`: the files that reach a direct expression surface.
 	pub(crate) flamework_expression_surfaces: Option<HashSet<String>>,
-	pub(crate) add_paths_sources: Option<Rc<AddPathsSourceIndex>>,
+	pub(crate) add_paths_sources: Option<std::sync::Arc<AddPathsSourceIndex>>,
 	/// A parallel worker's build-info writes (Go's `Project.recording`).
 	pub(crate) recording: Option<TransformRecording>,
 }

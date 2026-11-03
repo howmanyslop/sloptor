@@ -64,7 +64,10 @@ pub(crate) fn guard_declaration(type_value: P<Type>) -> Option<P<Node>> {
 }
 
 /// `guardIsDefinedType`
-#[expect(dead_code, reason = "only guard_parity_gaps_test calls it, as in Go")]
+#[cfg_attr(
+	not(test),
+	expect(dead_code, reason = "only guard_parity_gaps_test calls it, as in Go")
+)]
 pub(crate) fn guard_is_defined_type(type_value: P<Type>, checker: &mut TypeChecker<'_>) -> bool {
 	type_value.flags() == TypeFlags::Object
 		&& checker.get_properties_of_type(type_value).is_empty()

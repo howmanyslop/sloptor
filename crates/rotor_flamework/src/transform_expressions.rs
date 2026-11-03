@@ -89,6 +89,24 @@ pub(crate) fn map_children(
 	replayer.visit_each_child(Some(node)).unwrap_or(node)
 }
 
+/// `transformFlameworkExpression`: the node transformed with the default runtime. Only tests
+/// call it, as in Go.
+#[cfg(test)]
+pub(crate) fn transform_flamework_expression(state: &mut TransformState<'_>, node: P<Node>) -> Result<P<Node>, Error> {
+	transform_flamework_expression_with_runtime(state, node, &default_flamework_macro_runtime())
+		.map(|result| result.expression)
+}
+
+/// `transformFlameworkExpressionsInSourceFile`: the file transformed with the default runtime.
+/// Only tests call it, as in Go.
+#[cfg(test)]
+pub(crate) fn transform_flamework_expressions_in_source_file(
+	state: &mut TransformState<'_>,
+	source_file: P<SourceFile>,
+) -> Result<P<SourceFile>, Error> {
+	transform_flamework_expressions_in_source_file_with_runtime(state, source_file, &default_flamework_macro_runtime())
+}
+
 /// `transformFlameworkExpressionWithRuntime`
 pub(crate) fn transform_flamework_expression_with_runtime(
 	state: &mut TransformState<'_>,

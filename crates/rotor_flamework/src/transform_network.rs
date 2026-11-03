@@ -104,7 +104,7 @@ pub(crate) fn transform_networking_middleware_intrinsic(
 	Ok(())
 }
 
-fn obfuscate_middleware_object(
+pub(crate) fn obfuscate_middleware_object(
 	state: &mut TransformState<'_>,
 	node: P<Node>,
 	runtime: &MacroRuntime,
@@ -151,7 +151,11 @@ fn shuffled<T: Clone>(state: &TransformState<'_>, values: &[T], runtime: &MacroR
 
 /// `shuffledIndexes`: a Fisher-Yates shuffle with the runtime's random indexes when
 /// obfuscating, else the identity.
-fn shuffled_indexes(state: &TransformState<'_>, length: usize, runtime: &MacroRuntime) -> Result<Vec<usize>, Error> {
+pub(crate) fn shuffled_indexes(
+	state: &TransformState<'_>,
+	length: usize,
+	runtime: &MacroRuntime,
+) -> Result<Vec<usize>, Error> {
 	let mut indexes: Vec<usize> = (0..length).collect();
 	if !state.project.config.obfuscation {
 		return Ok(indexes);

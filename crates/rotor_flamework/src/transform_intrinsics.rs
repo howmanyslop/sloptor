@@ -172,7 +172,7 @@ pub(crate) fn build_intrinsic_macro(
 	}
 }
 
-fn build_tuple_guards_intrinsic(
+pub(crate) fn build_tuple_guards_intrinsic(
 	state: &mut TransformState<'_>,
 	trace: P<Node>,
 	target: P<Type>,

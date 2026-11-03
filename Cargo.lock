@@ -511,11 +511,15 @@ name = "rotor_flamework"
 version = "0.0.0"
 dependencies = [
  "getrandom",
+ "regex",
  "rotor_config",
+ "rotor_luau",
  "rotor_rojo",
  "rotor_support",
+ "rotor_transformer",
  "rotor_tsrs",
  "rustix",
+ "serde_json",
  "sha2",
  "tempfile",
 ]

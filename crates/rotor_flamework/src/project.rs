@@ -96,7 +96,7 @@ pub struct ProjectOptions {
 }
 
 /// `Project`
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Project {
 	pub(crate) directory: String,
 	pub(crate) root_directory: String,

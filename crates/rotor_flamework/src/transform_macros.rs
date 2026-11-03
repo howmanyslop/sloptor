@@ -159,7 +159,7 @@ pub(crate) fn build_user_macro(
 	Ok((as_never(&state.factory, expression), prerequisites))
 }
 
-fn build_generic_macro(
+pub(crate) fn build_generic_macro(
 	state: &mut TransformState<'_>,
 	trace: P<Node>,
 	user_macro: &UserMacro,
