@@ -39,7 +39,8 @@
 		"**/Thumbs.db",
 		"**/.classpath",
 		"**/.settings",
-		"**/node_modules"
+		"**/node_modules",
+		"vendor/tsrs"
 	],
 	"file_types": {
 		"HTML": ["svg"],
@@ -202,6 +203,10 @@
 			"hard_tabs": true,
 			"language_servers": ["!knip", "pkl", "wakatime", "codebook", "harper-ls", "discord_presence"],
 			"tab_size": 4
+		},
+		"Rust": {
+			"format_on_save": "on",
+			"language_servers": ["rust-analyzer", "..."]
 		},
 		"Shell Script": {
 			"format_on_save": "on",
@@ -392,6 +397,50 @@
 					"fixKind": "safe_fix",
 					"typeAware": true
 				}
+			}
+		},
+		"rust-analyzer": {
+			"enable_lsp_tasks": true,
+			"initialization_options": {
+				"cargo": {
+					"allTargets": true,
+					"buildScripts": { "enable": true },
+					"features": "all",
+					"targetDir": true
+				},
+				"check": {
+					"allTargets": true,
+					"command": "clippy",
+					"features": "all",
+					"workspace": true
+				},
+				"checkOnSave": true,
+				"diagnostics": {
+					"experimental": { "enable": true },
+					"styleLints": { "enable": true }
+				},
+				"inlayHints": {
+					"bindingModeHints": { "enable": true },
+					"chainingHints": { "enable": true },
+					"closureCaptureHints": { "enable": true },
+					"closureReturnTypeHints": { "enable": "always" },
+					"genericParameterHints": {
+						"const": { "enable": true },
+						"lifetime": { "enable": true },
+						"type": { "enable": true }
+					},
+					"lifetimeElisionHints": {
+						"enable": "skip_trivial",
+						"useParameterNames": true
+					},
+					"maxLength": null,
+					"parameterHints": {
+						"enable": true,
+						"missingArguments": { "enable": true }
+					},
+					"typeHints": { "enable": true }
+				},
+				"procMacro": { "enable": true }
 			}
 		},
 		"typescript-ls": {
