@@ -329,6 +329,20 @@ impl Program {
             .new_resolver(self.project_reference_file_mapper.resolution_host(self.resolution_host))
     }
 
+    /// rotor: Go `Program.ResolveModuleName`, a raw resolution through the program's own resolver
+    /// (its options, host and project-reference redirects).
+    pub fn resolve_module_name(
+        &self,
+        module_name: &str,
+        containing_file: &str,
+        resolution_mode: ResolutionMode,
+    ) -> Option<P<ResolvedModule>> {
+        self.new_resolver()
+            .resolve_module_name(module_name, containing_file, resolution_mode, None)
+            .ok()
+            .map(|(resolved, _)| resolved)
+    }
+
     // GetRedirectTargets returns the list of file paths that redirect to the given path.
     // These are files from the same package (same name@version) installed in different locations.
     pub fn get_redirect_targets(&self, path: &Path) -> &[String] {
