@@ -40,4 +40,8 @@ unparseable = "unparseable"
 writables = "writables"
 
 [default.extend-identifiers]
+# Go encoding/json scanner state for the literal "false" (rotor_flamework/src/json_syntax.rs).
+Fals = "Fals"
+# rustix::fs::Mode::WOTH, the others-write permission bit.
+WOTH = "WOTH"
 iz = "iz"
