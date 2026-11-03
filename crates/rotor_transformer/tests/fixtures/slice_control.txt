@@ -1,0 +1,5 @@
+# Slice ii (control). Blocked on slice i's transform_binding_name: 14_functions, 17_forof and
+# 20_mixed2b (which also needs the object binding pattern transforms).
+15_arrows
+18_switch
+19_closures
