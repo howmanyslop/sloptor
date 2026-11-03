@@ -1205,6 +1205,12 @@ impl Program {
         }
     }
 
+    /// rotor: `for_each_checker_parallel` that skips the checkers someone holds (the caller's own, from
+    /// `get_type_checker`) instead of waiting for them. Returns the built-in pool's checker count, 0 without one.
+    pub fn for_each_free_checker_parallel(&self, cb: impl Fn(usize, &mut Checker) + Sync) -> usize {
+        self.compiler_checker_pool().map_or(0, |pool| pool.for_each_free_checker_parallel(cb))
+    }
+
     /// Runs `cb` for every file of `files` with the file's checker, one task per checker, each visiting its files in
     /// the order of `files` under one lock acquisition (`checkerPool::for_each_checker_group_do`). False, without
     /// calling `cb`, when the program has no checker pool of its own.

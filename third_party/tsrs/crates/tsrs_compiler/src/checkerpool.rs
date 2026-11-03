@@ -967,6 +967,22 @@ impl CheckerPoolImpl {
         run_work_group(self.single_threaded, state.checkers.len(), run);
     }
 
+    /// rotor: `for_each_checker_parallel` over the checkers nobody holds. A checker whose lock is taken, such as the
+    /// caller's own from `get_type_checker`, is skipped instead of waited for. Returns the pool's checker count.
+    pub(crate) fn for_each_free_checker_parallel(&self, cb: impl Fn(usize, &mut Checker) + Sync) -> usize {
+        let state = self.create_checkers();
+        let run = |idx: usize| {
+            let Ok(mut guard) = state.checkers[idx].0.try_lock() else {
+                return;
+            };
+            let _scope = guard.enter();
+            crate::sharedgraph::enter_checker(&guard);
+            cb(idx, &mut guard);
+        };
+        run_work_group(self.single_threaded, state.checkers.len(), run);
+        state.checkers.len()
+    }
+
     // checkerpool.go:464
     pub(crate) fn get_global_diagnostics(&self) -> Vec<P<Diagnostic>> {
         let state = self.create_checkers();
