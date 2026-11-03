@@ -527,6 +527,10 @@ dependencies = [
 [[package]]
 name = "rotor_jecs"
 version = "0.0.0"
+dependencies = [
+ "regex",
+ "rotor_tsrs",
+]
 
 [[package]]
 name = "rotor_lsp"
