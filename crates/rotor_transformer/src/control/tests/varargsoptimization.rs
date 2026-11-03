@@ -211,7 +211,6 @@ fn transform_parameters_analyzes_rest_parameter() {
 }
 
 #[test]
-#[ignore = "needs slice i: transform_binding_name (for-of names) and transform_spread_element"]
 fn var_args_optimized_emit() {
 	let source = "declare function consume(...values: Array<number>): void;
 
