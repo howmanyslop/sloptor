@@ -956,6 +956,15 @@ impl CheckerPoolImpl {
         self.create_checkers()
     }
 
+    // rotor: drops the pool's checkers, if it created them; the next request creates them again. See
+    // `program::release_checkers`.
+    pub(crate) unsafe fn release_checkers(&self) {
+        let pool = std::ptr::from_ref::<CheckerPoolImpl>(self).cast_mut();
+        // SAFETY: no handle borrows a checker, and nothing a checker made is used afterwards (the caller's contract),
+        // so nothing refers to the state, which owns the checkers and their regions.
+        drop(unsafe { (*pool).state.take() });
+    }
+
     // checkerpool.go:451
     // Runs `cb` for each checker in the pool concurrently, locking and unlocking checker mutexes as it goes,
     // making it safe to call `forEachCheckerParallel` from many threads simultaneously.

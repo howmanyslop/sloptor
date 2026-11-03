@@ -624,6 +624,20 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
     p
 }
 
+/// rotor: frees the checkers of `program`'s built-in pool and the regions they allocate in, keeping the program;
+/// a later checker request creates the pool's checkers again. A build drops the checkers of a program a transform
+/// replaced, while it still uses the program's files. Does nothing for an external pool.
+///
+/// # Safety
+/// No checker handle of `program` is held or taken meanwhile, and nothing a checker of it made (a type, symbol,
+/// signature, or diagnostic in its region) is used afterwards.
+pub unsafe fn release_checkers(program: &'static Program) {
+    if let Some(pool) = program.compiler_checker_pool() {
+        // SAFETY: this function's contract.
+        unsafe { pool.release_checkers() };
+    }
+}
+
 /// Releases a program after every external reference to it has ended.
 ///
 /// Frees a program made by `new_program` or `update_program` (language server; Go's GC). The caller
