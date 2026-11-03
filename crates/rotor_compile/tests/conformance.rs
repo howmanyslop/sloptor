@@ -17,6 +17,8 @@ use rotor_compile::compile::compile_file_with_options;
 
 use icu_normalizer as _;
 use rotor_config as _;
+use rotor_flamework as _;
+use rotor_jecs as _;
 use rotor_luau as _;
 use rotor_rojo as _;
 use rotor_support as _;

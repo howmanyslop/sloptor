@@ -23,7 +23,8 @@ use crate::copyfilesgate::{
 use crate::declaration_prefetch::DeclarationPrefetch;
 use crate::declmap::shift_declaration_map_columns;
 use crate::declpaths::{DeclarationPathRewriter, TextEdit, apply_text_edits, non_overlapping_text_edits};
-use crate::flamework_pipeline::{prepare_flamework_pipeline, run_compile_pipeline_with_options};
+use crate::flamework_pipeline::{FlameworkPipeline, prepare_flamework_pipeline, run_compile_pipeline_with_options};
+use crate::incremental_flamework::flamework_incremental_inputs;
 use crate::incremental_manifest::{
 	IncrementalManifest, build_incremental_manifest, encode_incremental_manifest, normalize_source_file_path,
 	prune_missing_outputs, read_incremental_manifest, same_incremental_manifest, select_incremental_source_files,
@@ -149,6 +150,8 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	stop_initial_program.stop();
 	let (dir, mut program) = program_result?;
 	let native_pipeline = prepare_flamework_pipeline(&dir, program, &opts)?;
+	let flamework_inputs = flamework_incremental_inputs(native_pipeline.as_ref())
+		.map_err(|error| Error::message(format!("compile: collect native Flamework incremental inputs: {error}")))?;
 	let path_translator = create_path_translator(program, !opts.lua_extension);
 	let source_files = project_source_files(program);
 	if let Some(timings) = timings {
@@ -181,7 +184,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 			}
 		}
 	}
-	let salt = match incremental_salt_with_flamework(&dir, program, &opts, &manifest_path, native_pipeline.as_ref()) {
+	let salt = match incremental_salt_with_flamework(&dir, program, &opts, &manifest_path, flamework_inputs.as_ref()) {
 		Ok(salt) => salt,
 		Err(error) => {
 			stop_manifest.stop();
@@ -324,6 +327,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 		};
 		let result = build_after_copy(
 			&dir,
+			native_pipeline.as_ref(),
 			&mut program,
 			&mut opts,
 			&writer,
@@ -356,6 +360,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 )]
 fn build_after_copy(
 	dir: &str,
+	native_pipeline: Option<&FlameworkPipeline>,
 	program: &mut &'static Program,
 	opts: &mut ProjectOptions,
 	writer: &OutputWriter,
@@ -403,8 +408,15 @@ fn build_after_copy(
 		pipeline_opts.declaration_prefetch =
 			DeclarationPrefetch::new(original_program, Some(&selected_paths), opts.timings.clone());
 	}
-	let pipeline =
-		run_compile_pipeline_with_options(dir, program, selected_files, &opts.overlays, None, &pipeline_opts)?;
+	let pipeline = run_compile_pipeline_with_options(
+		dir,
+		program,
+		selected_files,
+		&opts.overlays,
+		native_pipeline,
+		&pipeline_opts,
+	)?;
+	let flamework_project = pipeline.flamework_project;
 	let prepared = pipeline.prepared;
 	if let Some(timings) = timings {
 		timings.record_prepared_transformer_program(&prepared);
@@ -417,6 +429,16 @@ fn build_after_copy(
 		.is_some_and(|flamework| flamework.no_semantic_diagnostics)
 	{
 		opts.skip_semantic_diagnostics = true;
+	}
+	if let Some(native_pipeline) = native_pipeline {
+		if native_pipeline.config.no_semantic_diagnostics {
+			opts.skip_semantic_diagnostics = true;
+		}
+		let final_inputs = flamework_incremental_inputs(Some(native_pipeline)).map_err(|error| {
+			Error::message(format!("compile: refresh native Flamework incremental inputs: {error}"))
+		})?;
+		current_manifest.salt =
+			incremental_salt_with_flamework(dir, program, opts, manifest_path, final_inputs.as_ref())?;
 	}
 	if let Some(timings) = timings {
 		timings.set_source_counts(source_files.len(), selected_files.len());
@@ -492,6 +514,21 @@ fn build_after_copy(
 	}
 
 	let stop_persistence = start_stage(timings, Stage::Persistence);
+	if let Some(project) = flamework_project {
+		if let Some(pending) = &opts.pending_solution_dependency_persists {
+			lock(pending).push(Box::new(move || {
+				lock(&project)
+					.persist()
+					.map_err(|error| Error::message(error.to_string()))
+			}));
+		} else {
+			let persisted = lock(&project).persist();
+			if let Err(error) = persisted {
+				stop_persistence.stop();
+				return Err(Error::message(format!("compile: persist native Flamework artifacts: {error}")).into());
+			}
+		}
+	}
 	let mut current_outputs = writer.current_outputs();
 	if copy_files_gate.skip_cleanup {
 		// No cleanup ran and nothing was selected: the pre-build index is still valid.

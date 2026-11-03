@@ -1,6 +1,5 @@
 //! Ports of `internal/compile/*_test.go`, one module per Go test file. Expected strings are the
-//! Go tests' verbatim. Tests that need the solution builder, the transformer plugin sidecar or
-//! native Flamework (Stage 5b and Stage 6) are ported as `#[ignore]` with the reason.
+//! Go tests' verbatim. A test that cannot run names its reason in `#[ignore]`.
 //!
 //! The shared helpers are the Go tests' own (`writeProject`, `noLibGlobalStubs`, `copyDir`).
 
@@ -18,18 +17,32 @@ mod declpaths;
 mod diagnostic_string_code;
 mod env_macro;
 mod exportfrom;
+mod flamework_config;
+mod flamework_discovery_lookup;
+mod flamework_noinclude;
+mod flamework_nosemantic;
+mod flamework_pipeline;
+mod flamework_program_preparse;
+mod flamework_program_update;
+mod flamework_runtime_import;
+mod flamework_sparse_update;
+mod flamework_t_import;
+mod flamework_trace_decode;
+mod flamework_workspace_import;
 mod getmoduletree_folder;
 mod imports;
 mod incremental;
+mod incremental_flamework;
+mod incremental_flamework_build;
 mod incremental_plugin_salt;
 mod incremental_signature;
 mod incremental_signature_build;
+mod jecs_native;
 mod jsx_build;
 mod labels;
 mod macro_inputs;
 mod macro_test;
 mod modes;
-mod needs_later_stages;
 mod output;
 mod output_guard;
 mod outputwriter;
@@ -57,6 +70,8 @@ mod solution;
 mod solution_cache;
 mod solution_cancel;
 mod solution_drain;
+mod solution_flamework_integration;
+mod solution_flamework_publication;
 mod solution_metadata;
 mod solution_parallel;
 mod solution_persistence;
@@ -68,6 +83,9 @@ mod solution_watch_artifacts;
 mod solution_watch_oracle;
 mod solution_watch_refresh;
 mod sourcemap;
+mod task7_acceptance;
+mod task7_diag_dirty_state;
+mod task7_runtime;
 mod timings;
 mod transformers_integration;
 mod types_options;

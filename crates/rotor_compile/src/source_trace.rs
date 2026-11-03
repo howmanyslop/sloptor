@@ -40,17 +40,9 @@ impl SourceTraceMap {
 	///
 	/// The map does not parse, is not version 3, or its mappings do not decode.
 	pub fn new(raw: &str, file_name: &str, text: &str) -> Result<Self, String> {
-		let source_map: serde_json::Value =
-			serde_json::from_str(raw).map_err(|error| format!("parse transformer trace map: {error}"))?;
-		let version = source_map
-			.get("version")
-			.and_then(serde_json::Value::as_i64)
-			.unwrap_or(0);
-		let mappings = source_map
-			.get("mappings")
-			.and_then(serde_json::Value::as_str)
-			.unwrap_or("");
-		Self::from_mappings(version, mappings, file_name, text)
+		let (version, mappings) =
+			decode_raw_source_map(raw).map_err(|error| format!("parse transformer trace map: {error}"))?;
+		Self::from_mappings(version, &mappings, file_name, text)
 	}
 
 	/// `newSourceTraceMapFromMappings`
@@ -95,6 +87,33 @@ impl SourceTraceMap {
 			return Err(format!("parse transformer trace map mappings: {error}"));
 		}
 		Ok(trace)
+	}
+
+	/// A trace with `mappings` as (generated line, generated column, source line, source column),
+	/// Go's struct literal in tests.
+	#[cfg(test)]
+	pub(crate) fn for_test(file_name: &str, text: &str, mappings: &[(u32, u32, u32, u32)]) -> Self {
+		Self {
+			file_name: file_name.to_owned(),
+			text: text.to_owned(),
+			mappings: mappings
+				.iter()
+				.map(
+					|&(generated_line, generated_column, source_line, source_column)| TraceMapping {
+						generated_line,
+						generated_column,
+						source_line,
+						source_column,
+					},
+				)
+				.collect(),
+		}
+	}
+
+	/// How many mappings the trace holds.
+	#[cfg(test)]
+	pub(crate) const fn mapping_count(&self) -> usize {
+		self.mappings.len()
 	}
 
 	/// `OriginalSourceFileName`
@@ -262,3 +281,93 @@ pub fn byte_offset_of(text: &str, line: usize, column: usize) -> Option<usize> {
 #[cfg(test)]
 #[path = "tests/source_trace.rs"]
 mod tests;
+
+/// `json.Unmarshal` into Go's `rawSourceMap`: its version and mappings, or Go's error. A syntax
+/// error comes first; then the first member of the wrong type, in document order, though Go
+/// decodes the rest; a later duplicate member wins.
+fn decode_raw_source_map(raw: &str) -> Result<(i64, String), String> {
+	use crate::gojson::Value;
+
+	const fn kind(value: &Value) -> &'static str {
+		match value {
+			Value::Null => "null",
+			Value::Bool(_) => "bool",
+			Value::Number(_) => "number",
+			Value::String(_) => "string",
+			Value::Array(_) => "array",
+			Value::Object(_) => "object",
+		}
+	}
+	fn type_error(found: &str, field: &str, of: &str) -> String {
+		format!("json: cannot unmarshal {found} into Go struct field rawSourceMap.{field} of type {of}")
+	}
+	fn string_error(value: &Value, field: &str) -> Option<String> {
+		(!matches!(value, Value::Null | Value::String(_))).then(|| type_error(kind(value), field, "string"))
+	}
+
+	const FIELDS: [&str; 5] = ["version", "file", "sources", "sourcesContent", "mappings"];
+	let value = crate::gojson::parse(raw.as_bytes())?;
+	let members = match value {
+		Value::Null => return Ok((0, String::new())),
+		Value::Object(members) => members,
+		other => {
+			return Err(format!(
+				"json: cannot unmarshal {} into Go value of type compile.rawSourceMap",
+				kind(&other)
+			));
+		}
+	};
+	let mut version = 0;
+	let mut mappings = String::new();
+	let mut first_error = None;
+	for (key, value) in &members {
+		let Some(field) = FIELDS
+			.iter()
+			.find(|field| **field == key)
+			.or_else(|| FIELDS.iter().find(|field| folds_to(key, field)))
+		else {
+			continue;
+		};
+		let error = match (*field, value) {
+			(_, Value::Null) => None,
+			("version", Value::Number(literal)) => literal.parse::<i64>().map_or_else(
+				|_| Some(type_error(&format!("number {literal}"), field, "int")),
+				|number| {
+					version = number;
+					None
+				},
+			),
+			("version", other) => Some(type_error(kind(other), field, "int")),
+			("mappings", Value::String(text)) => {
+				text.clone_into(&mut mappings);
+				None
+			}
+			("sources" | "sourcesContent", Value::Array(items)) => {
+				items.iter().find_map(|item| string_error(item, field))
+			}
+			("sources" | "sourcesContent", other) => Some(type_error(kind(other), field, "[]string")),
+			(_, other) => string_error(other, field),
+		};
+		if first_error.is_none() {
+			first_error = error;
+		}
+	}
+	first_error.map_or(Ok((version, mappings)), Err)
+}
+
+/// Whether Go's `json` matches the member `key` to the ASCII field name `field`: equal under
+/// Unicode simple case folding, where of the non-ASCII letters only `ſ` folds to a letter of these
+/// names.
+fn folds_to(key: &str, field: &str) -> bool {
+	let mut key = key.chars();
+	for expected in field.chars() {
+		let Some(actual) = key.next() else {
+			return false;
+		};
+		let actual = if actual == '\u{17F}' { 's' } else { actual };
+		if !actual.eq_ignore_ascii_case(&expected) {
+			return false;
+		}
+	}
+	key.next().is_none()
+}

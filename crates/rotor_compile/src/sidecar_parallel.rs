@@ -48,6 +48,39 @@ pub fn mark_one_shot_cli_transformer_build(opts: &mut ProjectOptions) {
 	opts.cli_transformer_build = Some(Arc::new(CliTransformerBuild::default()));
 }
 
+/// `parallelPrefix`: the attested split a prefix stage may take.
+pub(crate) struct ParallelPrefix {
+	pub(crate) attestation: ParallelTransformersConfig,
+	pub(crate) build: Arc<CliTransformerBuild>,
+}
+
+/// `parallelPrefixContext`: the split a one-shot CLI build's Flamework prefix stage may take, when
+/// that stage is the build's only external call and `rotor.toml` attests it.
+pub(crate) fn parallel_prefix_context(
+	dir: &str,
+	pipeline: Option<&crate::flamework_pipeline::FlameworkPipeline>,
+	opts: &ProjectOptions,
+) -> Option<ParallelPrefix> {
+	let pipeline = pipeline?;
+	if pipeline.prefix.is_empty()
+		|| !pipeline.suffix.is_empty()
+		|| opts.census.is_some()
+		|| opts.emit_declaration_only
+		|| opts.transformer_callback.is_some()
+	{
+		return None;
+	}
+	let build = opts.cli_transformer_build.as_ref()?;
+	let config = rotor_config::config::load(dir).ok()?;
+	if !parallel_config_supported(&config) {
+		return None;
+	}
+	Some(ParallelPrefix {
+		attestation: config.parallel_transformers?,
+		build: Arc::clone(build),
+	})
+}
+
 /// `parallelConfigSupported`: two batch-independent workers, a TypeScript and plugins, and no
 /// warning about a `parallelTransformers` key whose meaning this build does not know.
 pub(crate) fn parallel_config_supported(config: &Config) -> bool {

@@ -471,7 +471,6 @@ pub(crate) trait TransformerHost: Sync {
 		config_path: &str,
 	) -> Result<(TransformerResponse, SidecarCallStats), Error>;
 	/// Whether this host is the Node subprocess (Go's `usesSubprocessSidecar`).
-	#[expect(dead_code, reason = "Stage 6's native jecs stage runs only under the Node sidecar")]
 	fn uses_subprocess_sidecar(&self) -> bool {
 		false
 	}

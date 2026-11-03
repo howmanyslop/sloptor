@@ -188,3 +188,181 @@ fn react_syntax_origin_survives_both_transports() {
 		}
 	});
 }
+
+#[test]
+fn source_map_flamework_nested_callbacks() {
+	// Use the real legacy plugin project, copied to a temporary directory with its installed
+	// dependencies linked, just as the plugin integration suite does.
+	let (temp, _sessions) = super::transformers_integration::legacy_flamework_fixture();
+	let config_path = temp.join("tsconfig.json");
+	let config = std::fs::read_to_string(&config_path).expect("read tsconfig");
+	let with_maps = config.replacen(r#""outDir": "out""#, r#""outDir": "out", "sourceMap": true"#, 1);
+	std::fs::write(&config_path, with_maps).expect("write tsconfig");
+	let source = r#"import { OnStart, Service } from "@flamework/core";
+
+@Service()
+export class TestService implements OnStart {
+	public onStart(): void {
+		const callback = () => {
+			print("outer-callback");
+			const inner = () => {
+				print("inner-callback");
+			};
+			inner();
+		};
+		callback();
+	}
+}
+"#;
+	let relative = "server/services/test.service";
+	temp.write(&format!("src/{relative}.ts"), source);
+	let (result, diags, error) = build(&temp.dir(), &ProjectOptions::default());
+	assert!(
+		error.is_none() && diags.is_empty(),
+		"plugin build: {error:?} (diagnostics: {diags:?})"
+	);
+	let text = super::sidecar::output_text(&result.expect("a result"), &format!("out/{relative}.luau"));
+	assert!(
+		text.contains("defineMetadata") && text.contains("identifier"),
+		"real Flamework plugin did not inject metadata:\n{text}"
+	);
+	let map = std::fs::read_to_string(temp.join(&format!("out/{relative}.luau.map"))).expect("read map");
+	assert_source_map_contract(&text, &map, source);
+	let mappings = super::sourcemap::decode_source_map_lines(&map);
+	// Pin the whole nested-callback group, including both closing keywords. The expected authored
+	// lines come from the literal source above, before Flamework inserts its imports, decorators
+	// and metadata and reprints it.
+	let want: [(&str, u32); 8] = [
+		("local callback = function()", 6),
+		(r#"print("outer-callback")"#, 7),
+		("local inner = function()", 8),
+		(r#"print("inner-callback")"#, 9),
+		("end", 10),
+		("inner()", 11),
+		("end", 12),
+		("callback()", 13),
+	];
+	let lines: Vec<&str> = text.split('\n').collect();
+	let start = lines.iter().position(|content| content.trim() == want[0].0);
+	let start = match start {
+		Some(start) if start + want.len() <= lines.len() => start,
+		_ => panic!("nested callback group missing:\n{text}"),
+	};
+	let mut errors = Vec::new();
+	for (offset, (expected, expected_line)) in want.iter().enumerate() {
+		let line = start + offset;
+		let got = lines[line].trim();
+		if got != *expected {
+			errors.push(format!("callback line {} = {got:?}, want {expected:?}", offset + 1));
+		}
+		let segments = u32::try_from(line)
+			.ok()
+			.and_then(|line| mappings.get(&line))
+			.map_or(&[][..], Vec::as_slice);
+		let Some(first) = segments.first().filter(|first| first.generated_character == 0) else {
+			errors.push(format!("callback Luau line {} has no column-zero segment", line + 1));
+			continue;
+		};
+		if !first.is_source_mapping() || first.source_line.map(|source| source + 1) != Some(*expected_line) {
+			errors.push(format!(
+				"callback Luau line {} maps to {first:?}, want authored TS line {expected_line}",
+				line + 1
+			));
+		}
+	}
+	assert!(errors.is_empty(), "{}", errors.join("\n"));
+}
+
+#[test]
+#[expect(
+	clippy::significant_drop_tightening,
+	reason = "the lock guards what the assertions read"
+)]
+fn react_syntax_origin_initial_prefix_suffix_and_next_build() {
+	use crate::flamework_pipeline::prepare_compile_pipeline;
+	use crate::sidecar::{prepare_transformer_program_with_host, transformer_host_for};
+	use crate::transformer_host::{TransformerRequest, with_transformer_callback};
+
+	set_test_env("ROTOR_REACT_SYNTAX_HOST", "1");
+	let temp = write_project("@scope/react-stages", "");
+	let config_path = temp.join("tsconfig.json");
+	let config = std::fs::read_to_string(&config_path).expect("read tsconfig");
+	let config = config.replacen(
+		r#""types": []"#,
+		r#""types": [], "plugins": [{"transform":"prefix"},{"transform":"suffix"}]"#,
+		1,
+	);
+	std::fs::write(&config_path, config).expect("write tsconfig");
+	let main_path = temp.join("src/main.ts").to_string_lossy().into_owned();
+	let authored = "export const value=1;\n";
+	std::fs::write(&main_path, authored).expect("write main");
+	let requests: Arc<Mutex<Vec<TransformerRequest>>> = Arc::default();
+	let recorded = Arc::clone(&requests);
+	let mut opts = ProjectOptions::default();
+	with_transformer_callback(
+		&mut opts,
+		Arc::new(move |_, request| {
+			crate::project::lock(&recorded).push(request);
+			Ok(TransformerResponse::default())
+		}),
+	);
+	large_stack(|| {
+		let (project_dir, program) = new_project_program_with_options(&temp.dir(), "", &ProjectOptions::default())
+			.unwrap_or_else(|failure| panic!("newProjectProgram: {} ({:?})", failure.error, failure.messages()));
+		let files = project_source_files(program);
+		if let Err(failure) = prepare_transformer_program_with_host(
+			None,
+			transformer_host_for(&opts),
+			&project_dir,
+			program,
+			&files,
+			&std::collections::BTreeMap::new(),
+		) {
+			panic!("initial stage: {} ({:?})", failure.error, failure.messages());
+		}
+		{
+			let requests = crate::project::lock(&requests);
+			assert!(
+				requests.len() == 1 && requests[0].source_origin == TRANSFORMER_ORIGINAL_AUTHORED,
+				"initial request provenance: {requests:?}"
+			);
+		}
+		crate::project::lock(&requests).clear();
+		temp.write("rotor.toml", "[flamework]\nafter = \"prefix\"\n");
+		// Native Flamework reprints the source between prefix and suffix. The next build must
+		// send disk text to revert that session overlay before admission.
+		for build in 0..2 {
+			if let Err(failure) =
+				prepare_compile_pipeline(&project_dir, program, &files, &std::collections::BTreeMap::new(), &opts)
+			{
+				panic!("pipeline build {build}: {} ({:?})", failure.error, failure.messages());
+			}
+		}
+	});
+	let requests = crate::project::lock(&requests);
+	assert_eq!(requests.len(), 4, "stage requests");
+	for (index, request) in requests.iter().enumerate() {
+		let want = if index % 2 == 0 {
+			TRANSFORMER_ORIGINAL_AUTHORED
+		} else {
+			""
+		};
+		assert_eq!(request.source_origin, want, "stage {index} origin");
+	}
+	let text_for = |request: &TransformerRequest| -> String {
+		request
+			.changed_files
+			.iter()
+			.flatten()
+			.find(|file| Path::new(&file.file_name) == Path::new(&main_path))
+			.map(|file| file.text.clone())
+			.unwrap_or_default()
+	};
+	let generated = text_for(&requests[1]);
+	assert!(
+		!generated.is_empty() && generated != authored,
+		"suffix did not receive native-generated text: {generated:?}"
+	);
+	let got = text_for(&requests[2]);
+	assert_eq!(got, authored, "next authored prefix retained suffix overlay");
+}

@@ -6,12 +6,8 @@ output writing. Stage 5b ports the solution builder, the transformer-plugin side
 and watch mode. Stage 6 ports native Flamework and Jecs (`internal/flamework`, `internal/jecs`)
 and the glue that calls them.
 
-A file split between stages keeps one Rust module per Go file. Each Stage 6 entry point keeps
-Go's signature and returns an explicit "not yet ported" error (`sidecar::not_yet_ported`). The stubs return errors rather than calling `todo!`,
-`unimplemented!` or `panic!`. With Flamework and transformer plugins off, every stubbed path
-takes the branch Go takes.
-
-Rows whose Rust module reads "(none yet)" have no Rust file until their stage ports them.
+A file split between stages keeps one Rust module per Go file. Stage 6 ports `internal/jecs`
+into `rotor_jecs` (`forof`, `query`, `transform`) and the compile-side glue listed below.
 
 ## File map (61 Go files)
 
@@ -30,15 +26,15 @@ Rows whose Rust module reads "(none yet)" have no Rust file until their stage po
 | `envdecl.go` | 5a | `envdecl` | The synthetic file is injected by `rotor_tsrs::project` |
 | `filemacro.go` | 5a | `filemacro` | `$file` returns raw bytes |
 | `flamework_config.go` | 5a | `flamework_config` | Moved to 5a: the pipeline needs its Flamework-off detection |
-| `flamework_pipeline.go` | 5a (part) | `flamework_pipeline` | Non-Flamework route; Flamework on is "not yet ported" |
-| `flamework_program_update.go` | 6 | (none yet) | |
-| `incremental_flamework.go` | 6 | `incremental_flamework` | Stub: no Flamework salt input |
+| `flamework_pipeline.go` | 5a, 6 | `flamework_pipeline` | |
+| `flamework_program_update.go` | 6 | `flamework_program_update` | Multi-file updates use tsrs patch 0007 (`Program::update_program_files_with_checkers`) |
+| `incremental_flamework.go` | 6 | `incremental_flamework` | |
 | `incremental_manifest.go` | 5a | `incremental_manifest` | |
 | `incremental_paths.go` | 5a | `incremental_paths` | |
 | `incremental_plugin_salt.go` | 5a | `incremental_plugin_salt` | |
 | `incremental_salt.go` | 5a | `incremental_salt` | |
 | `incremental_signature.go` | 5a | `incremental_signature` | |
-| `jecs_native.go`, `jecs_rebase.go` | 6 | (none yet) | |
+| `jecs_native.go`, `jecs_rebase.go` | 6 | `jecs_native`, `jecs_rebase` | |
 | `luau_types.go` | 5a | `luau_types` | |
 | `macro_inputs.go` | 5a | `macro_inputs` | |
 | `macrodecl.go` | 5a | `macrodecl` | |
@@ -126,6 +122,27 @@ Outside the Go file map:
     smaller default pool than Go.
   - Tests override the environment the sidecar reads through `sidecar::set_test_env` (Go's
     `t.Setenv`); the process environment is never touched.
+- Stage 6:
+  - `rotor_jecs::transform` (`package_symbol`, transform.rs:491): the fallback walk over
+    resolved modules visits them sorted by path, then by name and mode, where Go ranges over a
+    map.
+  - `sidecar::merge_sidecar_overlays` (sidecar.rs:1652) indexes the sidecar's overlays by
+    normalized path; Go rescans them per file (`overlayByPath`). Same result, linear time.
+  - `rotor_flamework` caches each directory's `package.json` and `flamework.build` facts for
+    a build (`package_declaration_facts`, transform_symbols.rs:163) and indexes plans by path
+    suffix (`plan_index`, transform_state.rs:174); Go rereads and rescans per lookup.
+  - `parallel_overlay_aliases` (flamework_program_update.rs:455) and `overlay_aliases` take
+    overlays in path order; Go ranges over its map, so a colliding alias's text is
+    nondeterministic there.
+  - `SourceTraceMap::new` decodes Go's `rawSourceMap` with `gojson` and reproduces
+    `encoding/json`'s errors for that struct (`decode_raw_source_map`, source_trace.rs:288).
+  - A malformed `rotor.toml` reports `rotor_config`'s TOML error text, not BurntSushi's
+    (tests/task7_acceptance.rs:178).
+  - The salt keeps Stage 5a's deviation: Flamework inputs feed the same hash, so a Go-built
+    manifest still never matches.
+  - Test hooks: `PROGRAM_UPDATES` and `LAST_PREPARSE` (flamework_program_update.rs:322) stand
+    in for Go's `CreateCheckerPool` counting hook and its `program.Host().(nativeOverlayHost)`
+    assertion; `solution_cache::wrap` is Go's `cache.wrap` over any host.
 
 ## Go tests
 
@@ -146,8 +163,12 @@ Ported: `array_append_optimization`, `audit`, `baseurl`, `comment_directives`, `
 `sourcemap_lines`, `sourcemap_paths`, `timings`, `unreachable_function`, `validateoptions`,
 `vector_math`.
 
-`src/tests/needs_later_stages.rs` holds the Go tests whose subject is Stage 6 (native
-Flamework) as ignored tests. Other ignored tests name their reason in `#[ignore]`:
+Stage 6 ports `flamework_*`, `incremental_flamework*`, `jecs_native`, `solution_flamework_*`,
+`task7_*`, and the Flamework halves of `sidecar`, `sidecar_acceptance` (source maps and React
+syntax origin) and `transformers_integration`. The native fixture tests copy
+`testdata/transformers/native/project` into a temporary directory, where Go builds it in place,
+so concurrent test processes do not race on its `node_modules` link. Ignored tests name their
+reason in `#[ignore]`:
 
 - Tests that swap Go's `transformer.TransformStatement` variable.
 - Tests that set process environment variables outside the sidecar's settings. That is
@@ -162,4 +183,5 @@ Stage 5b ports `census`, `census_solution`, `project_reference_import`, `sidecar
 `transformers_integration`, and turns on the 5a tests that were waiting for it. Scripted
 sidecar sessions (`sidecar_parallel`) are small Node workers instead of Go's in-memory pipes.
 
-The Stage 6 files (`flamework_*`, `jecs_*`, `performance_parity*`) move with their stage.
+`performance_parity` (it runs the CLI binary) waits for Stage 7. `incremental_portability` is
+not ported yet.

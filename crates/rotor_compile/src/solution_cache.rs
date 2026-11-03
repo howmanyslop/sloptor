@@ -141,6 +141,26 @@ impl ProjectParseCache {
 	}
 }
 
+/// `solutionCompileCache.wrap`: `host` with its declarations and JSON files parsed through
+/// `cache`, except those `skip` names, matched with the host's case sensitivity.
+#[cfg(test)]
+pub(crate) fn wrap(
+	cache: &Arc<SolutionCompileCache>,
+	host: Arc<dyn rotor_tsrs::compiler::CompilerHost>,
+	skip: impl IntoIterator<Item = String>,
+) -> Arc<dyn rotor_tsrs::compiler::CompilerHost> {
+	let case_sensitive = host.fs().use_case_sensitive_file_names();
+	let policy = ProjectParseCache {
+		cache: Arc::clone(cache),
+		skip: skip
+			.into_iter()
+			.map(|path| normalize_overlay_path(&path, case_sensitive))
+			.collect(),
+		case_sensitive,
+	};
+	rotor_tsrs::project::caching_compiler_host(host, Arc::new(policy))
+}
+
 impl rotor_tsrs::project::SourceFileCache for ProjectParseCache {
 	fn get_source_file(
 		&self,

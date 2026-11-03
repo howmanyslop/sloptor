@@ -13,9 +13,10 @@ use rotor_support::gopath;
 use rotor_tsrs::compiler::Program;
 
 use crate::compile::Error;
-use crate::flamework_pipeline::FlameworkPipeline;
 use crate::gojson;
-use crate::incremental_flamework::{flamework_incremental_inputs, flamework_incremental_salt};
+use crate::incremental_flamework::{
+	FlameworkIncrementalInputs, flamework_incremental_salt, portable_flamework_incremental_inputs,
+};
 use crate::incremental_paths::{incremental_path_encoder, relative_incremental_path};
 use crate::incremental_plugin_salt::transformer_plugin_fingerprints;
 use crate::luau_types::effective_luau_types;
@@ -45,7 +46,7 @@ pub(crate) fn incremental_salt_with_flamework(
 	program: &'static Program,
 	opts: &ProjectOptions,
 	path_translator_build_info_path: &str,
-	flamework: Option<&FlameworkPipeline>,
+	flamework_inputs: Option<&FlameworkIncrementalInputs>,
 ) -> Result<String, Error> {
 	let encode_path = incremental_path_encoder(dir, Some(program));
 	let relative_path = |name: &str| relative_incremental_path(dir, name);
@@ -68,7 +69,8 @@ pub(crate) fn incremental_salt_with_flamework(
 		.collect();
 	let (rojo_config_path, _) = resolve_rojo_config_path(dir, &opts.rojo_config_path)?;
 	let include_path = resolve_include_path(dir, &opts.include_path)?;
-	let flamework_salt = flamework_incremental_salt(flamework_incremental_inputs(flamework).as_ref());
+	let flamework_salt =
+		flamework_incremental_salt(portable_flamework_incremental_inputs(flamework_inputs, &encode_path).as_ref())?;
 	let rojo_resolver =
 		rojo_resolver_fingerprint(opts.rojo_cache.as_deref(), rojo_config_path.as_deref(), &relative_path);
 	let package_layout = opts

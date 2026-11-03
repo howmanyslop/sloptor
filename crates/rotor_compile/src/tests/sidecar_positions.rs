@@ -35,7 +35,7 @@ module.exports = function () {
 "#;
 
 /// `positionFixtureSource`: the unresolved name sits on line 12, column 2.
-const POSITION_FIXTURE_SOURCE: &str = concat!(
+pub const POSITION_FIXTURE_SOURCE: &str = concat!(
 	"export const SEED = 1;\n",
 	"\n",
 	"// The import that would declare the call below is deliberately absent.\n",
@@ -161,7 +161,7 @@ fn assert_authored_position(d: &DiagnosticInfo, line: usize, col: usize, authore
 }
 
 /// `assertLocatesUseMountEffect`
-fn assert_locates_use_mount_effect(d: &DiagnosticInfo) {
+pub fn assert_locates_use_mount_effect(d: &DiagnosticInfo) {
 	assert_authored_position(d, 12, 2, "useMountEffect");
 	assert_eq!(d.len, "useMountEffect".len(), "len");
 }

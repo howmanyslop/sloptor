@@ -416,6 +416,15 @@ impl Object {
 		self.raw(key, if value { "true" } else { "false" })
 	}
 
+	/// Adds a boolean member unless it is false (`omitempty`).
+	#[must_use]
+	pub fn bool_omitempty(self, key: &str, value: bool) -> Self {
+		if !value {
+			return self;
+		}
+		self.bool(key, value)
+	}
+
 	/// Adds an integer member.
 	#[must_use]
 	pub fn int(self, key: &str, value: i64) -> Self {

@@ -484,6 +484,8 @@ version = "0.0.0"
 dependencies = [
  "icu_normalizer",
  "rotor_config",
+ "rotor_flamework",
+ "rotor_jecs",
  "rotor_luau",
  "rotor_rojo",
  "rotor_support",

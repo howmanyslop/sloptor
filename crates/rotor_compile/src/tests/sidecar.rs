@@ -235,11 +235,29 @@ fn build_project_without_plugins_does_not_require_node() {
 }
 
 #[test]
-#[ignore = "needs Stage 6: native Flamework"]
 fn build_project_native_flamework_does_not_require_node_or_sidecar() {
-	// Given an enabled native Flamework project with no usable Node or sidecar, the real
-	// compiler emits Luau and spawns no sidecar session.
-	let _ = sidecar_slot_count;
+	// Given: an enabled native Flamework project with no usable Node or sidecar.
+	let temp = write_project("@scope/native-flamework-no-node", "");
+	temp.write("rotor.toml", "[flamework]\n");
+	set_test_env("ROTOR_NODE_PATH", &temp.join("missing-node").to_string_lossy());
+	set_test_env("ROTOR_SIDECAR_PATH", &temp.join("must-not-be-read").to_string_lossy());
+	let _sessions = SessionsGuard::new();
+
+	// When: the real compiler builds the project.
+	let (result, diags, error) = build(&temp.dir(), &ProjectOptions::default());
+	// Then: Luau is emitted and no Node sidecar session exists.
+	assert!(error.is_none(), "BuildProjectWithOptions: {error:?} (diags: {diags:?})");
+	let result = result.expect("a result");
+	assert!(
+		!output_text(&result, "out/main.luau").is_empty(),
+		"BuildProjectWithOptions result = {:?}, want emitted Luau",
+		result.outputs.keys()
+	);
+	let sessions = sidecar_slot_count();
+	assert_eq!(
+		sessions, 0,
+		"native Flamework build spawned {sessions} sidecar session(s)"
+	);
 }
 
 #[test]
@@ -269,6 +287,7 @@ fn apply_transformer_sidecar_with_plugins_runs_prefix_and_suffix_once() {
 				Some(plugins),
 				None,
 				"",
+				None,
 			)
 		};
 		let first = apply(program, &prefix)
@@ -312,6 +331,7 @@ fn apply_transformer_sidecar_leaves_declarations_to_native_emit() {
 			None,
 			None,
 			"",
+			None,
 		)
 		.unwrap_or_else(|failure| {
 			panic!(

@@ -16,7 +16,7 @@ use crate::ProjectOptions;
 use crate::source_trace_sourcemap::rewrite_source_map_paths;
 
 /// The decoded mappings of a source map's JSON, by generated line.
-fn decode_source_map_lines(map_json: &str) -> BTreeMap<u32, Vec<Mapping>> {
+pub fn decode_source_map_lines(map_json: &str) -> BTreeMap<u32, Vec<Mapping>> {
 	let map: serde_json::Value = serde_json::from_str(map_json).expect("the map parses");
 	let mut decoder = decode_mappings(map["mappings"].as_str().unwrap_or_default());
 	let mut lines: BTreeMap<u32, Vec<Mapping>> = BTreeMap::new();

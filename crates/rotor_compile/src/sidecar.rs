@@ -142,12 +142,6 @@ impl PreparedTransformerProgram {
 	}
 }
 
-/// The error a Stage 6 stub returns.
-pub(crate) fn not_yet_ported(what: &str) -> Failure {
-	let message = format!("compile: {what} is not yet ported to rotor-rs");
-	Failure::strings(vec![message.clone()], Error::message(message))
-}
-
 /// The transformer host of a build: the API callback when one is set, else the Node sidecar.
 pub(crate) fn transformer_host_for(opts: &ProjectOptions) -> &dyn TransformerHost {
 	match &opts.transformer_callback {
@@ -184,6 +178,7 @@ pub(crate) fn prepare_transformer_program_with_host(
 		None,
 		None,
 		TRANSFORMER_ORIGINAL_AUTHORED,
+		None,
 	)?;
 	if std::ptr::eq(transformed.program, program) {
 		transformed.source_files = source_files.to_vec();
@@ -209,6 +204,7 @@ pub(crate) fn apply_transformer_sidecar_with_plugins_and_host(
 	plugins: Option<&[String]>,
 	state: Option<&Arc<Mutex<SidecarBuildState>>>,
 	source_origin: &str,
+	parallel: Option<&crate::sidecar_parallel::ParallelPrefix>,
 ) -> Result<PreparedTransformerProgram, Failure> {
 	let mut config_path = program.options().config_file_path.clone();
 	if config_path.is_empty() {
@@ -232,7 +228,7 @@ pub(crate) fn apply_transformer_sidecar_with_plugins_and_host(
 			count_configured_after_declarations(configured.as_deref().unwrap_or_default()),
 		);
 	}
-	let call = TransformerCall {
+	let mut call = TransformerCall {
 		dir: dir.to_owned(),
 		config_path: config_path.clone(),
 		compile_files: source_files.to_vec(),
@@ -243,6 +239,14 @@ pub(crate) fn apply_transformer_sidecar_with_plugins_and_host(
 		source_origin: source_origin.to_owned(),
 		..TransformerCall::default()
 	};
+	// Go's `sidecarTransformerHost.transform` takes the split from the context; a callback host
+	// never gets one.
+	if let Some(parallel) = parallel
+		&& host.uses_subprocess_sidecar()
+	{
+		call.parallel = Some(parallel.attestation.clone());
+		call.parallel_build = Some(Arc::clone(&parallel.build));
+	}
 	let (response, mut costs) = host
 		.transform(cancel, call)
 		.map_err(|error| Failure::strings(vec![error.to_string()], error))?;
@@ -334,9 +338,9 @@ pub(crate) fn apply_transformer_sidecar_with_plugins_and_host(
 		program_overlays.insert(file.file_name, file.text);
 	}
 	let stop_overlay = log_stage(&config_path, Stage::OverlayProgram);
-	let updated = rotor_tsrs::project::update_with_overlays(program, &program_overlays);
+	let updated = crate::flamework_program_update::update_program_with_text_overlays(program, &program_overlays);
 	let overlay_duration = stop_overlay();
-	let (transformed_program, _) = updated.map_err(|error| Failure::bare(Error::message(error.to_string())))?;
+	let (transformed_program, _) = updated.map_err(Failure::bare)?;
 	prepared.program = transformed_program;
 	prepared.overlay_program_duration = overlay_duration;
 	prepared.overlay_program_recorded = true;
@@ -477,7 +481,6 @@ pub struct SidecarBuildState {
 
 impl SidecarBuildState {
 	/// `absorbSourceFiles`
-	#[expect(dead_code, reason = "Stage 6's native Flamework pipeline absorbs its stage")]
 	pub(crate) fn absorb_source_files(&mut self, files: &[P<SourceFile>]) {
 		for file in files {
 			self.stage_overlays
@@ -516,7 +519,6 @@ impl SidecarBuildState {
 	}
 
 	/// `applyTo`
-	#[expect(dead_code, reason = "Stage 6's native Flamework pipeline applies its build state")]
 	pub(crate) fn apply_to(&self, prepared: &mut PreparedTransformerProgram) {
 		let node_version = std::mem::take(&mut prepared.stats.node_version);
 		prepared.stats = self.call.clone();
@@ -1654,12 +1656,23 @@ pub(crate) fn merge_sidecar_overlays(
 	include_stage_overlays: bool,
 ) -> (BTreeMap<String, String>, i64) {
 	let mut merged = overlays.clone();
+	// Go's `overlayByPath` scans every key for a spelling it does not hold; the normalized keys
+	// answer the same question without that scan, which is quadratic over a project's overlays.
+	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
+	let mut normalized: HashSet<String> = merged
+		.keys()
+		.map(|key| normalize_overlay_path(key, case_sensitive))
+		.collect();
+	let has_overlay = |merged: &BTreeMap<String, String>, normalized: &HashSet<String>, path: &str| {
+		merged.contains_key(path) || normalized.contains(&normalize_overlay_path(path, case_sensitive))
+	};
 	if let Some(state) = state {
 		if include_stage_overlays {
 			for (path, text) in &state.stage_overlays {
-				if overlay_by_path(&merged, path).is_some() {
+				if has_overlay(&merged, &normalized, path) {
 					continue;
 				}
+				normalized.insert(normalize_overlay_path(path, case_sensitive));
 				merged.insert(path.clone(), text.clone());
 			}
 		}
@@ -1669,7 +1682,7 @@ pub(crate) fn merge_sidecar_overlays(
 	}
 	let mut reads = 0;
 	for file in compile_files {
-		if overlay_by_path(&merged, file.file_name()).is_some() {
+		if has_overlay(&merged, &normalized, file.file_name()) {
 			continue;
 		}
 		let on_disk = std::fs::read(file.file_name());
@@ -1683,19 +1696,6 @@ pub(crate) fn merge_sidecar_overlays(
 		merged.insert(file.file_name().to_owned(), file.text().to_owned());
 	}
 	(merged, reads)
-}
-
-/// `overlayByPath`
-pub(crate) fn overlay_by_path<'a>(overlays: &'a BTreeMap<String, String>, path: &str) -> Option<&'a String> {
-	if let Some(text) = overlays.get(path) {
-		return Some(text);
-	}
-	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
-	let key = normalize_overlay_path(path, case_sensitive);
-	overlays
-		.iter()
-		.find(|(existing, _)| normalize_overlay_path(existing, case_sensitive) == key)
-		.map(|(_, text)| text)
 }
 
 /// `ancestorNodeModules`: the `node_modules` directories Node searches from `project_dir`,
