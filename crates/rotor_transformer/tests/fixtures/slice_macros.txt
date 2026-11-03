@@ -1,0 +1,3 @@
+# Slice iv (macros).
+# 23_new, 25_mathmacros, 27_arraymacros and 30_optional end in `export {};` and wait on slice vi's
+# transform_export_declaration; 28_collectionmacros also waits on get_module_tree_import_parts.

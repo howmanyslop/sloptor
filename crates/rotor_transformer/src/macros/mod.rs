@@ -6,15 +6,34 @@
 //! `keysmacro.go` and `filemacro.go`.
 //!
 //! The tables carry every upstream registration name, so [`crate::macromanager`] resolves and
-//! audits exactly what Go does; each entry points at a stub that reports `rotorNotYetPorted`.
-//! The slice port replaces the stubs (and may add submodules below this file); the table layout
-//! and the functions core code calls keep their signatures. See `SLICES.md`.
+//! audits exactly what Go does. Each Go file is one submodule below this file; the tables keep
+//! Go's registration order. See `SLICES.md`.
+
+mod arraymacros;
+mod arraymacros2;
+mod callmacros;
+mod collectionmacros;
+mod constructormacros;
+mod envmacro;
+mod filemacro;
+mod keysmacro;
+mod nameofmacro;
+mod propertycallmacros;
+mod stringmacros;
+
+#[cfg(test)]
+mod tests;
 
 use rotor_tsrs::ast as tsast;
 
-use crate::call::ChainItem;
-use crate::macromanager::{CallMacro, ConstructorMacro, IdentifierMacro, PropertyCallMacro, PropertyCallMacroEntry};
+use crate::macromanager::{CallMacro, ConstructorMacro, IdentifierMacro, PropertyCallMacro};
 use crate::prelude::*;
+
+pub(crate) use self::envmacro::{env_macro_symbol, intercept_env_chain};
+pub(crate) use self::filemacro::{file_macro_symbol, intercept_file_chain};
+pub(crate) use self::keysmacro::{intercept_keys_chain, keys_macro_symbol};
+pub(crate) use self::nameofmacro::{intercept_nameof_chain, nameof_macro_symbol};
+pub(crate) use self::propertycallmacros::run_property_call_macro;
 
 /// Per-file state owned by this slice.
 #[derive(Debug, Default)]
@@ -34,171 +53,13 @@ pub trait FileResolver {
 	fn read(&self, importer_path: &str, path: &str) -> std::io::Result<Vec<u8>>;
 }
 
-fn identifier_macro_stub(state: &mut State<'_>, node: P<Node>) -> NodeId {
-	state.not_yet_ported(node, "identifier macros");
+/// `args[index]`: Go indexes the macro arguments directly and panics on a missing one.
+fn arg(state: &mut State<'_>, args: &[NodeId], index: usize) -> NodeId {
+	if let Some(&argument) = args.get(index) {
+		return argument;
+	}
+	state.ice(format!("transformer: macro argument {index} is missing"));
 	state.ast.none()
-}
-
-fn constructor_macro_stub(state: &mut State<'_>, node: P<Node>) -> NodeId {
-	state.not_yet_ported(node, "constructor macros");
-	state.ast.none()
-}
-
-fn call_macro_stub(state: &mut State<'_>, node: P<Node>, _expression: NodeId, _args: Vec<NodeId>) -> NodeId {
-	state.not_yet_ported(node, "call macros");
-	state.ast.none()
-}
-
-fn property_call_macro_stub(state: &mut State<'_>, node: P<Node>, _expression: NodeId, _args: Vec<NodeId>) -> NodeId {
-	state.not_yet_ported(node, "property call macros");
-	state.ast.none()
-}
-
-/// `identifierMacroTable` (`IDENTIFIER_MACROS`).
-pub(crate) const IDENTIFIER_MACROS: &[(&str, IdentifierMacro)] = &[("Promise", identifier_macro_stub)];
-
-/// `callMacroTable` (`CALL_MACROS`).
-pub(crate) const CALL_MACROS: &[(&str, CallMacro)] = &[
-	("assert", call_macro_stub),
-	("typeOf", call_macro_stub),
-	("typeIs", call_macro_stub),
-	("classIs", call_macro_stub),
-	("identity", call_macro_stub),
-	("$range", call_macro_stub),
-	("$tuple", call_macro_stub),
-	("$getModuleTree", call_macro_stub),
-];
-
-/// `constructorMacroTable` (`CONSTRUCTOR_MACROS`).
-pub(crate) const CONSTRUCTOR_MACROS: &[(&str, ConstructorMacro)] = &[
-	("ArrayConstructor", constructor_macro_stub),
-	("SetConstructor", constructor_macro_stub),
-	("MapConstructor", constructor_macro_stub),
-	("WeakSetConstructor", constructor_macro_stub),
-	("WeakMapConstructor", constructor_macro_stub),
-	("ReadonlyMapConstructor", constructor_macro_stub),
-	("ReadonlySetConstructor", constructor_macro_stub),
-];
-
-const S: PropertyCallMacro = property_call_macro_stub;
-
-/// `propertyCallMacroTable` (`PROPERTY_CALL_MACROS`): class name to method rows, each class's
-/// methods registered from its own interface declarations only.
-pub(crate) const PROPERTY_CALL_MACROS: &[(&str, &[(&str, PropertyCallMacro)])] = &[
-	// math classes (makeMathSet)
-	("CFrame", &[("add", S), ("sub", S), ("mul", S)]),
-	("UDim", &[("add", S), ("sub", S)]),
-	("UDim2", &[("add", S), ("sub", S)]),
-	(
-		"Vector2",
-		&[("add", S), ("sub", S), ("mul", S), ("div", S), ("idiv", S)],
-	),
-	("Vector2int16", &[("add", S), ("sub", S), ("mul", S), ("div", S)]),
-	(
-		"Vector3",
-		&[("add", S), ("sub", S), ("mul", S), ("div", S), ("idiv", S)],
-	),
-	("Vector3int16", &[("add", S), ("sub", S), ("mul", S), ("div", S)]),
-	("Number", &[("idiv", S)]),
-	// rotor extension: Luau's native `vector`
-	("vector", &[("add", S), ("sub", S), ("mul", S), ("div", S), ("idiv", S)]),
-	(
-		"String",
-		&[
-			("size", S),
-			("byte", S),
-			("find", S),
-			("format", S),
-			("gmatch", S),
-			("gsub", S),
-			("lower", S),
-			("match", S),
-			("rep", S),
-			("reverse", S),
-			("split", S),
-			("sub", S),
-			("upper", S),
-		],
-	),
-	("ArrayLike", &[("size", S)]),
-	(
-		"ReadonlyArray",
-		&[
-			("isEmpty", S),
-			("join", S),
-			("move", S),
-			("includes", S),
-			("indexOf", S),
-			("every", S),
-			("some", S),
-			("forEach", S),
-			("map", S),
-			("mapFiltered", S),
-			("filterUndefined", S),
-			("filter", S),
-			("reduce", S),
-			("find", S),
-			("findIndex", S),
-		],
-	),
-	(
-		"Array",
-		&[
-			("push", S),
-			("pop", S),
-			("shift", S),
-			("unshift", S),
-			("insert", S),
-			("remove", S),
-			("unorderedRemove", S),
-			("sort", S),
-			("clear", S),
-		],
-	),
-	(
-		"ReadonlySet",
-		&[("isEmpty", S), ("size", S), ("has", S), ("forEach", S)],
-	),
-	("Set", &[("delete", S), ("clear", S), ("add", S)]),
-	(
-		"ReadonlyMap",
-		&[("isEmpty", S), ("size", S), ("has", S), ("forEach", S), ("get", S)],
-	),
-	("Map", &[("delete", S), ("clear", S), ("set", S)]),
-	("Promise", &[("then", S)]),
-];
-
-/// Runs a property-call macro through `runCallMacro` with upstream's comment wrapping
-/// (`propertycallmacros.go` `wrapComments`).
-pub(crate) fn run_property_call_macro(
-	entry: PropertyCallMacroEntry,
-	state: &mut State<'_>,
-	node: P<Node>,
-	_base_expression: NodeId,
-	_node_arguments: &[P<Node>],
-) -> NodeId {
-	state.not_yet_ported(node, &format!("macro `{}`", entry.name()));
-	state.ast.none()
-}
-
-/// `envMacroSymbol` (`envmacro.go`): the global `$env` symbol.
-pub(crate) fn env_macro_symbol(state: &mut State<'_>) -> Option<P<Symbol>> {
-	state.ambient_symbol("$env")
-}
-
-/// `nameofMacroSymbol` (`nameofmacro.go`): the global `$nameof` symbol.
-pub(crate) fn nameof_macro_symbol(state: &mut State<'_>) -> Option<P<Symbol>> {
-	state.ambient_symbol("$nameof")
-}
-
-/// `keysMacroSymbol` (`keysmacro.go`): the global `$keys` symbol.
-pub(crate) fn keys_macro_symbol(state: &mut State<'_>) -> Option<P<Symbol>> {
-	state.ambient_symbol("$keys")
-}
-
-/// `fileMacroSymbol` (`filemacro.go`): the global `$file` symbol.
-pub(crate) fn file_macro_symbol(state: &mut State<'_>) -> Option<P<Symbol>> {
-	state.ambient_symbol("$file")
 }
 
 /// `is<X>MacroNode`: `node`, skipped downwards, is an identifier spelled `name` bound to the
@@ -214,34 +75,98 @@ fn is_macro_node(state: &mut State<'_>, node: P<Node>, name: &str) -> bool {
 	state.ck().get_symbol_at_location(node) == Some(macro_symbol)
 }
 
-fn intercept_stub(state: &mut State<'_>, chain: &[ChainItem], expression: P<Node>, name: &str) -> Option<NodeId> {
-	if chain.is_empty() || !is_macro_node(state, expression, name) {
-		return None;
-	}
-	state.not_yet_ported(chain[0].node, &format!("the {name} macro"));
-	Some(state.ast.none())
+/// The cooked text of a string-literal-like argument (`envStringLiteralText`,
+/// `fileStringLiteralText`): `None` for any other expression, whose value is unknown at compile
+/// time.
+fn string_literal_text(node: P<Node>) -> Option<&'static str> {
+	let node = tsast::skip_downwards(node);
+	tsast::is_string_literal_like(node).then(|| node.text())
 }
 
-/// `interceptEnvChain` (`envmacro.go`): `None` when the chain's base is not `$env`.
-pub(crate) fn intercept_env_chain(state: &mut State<'_>, chain: &[ChainItem], expression: P<Node>) -> Option<NodeId> {
-	intercept_stub(state, chain, expression, "$env")
-}
+/// `identifierMacroTable` (`IDENTIFIER_MACROS`).
+pub(crate) const IDENTIFIER_MACROS: &[(&str, IdentifierMacro)] = &[("Promise", callmacros::promise)];
 
-/// `interceptNameofChain` (`nameofmacro.go`).
-pub(crate) fn intercept_nameof_chain(
-	state: &mut State<'_>,
-	chain: &[ChainItem],
-	expression: P<Node>,
-) -> Option<NodeId> {
-	intercept_stub(state, chain, expression, "$nameof")
-}
+/// `callMacroTable` (`CALL_MACROS`).
+pub(crate) const CALL_MACROS: &[(&str, CallMacro)] = &[
+	("assert", callmacros::assert),
+	("typeOf", callmacros::type_of),
+	("typeIs", callmacros::type_is),
+	("classIs", callmacros::class_is),
+	("identity", callmacros::identity),
+	("$range", callmacros::range),
+	("$tuple", callmacros::tuple),
+	("$getModuleTree", callmacros::get_module_tree),
+];
 
-/// `interceptKeysChain` (`keysmacro.go`).
-pub(crate) fn intercept_keys_chain(state: &mut State<'_>, chain: &[ChainItem], expression: P<Node>) -> Option<NodeId> {
-	intercept_stub(state, chain, expression, "$keys")
-}
+/// `constructorMacroTable` (`CONSTRUCTOR_MACROS`).
+pub(crate) const CONSTRUCTOR_MACROS: &[(&str, ConstructorMacro)] = &[
+	("ArrayConstructor", constructormacros::array_constructor),
+	("SetConstructor", constructormacros::set_constructor),
+	("MapConstructor", constructormacros::map_constructor),
+	("WeakSetConstructor", constructormacros::weak_set_constructor),
+	("WeakMapConstructor", constructormacros::weak_map_constructor),
+	("ReadonlyMapConstructor", constructormacros::map_constructor),
+	("ReadonlySetConstructor", constructormacros::set_constructor),
+];
 
-/// `interceptFileChain` (`filemacro.go`).
-pub(crate) fn intercept_file_chain(state: &mut State<'_>, chain: &[ChainItem], expression: P<Node>) -> Option<NodeId> {
-	intercept_stub(state, chain, expression, "$file")
-}
+/// `makeMathSet("+", "-", "*", "/", "//")`
+const MATH_ALL: &[(&str, PropertyCallMacro)] = &[
+	("add", propertycallmacros::math_add),
+	("sub", propertycallmacros::math_sub),
+	("mul", propertycallmacros::math_mul),
+	("div", propertycallmacros::math_div),
+	("idiv", propertycallmacros::math_idiv),
+];
+
+/// `makeMathSet("+", "-", "*", "/")`
+const MATH_NO_IDIV: &[(&str, PropertyCallMacro)] = &[
+	("add", propertycallmacros::math_add),
+	("sub", propertycallmacros::math_sub),
+	("mul", propertycallmacros::math_mul),
+	("div", propertycallmacros::math_div),
+];
+
+/// `propertyCallMacroTable` (`PROPERTY_CALL_MACROS`): class name to method rows, each class's
+/// methods registered from its own interface declarations only. Every entry runs through
+/// [`run_property_call_macro`], which applies upstream's `wrapComments`.
+pub(crate) const PROPERTY_CALL_MACROS: &[(&str, &[(&str, PropertyCallMacro)])] = &[
+	// math classes (makeMathSet)
+	(
+		"CFrame",
+		&[
+			("add", propertycallmacros::math_add),
+			("sub", propertycallmacros::math_sub),
+			("mul", propertycallmacros::math_mul),
+		],
+	),
+	(
+		"UDim",
+		&[
+			("add", propertycallmacros::math_add),
+			("sub", propertycallmacros::math_sub),
+		],
+	),
+	(
+		"UDim2",
+		&[
+			("add", propertycallmacros::math_add),
+			("sub", propertycallmacros::math_sub),
+		],
+	),
+	("Vector2", MATH_ALL),
+	("Vector2int16", MATH_NO_IDIV),
+	("Vector3", MATH_ALL),
+	("Vector3int16", MATH_NO_IDIV),
+	("Number", &[("idiv", propertycallmacros::math_idiv)]),
+	// rotor extension: Luau's native `vector`
+	("vector", MATH_ALL),
+	("String", stringmacros::STRING_CALLBACKS),
+	("ArrayLike", stringmacros::ARRAY_LIKE_METHODS),
+	("ReadonlyArray", arraymacros::READONLY_ARRAY_METHODS),
+	("Array", arraymacros2::ARRAY_METHODS),
+	("ReadonlySet", collectionmacros::READONLY_SET_METHODS),
+	("Set", collectionmacros::SET_METHODS),
+	("ReadonlyMap", collectionmacros::READONLY_MAP_METHODS),
+	("Map", collectionmacros::MAP_METHODS),
+	("Promise", collectionmacros::PROMISE_METHODS),
+];
