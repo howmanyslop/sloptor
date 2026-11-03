@@ -1,10 +1,10 @@
-// Vendors the pinned tsrs release into `vendor/tsrs/`.
+// Vendors the pinned tsrs release into `third_party/tsrs/`.
 //
 // tsrs is a Cargo workspace, so a bare copy of the crates rotor links would lose the
 // `workspace = true` inheritance. The mirror copies the transitive closure of the
 // needed crates, writes a trimmed workspace root that still carries
 // `[workspace.package]`, `[workspace.dependencies]` and `[workspace.lints]`, then
-// applies `patches/*.patch` in name order. Nobody edits `vendor/tsrs/` by hand.
+// applies `patches/*.patch` in name order. Nobody edits `third_party/tsrs/` by hand.
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -182,7 +182,7 @@ export function listPatches(directory: string): Array<string> {
 
 export interface MirrorOptions {
 	readonly commit: string;
-	/** Destination directory, normally `vendor/tsrs`. */
+	/** Destination directory, normally `third_party/tsrs`. */
 	readonly out: string;
 	readonly patchesDirectory: string;
 	readonly roots?: ReadonlyArray<string>;

@@ -20,7 +20,7 @@ exclude =
     "tsgo",
     "reference",
     "include",
-    "vendor",
+    "third_party",
     "target",
     "**/testdata/**",
     "media",
@@ -39,10 +39,10 @@ exclude =
   )
 
 local GO_FILES = List("**/*.go", "go.mod", "go.sum")
-// vendor/tsrs is mirrored by tools/tsrs-mirror and excluded from the Cargo workspace.
+// third_party/tsrs is mirrored by tools/tsrs-mirror and excluded from the Cargo workspace.
 local RUST_FILES = List("**/*.rs", "**/Cargo.toml", "Cargo.lock", ".cargo/config.toml")
 // editors/zed is the standalone Zed extension with its own rustfmt.toml and lockfile.
-local RUST_EXCLUDE = List("vendor/**", "editors/**")
+local RUST_EXCLUDE = List("third_party/**", "editors/**")
 // Rust configuration TOML. tombi validates .cargo/config.toml against the Cargo.toml schema,
 // which rejects its [target] table, so it is left out.
 local RUST_TOML = List("**/Cargo.toml", "rustfmt.toml", "clippy.toml", "deny.toml")
@@ -102,7 +102,7 @@ local fileChecks = new Mapping<String, Step> {
   // The builtins run once per Cargo.toml (`workspace_indicator`), which fails on this
   // repo's virtual workspace root and repeats the work per crate. These run once for the
   // whole workspace instead. No `--all`: it also formats path dependencies, which would
-  // reformat vendor/tsrs.
+  // reformat third_party/tsrs.
   ["cargo-fmt"] = (Builtins.cargo_fmt) {
     exclude = RUST_EXCLUDE
     workspace_indicator = null

@@ -20,7 +20,7 @@ const repositoryRoot = path.resolve(here, "../..");
 const { values } = parseArgs({
 	args: argv.slice(2),
 	options: {
-		out: { default: path.join(repositoryRoot, "vendor/tsrs"), type: "string" },
+		out: { default: path.join(repositoryRoot, "third_party/tsrs"), type: "string" },
 		source: { type: "string" },
 	},
 });

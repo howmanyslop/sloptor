@@ -26,6 +26,6 @@ testdata/** -text
 testdata/forkparity/project/performance-output/tree/src/*.ts -text whitespace=-cr-at-eol
 # The $file macro inlines this text file byte-for-byte into Luau output.
 internal/compile/testdata/macros_model/src/notes.txt -text
-# vendor/tsrs is mirrored byte-for-byte by tools/tsrs-mirror (some upstream files are CRLF).
-vendor/tsrs/** -text
+# third_party/tsrs is mirrored byte-for-byte by tools/tsrs-mirror (some upstream files are CRLF).
+third_party/tsrs/** -text
 tools/tsrs-mirror/patches/*.patch -whitespace

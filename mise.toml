@@ -317,7 +317,7 @@ description = "Runs the unit tests for tools/tsrs-mirror and tools/parity."
 run = "vitest run tools/parity tools/tsrs-mirror"
 
 [tasks."tsrs:mirror"]
-description = "Re-vendors the pinned tsrs release into vendor/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
+description = "Re-vendors the pinned tsrs release into third_party/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
 run = "node tools/tsrs-mirror/main.ts"
 
 [tasks.amend]

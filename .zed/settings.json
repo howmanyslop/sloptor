@@ -40,7 +40,7 @@
 		"**/.classpath",
 		"**/.settings",
 		"**/node_modules",
-		"vendor/tsrs"
+		"third_party/tsrs"
 	],
 	"file_types": {
 		"HTML": ["svg"],

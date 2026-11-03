@@ -1,10 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-# vendor/tsrs is its own workspace, mirrored by tools/tsrs-mirror and pulled in as path
+# third_party/tsrs is its own workspace, mirrored by tools/tsrs-mirror and pulled in as path
 # dependencies only, so rotor's lints never apply to it. editors/zed is the standalone Zed
 # extension (wasm, edition 2021, its own lockfile and rustfmt.toml).
-exclude = ["editors/zed", "vendor/tsrs"]
+exclude = ["editors/zed", "third_party/tsrs"]
 
 [workspace.package]
 version = "0.0.0"
@@ -24,12 +24,12 @@ rotor_luau = { path = "crates/rotor_luau" }
 rotor_rojo = { path = "crates/rotor_rojo" }
 rotor_transformer = { path = "crates/rotor_transformer" }
 rotor_tsrs = { path = "crates/rotor_tsrs" }
-tsrs_ast = { path = "vendor/tsrs/crates/tsrs_ast" }
-tsrs_checker = { path = "vendor/tsrs/crates/tsrs_checker" }
-tsrs_compiler = { path = "vendor/tsrs/crates/tsrs_compiler" }
-tsrs_core = { path = "vendor/tsrs/crates/tsrs_core" }
-tsrs_tsoptions = { path = "vendor/tsrs/crates/tsrs_tsoptions" }
-tsrs_vfs = { path = "vendor/tsrs/crates/tsrs_vfs" }
+tsrs_ast = { path = "third_party/tsrs/crates/tsrs_ast" }
+tsrs_checker = { path = "third_party/tsrs/crates/tsrs_checker" }
+tsrs_compiler = { path = "third_party/tsrs/crates/tsrs_compiler" }
+tsrs_core = { path = "third_party/tsrs/crates/tsrs_core" }
+tsrs_tsoptions = { path = "third_party/tsrs/crates/tsrs_tsoptions" }
+tsrs_vfs = { path = "third_party/tsrs/crates/tsrs_vfs" }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
