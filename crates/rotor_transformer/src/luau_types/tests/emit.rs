@@ -43,7 +43,7 @@ pub fn require_clean(rendered: &str) {
 /// settled value and the `TS.async` local carries the Promise-returning type; a void body with
 /// a bare `return` is `...nil`.
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_signatures() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -84,7 +84,7 @@ fn luau_types_emission_signatures() {
 /// A logical chain's `_condition` temp is re-bound to the expression's TS type, and a literal
 /// spilled to a temp by such a chain keeps its shape.
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_refines_condition_temps() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -108,7 +108,7 @@ fn luau_types_emission_refines_condition_temps() {
 /// Object-literal methods take an explicit `self`: the literal's contextual alias when there is
 /// one, a written `this` parameter's type, and `any` otherwise.
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_object_literal_methods() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -129,7 +129,7 @@ fn luau_types_emission_object_literal_methods() {
 /// Locals read like hand-written Luau: only a local with no initializer, a hoisted one, or one
 /// whose written type differs from its initializer's widened type is annotated.
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_emission_locals() {
 	let rendered = render_luau_types("src/locals.ts", true);
 	require_lines(
@@ -155,7 +155,6 @@ fn luau_types_emission_locals() {
 /// In a `//!native` file with both options on, the native policy still owns every signature
 /// (byte-identical to nativeTypes alone) and luauTypes owns the locals.
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_keeps_native_signatures() {
 	let render_with = |luau_types: bool| {
 		with_state(&transformer_testdata("functions"), "src/native.ts", |state| {
@@ -218,7 +217,6 @@ fn object_literal_method(fixture: &Fixture<'_, '_>, name: &str) -> P<Node> {
 /// `any` for an unnamed literal, the receiver the class transform passes, and a written `this`
 /// parameter over either.
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_method_receiver() {
 	with_fixture("src/emission.ts", |fixture| {
 		fixture.state.luau_types = true;
@@ -251,7 +249,6 @@ fn luau_types_method_receiver() {
 
 /// Without luauTypes the same method keeps rbxtsc's colon form.
 #[test]
-#[ignore = "needs slice ii"]
 fn method_receiver_ignored_without_luau_types() {
 	with_fixture("src/emission.ts", |fixture| {
 		let value = fixture.state.ast.temp_id("object");

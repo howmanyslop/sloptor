@@ -93,49 +93,46 @@ fn check_golden(rel_path: &str) {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: export declarations"]
 fn luau_types_golden_aliases() {
 	check_golden("src/aliases.ts");
 }
 
 #[test]
-#[ignore = "needs slice iii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_classes() {
 	check_golden("src/classes.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: await expressions"]
 fn luau_types_golden_emission() {
 	check_golden("src/emission.ts");
 }
 
 #[test]
-#[ignore = "needs slice iii"]
 fn luau_types_golden_enums() {
 	check_golden("src/enums.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_golden_functions() {
 	check_golden("src/functions.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_imports() {
 	check_golden("src/imports.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_golden_lib_shapes() {
 	check_golden("src/lib/shapes.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_locals() {
 	check_golden("src/locals.ts");
 }
@@ -146,19 +143,17 @@ fn luau_types_golden_primitives() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_golden_roblox() {
 	check_golden("src/roblox.ts");
 }
 
 #[test]
-#[ignore = "needs slice iii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_tables() {
 	check_golden("src/tables.ts");
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_golden_typefunctions() {
 	check_golden("src/typefunctions.ts");
 }

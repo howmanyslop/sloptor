@@ -33,7 +33,6 @@ fn require_contains(got: &str, want: &[&str]) {
 /// With nativeTypes off, `//!native` is inert: the directive comment is still emitted but no
 /// annotation, alias, or generic reaches the output.
 #[test]
-#[ignore = "needs slice ii"]
 fn native_types_off_emits_directive_only() {
 	let got = render_with_native_types("src/native.ts", false);
 	assert!(
@@ -57,7 +56,6 @@ fn native_types_off_emits_directive_only() {
 
 /// With nativeTypes on, the same file is annotated exactly as before the option existed.
 #[test]
-#[ignore = "needs slice ii"]
 fn native_types_on_annotates_directive_files() {
 	let got = render_with_native_types("src/native.ts", true);
 	assert!(
@@ -73,7 +71,6 @@ fn native_types_on_annotates_directive_files() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_annotate_signatures() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -97,7 +94,6 @@ fn native_files_annotate_signatures() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_annotate_tables_structurally() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -127,7 +123,6 @@ fn native_files_annotate_tables_structurally() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_alias_named_types() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -166,7 +161,6 @@ fn native_files_alias_named_types() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_annotate_function_types() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -191,7 +185,6 @@ fn native_files_annotate_function_types() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_annotate_callable_shapes() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -244,7 +237,6 @@ fn native_files_annotate_callable_shapes() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_annotate_roblox_types_nested() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -257,7 +249,6 @@ fn native_files_annotate_roblox_types_nested() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_treat_class_type_parameters_as_any() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -272,7 +263,6 @@ fn native_files_treat_class_type_parameters_as_any() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_only_annotate_own_generics_at_top_level() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -288,7 +278,6 @@ fn native_files_only_annotate_own_generics_at_top_level() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_leave_unhelpful_types_unannotated() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -309,7 +298,6 @@ fn native_files_leave_unhelpful_types_unannotated() {
 
 /// A bare `table` annotation is tagged userdata by Luau's compiler.
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_never_emit_bare_table() {
 	let got = render_native("src/native.ts");
 	for line in got.split('\n') {
@@ -326,7 +314,6 @@ fn native_files_never_emit_bare_table() {
 /// A top-level interface or type alias of the compiled file emits its Luau alias at the
 /// declaration, not at the top of the file.
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_emit_aliases_at_the_declaration() {
 	let got = render_native("src/native.ts");
 	let position = |text: &str| got.find(text);
@@ -388,7 +375,6 @@ fn native_files_emit_aliases_at_the_declaration() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn native_files_mirror_literal_types() {
 	let got = render_native("src/native.ts");
 	require_contains(
@@ -410,7 +396,7 @@ fn native_files_mirror_literal_types() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: export assignments"]
 fn native_files_annotate_recursive_generic_cache() {
 	let got = render_native("src/lru.ts");
 	require_contains(
@@ -437,7 +423,6 @@ fn native_files_annotate_recursive_generic_cache() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn files_without_native_directive_are_not_annotated() {
 	let got = render_native("src/nonative.ts");
 	require_contains(

@@ -338,7 +338,6 @@ const PRELUDE_NAMES: &[&str] = &[
 ];
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_type_function_bodies() {
 	let (got, _) = render_luau_types_losses("src/typefunctions.ts", true);
 	let blocks = type_function_blocks(&got);
@@ -384,7 +383,6 @@ fn luau_types_type_function_bodies_registry() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_type_function_fallbacks() {
 	let (got, losses) = render_luau_types_losses("src/typefunctions.ts", true);
 	// Each fallback is `any` under a comment naming what stopped the translation, with the loss
@@ -444,7 +442,6 @@ fn luau_types_type_function_fallbacks_registry() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_type_function_call_sites() {
 	let (got, _) = render_luau_types_losses("src/typefunctions.ts", true);
 	// A complete translation keeps the call-site spelling at every use, closed arguments
@@ -481,7 +478,6 @@ fn luau_types_type_function_call_sites() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_type_function_prelude() {
 	let (got, _) = render_luau_types_losses("src/typefunctions.ts", true);
 	let blocks = type_function_blocks(&got);
@@ -548,7 +544,6 @@ fn luau_types_type_function_prelude_registry() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_type_functions_analyze_clean() {
 	let (got, _) = render_luau_types_losses("src/typefunctions.ts", true);
 	let Some(analyzer) = find_luau_analyzer() else {

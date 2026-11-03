@@ -447,7 +447,7 @@ fn luau_types_alias_emission() {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: export declarations"]
 fn luau_types_aliases_at_declaration() {
 	let (got, losses) = render_luau_types_losses("src/aliases.ts", true);
 
@@ -540,7 +540,7 @@ fn analyze_clean(name: &str, got: &str) {
 }
 
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_aliases_mirror_imports() {
 	let (got, losses) = render_luau_types_losses("src/imports.ts", true);
 	assert_lines_in_order(
@@ -600,7 +600,6 @@ fn luau_types_aliases_mirror_imports() {
 /// The module a mirror comes from still exports its own aliases at their declarations; a
 /// generic interface keeps its generics.
 #[test]
-#[ignore = "needs slice ii"]
 fn luau_types_aliases_exported_from_sibling() {
 	let (got, _) = render_luau_types_losses("src/lib/shapes.ts", true);
 	assert_lines_in_order(
@@ -619,7 +618,7 @@ fn luau_types_aliases_exported_from_sibling() {
 
 /// With luauTypes off, a file without the `//!native` directive emits no alias at all.
 #[test]
-#[ignore = "needs slice ii"]
+#[ignore = "needs slice vi: export declarations"]
 fn luau_types_aliases_off_emit_nothing() {
 	let got = render_luau_types("src/aliases.ts", false);
 	assert!(

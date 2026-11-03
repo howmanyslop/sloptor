@@ -83,8 +83,8 @@ fn has_alias_statement(got: &str) -> bool {
 }
 
 #[test]
-#[ignore = "needs slice iii"]
 #[expect(clippy::too_many_lines, reason = "the Go test, kept whole")]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_classes() {
 	let (got, losses) = render_luau_types_losses("src/classes.ts", true);
 
@@ -346,7 +346,6 @@ fn luau_types_classes() {
 }
 
 #[test]
-#[ignore = "needs slice iii"]
 fn luau_types_enums() {
 	let (got, losses) = render_luau_types_losses("src/enums.ts", true);
 
@@ -410,7 +409,7 @@ fn luau_types_enums() {
 /// With luauTypes off, classes and enums keep rbxtsc's shape: no alias, the bare `local` before
 /// the `do` block, colon-form constructor and `self:constructor(...)`.
 #[test]
-#[ignore = "needs slice iii"]
+#[ignore = "needs slice vi: import declarations"]
 fn luau_types_classes_off_keep_rbxtsc_shape() {
 	for rel_path in ["src/classes.ts", "src/enums.ts"] {
 		let got = render_luau_types(rel_path, false);
