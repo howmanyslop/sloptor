@@ -1,5 +1,31 @@
 All notable changes to sloptor are documented here.
 
+## [v3.0.0-beta.2] - 2026-11-03
+
+This beta adds `sloptor lsp` and opt-in Luau type annotations, changes generated Luau for `switch`, `try`, and object spreads, and fixes a false `sloptor check` error and two import bugs.
+
+### 🚀 Added
+
+- **sloptor lsp**: Runs a stdio language server that publishes sloptor's transformer diagnostics to editors for unsaved buffers, and hides `TS####` type errors unless the client sets `initializationOptions.typeErrors`. Previously those diagnostics appeared only in `sloptor diagnostics`. - by @howmanysmall in [#177](https://github.com/howmanyslop/sloptor/pull/177)
+- **rotor.toml [nativeTypes]**: Set `nativeTypes = true` in `rotor.toml`, or `rbxts.nativeTypes` in `tsconfig.json` (tsconfig wins), to annotate parameters and returns in `//!native` files, e.g. `local function addVector(a: vector, b: vector): vector`. Previously that function emitted as `local function addVector(a, b)`. - by @howmanysmall in [#178](https://github.com/howmanyslop/sloptor/pull/178)
+- **sloptor build**: Pass `--luauTypes`, or set `luauTypes` in `rotor.toml` or `rbxts.luauTypes` in `tsconfig.json`, to emit full type annotations for locals, signatures, classes, enums, and exported aliases. Previously output had no type annotations, and this experimental mode can change between releases. - by @howmanysmall in [#179](https://github.com/howmanyslop/sloptor/pull/179)
+
+### 🐞 Fixed
+
+- **sloptor check**: No longer reports TS2441 for a top-level `Object` binding, such as `import Object from "@rbxts/object-utils"` in a CommonJS module, while `require` and `exports` bindings still do. Previously that import failed `check` on projects that `rbxtsc` compiles cleanly. - by @paradoxuum in [#172](https://github.com/howmanyslop/sloptor/pull/172)
+- **emit**: A file that calls a Flamework guard macro and also declares a `@Component` now imports `t` once, from the same guard library as the macro. Previously the decorator imported `t` from `@flamework/core/out/prelude`, so a project with its own `@rbxts/t` got two `t` imports. - by @paradoxuum in [#173](https://github.com/howmanyslop/sloptor/pull/173)
+- **emit**: An import used only in a qualified type name, such as `Namespace.Type` from a `.d.ts` namespace, is now elided. Previously the `TS.import` stayed in the Luau and failed at runtime with `Failed to import! Expected ModuleScript, got Folder`. - by @paradoxuum in [#174](https://github.com/howmanyslop/sloptor/pull/174)
+
+### 🔧 Changed
+
+- **emit**: A `switch` with a `case` after `default` now selects the first matching case before running any body, so `pick("b")` returns `2` instead of `0`. This diverges from `rbxtsc 3.0.0` for those switches; switches with a trailing `default` are unchanged. - by @christopher-buss in [#185](https://github.com/howmanyslop/sloptor/pull/185)
+- **emit**: A `try` whose `try` and `catch` both always exit no longer emits the trailing `if _exitType then` guard, so `return unpack(_returns)` is emitted directly. Previously the guard was emitted. This diverges from `rbxtsc 3.0.0` for those `try` statements; ones that can complete normally keep the guard. - by @christopher-buss in [#183](https://github.com/howmanyslop/sloptor/pull/183)
+- **emit**: Spreading an operand typed `object` into an object literal or JSX element no longer emits a nil-check guard, so `{ ...source }` copies without an `if`. Previously it was guarded, which diverges from `rbxtsc 3.0.0`; `object | undefined` stays guarded. - by @christopher-buss in [#182](https://github.com/howmanyslop/sloptor/pull/182)
+
+### New Contributors
+
+* @paradoxuum made their first contribution in #172
+
 ## [v3.0.0-beta.1] - 2026-10-27
 
 Sloptor is now the native compiler only: the bundler, asset and deploy pipelines, scaffolding commands, and the `$asset`, `$git`, and `$buildTime` macros are removed. One-shot builds now share the machine through slots, API sessions transform in sidecars by default, and source maps cover more of the output.
@@ -321,6 +347,7 @@ No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/
 
 No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/tag/v2.2.1-fork.4).
 
+[v3.0.0-beta.2]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.1...v3.0.0-beta.2
 [v3.0.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.9.0-beta.1...v3.0.0-beta.1
 [v2.9.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.8.3...v2.9.0-beta.1
 [v2.8.3]: https://github.com/howmanyslop/sloptor/compare/v2.8.2...v2.8.3
