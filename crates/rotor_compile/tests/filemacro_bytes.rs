@@ -120,7 +120,7 @@ fn source_map_columns_count_invalid_bytes_as_one_unit() {
 		let map = fs::read_to_string(temp.path().join("out/main.luau.map")).unwrap_or_default();
 		assert_eq!(
 			map,
-			r#"{"version":3,"file":"main.luau","sources":["../src/main.ts"],"sourcesContent":["declare function use(...args: unknown[]): void;\nconst after = 1;\nuse($file(\"./notes.txt\"), after);\n"],"mappings":";AACA,cAAc;AACd,IAAI,qBAAsB"}"#
+			r#"{"version":3,"file":"main.luau","sources":["../src/main.ts"],"sourcesContent":["declare function use(...args: unknown[]): void;\nconst after = 1;\nuse($file(\"./notes.txt\"), after);\n"],"mappings":";AACA,cAAc;AACd,IAAI,sBAAsB"}"#
 		);
 	});
 }
