@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -776,11 +777,33 @@ func isPathDescendantOf(filePath, dirPath string) bool {
 	if dirPath == filePath {
 		return true
 	}
+	// filepath.Rel allocates a "../.." string for every non-descendant, and this
+	// runs once per partition. Windows stays on it because it compares paths
+	// case-insensitively there.
+	if runtime.GOOS != "windows" && isCleanAbsolute(filePath) && isCleanAbsolute(dirPath) {
+		rel, ok := strings.CutPrefix(filePath, dirPath)
+		if !ok {
+			return false
+		}
+		if dirPath != "/" {
+			if rel[0] != '/' {
+				return false
+			}
+			rel = rel[1:]
+		}
+		return !strings.HasPrefix(rel, "..")
+	}
 	rel, err := filepath.Rel(dirPath, filePath)
 	if err != nil {
 		return false
 	}
 	return !strings.HasPrefix(rel, "..")
+}
+
+// isCleanAbsolute reports whether p is rooted and filepath.Clean would leave it
+// unchanged, which it does without allocating.
+func isCleanAbsolute(p string) bool {
+	return strings.HasPrefix(p, "/") && filepath.Clean(p) == p
 }
 
 // convertToLuau renames a .lua path to .luau (RojoResolver.ts L154-158).
