@@ -1326,16 +1326,23 @@ impl EmitNode {
         let helpers = src.map_or_else(Vec::new, |r| r.helpers.clone());
         let external_helpers_module_name = src.and_then(|r| r.external_helpers_module_name);
         let snippet_element = src.and_then(|r| r.snippet_element);
+        // rotor: the rotor tsgo fork's copyFrom also clones the synthetic comments.
+        let leading_comments = src.map_or_else(Vec::new, |r| r.leading_comments.clone());
+        let trailing_comments = src.map_or_else(Vec::new, |r| r.trailing_comments.clone());
         if self.rare.is_some()
             || token_source_map_ranges.is_some()
             || !helpers.is_empty()
             || external_helpers_module_name.is_some()
             || snippet_element.is_some()
+            || !leading_comments.is_empty()
+            || !trailing_comments.is_empty()
         {
             let rare = self.rare_mut();
             rare.token_source_map_ranges = token_source_map_ranges;
             rare.helpers = helpers;
             rare.external_helpers_module_name = external_helpers_module_name;
+            rare.leading_comments = leading_comments;
+            rare.trailing_comments = trailing_comments;
             if let Some(snippet_element) = snippet_element {
                 rare.snippet_element = Some(snippet_element);
             }
