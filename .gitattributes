@@ -29,3 +29,5 @@ internal/compile/testdata/macros_model/src/notes.txt -text
 # third_party/tsrs is mirrored byte-for-byte by tools/tsrs-mirror (some upstream files are CRLF).
 third_party/tsrs/** -text
 tools/tsrs-mirror/patches/*.patch -whitespace
+# Generated number-formatting oracle (crates/rotor_luau/tests/data/jsnumber/gen.go).
+crates/rotor_luau/tests/data/jsnumber/*.txt -diff linguist-generated

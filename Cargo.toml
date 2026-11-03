@@ -15,6 +15,7 @@ publish = false
 
 [workspace.dependencies]
 mimalloc-safe = { version = "0.1.67", features = ["no_thp", "v3"] }
+regex = "1.13.1"
 rotor_compile = { path = "crates/rotor_compile" }
 rotor_config = { path = "crates/rotor_config" }
 rotor_flamework = { path = "crates/rotor_flamework" }

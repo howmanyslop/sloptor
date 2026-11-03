@@ -389,6 +389,9 @@ version = "0.0.0"
 [[package]]
 name = "rotor_luau"
 version = "0.0.0"
+dependencies = [
+ "regex",
+]
 
 [[package]]
 name = "rotor_rojo"
