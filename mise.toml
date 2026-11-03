@@ -320,6 +320,10 @@ run = "vitest run tools/parity tools/tsrs-mirror"
 description = "Re-vendors the pinned tsrs release into third_party/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
 run = "node tools/tsrs-mirror/main.ts"
 
+[tasks."tsrs:oracle"]
+description = "Regenerates the Go side of the rotor_tsrs differential for the conformance project (testdata/tsrs-oracle/conformance.tsv)."
+run = "go run ./tools/tsrs-oracle -project testdata/conformance/project/tsconfig.json -out testdata/tsrs-oracle/conformance.tsv"
+
 [tasks.amend]
 description = "Amends the staged changes, reusing the previous commit message."
 run = "git commit --amend --reuse-message=HEAD --signoff"
