@@ -1172,7 +1172,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 | `compiler` | method | `Program.ResolveModuleName` | 1 (transformer) | `Program::resolve_module_name` (0004 patch) | `rotor_tsrs::compiler::Program::resolve_module_name` |
 | `compiler` | method | `Program.SingleThreaded` | 7 (compile,flamework) | `Program::single_threaded` | `rotor_tsrs::compiler::Program::single_threaded` |
 | `compiler` | method | `Program.SourceFiles` | 19 (compile) | `Program::source_files` | `rotor_tsrs::compiler::Program::source_files` |
-| `compiler` | method | `Program.UpdateProgramFilesWithCheckers` | 2 (compile) | Program::update_program_with_checkers (one file per call; patch 0003 adds the checker count) | `rotor_tsrs::project::update_with_overlays` |
+| `compiler` | method | `Program.UpdateProgramFilesWithCheckers` | 2 (compile) | `Program::update_program_files_with_checkers` (patch 0007; the rebuilt program takes the caller's pool factory, where Go keeps the old program's) | `rotor_tsrs::project::update_program_files`, `rotor_tsrs::project::update_with_overlays` |
 | `compiler` | method | `Program.UseCaseSensitiveFileNames` | 3 (compile,flamework,transformer) | `Program::use_case_sensitive_file_names` | `rotor_tsrs::compiler::Program::use_case_sensitive_file_names` |
 | `compiler` | type | `CompilerHost` | 8 (compile) | `CompilerHost` | `rotor_tsrs::compiler::CompilerHost` |
 | `compiler` | type | `EmitOptions` | 1 (compile) | `EmitOptions` | `rotor_tsrs::compiler::EmitOptions` |

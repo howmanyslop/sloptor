@@ -442,6 +442,12 @@ impl CompilerHost for CachingHost {
 	}
 }
 
+/// `solutionCompileCache.wrap`: `inner` with its parses going through `cache`.
+#[must_use]
+pub fn caching_compiler_host(inner: Arc<dyn CompilerHost>, cache: Arc<dyn SourceFileCache>) -> Arc<dyn CompilerHost> {
+	Arc::new(CachingHost { inner, cache })
+}
+
 /// [`load_project`] with an explicit project directory.
 ///
 /// The directory is `newProjectProgramFromFSWithOptions`'s `dir`, which differs from the
@@ -650,6 +656,27 @@ pub fn update_with_overlays_checkers(
 		reused &= kept;
 	}
 	Ok((derived, reused))
+}
+
+/// Derives a program from `program` whose files at `changed` are asked of `host` again, in that
+/// order (Go `Program.UpdateProgramFilesWithCheckers`, through tsrs's
+/// `update_program_files_with_checkers`).
+///
+/// The derived pool gets `checkers` checkers (`None` keeps `program`'s count). The flag is whether
+/// `program`'s files were reused; without it the program was built again in full over `host`. A
+/// new program is recorded in this thread's [`ProgramScope`], as [`update_with_overlays`] records
+/// its programs.
+pub fn update_program_files(
+	program: &'static Program,
+	changed: &[tspath::Path],
+	host: Arc<dyn CompilerHost>,
+	checkers: Option<i64>,
+) -> (&'static Program, bool) {
+	let (derived, reused) = program.update_program_files_with_checkers(changed, host, None, checkers);
+	if !std::ptr::eq(derived, program) {
+		track_program(derived);
+	}
+	(derived, reused)
 }
 
 /// Runs `visit` for every file of `files` with the checker that checks it.
