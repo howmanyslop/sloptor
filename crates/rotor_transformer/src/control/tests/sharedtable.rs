@@ -7,7 +7,6 @@ use crate::statementlist::transform_statement_list;
 use crate::tests::{collect_identifiers, render_list, transformer_testdata, with_state};
 
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn shared_table() {
 	let got = with_state(&transformer_testdata("forof"), "src/sharedtable.ts", |s| {
 		assert!(

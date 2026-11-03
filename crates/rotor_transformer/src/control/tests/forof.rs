@@ -8,7 +8,6 @@ use crate::tests::{render_list, repo_root, with_state};
 /// `for (const { x } of objs)` routes through transformBindingName — the loop binding becomes a
 /// `_binding` temp and the object destructure statements are unshifted into the body.
 #[test]
-#[ignore = "needs slice i: transform_binding_name and the binding pattern transforms"]
 fn for_of_object_pattern_initializer() {
 	let want = "local objs = { {
 	x = 1,
@@ -28,7 +27,6 @@ print(sum)
 /// defaults in the loop-header pattern emit the extract-then-nil-check shape inside the body, for
 /// both array and object patterns.
 #[test]
-#[ignore = "needs slice i: transform_binding_name and the binding pattern transforms"]
 fn for_of_pattern_defaults() {
 	let want = "local entries = { { 1, nil }, { nil, 4 } }
 local total = 0
@@ -61,7 +59,6 @@ print(total)
 /// prereqs of the iterable expression (`i++` inside the call argument) land BEFORE the loop; the
 /// call itself stays inline in the for header.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_expression_prereqs() {
 	let want = "local function make(n)
 	return { n, n + 1 }
@@ -80,7 +77,6 @@ print(sum, i)
 
 /// the inner loop's unnamed discard temp dedupes against the outer one (`_`, then `_1`).
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn nested_for_of() {
 	let want = "local grid = { { 1, 2 }, { 3, 4 } }
 local sum = 0
@@ -97,7 +93,6 @@ print(sum)
 /// `continue` passes straight through the statement list — for-of has no loop finalizers (unlike
 /// for-in over keys in older targets), so no finalizer interplay exists.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_continue() {
 	let want = "local nums = { 1, 2, 3, 4 }
 local odds = 0
@@ -114,7 +109,6 @@ print(odds)
 
 /// buildSetLoop — a single generic-for binding directly over the Set expression.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_set() {
 	let want = "for x in s do
 	print(x)
@@ -126,7 +120,6 @@ end
 /// the `[k, v]` inline-destructure fast path — the pattern elements become the generic-for
 /// bindings directly, no `_binding` temp.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_map_inline_pattern() {
 	let want = "for k, v in m do
 	print(k, v)
@@ -140,7 +133,6 @@ end
 /// default in the inline pattern nil-checks in the body; a nested pattern in the inline pattern
 /// destructures a `_binding` temp.
 #[test]
-#[ignore = "needs slice i: transform_binding_name and the binding pattern transforms"]
 fn for_of_map_fallbacks() {
 	let want = "for _k, _v in m do
 	local pair = { _k, _v }
@@ -169,7 +161,6 @@ end
 /// buildGeneratorLoop over a generator-object call — the .next()/.done/.value protocol; the call
 /// expression is indexable so `.next` attaches directly.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_generator() {
 	let want = "for _result in gen().next do
 	if _result.done then
@@ -185,7 +176,6 @@ end
 /// a binding pattern over a generator routes the `_result.value` through a `_binding` temp; an
 /// object pattern over a Set routes through transformBindingName the same way.
 #[test]
-#[ignore = "needs slice i: transform_binding_name and the binding pattern transforms"]
 fn for_of_generator_patterns() {
 	let want = "for _result in pairsGen.next do
 	if _result.done then
@@ -209,7 +199,6 @@ end
 /// Luau identifier (luau.IsValidIdentifier rejects reserved words), so it falls back to "element";
 /// the second label `value` is used.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_tuple_labels() {
 	let want = "for _element, _value in it1 do
 	local item = { _element, _value }
@@ -224,7 +213,6 @@ end
 /// tuple (declaration-list gate fails; valueToIdStr of a call is empty so the temp falls back to
 /// "iterFunc").
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_tuple_while_loop() {
 	let want = "local _restIt = restIt
 while true do
@@ -253,7 +241,6 @@ end
 /// noRangeMacroOutsideForOf and the Iterable<number> return type would raise noIterableIteration
 /// from the builder dispatch.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_range_macro() {
 	let want = "for i = 1, 3 do
 	print(i)
@@ -264,7 +251,6 @@ end
 
 /// $range argument prereqs (`i++` needs an `_original` temp) land BEFORE the numeric for.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_range_macro_prereqs() {
 	let want = "local i = 0
 local _original = i
@@ -277,7 +263,6 @@ end
 }
 /// A variadic `LuaTuple` iterator takes the unknown-arity while loop.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn for_of_variadic_lua_tuple_uses_unknown_arity_loop() {
 	let want = "local function collect(iterator)
 	local _iterator = iterator
@@ -324,7 +309,6 @@ fn for_of_no_iterable_iteration_diagnostic() {
 /// of the fixture is untouched by that correction, so its statements must still compile to the
 /// golden's lines byte for byte.
 #[test]
-#[ignore = "needs slice i: transform_binding_name (identifier for-of names)"]
 fn iteration_fixture_for_of_half_matches_the_golden() {
 	let golden =
 		std::fs::read_to_string(repo_root().join("testdata/diff/golden/29_iteration.luau")).expect("the golden reads");
