@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use rotor_luau::render::{Range, RenderError, render_ast_with_positions};
+use rotor_luau::render::{Range, RenderError, render_ast_with_positions_bytes};
 use rotor_luau::{Origin, Position};
 use rotor_support::gopath;
 
@@ -21,7 +21,8 @@ struct SourceMapMapping {
 
 impl State<'_> {
 	/// `RenderWithSourceMap`: renders `statements` once and returns the text with its
-	/// deterministic V3 source map.
+	/// deterministic V3 source map. The text is bytes, as in Go: a `$file` string literal may
+	/// not be valid UTF-8.
 	///
 	/// # Errors
 	///
@@ -30,7 +31,7 @@ impl State<'_> {
 		&self,
 		statements: Statements,
 		source_file: P<SourceFile>,
-	) -> Result<(String, String), RenderError> {
+	) -> Result<(Vec<u8>, String), RenderError> {
 		SourceMapRenderer { ast: &self.ast }.render(statements, source_file.file_name(), source_file.text())
 	}
 }
@@ -47,9 +48,10 @@ impl SourceMapRenderer<'_> {
 		statements: Statements,
 		file_name: &str,
 		source_text: &str,
-	) -> Result<(String, String), RenderError> {
-		let (text, ranges) = render_ast_with_positions(self.ast, statements)?;
-		let mut positions: Vec<Option<Position>> = vec![None; text.matches('\n').count() + 1];
+	) -> Result<(Vec<u8>, String), RenderError> {
+		let (text, ranges) = render_ast_with_positions_bytes(self.ast, statements)?;
+		let newlines = text.split(|&byte| byte == b'\n').count() - 1;
+		let mut positions: Vec<Option<Position>> = vec![None; newlines + 1];
 		for range in &ranges {
 			let kind = self.ast.kind(range.node);
 			if kind == LuauKind::Comment {
@@ -149,7 +151,7 @@ impl SourceMapRenderer<'_> {
 
 	/// `addSourceMapCoverage`: a still-unmapped non-blank line takes the origin of the innermost
 	/// range open at its first non-blank character, unless that range is a comment.
-	fn add_source_map_coverage(&self, text: &str, ranges: &[Range], positions: &mut [Option<Position>]) {
+	fn add_source_map_coverage(&self, text: &[u8], ranges: &[Range], positions: &mut [Option<Position>]) {
 		struct OpenRange {
 			end: Position,
 			origin: Option<Origin>,
@@ -157,11 +159,14 @@ impl SourceMapRenderer<'_> {
 		}
 		let mut stack: Vec<OpenRange> = Vec::new();
 		let mut next_range = 0;
-		for (line_index, line) in text.split('\n').enumerate() {
+		for (line_index, line) in text.split(|&byte| byte == b'\n').enumerate() {
 			if positions[line_index].is_some() {
 				continue;
 			}
-			let Some(column) = line.chars().position(|character| !character.is_whitespace()) else {
+			// Go ranges over the line's runes: an invalid byte is one `RuneError`, never a space.
+			let Some(column) =
+				rotor_luau::utf8::runes(line).position(|(rune, _)| !rune.is_some_and(char::is_whitespace))
+			else {
 				continue;
 			};
 			let point = Position::new(

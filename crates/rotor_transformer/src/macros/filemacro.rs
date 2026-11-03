@@ -58,9 +58,9 @@ fn resolve_file_expression(state: &mut State<'_>, node: P<Node>, path: &str) -> 
 			}
 		};
 	}
-	// Non-JSON text file: the raw contents become a single Luau string literal. Go keeps invalid
-	// UTF-8 bytes verbatim; a Rust string replaces them with U+FFFD.
-	state.ast.str(String::from_utf8_lossy(&data))
+	// Non-JSON text file: the raw contents become a single Luau string literal, invalid UTF-8
+	// bytes included, as in Go.
+	state.ast.str_bytes(data)
 }
 
 /// `interceptFileChain`: `None` when the chain's base is not `$file`. Otherwise the leading call

@@ -45,6 +45,20 @@ pub fn render_ast_with_positions(
 	ast: &Ast,
 	statements: List<element::Statement>,
 ) -> RenderResult<(String, Vec<Range>)> {
+	render_ast_with_positions_bytes(ast, statements)
+		.map(|(text, ranges)| (crate::utf8::into_string_lossy(text), ranges))
+}
+
+/// [`render_ast_with_positions`] as the bytes Go writes. Columns count UTF-16 units the way Go's
+/// renderer does: an invalid byte is one unit.
+///
+/// # Errors
+///
+/// When the AST cannot be rendered.
+pub fn render_ast_with_positions_bytes(
+	ast: &Ast,
+	statements: List<element::Statement>,
+) -> RenderResult<(Vec<u8>, Vec<Range>)> {
 	let mut state = RenderState::new();
 	state.positions = true;
 	state.prepare_temp_names(ast, statements.into())?;
@@ -79,7 +93,7 @@ enum Target {
 	Operator,
 }
 
-fn positions_for_ranges(text: &str, offsets: &[ByteRange]) -> Vec<Range> {
+fn positions_for_ranges(bytes: &[u8], offsets: &[ByteRange]) -> Vec<Range> {
 	let mut ranges: Vec<Range> = offsets
 		.iter()
 		.map(|offset| Range {
@@ -103,7 +117,6 @@ fn positions_for_ranges(text: &str, offsets: &[ByteRange]) -> Vec<Range> {
 	}
 	coordinates.sort_by_key(|&(offset, _, _)| offset);
 
-	let bytes = text.as_bytes();
 	let mut position = Position::default();
 	let mut byte_offset = 0;
 	for (offset, index, target) in coordinates {
@@ -117,11 +130,9 @@ fn positions_for_ranges(text: &str, offsets: &[ByteRange]) -> Vec<Range> {
 				position.column += 1;
 				byte_offset += 1;
 			} else {
-				let Some(character) = text.get(byte_offset..).and_then(|rest| rest.chars().next()) else {
-					break;
-				};
-				position.column += u32::try_from(character.len_utf16()).unwrap_or(1);
-				byte_offset += character.len_utf8();
+				let (rune, width) = crate::utf8::decode_rune(&bytes[byte_offset..]);
+				position.column += crate::utf8::utf16_units(rune);
+				byte_offset += width.max(1);
 			}
 		}
 		let range = &mut ranges[index];

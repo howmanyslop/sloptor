@@ -1,7 +1,7 @@
 //! Expression renderers.
 
 use crate::render::parens::needs_parentheses;
-use crate::render::util::get_safe_bracket_equals;
+use crate::render::util::get_safe_bracket_equals_bytes;
 use crate::render::{RenderResult, Renderer, fail};
 use crate::{
 	Array, BinaryExpression, CallExpression, ComputedIndexExpression, FunctionExpression, Identifier, IfExpression,
@@ -115,21 +115,21 @@ impl Renderer<'_> {
 	}
 
 	pub(crate) fn render_string_literal(&mut self, node: NodeId, literal: &StringLiteral) {
-		let value = literal.value.as_str();
-		let is_multiline = value.contains('\n');
-		if !is_multiline && !value.contains('"') {
+		let value = literal.bytes();
+		let is_multiline = value.contains(&b'\n');
+		if !is_multiline && !value.contains(&b'"') {
 			self.write("\"");
-			self.write(value);
+			self.write_bytes(value);
 			self.write("\"");
 			return;
 		}
-		if !is_multiline && !value.contains('\'') {
+		if !is_multiline && !value.contains(&b'\'') {
 			self.write("'");
-			self.write(value);
+			self.write_bytes(value);
 			self.write("'");
 			return;
 		}
-		let equals = get_safe_bracket_equals(value);
+		let equals = get_safe_bracket_equals_bytes(value);
 		let spacing = self.needs_bracket_spacing(node);
 		if spacing {
 			self.write(" ");
@@ -137,7 +137,7 @@ impl Renderer<'_> {
 		self.write("[");
 		self.write(&equals);
 		self.write("[");
-		self.write(value);
+		self.write_bytes(value);
 		self.write("]");
 		self.write(&equals);
 		self.write("]");

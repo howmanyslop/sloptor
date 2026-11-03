@@ -34,7 +34,7 @@ impl Layout {
 			self.error = Some(error);
 			return false;
 		}
-		self.measure.writer.chars().count() > self.width
+		crate::utf8::rune_count(&self.measure.writer) > self.width
 	}
 }
 

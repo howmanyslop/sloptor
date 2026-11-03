@@ -35,9 +35,10 @@ fn set_origin(ast: &mut Ast, node: NodeId, start: Position, closing: Option<Posi
 }
 
 fn render(ast: &Ast, statements: Statements, source_text: &str) -> (String, String) {
-	SourceMapRenderer { ast }
+	let (text, map) = SourceMapRenderer { ast }
 		.render(statements, "/test.ts", source_text)
-		.expect("the statements render")
+		.expect("the statements render");
+	(String::from_utf8(text).expect("the rendered text is UTF-8"), map)
 }
 
 /// Go's `sourceMapFixture`: `if true then use(1) end` with statement anchors.

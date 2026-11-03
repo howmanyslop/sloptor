@@ -139,7 +139,22 @@ impl Ast {
 
 	/// A string literal.
 	pub fn str(&mut self, value: impl Into<String>) -> NodeId {
-		self.alloc(StringLiteral { value: value.into() })
+		self.alloc(StringLiteral {
+			value: value.into(),
+			raw: None,
+		})
+	}
+
+	/// A string literal of arbitrary bytes, which need not be valid UTF-8 (Go's byte strings).
+	pub fn str_bytes(&mut self, bytes: Vec<u8>) -> NodeId {
+		match String::from_utf8(bytes) {
+			Ok(value) => self.str(value),
+			Err(error) => {
+				let raw = error.into_bytes().into_boxed_slice();
+				let value = String::from_utf8_lossy(&raw).into_owned();
+				self.alloc(StringLiteral { value, raw: Some(raw) })
+			}
+		}
 	}
 
 	/// `--text`

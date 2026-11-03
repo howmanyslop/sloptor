@@ -19,6 +19,7 @@ mod nodes;
 mod origin;
 pub mod render;
 mod types;
+pub mod utf8;
 mod validate;
 
 pub use ast::Ast;

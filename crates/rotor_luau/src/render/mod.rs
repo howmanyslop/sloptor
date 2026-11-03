@@ -18,7 +18,7 @@ mod visit;
 
 use core::fmt;
 
-pub use positions::{Range, render_ast_with_positions};
+pub use positions::{Range, render_ast_with_positions, render_ast_with_positions_bytes};
 pub use state::RenderState;
 pub use type_layout::{DEFAULT_TYPE_LINE_WIDTH, layout_types};
 
@@ -76,16 +76,28 @@ pub fn render(state: &mut RenderState, ast: &Ast, node: NodeId) -> RenderResult<
 	state.reserve_fallback_temp_names(ast, NodeOrList::Node(node));
 	let start = state.writer.len();
 	Renderer { ast, s: state }.render(node)?;
-	Ok(state.writer[start..].to_owned())
+	Ok(crate::utf8::into_string_lossy(state.writer[start..].to_vec()))
 }
 
 /// Solves temporary names, then renders `statements` (upstream
 /// `renderAST()`).
 ///
+/// The text is [`render_ast_bytes`] as a `String`: a raw string literal's invalid UTF-8 becomes
+/// U+FFFD here, so byte-exact output goes through [`render_ast_bytes`].
+///
 /// # Errors
 ///
 /// When the AST cannot be rendered.
 pub fn render_ast(ast: &Ast, statements: List<element::Statement>) -> RenderResult<String> {
+	render_ast_bytes(ast, statements).map(crate::utf8::into_string_lossy)
+}
+
+/// [`render_ast`] as the bytes Go writes: a raw string literal keeps its bytes.
+///
+/// # Errors
+///
+/// When the AST cannot be rendered.
+pub fn render_ast_bytes(ast: &Ast, statements: List<element::Statement>) -> RenderResult<Vec<u8>> {
 	let mut state = RenderState::new();
 	state.prepare_temp_names(ast, statements.into())?;
 	Renderer { ast, s: &mut state }.statements(statements)?;
@@ -102,7 +114,7 @@ pub(crate) fn render_statements(
 ) -> RenderResult<String> {
 	let start = state.writer.len();
 	Renderer { ast, s: state }.statements(statements)?;
-	Ok(state.writer[start..].to_owned())
+	Ok(crate::utf8::into_string_lossy(state.writer[start..].to_vec()))
 }
 
 /// A render in progress: the AST being read and the state being written.

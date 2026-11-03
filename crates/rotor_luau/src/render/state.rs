@@ -5,6 +5,7 @@ use crate::render::positions::ByteRange;
 use crate::{ListNodeId, TempId};
 
 const INDENT_CHARACTER: char = '\t';
+const INDENT_BYTE: u8 = b'\t';
 
 /// The state of one render: the output text, the indentation depth, and the
 /// names chosen for temporary identifiers.
@@ -15,7 +16,8 @@ pub struct RenderState {
 	pub(crate) seen_temp_nodes: Vec<Option<String>>,
 	temp_id_fallback: usize,
 	list_nodes_stack: Vec<ListNodeId>,
-	pub(crate) writer: String,
+	/// The output: bytes, because a `$file` string literal may not be valid UTF-8.
+	pub(crate) writer: Vec<u8>,
 	pub(crate) positions: bool,
 	pub(crate) ranges: Vec<ByteRange>,
 	pub(crate) content_end: usize,
@@ -109,17 +111,20 @@ impl RenderState {
 impl Renderer<'_> {
 	/// Indentation is layout: it does not extend a node's content range.
 	pub(crate) fn write_indent(&mut self) {
-		self.s
-			.writer
-			.extend(core::iter::repeat_n(INDENT_CHARACTER, self.s.indent));
+		self.s.writer.extend(core::iter::repeat_n(INDENT_BYTE, self.s.indent));
 	}
 
 	pub(crate) fn newline(&mut self) {
-		self.s.writer.push('\n');
+		self.s.writer.push(b'\n');
 	}
 
 	pub(crate) fn write(&mut self, text: &str) {
-		self.s.writer.push_str(text);
+		self.write_bytes(text.as_bytes());
+	}
+
+	/// Writes bytes that need not be valid UTF-8 (a raw string literal's payload).
+	pub(crate) fn write_bytes(&mut self, bytes: &[u8]) {
+		self.s.writer.extend_from_slice(bytes);
 		if self.s.positions {
 			self.s.content_end = self.s.writer.len();
 		}

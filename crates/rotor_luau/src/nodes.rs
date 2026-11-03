@@ -85,10 +85,25 @@ pub struct NumberLiteral {
 }
 
 /// A string literal.
+///
+/// Go's string literals are byte strings, and a `$file` text file that is not valid UTF-8 keeps
+/// its bytes in the output. `raw` carries those bytes; `value` is then their lossy UTF-8 view for
+/// the checks that read the text (an identifier-shaped key, for instance, is ASCII and so never
+/// raw). The renderer writes [`StringLiteral::bytes`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StringLiteral {
 	/// The unescaped value.
 	pub value: String,
+	/// The exact bytes, set only when they are not valid UTF-8.
+	pub raw: Option<Box<[u8]>>,
+}
+
+impl StringLiteral {
+	/// The bytes the literal renders.
+	#[must_use]
+	pub fn bytes(&self) -> &[u8] {
+		self.raw.as_deref().unwrap_or(self.value.as_bytes())
+	}
 }
 
 /// `function<T>(params): R ... end`

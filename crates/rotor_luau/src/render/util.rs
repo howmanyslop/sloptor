@@ -8,11 +8,16 @@ use crate::{List, NodeData, NodeId, NodeOrList};
 /// The `=` padding needed so that `[`+eq+`[` and `]`+eq+`]` safely enclose
 /// `text`. A literal port of upstream `getSafeBracketEquals.ts`.
 pub fn get_safe_bracket_equals(text: &str) -> String {
+	get_safe_bracket_equals_bytes(text.as_bytes())
+}
+
+/// [`get_safe_bracket_equals`] over bytes, for a string literal that need not be valid UTF-8.
+pub fn get_safe_bracket_equals_bytes(text: &[u8]) -> String {
 	let mut equals = String::new();
 	loop {
 		let closing = format!("]{equals}]");
 		let tail = format!("]{equals}");
-		if !text.contains(&closing) && !text.ends_with(&tail) {
+		if !crate::utf8::contains(text, closing.as_bytes()) && !text.ends_with(tail.as_bytes()) {
 			return equals;
 		}
 		equals.push('=');
