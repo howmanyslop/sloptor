@@ -13,7 +13,7 @@ use std::path::Path as StdPath;
 use std::sync::Arc;
 
 use rotor_support::gopath;
-use tsrs_ast::SourceFile;
+use tsrs_ast::{SourceFile, SourceFileParseOptions};
 use tsrs_checker::Checker;
 use tsrs_compiler::{CompilerHost, Program, ProgramOptions, new_cached_fs_compiler_host, new_program};
 use tsrs_core::{CompilerOptions, P, Tristate, tspath};
@@ -310,6 +310,138 @@ pub fn load_project(tsconfig: &StdPath, options: &ProjectOptions) -> Result<Proj
 	load_project_in(tsconfig, None, options)
 }
 
+thread_local! {
+	/// The open [`ProgramScope`]s of this thread, innermost last, each with the programs created
+	/// on this thread while it was the innermost.
+	static PROGRAM_SCOPES: std::cell::RefCell<Vec<Vec<&'static Program>>> =
+		const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether a [`ProgramScope`] is open on this thread.
+fn tracking_programs() -> bool {
+	PROGRAM_SCOPES.with(|scopes| !scopes.borrow().is_empty())
+}
+
+/// Records `program` in this thread's innermost [`ProgramScope`], if any.
+fn track_program(program: &'static Program) {
+	PROGRAM_SCOPES.with(|scopes| {
+		if let Some(scope) = scopes.borrow_mut().last_mut() {
+			scope.push(program);
+		}
+	});
+}
+
+/// Frees, when dropped, the programs this thread creates while the scope is open.
+///
+/// [`load_project_in_cached`] and [`update_with_overlays`] record them: Go drops a project's
+/// program after its build. A tracked program's checkers allocate in regions of their own (tsrs's
+/// `checker_regions`), so their types, symbols and caches go back too. Parsed files stay in the
+/// thread arena, so a [`SourceFileCache`] may share them with later programs.
+///
+/// Programs are freed newest first, so a derived program goes before the program it was
+/// derived from. A program created on another thread is not tracked and stays allocated.
+#[must_use = "dropping the scope frees its programs"]
+pub struct ProgramScope {
+	_not_send: std::marker::PhantomData<*const ()>,
+}
+
+impl ProgramScope {
+	/// Opens a scope on this thread.
+	///
+	/// # Safety
+	///
+	/// Nothing from a program created on this thread while the scope is open may be used after
+	/// the scope is dropped: not the program, a checker of its pool, nor a type, symbol,
+	/// diagnostic or other value a checker made. No thread may still be using one when it drops.
+	#[must_use = "dropping the scope frees its programs"]
+	#[expect(
+		unsafe_code,
+		reason = "the caller promises the scope outlives every use of its programs"
+	)]
+	pub unsafe fn enter() -> Self {
+		PROGRAM_SCOPES.with(|scopes| scopes.borrow_mut().push(Vec::new()));
+		Self {
+			_not_send: std::marker::PhantomData,
+		}
+	}
+}
+
+impl Drop for ProgramScope {
+	#[expect(
+		unsafe_code,
+		reason = "frees the programs whose use `ProgramScope::enter`'s contract ends here"
+	)]
+	fn drop(&mut self) {
+		let programs = PROGRAM_SCOPES
+			.with(|scopes| scopes.borrow_mut().pop())
+			.unwrap_or_default();
+		for program in programs.into_iter().rev() {
+			// SAFETY: `program` came from `new_program` or `update_program` on this thread inside
+			// this scope, and `enter`'s contract says nothing uses it any more. Newest first, so no
+			// program derived from it is still alive.
+			unsafe { tsrs_compiler::free_program(program) };
+		}
+	}
+}
+
+/// A parse cache shared between the programs of a solution (Go's `solutionCompileCache`).
+///
+/// The program host hands every file it parses to [`SourceFileCache::get_source_file`] with the
+/// host's own parse; the cache decides which files it shares and returns its parse of them.
+pub trait SourceFileCache: Send + Sync {
+	/// The source file for `opts`, from the cache or from `parse`.
+	fn get_source_file(
+		&self,
+		opts: SourceFileParseOptions,
+		parse: &dyn Fn(SourceFileParseOptions) -> Option<P<SourceFile>>,
+	) -> Option<P<SourceFile>>;
+}
+
+/// `cachingCompilerHost`: a compiler host whose parses go through a [`SourceFileCache`].
+struct CachingHost {
+	inner: Arc<dyn CompilerHost>,
+	cache: Arc<dyn SourceFileCache>,
+}
+
+impl CompilerHost for CachingHost {
+	fn fs(&self) -> &dyn FS {
+		self.inner.fs()
+	}
+
+	fn default_library_path(&self) -> &str {
+		self.inner.default_library_path()
+	}
+
+	fn get_current_directory(&self) -> &str {
+		self.inner.get_current_directory()
+	}
+
+	fn trace(&self, msg: &'static tsrs_diagnostics::Message, args: &[&dyn fmt::Display]) {
+		self.inner.trace(msg, args);
+	}
+
+	fn get_source_file(&self, opts: SourceFileParseOptions) -> Option<P<SourceFile>> {
+		self.cache
+			.get_source_file(opts, &|opts| self.inner.get_source_file(opts))
+	}
+
+	fn get_content_mapped_source_files(
+		&self,
+		parse_options: SourceFileParseOptions,
+		mapper: &tsrs_contentmapper::Mapper,
+	) -> Result<tsrs_contentmapper::SourceFiles, tsrs_contentmapper::Error> {
+		self.inner.get_content_mapped_source_files(parse_options, mapper)
+	}
+
+	fn content_mapper_project(&self) -> Option<Arc<dyn tsrs_contentmapper::Project>> {
+		self.inner.content_mapper_project()
+	}
+
+	fn get_resolved_project_reference(&self, file_name: &str, path: tspath::Path) -> Option<P<ParsedCommandLine>> {
+		self.inner.get_resolved_project_reference(file_name, path)
+	}
+}
+
 /// [`load_project`] with an explicit project directory.
 ///
 /// The directory is `newProjectProgramFromFSWithOptions`'s `dir`, which differs from the
@@ -324,6 +456,20 @@ pub fn load_project_in(
 	project_dir: Option<&str>,
 	options: &ProjectOptions,
 ) -> Result<Project, LoadError> {
+	load_project_in_cached(tsconfig, project_dir, options, None)
+}
+
+/// [`load_project_in`] whose program parses through `cache`.
+///
+/// # Errors
+///
+/// As [`load_project`].
+pub fn load_project_in_cached(
+	tsconfig: &StdPath,
+	project_dir: Option<&str>,
+	options: &ProjectOptions,
+	cache: Option<Arc<dyn SourceFileCache>>,
+) -> Result<Project, LoadError> {
 	let tsconfig = tsconfig.to_str().ok_or(LoadError::NonUtf8Path)?;
 	let cwd = std::env::current_dir().map_err(LoadError::CurrentDirectory)?;
 	let cwd = tspath::normalize_slashes(&cwd.to_string_lossy());
@@ -335,8 +481,15 @@ pub fn load_project_in(
 
 	let fs = project_fs(&config_path);
 	let parsed = parse_command_line(&directory, &config_path, &fs, options)?;
-	let host = new_cached_fs_compiler_host(&directory, fs, &bundled::default_lib_path(), None, None, None);
-	let program = new_program(ProgramOptions::new(P::new(parsed), host));
+	let mut host = new_cached_fs_compiler_host(&directory, fs, &bundled::default_lib_path(), None, None, None);
+	if let Some(cache) = cache {
+		host = Arc::new(CachingHost { inner: host, cache });
+	}
+	let mut program_options = ProgramOptions::new(P::new(parsed), host);
+	// A tracked program's checkers allocate in regions of their own, which its scope frees.
+	program_options.checker_regions = tracking_programs();
+	let program = new_program(program_options);
+	track_program(program);
 	program.bind_source_files();
 	Ok(Project { program })
 }
@@ -490,6 +643,9 @@ pub fn update_with_overlays_checkers(
 	let mut reused = true;
 	for path in changed {
 		let (next, _, kept) = derived.update_program_with_checkers(&path, Arc::clone(&host), None, None, checkers);
+		if !std::ptr::eq(next, derived) {
+			track_program(next);
+		}
 		derived = next;
 		reused &= kept;
 	}

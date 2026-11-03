@@ -35,6 +35,7 @@ toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
 tsrs_ast = { path = "third_party/tsrs/crates/tsrs_ast" }
 tsrs_checker = { path = "third_party/tsrs/crates/tsrs_checker" }
 tsrs_compiler = { path = "third_party/tsrs/crates/tsrs_compiler" }
+tsrs_contentmapper = { path = "third_party/tsrs/crates/tsrs_contentmapper" }
 tsrs_core = { path = "third_party/tsrs/crates/tsrs_core" }
 tsrs_diagnostics = { path = "third_party/tsrs/crates/tsrs_diagnostics" }
 tsrs_module = { path = "third_party/tsrs/crates/tsrs_module" }

@@ -17,6 +17,7 @@ use serde_json as _;
 use tsrs_ast as _;
 use tsrs_checker as _;
 use tsrs_compiler as _;
+use tsrs_contentmapper as _;
 use tsrs_core as _;
 use tsrs_diagnostics as _;
 use tsrs_module as _;
