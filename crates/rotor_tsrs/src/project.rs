@@ -235,15 +235,19 @@ fn apply_overrides(options: &CompilerOptions, overrides: &ProjectOptions) -> Com
 }
 
 /// Parses `config_path` into the command line a program is built from (`parseProjectCommandLine`).
+///
+/// `project_dir` is the host's current directory and the directory rbxtsc's validation resolves
+/// `typeRoots` against; the synthetic declarations sit beside the config.
 fn parse_command_line(
-	directory: &str,
+	project_dir: &str,
 	config_path: &str,
 	fs: &Arc<dyn FS>,
 	overrides: &ProjectOptions,
 ) -> Result<ParsedCommandLine, LoadError> {
+	let directory = tspath::get_directory_path(config_path);
 	let parse_host = ConfigHost {
 		fs: Arc::clone(fs),
-		cwd: directory.to_owned(),
+		cwd: project_dir.to_owned(),
 	};
 	let (parsed, diagnostics) = get_parsed_command_line_of_config_file(config_path, None, None, &parse_host, None);
 	if !diagnostics.is_empty() {
@@ -258,7 +262,7 @@ fn parse_command_line(
 		.ok_or(LoadError::Config(Vec::new()))?;
 	if !overrides.skip_validation {
 		let raw = tsconfig::read_raw_enforced_options(&gopath::from_slash(config_path));
-		if let Some(message) = tsconfig::validate_compiler_options(&options, directory, &raw) {
+		if let Some(message) = tsconfig::validate_compiler_options(&options, project_dir, &raw) {
 			return Err(LoadError::Invalid(message));
 		}
 	}
@@ -274,6 +278,25 @@ fn parse_command_line(
 	Ok(parsed)
 }
 
+/// Parses `tsconfig` without building the program (`parseProjectConfig`).
+///
+/// The command line is the one a program would be built from: the same sanitized file system,
+/// synthetic declarations, overrides and validation as [`load_project`].
+///
+/// # Errors
+///
+/// Returns [`LoadError`] if the path is unusable, the tsconfig has diagnostics, or it fails
+/// rbxtsc's validation (unless [`ProjectOptions::skip_validation`]).
+pub fn parse_project_config(tsconfig: &StdPath, options: &ProjectOptions) -> Result<ParsedCommandLine, LoadError> {
+	let tsconfig = tsconfig.to_str().ok_or(LoadError::NonUtf8Path)?;
+	let cwd = std::env::current_dir().map_err(LoadError::CurrentDirectory)?;
+	let cwd = tspath::normalize_slashes(&cwd.to_string_lossy());
+	let config_path = tspath::get_normalized_absolute_path(tsconfig, &cwd);
+	let directory = tspath::get_directory_path(&config_path);
+	let fs = project_fs(&config_path);
+	parse_command_line(&directory, &config_path, &fs, options)
+}
+
 /// Loads `tsconfig` into a bound program the way rotor's build does.
 ///
 /// The project directory is the tsconfig's directory. Must run on a large stack
@@ -284,11 +307,31 @@ fn parse_command_line(
 /// Returns [`LoadError`] if the path is unusable, the tsconfig has diagnostics, or it fails
 /// rbxtsc's validation (unless [`ProjectOptions::skip_validation`]).
 pub fn load_project(tsconfig: &StdPath, options: &ProjectOptions) -> Result<Project, LoadError> {
+	load_project_in(tsconfig, None, options)
+}
+
+/// [`load_project`] with an explicit project directory.
+///
+/// The directory is `newProjectProgramFromFSWithOptions`'s `dir`, which differs from the
+/// tsconfig's directory under `--project`: the compiler host's current directory and the base
+/// `typeRoots` validation resolves against. `None` is the tsconfig's directory.
+///
+/// # Errors
+///
+/// As [`load_project`].
+pub fn load_project_in(
+	tsconfig: &StdPath,
+	project_dir: Option<&str>,
+	options: &ProjectOptions,
+) -> Result<Project, LoadError> {
 	let tsconfig = tsconfig.to_str().ok_or(LoadError::NonUtf8Path)?;
 	let cwd = std::env::current_dir().map_err(LoadError::CurrentDirectory)?;
 	let cwd = tspath::normalize_slashes(&cwd.to_string_lossy());
 	let config_path = tspath::get_normalized_absolute_path(tsconfig, &cwd);
-	let directory = tspath::get_directory_path(&config_path);
+	let directory = project_dir.map_or_else(
+		|| tspath::get_directory_path(&config_path),
+		|dir| tspath::get_normalized_absolute_path(&tspath::normalize_slashes(dir), &cwd),
+	);
 
 	let fs = project_fs(&config_path);
 	let parsed = parse_command_line(&directory, &config_path, &fs, options)?;
@@ -368,6 +411,24 @@ pub fn update_with_overlays(
 	program: &'static Program,
 	overlays: &BTreeMap<String, String>,
 ) -> Result<(&'static Program, bool), OverlayError> {
+	update_with_overlays_checkers(program, overlays, derived_program_checkers(program))
+}
+
+/// [`update_with_overlays`] with the derived pool's checker count chosen by the caller.
+///
+/// `None` keeps `program`'s own count (its `checkers` option, else the default), the count a fresh
+/// program over the same config gets. rotor's single-project compile builds its overlaid program
+/// that way (Go's second `newProjectProgramFromFSWithOptions`), so checker groups and declaration
+/// emit order match a build without overlays.
+///
+/// # Errors
+///
+/// As [`update_with_overlays`].
+pub fn update_with_overlays_checkers(
+	program: &'static Program,
+	overlays: &BTreeMap<String, String>,
+	checkers: Option<i64>,
+) -> Result<(&'static Program, bool), OverlayError> {
 	if overlays.is_empty() {
 		return Ok((program, true));
 	}
@@ -425,7 +486,6 @@ pub fn update_with_overlays(
 		None,
 		None,
 	);
-	let checkers = derived_program_checkers(program);
 	let mut derived = program;
 	let mut reused = true;
 	for path in changed {

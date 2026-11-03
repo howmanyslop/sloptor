@@ -24,7 +24,7 @@ pub mod types;
 
 use std::path::Path;
 
-pub use project::{LoadError, Project, ProjectOptions, load_project};
+pub use project::{LoadError, Project, ProjectOptions, load_project, load_project_in};
 pub use tsrs_compiler as compiler;
 pub use tsrs_core as tscore;
 pub use tsrs_core::{CompilerOptions, Context, P, Tristate, jsnum, tspath};
