@@ -410,7 +410,6 @@ fn class_member_diagnostics() {
 /// Every non-hoisted enum shape: numeric, string-only, heterogeneous, folded and unfoldable
 /// computed members, const enums, `declare enum`, and non-identifier member names.
 #[test]
-#[ignore = "needs slice iv: the string `size` macro (`\"y\".size()`)"]
 fn enum_basic() {
 	let want = r#"local Fruit
 do

@@ -340,17 +340,6 @@ pub fn rotor_not_yet_supported(node: impl Into<Option<P<Node>>>, what: &str) -> 
 	)
 }
 
-/// `rotorNotYetPorted`: a construct the Go compiler handles whose transform the Rust port has not
-/// reached yet (a Stage 4b slice stub). Rust-only; no Go output ever contains it.
-#[must_use]
-pub fn rotor_not_yet_ported(node: impl Into<Option<P<Node>>>, what: &str) -> Diagnostic {
-	error_diag(
-		"rotorNotYetPorted",
-		node,
-		&[&format!("rotor: not yet ported to Rust: {what}")],
-	)
-}
-
 /// `rotorUnreachableHoistedFunction`
 #[must_use]
 pub fn rotor_unreachable_hoisted_function(node: P<Node>) -> Diagnostic {

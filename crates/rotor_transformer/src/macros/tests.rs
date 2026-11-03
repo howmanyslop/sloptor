@@ -251,7 +251,6 @@ fn array_macro_offsets() {
 
 /// `TestCollectionMacrosAgainstRbxtsc`
 #[test]
-#[ignore = "needs slice vi: transform_export_declaration (`export {}`)"]
 fn collection_macros_against_rbxtsc() {
 	let want = r#"local set = {
 	[1] = true,

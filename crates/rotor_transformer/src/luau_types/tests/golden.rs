@@ -93,19 +93,16 @@ fn check_golden(rel_path: &str) {
 }
 
 #[test]
-#[ignore = "needs slice vi: export declarations"]
 fn luau_types_golden_aliases() {
 	check_golden("src/aliases.ts");
 }
 
 #[test]
-#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_classes() {
 	check_golden("src/classes.ts");
 }
 
 #[test]
-#[ignore = "needs slice vi: await expressions"]
 fn luau_types_golden_emission() {
 	check_golden("src/emission.ts");
 }
@@ -121,7 +118,6 @@ fn luau_types_golden_functions() {
 }
 
 #[test]
-#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_imports() {
 	check_golden("src/imports.ts");
 }
@@ -132,7 +128,6 @@ fn luau_types_golden_lib_shapes() {
 }
 
 #[test]
-#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_locals() {
 	check_golden("src/locals.ts");
 }
@@ -148,7 +143,6 @@ fn luau_types_golden_roblox() {
 }
 
 #[test]
-#[ignore = "needs slice vi: import declarations"]
 fn luau_types_golden_tables() {
 	check_golden("src/tables.ts");
 }

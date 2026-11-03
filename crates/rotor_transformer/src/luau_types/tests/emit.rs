@@ -43,7 +43,6 @@ pub fn require_clean(rendered: &str) {
 /// settled value and the `TS.async` local carries the Promise-returning type; a void body with
 /// a bare `return` is `...nil`.
 #[test]
-#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_signatures() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -84,7 +83,6 @@ fn luau_types_emission_signatures() {
 /// A logical chain's `_condition` temp is re-bound to the expression's TS type, and a literal
 /// spilled to a temp by such a chain keeps its shape.
 #[test]
-#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_refines_condition_temps() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -108,7 +106,6 @@ fn luau_types_emission_refines_condition_temps() {
 /// Object-literal methods take an explicit `self`: the literal's contextual alias when there is
 /// one, a written `this` parameter's type, and `any` otherwise.
 #[test]
-#[ignore = "needs slice vi: await expressions"]
 fn luau_types_emission_object_literal_methods() {
 	let rendered = render_luau_types("src/emission.ts", true);
 	require_lines(
@@ -129,7 +126,6 @@ fn luau_types_emission_object_literal_methods() {
 /// Locals read like hand-written Luau: only a local with no initializer, a hoisted one, or one
 /// whose written type differs from its initializer's widened type is annotated.
 #[test]
-#[ignore = "needs slice vi: import declarations"]
 fn luau_types_emission_locals() {
 	let rendered = render_luau_types("src/locals.ts", true);
 	require_lines(

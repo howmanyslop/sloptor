@@ -92,7 +92,6 @@ print(named(2), f)
 /// that factory, so a self-call creates a new generator instead of re-entering the iterator
 /// callback.
 #[test]
-#[ignore = "needs slice vi: wrap_statements_as_generator and transform_yield_expression"]
 fn named_function_expression_generator_lifts_as_a_declaration() {
 	let want = "local function named()
 	return TS.generator(function()
@@ -149,7 +148,6 @@ print(short, ternary)
 /// argument behind an assertion. A colliding name is renamed rather than shadowing the binding it
 /// collides with.
 #[test]
-#[ignore = "needs slice vi: transform_export_declaration"]
 fn named_function_expression_lifts_from_every_synchronous_position() {
 	let want = "local function different()
 end

@@ -23,14 +23,6 @@ use crate::pointer::MapPointer;
 use crate::prelude::*;
 use crate::state::ArrayAppendPlan;
 
-/// Per-file state owned by this slice.
-#[derive(Debug, Default)]
-pub struct SliceState {}
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub struct MultiSliceState {}
-
 /// `VarArgsData` (`varargsoptimization.go`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VarArgsData {

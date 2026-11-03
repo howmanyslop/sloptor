@@ -3,11 +3,11 @@
 21b_main
 22_exportfrom
 22a_base
+24_mixed3a
 24a_shared
 24b_middle
+32_jsx
 34_decorators
-# 24_mixed3a: blocked on slice iv (constructor macros `new Array`, `new Map`).
-# 32_jsx: blocked on slice iv (macro `ReadonlyArray.map`).
-# 36_async: blocked on slice iv (the `Promise` identifier macro).
-# 37_try: blocked on slice iv (the `Promise` identifier macro).
-# 39_mixed3c: blocked on slice iv (constructor macros, `Array.push`, `ReadonlyArray.map`).
+36_async
+37_try
+39_mixed3c

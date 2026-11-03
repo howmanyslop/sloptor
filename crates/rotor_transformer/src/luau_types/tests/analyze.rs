@@ -320,7 +320,6 @@ fn luau_types_stub_definitions_honored() {
 /// Every fixture under `testdata/luautypes/src`, rendered with `luauTypes` on, analyzes clean
 /// in strict mode.
 #[test]
-#[ignore = "needs slice vi: export declarations"]
 fn luau_types_fixtures_analyze_clean() {
 	let Some(analyzer) = find_luau_analyzer() else {
 		return;

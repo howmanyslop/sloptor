@@ -22,7 +22,7 @@ use crate::nodemodulespath::NodeModulesPathMapping;
 use crate::prelude::*;
 use crate::selectsymlinkpath::select_symlink_path;
 use crate::sourcepositions::SourceColumnCheckpoint;
-use crate::{classes, control, expressions, extras, luau_types, macros};
+use crate::{control, luau_types, macros};
 
 /// `ProjectType` (`Shared/constants.ts`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -74,8 +74,6 @@ pub struct MultiState {
 	pub(crate) macro_manager: Option<MacroManager>,
 	/// The id of the checker every state of this pass must use.
 	pub(crate) checker_id: Option<u32>,
-	/// Pass-wide state owned by the Stage 4b slices.
-	pub(crate) slices: MultiSlices,
 }
 
 impl MultiState {
@@ -93,26 +91,10 @@ impl MultiState {
 	}
 }
 
-/// Pass-wide state of each Stage 4b slice, so a slice adds fields without touching this file.
-#[derive(Default)]
-pub struct MultiSlices {
-	pub(crate) expressions: expressions::MultiSliceState,
-	pub(crate) control: control::MultiSliceState,
-	pub(crate) classes: classes::MultiSliceState,
-	pub(crate) macros: macros::MultiSliceState,
-	pub(crate) luau_types: luau_types::MultiSliceState,
-	pub(crate) extras: extras::MultiSliceState,
-}
-
-/// Per-file state of each Stage 4b slice.
+/// Per-file state of the transformer modules that keep their own.
 #[derive(Default)]
 pub struct Slices {
-	pub(crate) expressions: expressions::SliceState,
-	pub(crate) control: control::SliceState,
-	pub(crate) classes: classes::SliceState,
-	pub(crate) macros: macros::SliceState,
 	pub(crate) luau_types: luau_types::SliceState,
-	pub(crate) extras: extras::SliceState,
 }
 
 /// `RojoContext`: the project-level Rojo data upstream's `TransformState` receives as
@@ -297,7 +279,7 @@ pub struct State<'a> {
 	/// The first internal invariant violation (a Go `panic`), surfaced by the driver as an
 	/// internal compiler error.
 	pub(crate) internal_error: Option<String>,
-	/// Per-file state of the Stage 4b slices.
+	/// Per-file state of the `luau_types` module.
 	pub(crate) slices: Slices,
 }
 
@@ -390,11 +372,6 @@ impl<'a> State<'a> {
 	#[must_use]
 	pub fn internal_error(&self) -> Option<&str> {
 		self.internal_error.as_deref()
-	}
-
-	/// Reports a Stage 4b slice stub: the construct is handled by Go but not yet by Rust.
-	pub(crate) fn not_yet_ported(&mut self, node: P<Node>, what: &str) {
-		self.diags.add(diagnostics::rotor_not_yet_ported(node, what));
 	}
 
 	// -----------------------------------------------------------------------------------------
@@ -1002,10 +979,6 @@ impl<'a> State<'a> {
 
 	pub(crate) fn unregister_optimizable_var_args(&mut self, declaration: P<Node>) {
 		self.declaration_to_optimizable_var_args.remove(&declaration);
-	}
-
-	pub(crate) fn optimizable_var_args_data_mut(&mut self, declaration: P<Node>) -> Option<&mut control::VarArgsData> {
-		self.declaration_to_optimizable_var_args.get_mut(&declaration)
 	}
 
 	/// `getOptimizableVarArgsData`: the vararg data of the parameter `node` names.

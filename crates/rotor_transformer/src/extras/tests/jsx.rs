@@ -45,7 +45,6 @@ print(e, e2, a, b)
 /// An attribute initializer with prereqs (the `Array.pop` macro) disables the inline map before
 /// the prereqs run; later attributes become `_attributes.X = ...` assignments.
 #[test]
-#[ignore = "needs slice iv: the `Array.pop` macro"]
 fn jsx_attribute_prereqs() {
 	let want = r#"local _attributes = {}
 -- ▼ Array.pop ▼
@@ -69,7 +68,6 @@ print(c)
 /// ensureTransformOrder pins the earlier complex child into `local _exp = ...` when a later
 /// child carries prereqs, and the nil placeholder appears (children, no attributes).
 #[test]
-#[ignore = "needs slice iv: the `Array.pop` macro"]
 fn jsx_child_ordering() {
 	let want = r#"local _exp = getEl()
 -- ▼ Array.pop ▼

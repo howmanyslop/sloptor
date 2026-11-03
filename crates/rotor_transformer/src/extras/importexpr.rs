@@ -6,11 +6,9 @@ use rotor_rojo::{
 };
 use rotor_support::gopath;
 use rotor_tsrs::ast::{self as tsast, get_source_file_of_node};
-use rotor_tsrs::compiler::{CompilerHost, Program};
-use rotor_tsrs::module::{ResolutionHost, ResolverOptions, new_resolver};
 use rotor_tsrs::tscore::RESOLUTION_MODE_NONE;
 use rotor_tsrs::tspath;
-use rotor_tsrs::vfs::{FS, osvfs};
+use rotor_tsrs::vfs::osvfs;
 
 use crate::diagnostics;
 use crate::prelude::*;
@@ -22,31 +20,6 @@ const NODE_MODULES: &str = "node_modules";
 
 /// `parentField` (`Shared/constants.ts`).
 const PARENT_FIELD: &str = "Parent";
-
-/// The program's compiler host seen as a module resolution host.
-struct ProgramResolutionHost<'a>(&'a dyn CompilerHost);
-
-impl ResolutionHost for ProgramResolutionHost<'_> {
-	fn fs(&self) -> &dyn FS {
-		self.0.fs()
-	}
-
-	fn get_current_directory(&self) -> &str {
-		self.0.get_current_directory()
-	}
-}
-
-/// rotor's tsgo patch `Program.ResolveModuleName`, which tsrs keeps private: a resolution against
-/// the program's options and host. DIVERGENCE (Go's): this resolver has none of the program's
-/// project-reference redirects or content-mapper extensions; only `$getModuleTree` reaches it.
-fn resolve_module_name(program: &Program, module_name: &str, containing_file: &str) -> Option<String> {
-	let host = ProgramResolutionHost(program.host().as_ref());
-	let module_resolver = new_resolver(ResolverOptions::new(&host, program.options()));
-	let (resolved, _) = module_resolver
-		.resolve_module_name(module_name, containing_file, RESOLUTION_MODE_NONE, None)
-		.ok()?;
-	resolved.is_resolved().then(|| resolved.resolved_file_name.to_owned())
-}
 
 /// `getSourceFileFromModuleSpecifier` (`util/getSourceFileFromModuleSpecifier.ts` L4-33): the
 /// program file a module specifier resolves to.
@@ -85,11 +58,17 @@ pub(super) fn get_source_file_from_module_specifier(
 	}
 
 	// Fallback for $getModuleTree when the module is not referenced by any regular import
-	// (upstream L25-32): a raw resolution against the program options.
+	// (upstream L25-32): a raw resolution through the program's resolver. Upstream passes no
+	// resolution mode, which is `ResolutionModeNone` (resolve per the compiler options).
 	if tsast::is_string_literal_like(module_specifier) {
 		let source_file = get_source_file_of_node(module_specifier).unwrap_or(state.source_file);
-		if let Some(resolved) = resolve_module_name(state.program, module_specifier.text(), source_file.file_name()) {
-			return state.program.get_source_file(&resolved);
+		if let Some(result) =
+			state
+				.program
+				.resolve_module_name(module_specifier.text(), source_file.file_name(), RESOLUTION_MODE_NONE)
+			&& result.is_resolved()
+		{
+			return state.program.get_source_file(result.resolved_file_name);
 		}
 	}
 

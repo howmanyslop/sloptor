@@ -22,14 +22,6 @@ use rotor_tsrs::ast as tsast;
 
 use crate::prelude::*;
 
-/// Per-file state owned by this slice.
-#[derive(Debug, Default)]
-pub struct SliceState {}
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub struct MultiSliceState {}
-
 /// `isReturnBlockedByTryStatement` (`trystatement.go`; `util/isBlockedByTryStatement.ts`): a
 /// try statement is reached before any function-like.
 #[must_use]

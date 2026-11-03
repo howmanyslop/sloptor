@@ -24,7 +24,7 @@ use self::luautypes::TypeBuilder;
 use self::nativetypes::TypeGenericScope;
 use crate::prelude::*;
 
-/// Per-file state owned by this slice (Go's `typeScopes`, `luauTypeBuilder`,
+/// Per-file state of this module (Go's `typeScopes`, `luauTypeBuilder`,
 /// `nativeTypeBuilder`).
 #[derive(Debug, Default)]
 pub struct SliceState {
@@ -35,10 +35,6 @@ pub struct SliceState {
 	/// shared one.
 	native: Option<TypeBuilder>,
 }
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub struct MultiSliceState {}
 
 /// `hasNativeDirective` (`nativetypes.go`): the file's leading comments contain `//!native`.
 pub fn has_native_directive(state: &State<'_>) -> bool {
@@ -118,13 +114,19 @@ pub fn get_luau_vararg_type(state: &mut State<'_>, node: P<Node>) -> Option<Node
 }
 
 /// `getLuauParameterType` (`luautypes_emit.go`): only called with `luauTypes` on.
-#[expect(clippy::unnecessary_wraps, reason = "the stub signature slices ii and iii call")]
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the signature the control and classes modules call"
+)]
 pub fn get_luau_parameter_type(state: &mut State<'_>, parameter: P<Node>) -> Option<NodeId> {
 	Some(luautypes_emit::get_luau_parameter_type(state, parameter))
 }
 
 /// `getLuauBindingElementType` (`luautypes_emit.go`): only called with `luauTypes` on.
-#[expect(clippy::unnecessary_wraps, reason = "the stub signature slices ii and iii call")]
+#[expect(
+	clippy::unnecessary_wraps,
+	reason = "the signature the control and classes modules call"
+)]
 pub fn get_luau_binding_element_type(state: &mut State<'_>, element: P<Node>) -> Option<NodeId> {
 	Some(luautypes_emit::get_luau_binding_element_type(state, element))
 }

@@ -1,5 +1,4 @@
-//! Slice vi's Go tests, with the expected strings verbatim. Tests that reach another slice's
-//! stub are `#[ignore]`d with that stub named; they run once it lands.
+//! Slice vi's Go tests, with the expected strings verbatim.
 
 mod async_;
 mod decorators;
@@ -34,7 +33,6 @@ pub(super) fn render_module_fixture(dir: &str, rel_path: &str) -> (String, Vec<D
 			state.internal_error()
 		);
 		let diagnostics = state.diags.flush();
-		assert_no_stub(&diagnostics);
 		(render_list(state, statements), diagnostics)
 	})
 }
@@ -50,7 +48,6 @@ pub(super) fn render_plain_fixture(dir: &str, rel_path: &str) -> (String, Vec<Di
 			state.internal_error()
 		);
 		let diagnostics = state.diags.flush();
-		assert_no_stub(&diagnostics);
 		(render_list(state, statements), diagnostics)
 	})
 }
@@ -97,16 +94,6 @@ pub(super) fn has_diagnostic(diagnostics: &[Diagnostic], code: &str, substring: 
 	diagnostics
 		.iter()
 		.any(|diagnostic| diagnostic.code == code && diagnostic.message.contains(substring))
-}
-
-/// Fails with the stub diagnostics when the output would hold another slice's placeholders.
-pub(super) fn assert_no_stub(diagnostics: &[Diagnostic]) {
-	let stubs: Vec<&str> = diagnostics
-		.iter()
-		.filter(|diagnostic| diagnostic.code == "rotorNotYetPorted")
-		.map(|diagnostic| diagnostic.message.as_str())
-		.collect();
-	assert!(stubs.is_empty(), "reached another slice's stub: {stubs:?}");
 }
 
 /// Asserts the rendered output and that no diagnostics were reported.

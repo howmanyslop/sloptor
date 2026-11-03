@@ -76,7 +76,6 @@ print(fetchValue())
 /// Generator declarations stay real function declarations whose body is
 /// `return TS.generator(function() <body> end)`.
 #[test]
-#[ignore = "needs slice vi: wrap_statements_as_generator and transform_yield_expression"]
 fn generator_function_declaration() {
 	let want = "local function gen()
 	return TS.generator(function()

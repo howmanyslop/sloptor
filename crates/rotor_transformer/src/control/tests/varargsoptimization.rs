@@ -282,7 +282,6 @@ return {
 }
 
 #[test]
-#[ignore = "needs slice vi: wrap_statements_as_generator and transform_yield_expression"]
 fn var_args_unsafe_fallback() {
 	let source = "export function unsafeNested(...args: Array<number>) {
 	return function () {

@@ -118,7 +118,8 @@ pub enum FidelityLossKind {
 }
 
 impl FidelityLossKind {
-	/// `fidelityLossKind.String`
+	/// `fidelityLossKind.String` (Go keeps it for its tests only).
+	#[cfg(test)]
 	#[must_use]
 	pub const fn name(self) -> &'static str {
 		match self {
@@ -192,15 +193,6 @@ impl SymKey {
 		match self {
 			Self::Real(symbol) => symbol.flags(),
 			Self::Synthetic(_, flags) => flags,
-		}
-	}
-
-	/// The checker symbol, if this is one.
-	#[must_use]
-	pub const fn real(self) -> Option<P<Symbol>> {
-		match self {
-			Self::Real(symbol) => Some(symbol),
-			Self::Synthetic(..) => None,
 		}
 	}
 }
@@ -392,7 +384,7 @@ pub struct Builder<'s, 'a> {
 	pub id: BuilderId,
 }
 
-impl<'a> Builder<'_, 'a> {
+impl Builder<'_, '_> {
 	/// The builder's data.
 	pub fn b(&mut self) -> &mut TypeBuilder {
 		self.s.slices.luau_types.builder_mut(self.id)
@@ -401,11 +393,6 @@ impl<'a> Builder<'_, 'a> {
 	/// The state's Luau arena.
 	pub const fn ast(&mut self) -> &mut Ast {
 		&mut self.s.ast
-	}
-
-	/// A shorter borrow of the same builder.
-	pub const fn reborrow(&mut self) -> Builder<'_, 'a> {
-		Builder { s: self.s, id: self.id }
 	}
 
 	/// The builder's spelling.
@@ -482,11 +469,6 @@ impl<'a> Builder<'_, 'a> {
 	pub fn aliases(&mut self) -> Vec<EntryId> {
 		self.b().aliases_in_order()
 	}
-
-	/// The entry behind `id`, copied out.
-	pub fn entry(&mut self, id: EntryId) -> &mut TypeAliasEntry {
-		self.b().entry_mut(id)
-	}
 }
 
 /// `spellingFor`: a `//!native` file annotated by nativeTypes alone spells for Luau's native
@@ -525,13 +507,15 @@ pub fn native_types<'s, 'a>(state: &'s mut State<'a>) -> Builder<'s, 'a> {
 	}
 }
 
-/// `LuauTypeLosses`: every fidelity loss recorded while this file's types were built.
+/// `LuauTypeLosses`: every fidelity loss recorded while this file's types were built (Go keeps it for its tests only).
+#[cfg(test)]
 pub fn luau_type_losses(state: &mut State<'_>) -> Vec<FidelityLoss> {
 	types(state).b().losses.clone()
 }
 
 /// `typeAliasFor`: registers (on first use) and returns the alias for a symbol the spelling
-/// agreed to alias.
+/// agreed to alias. Production code calls the builder's `alias_for`; Go keeps it for its tests only.
+#[cfg(test)]
 pub fn type_alias_for(state: &mut State<'_>, symbol: Option<P<Symbol>>) -> Option<EntryId> {
 	types(state).alias_for(symbol.map(SymKey::Real))
 }

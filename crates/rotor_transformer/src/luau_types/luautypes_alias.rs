@@ -368,7 +368,8 @@ fn is_source_file_symbol(symbol: P<Symbol>) -> bool {
 		.any(|&declaration| tsast::is_source_file(declaration))
 }
 
-/// `uniqueLuauTypeName`
+/// `uniqueLuauTypeName` (Go keeps it for its tests only).
+#[cfg(test)]
 pub fn unique_luau_type_name(state: &mut State<'_>, base: &str) -> String {
 	types(state).unique_name(base)
 }

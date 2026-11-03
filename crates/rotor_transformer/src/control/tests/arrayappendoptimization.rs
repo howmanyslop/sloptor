@@ -19,7 +19,6 @@ fn render_array_append_fixture(name: &str, enabled: bool, expected_diagnostics: 
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_emits_loop_carried_index() {
 	let want = "local result = {}
 local _resultLength = 0
@@ -35,7 +34,6 @@ print(result)
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_handles_labeled_loops() {
 	let got = render_array_append_fixture("labeled", true, &[]);
 
@@ -50,7 +48,6 @@ fn optimized_array_appends_handles_labeled_loops() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_skips_zero_argument_push() {
 	let want = "local result = {}
 for index = 0, 2 do
@@ -61,7 +58,6 @@ end
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_is_opt_in() {
 	let got = render_array_append_fixture("basic", false, &[]);
 
@@ -76,7 +72,6 @@ fn optimized_array_appends_is_opt_in() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_supports_every_loop_shape() {
 	let got = render_array_append_fixture("loops", true, &[]);
 
@@ -93,7 +88,6 @@ fn optimized_array_appends_supports_every_loop_shape() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_preserves_argument_order_and_return_length() {
 	let got = render_array_append_fixture("multiple", true, &[]);
 
@@ -124,7 +118,6 @@ fn optimized_array_appends_preserves_argument_order_and_return_length() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_supports_nested_and_conditional_sites() {
 	let got = render_array_append_fixture("nested", true, &[]);
 
@@ -145,7 +138,6 @@ fn optimized_array_appends_supports_nested_and_conditional_sites() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_avoids_generated_name_collisions() {
 	let got = render_array_append_fixture("collision", true, &[]);
 
@@ -156,7 +148,6 @@ fn optimized_array_appends_avoids_generated_name_collisions() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_falls_back_when_safety_cannot_be_proved() {
 	let got = render_array_append_fixture("fallbacks", true, &["noVarArgsMacroSpread", "noAny"]);
 
@@ -192,7 +183,6 @@ fn optimized_array_appends_falls_back_when_safety_cannot_be_proved() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_rejects_out_of_loop_captures() {
 	let got = render_array_append_fixture("capture", true, &[]);
 
@@ -213,7 +203,6 @@ fn optimized_array_appends_rejects_out_of_loop_captures() {
 }
 
 #[test]
-#[ignore = "needs slice iv (Array constructor and Array.push macros) and slice i (transform_binding_name)"]
 fn optimized_array_appends_snapshots_consumed_return_values() {
 	let got = render_array_append_fixture("valueuses", true, &[]);
 

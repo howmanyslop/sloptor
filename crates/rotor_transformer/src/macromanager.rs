@@ -34,8 +34,6 @@ pub type PropertyCallMacro = CallMacro;
 /// `IdentifierMacroEntry`
 #[derive(Clone, Copy, Debug)]
 pub struct IdentifierMacroEntry {
-	/// The registration name.
-	pub name: &'static str,
 	/// The macro.
 	pub macro_fn: IdentifierMacro,
 }
@@ -172,7 +170,7 @@ impl MacroManager {
 			if let Some(symbol) = checker.resolve_name(name, None, SymbolFlags::Variable, false) {
 				manager
 					.identifier_macros
-					.insert(symbol, IdentifierMacroEntry { name, macro_fn });
+					.insert(symbol, IdentifierMacroEntry { macro_fn });
 			} else {
 				manager.record_missing(
 					name,

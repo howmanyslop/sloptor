@@ -2,11 +2,9 @@
 //! of roblox-ts's `TSTransformer`.
 //!
 //! [`State`] is one file's transform state; [`transform_source_file`] turns its source file into
-//! the Luau statements `rotor_luau::render` prints. Stage 4a ported the core; the modules
-//! `expressions`, `control`, `classes`, `macros`, `luau_types` and `extras` are the Stage 4b
-//! slices, stubbed with `rotorNotYetPorted` diagnostics (see `SLICES.md`).
-
-#![expect(dead_code, reason = "Stage 4b slices are still stubs")]
+//! the Luau statements `rotor_luau::render` prints. The core sits at the top level; the modules
+//! `expressions`, `control`, `classes`, `macros`, `luau_types` and `extras` hold the rest
+//! (see `SLICES.md` for where each Go file lives).
 
 mod access;
 mod assignment;
@@ -51,7 +49,7 @@ mod util;
 mod valuetoidstr;
 mod voidexpr;
 
-// Stage 4b slices.
+// The modules ported in Stage 4b, one directory per group of Go files.
 mod classes;
 mod control;
 mod expressions;

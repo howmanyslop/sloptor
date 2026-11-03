@@ -27,14 +27,6 @@ pub use spread::{get_add_iterable_to_array_builder, transform_spread_assignment,
 
 use crate::prelude::*;
 
-/// Per-file state owned by this slice.
-#[derive(Debug, Default)]
-pub struct SliceState {}
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub struct MultiSliceState {}
-
 /// `addIterableToArrayBuilder` (`spread.go`): appends a spread's values to `array_id`, given the
 /// `_length` temp, the inline elements since its last update, and whether to update it after.
 pub type AddIterableToArrayBuilder = fn(&mut State<'_>, NodeId, NodeId, NodeId, usize, bool) -> Statements;

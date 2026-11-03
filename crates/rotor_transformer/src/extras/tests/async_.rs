@@ -8,7 +8,6 @@ use super::{assert_renders, render_module_fixture};
 /// statement with a `TS.generator` body, bare `yield` is `coroutine.yield()`, `yield*` used as a
 /// value captures `_returnValue`, and for-of over a generator consumes `.next`.
 #[test]
-#[ignore = "needs slice iv: the `Promise` identifier macro"]
 fn async_generator_declarations() {
 	let want = r#"local fetchValue
 fetchValue = TS.async(function(x)
@@ -62,7 +61,6 @@ end
 /// async/generator methods land as map fields, and a use-before-declaration async function
 /// hoists.
 #[test]
-#[ignore = "needs slice iv: the `Promise` identifier macro"]
 fn async_generator_methods() {
 	let want = r#"local lateAsync
 local function early()
@@ -129,7 +127,6 @@ end
 /// `_returnValue`, awaits parenthesize like upstream, and resume arguments surface as
 /// `coroutine.yield`'s result.
 #[test]
-#[ignore = "needs slice iv: the `Promise` identifier macro"]
 fn async_generator_expressions() {
 	let want = r#"local fexpr = TS.async(function(x)
 	return x

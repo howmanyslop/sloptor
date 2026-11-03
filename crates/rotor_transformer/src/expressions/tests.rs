@@ -215,7 +215,6 @@ print(second)
 // -------------------------------------------------------------------------------------------------
 
 #[test]
-#[ignore = "needs slice (iv): constructor macros (`new Array<number>()`)"]
 fn unsupported_function_rest_destructuring_reports_diagnostics() {
 	let diagnostics = destructuring_diagnostics("src/unsupportedrest.ts");
 	assert_eq!(diagnostics.len(), 2, "diagnostic count, want 2: {diagnostics:?}");
@@ -572,7 +571,6 @@ print(first, last, optional)
 }
 
 #[test]
-#[ignore = "needs slice (vi): JSX"]
 fn non_primitive_jsx_spread() {
 	let (got, diagnostics) = transform_jsx_file("src/nonprimitive.tsx");
 	let want = r#"local _attributes = table.clone(source)

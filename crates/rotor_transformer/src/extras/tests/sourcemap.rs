@@ -224,12 +224,9 @@ fn source_positions_match_utf16_oracle_maps_on() {
 	check_source_positions_match_utf16_oracle(true);
 }
 
-/// Core's maps-off path (`sourcepositions.rs` `source_position_at`) hands tsrs's
-/// `get_ecma_line_and_utf16_character_of_position` an offset inside a multi-byte character
-/// (`end - 1` of `café`), and tsrs slices the text there and panics. Go's `UTF16Len` counts the
-/// stray bytes instead.
+/// The maps-off path reaches offsets inside a multi-byte character (`end - 1` of `café`), which
+/// Go's `UTF16Len` counts byte by byte.
 #[test]
-#[ignore = "core bug: sourcepositions.rs source_position_at panics on an offset inside a character"]
 fn source_positions_match_utf16_oracle_maps_off() {
 	check_source_positions_match_utf16_oracle(false);
 }

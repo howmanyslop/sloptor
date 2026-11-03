@@ -355,7 +355,6 @@ print(n)
 /// The loop-carried write-back is spliced before the generated `continue`; the reset sits
 /// above the `_shouldIncrement` guard.
 #[test]
-#[ignore = "needs slice iv: the Array constructor, `Array.push` and `ArrayLike.size` macros"]
 fn label_fallback_for_statement() {
 	render_label_fixture(
 		"labelfallbackfor.ts",
@@ -422,7 +421,6 @@ print(n)
 
 /// The inline `[k, v]` Map fast path unshifts its own bindings into the same body list.
 #[test]
-#[ignore = "needs slice iv: constructor macros (`new Map()`)"]
 fn label_for_of_destructuring() {
 	render_label_fixture(
 		"labeldestructure.ts",

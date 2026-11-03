@@ -396,7 +396,6 @@ fn native_files_mirror_literal_types() {
 }
 
 #[test]
-#[ignore = "needs slice vi: export assignments"]
 fn native_files_annotate_recursive_generic_cache() {
 	let got = render_native("src/lru.ts");
 	require_contains(

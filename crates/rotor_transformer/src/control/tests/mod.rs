@@ -1,5 +1,4 @@
-//! The Go tests of slice (ii), with the expected strings verbatim. Tests whose fixture reaches
-//! another slice's stub are `#[ignore]`d with that stub named; they run once it lands.
+//! The Go tests of slice (ii), with the expected strings verbatim.
 
 use std::path::Path;
 

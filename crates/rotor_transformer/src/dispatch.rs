@@ -1,8 +1,8 @@
 //! `dispatch.go`: the expression dispatch (`nodes/expressions/transformExpression.ts`) and the
 //! statement dispatch (`nodes/statements/transformStatement.ts`).
 //!
-//! Every kind upstream handles routes to a module. The kinds whose Go files are not yet ported
-//! route to the Stage 4b slice modules, whose stubs report `rotorNotYetPorted` (see `SLICES.md`).
+//! Every kind upstream handles routes to the module that ports its Go file (see `SLICES.md`); any
+//! other kind reports `rotorNotYetSupported`, as in Go.
 
 use rotor_luau::Origin;
 use rotor_tsrs::ast as tsast;

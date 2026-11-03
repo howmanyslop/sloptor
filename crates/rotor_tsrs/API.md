@@ -7,17 +7,18 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
   this code names, found by type-checking the packages with `go/packages`, so method calls resolve to their receiver type.
 - **Sites** counts the references and lists the packages that make them.
 - **tsrs** is the counterpart in the vendored crates. Names were checked against `third_party/tsrs` sources;
-  "(0001 patch)" and "(0002 patch)" mark items `tools/tsrs-mirror/patches` makes public.
+  "(0001 patch)", "(0002 patch)" and "(0004 patch)" mark items `tools/tsrs-mirror/patches` makes public
+  or adds.
 - **rotor_tsrs** is where later crates reach it. Re-exported modules keep the tsrs path under `rotor_tsrs`
   (`rotor_tsrs::ast::Node::name` is `tsrs_ast::Node::name`). Checker queries go through
   `rotor_tsrs::checker::TypeChecker`, which names each one after its Go method and derefs to the tsrs `Checker`.
 
 ## Totals
 
-- 1441 APIs over 8894 reference sites: **1322 covered**, **119 missing**.
+- 1441 APIs over 8894 reference sites: **1323 covered**, **118 missing**.
 - 113 of the missing are LSP protocol, JSON-RPC, language-service and watcher APIs. tsrs vendors no such crates, and
   they belong to Stage 7 (`rotor_lsp`, `rotor_cli`).
-- The other 6 are rotor-only tsgo patches or APIs tsrs 0.20.1 does not have; each row gives the reason.
+- The other 5 are rotor-only tsgo patches or APIs tsrs 0.20.1 does not have; each row gives the reason.
 
 | Package | Count |
 |---|---|
@@ -25,7 +26,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 | `bundled` | 2 |
 | `checker` | 180 |
 | `collections` | 9 |
-| `compiler` | 54 (3 missing) |
+| `compiler` | 54 (2 missing) |
 | `core` | 68 |
 | `diagnostics` | 9 |
 | `jsnum` | 1 |
@@ -1168,7 +1169,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 | `compiler` | method | `Program.IsSourceFileFromExternalLibrary` | 3 (compile,flamework) | `Program::is_source_file_from_external_library` | `rotor_tsrs::compiler::Program::is_source_file_from_external_library` |
 | `compiler` | method | `Program.IsSourceFromProjectReference` | 2 (compile) | `Program::is_source_from_project_reference` | `rotor_tsrs::compiler::Program::is_source_from_project_reference` |
 | `compiler` | method | `Program.Options` | 44 (compile,transformer) | `Program::options` | `rotor_tsrs::compiler::Program::options` |
-| `compiler` | method | `Program.ResolveModuleName` | 1 (transformer) | — | missing: tsrs keeps the program's resolver private; Stage 5 resolves through tsrs_module with the program's options |
+| `compiler` | method | `Program.ResolveModuleName` | 1 (transformer) | `Program::resolve_module_name` (0004 patch) | `rotor_tsrs::compiler::Program::resolve_module_name` |
 | `compiler` | method | `Program.SingleThreaded` | 7 (compile,flamework) | `Program::single_threaded` | `rotor_tsrs::compiler::Program::single_threaded` |
 | `compiler` | method | `Program.SourceFiles` | 19 (compile) | `Program::source_files` | `rotor_tsrs::compiler::Program::source_files` |
 | `compiler` | method | `Program.UpdateProgramFilesWithCheckers` | 2 (compile) | Program::update_program_with_checkers (one file per call; patch 0003 adds the checker count) | `rotor_tsrs::project::update_with_overlays` |

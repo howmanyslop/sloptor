@@ -168,7 +168,6 @@ end
 /// collapses to the callback's return, and loops and functions inside a try reset break and
 /// return.
 #[test]
-#[ignore = "needs slice iv: the `Promise` identifier macro"]
 fn try_boundaries() {
 	let want = r#"local function multi()
 	local _exitType, _returns = TS.try(function()

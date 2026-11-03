@@ -35,14 +35,6 @@ pub(crate) use self::keysmacro::{intercept_keys_chain, keys_macro_symbol};
 pub(crate) use self::nameofmacro::{intercept_nameof_chain, nameof_macro_symbol};
 pub(crate) use self::propertycallmacros::run_property_call_macro;
 
-/// Per-file state owned by this slice.
-#[derive(Debug, Default)]
-pub(crate) struct SliceState {}
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub(crate) struct MultiSliceState {}
-
 /// `FileResolver` (`filemacro.go`): reads the data files the `$file` macro inlines.
 pub trait FileResolver {
 	/// Reads `path` as imported from `importer_path`.

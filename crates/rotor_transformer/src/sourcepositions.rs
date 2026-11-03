@@ -21,10 +21,16 @@ impl State<'_> {
 	pub fn source_position_at(&mut self, file: P<SourceFile>, offset: i64) -> Position {
 		let pos = clamp_u32(offset);
 		if !self.source_map_enabled {
-			let (line, column) = scanner::get_ecma_line_and_utf16_character_of_position(&*file, pos);
+			// `GetECMALineAndUTF16CharacterOfPosition`: Go's `UTF16Len` ranges over the line's
+			// bytes, so an offset inside a character counts each stray byte as one unit. The tsrs
+			// counterpart slices a `str` there and panics, so the count is done here.
+			let (line, column) = scanner::get_ecma_line_and_byte_offset_of_position(&*file, pos);
+			let end = usize::try_from(pos).unwrap_or(usize::MAX);
+			let start = end.saturating_sub(usize::try_from(column).unwrap_or(0));
+			let column = file.text().as_bytes().get(start..end).map_or(0, utf16_len);
 			return Position::new(
 				clamp_u32(i64::try_from(line).unwrap_or(i64::MAX)),
-				clamp_u32(column.into()),
+				clamp_u32(i64::try_from(column).unwrap_or(i64::MAX)),
 			);
 		}
 		let checkpoints = self
@@ -66,6 +72,24 @@ pub fn source_column_checkpoints(text: &str) -> Vec<SourceColumnCheckpoint> {
 		});
 	}
 	checkpoints
+}
+
+/// Go `core.UTF16Len` over raw bytes: each valid character counts its UTF-16 units and each
+/// invalid byte (including a character cut short) one replacement unit.
+fn utf16_len(bytes: &[u8]) -> usize {
+	let mut units = 0;
+	let mut offset = 0;
+	while offset < bytes.len() {
+		if bytes[offset] < 0x80 {
+			units += 1;
+			offset += 1;
+			continue;
+		}
+		let (character, width) = decode_rune(&bytes[offset..]);
+		offset += width;
+		units += if character > 0xffff { 2 } else { 1 };
+	}
+	units
 }
 
 /// Go `utf8.DecodeRuneInString`: the character and its width, `(0xFFFD, 1)` when invalid.

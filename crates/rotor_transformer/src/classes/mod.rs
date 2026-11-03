@@ -20,14 +20,6 @@ mod tests;
 
 use crate::prelude::*;
 
-/// Per-file state owned by this slice.
-#[derive(Debug, Default)]
-pub struct SliceState {}
-
-/// Pass-wide state owned by this slice.
-#[derive(Debug, Default)]
-pub struct MultiSliceState {}
-
 /// `transformClassDeclaration` (`classes.go`).
 pub fn transform_class_declaration(state: &mut State<'_>, node: P<Node>) -> Statements {
 	classes::transform_class_declaration(state, node)
