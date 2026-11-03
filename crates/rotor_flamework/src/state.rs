@@ -68,7 +68,7 @@ impl Project {
 		if declaration.is_package {
 			return Ok(id);
 		}
-		self.build_info.add_identifier(&declaration.internal_id, &id)?;
+		self.build_info_mut().add_identifier(&declaration.internal_id, &id)?;
 		Ok(id)
 	}
 
@@ -108,7 +108,7 @@ impl Project {
 		} else {
 			context
 		};
-		self.build_info.hash_string(text, context)
+		self.build_info_mut().hash_string(text, context)
 	}
 
 	/// `AddPackageBuildInfo`
@@ -123,7 +123,7 @@ impl Project {
 				rotor_support::gostr::quote(path)
 			))
 		})?;
-		self.build_info.add_package(package_info);
+		self.build_info_mut().add_package(package_info);
 		Ok(())
 	}
 
@@ -133,7 +133,7 @@ impl Project {
 	///
 	/// The class is already recorded.
 	pub fn add_class(&mut self, class: &BuildClass) -> Result<(), Error> {
-		self.build_info.add_class(class)
+		self.build_info_mut().add_class(class)
 	}
 
 	/// `BuildInfoSnapshot`
@@ -150,7 +150,7 @@ impl Project {
 
 	/// The project's build info.
 	#[must_use]
-	pub const fn build_info(&self) -> &BuildInfo {
+	pub fn build_info(&self) -> &BuildInfo {
 		&self.build_info
 	}
 
@@ -209,7 +209,7 @@ impl Project {
 			return Ok(salt.to_owned());
 		}
 		let salt = new_salt()?;
-		self.build_info.set_salt(Some(&salt));
+		self.build_info_mut().set_salt(Some(&salt));
 		Ok(salt)
 	}
 }

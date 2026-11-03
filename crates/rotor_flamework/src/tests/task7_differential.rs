@@ -306,8 +306,8 @@ pub(super) fn lower_task7_files(root: &Path, project: &Project) {
 			.resolver
 			.get_rbx_path_from_file_path(&include_runtime)
 			.map(|rbx| rotor_transformer::RojoContext {
-				resolver: project.resolver.clone(),
-				path_translator: project.translator.clone(),
+				resolver: (*project.resolver).clone(),
+				path_translator: (*project.translator).clone(),
 				runtime_lib_rbx_path: Some(rbx),
 				project_path: root_text.clone(),
 				pkg_rojo_resolvers: Vec::new(),

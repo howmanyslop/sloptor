@@ -35,7 +35,7 @@ fn project_with(info: BuildInfo) -> Project {
 		..ProjectOptions::default()
 	})
 	.expect("open project");
-	project.build_info = info;
+	project.build_info = std::sync::Arc::new(info);
 	project
 }
 
@@ -159,14 +159,14 @@ fn root_build_class_lookup_visibility_and_ownership() {
 		previous.decorators[0].name == "Root" && root_class(&project).decorators[0].name == "Root",
 		"returned decorators alias the root or another result"
 	);
-	project.build_info.classes.as_mut().expect("classes")[1].decorators[0].name = "current".to_owned();
+	project.build_info_mut().classes.as_mut().expect("classes")[1].decorators[0].name = "current".to_owned();
 	let got = root_build_class_by_internal_id(&project, "mapped").expect("mapped");
 	assert!(
 		got.decorators[0].name == "current" && previous.decorators[0].name == "Root",
 		"lookup is stale or root mutation changed a previous result"
 	);
 	project
-		.build_info
+		.build_info_mut()
 		.identifiers
 		.values
 		.insert("mapped".to_owned(), "child-key".to_owned());
@@ -176,7 +176,7 @@ fn root_build_class_lookup_visibility_and_ownership() {
 		Some("root-collision.lua".to_owned()),
 		"mapping mutation ignored"
 	);
-	project.build_info.identifiers.values.remove("mapped");
+	project.build_info_mut().identifiers.values.remove("mapped");
 	assert!(
 		root_build_class_by_internal_id(&project, "mapped").is_none(),
 		"deleted mapping was retained"
@@ -184,7 +184,7 @@ fn root_build_class_lookup_visibility_and_ownership() {
 	let other = project_with(decode_lookup_build(
 		r#""identifiers":{"mapped":"root"},"classes":[{"internalId":"root","filePath":"other.lua"}]"#,
 	));
-	project.build_info.classes = Some(vec![class("root", "replacement.lua", &[])]);
+	project.build_info_mut().classes = Some(vec![class("root", "replacement.lua", &[])]);
 	let got = root_build_class_by_internal_id(&project, "root");
 	assert_eq!(
 		got.map(|class| class.file_path),
@@ -253,9 +253,9 @@ fn discover_flamework_classes_decoded_lookup_payload() {
 		],
 		"src/service.ts",
 		|input| {
-			input.project.build_info = decode_lookup_build(
+			input.project.build_info = std::sync::Arc::new(decode_lookup_build(
 				r#""identifiers":{"fixture-package:out/service@Service":"b"},"classes":[{"internalId":"b","filePath":"first.lua","decorators":[{"name":"First","internalId":"first"}]},{"internalId":"a"},{"internalId":"b","filePath":"third.lua","decorators":[{"name":"Third","internalId":"third"},{"name":"Extra","internalId":"extra"}]}]"#,
-			);
+			));
 			let before = marshal(&input.project.build_info);
 			for _ in 0..2 {
 				let analysis = analyze_flamework_classes(input).expect("AnalyzeFlameworkClasses");

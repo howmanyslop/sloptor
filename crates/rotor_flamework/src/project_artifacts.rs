@@ -18,12 +18,12 @@ pub type RuntimeArtifacts = (Option<Vec<u8>>, Option<Vec<u8>>);
 impl Project {
 	/// `AddGlob`
 	pub fn add_glob(&mut self, pattern: &str, origin: &str) {
-		self.build_info.add_glob(pattern, origin);
+		self.build_info_mut().add_glob(pattern, origin);
 	}
 
 	/// `InvalidateGlobs`
 	pub fn invalidate_globs(&mut self, origin: &str) {
-		self.build_info.invalidate_globs(origin);
+		self.build_info_mut().invalidate_globs(origin);
 	}
 
 	/// `RuntimeArtifacts`: expands the recorded globs, then builds a game's runtime artifacts.
@@ -44,7 +44,7 @@ impl Project {
 				.into_iter()
 				.map(|(pattern, matches)| (pattern, Some(matches)))
 				.collect();
-			self.build_info.set_glob_paths(&expanded);
+			self.build_info_mut().set_glob_paths(&expanded);
 			local = self.build_info.snapshot();
 		}
 		if !self.is_game {

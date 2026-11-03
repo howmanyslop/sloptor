@@ -1,5 +1,7 @@
 //! `project.go`: an open Flamework project.
 
+use std::sync::Arc;
+
 use rotor_config::config::FlameworkConfig;
 use rotor_rojo::PathTranslator;
 use rotor_rojo::RojoResolver;
@@ -96,6 +98,9 @@ pub struct ProjectOptions {
 }
 
 /// `Project`
+///
+/// The translator, resolver, analysis and build info sit behind `Arc`s, so a parallel worker's
+/// copy shares them as Go's struct copy shares its pointers; a write clones only a shared one.
 #[derive(Clone, Debug)]
 pub struct Project {
 	pub(crate) directory: String,
@@ -112,10 +117,10 @@ pub struct Project {
 	#[expect(dead_code, reason = "Go's Project keeps it; nothing reads it")]
 	pub(crate) pack_mode: bool,
 	pub(crate) config: FlameworkConfig,
-	pub(crate) translator: PathTranslator,
-	pub(crate) resolver: RojoResolver,
-	pub(crate) analysis: AnalysisState,
-	pub(crate) build_info: BuildInfo,
+	pub(crate) translator: Arc<PathTranslator>,
+	pub(crate) resolver: Arc<RojoResolver>,
+	pub(crate) analysis: Arc<AnalysisState>,
+	pub(crate) build_info: Arc<BuildInfo>,
 	#[expect(dead_code, reason = "Go's Project keeps it; nothing reads it")]
 	pub(crate) runtime_config: Option<RuntimeConfig>,
 }
@@ -220,10 +225,10 @@ pub fn open_project(options: &ProjectOptions) -> Result<Project, Error> {
 		is_game,
 		pack_mode,
 		config: options.config.clone(),
-		translator,
-		resolver,
-		analysis: AnalysisState::new(),
-		build_info,
+		translator: Arc::new(translator),
+		resolver: Arc::new(resolver),
+		analysis: Arc::new(AnalysisState::new()),
+		build_info: Arc::new(build_info),
 		runtime_config: clone_runtime_config(loaded_runtime_config.as_ref()),
 	})
 }
@@ -312,7 +317,7 @@ impl Project {
 
 	/// `PathTranslator`
 	#[must_use]
-	pub const fn path_translator(&self) -> &PathTranslator {
+	pub fn path_translator(&self) -> &PathTranslator {
 		&self.translator
 	}
 
@@ -324,7 +329,7 @@ impl Project {
 
 	/// `RojoResolver`
 	#[must_use]
-	pub const fn rojo_resolver(&self) -> &RojoResolver {
+	pub fn rojo_resolver(&self) -> &RojoResolver {
 		&self.resolver
 	}
 
@@ -340,7 +345,12 @@ impl Project {
 	///
 	/// See [`AnalysisState::analyze`].
 	pub fn analyze(&mut self, files: &[FileAnalysis]) -> Result<Vec<FilePlan>, Error> {
-		self.analysis.analyze(files)
+		Arc::make_mut(&mut self.analysis).analyze(files)
+	}
+
+	/// The build info, for writing: cloned first while a parallel worker's copy still shares it.
+	pub(crate) fn build_info_mut(&mut self) -> &mut BuildInfo {
+		Arc::make_mut(&mut self.build_info)
 	}
 
 	/// `Plans`
@@ -351,7 +361,7 @@ impl Project {
 
 	/// The project's analysis state.
 	#[must_use]
-	pub const fn analysis(&self) -> &AnalysisState {
+	pub fn analysis(&self) -> &AnalysisState {
 		&self.analysis
 	}
 }

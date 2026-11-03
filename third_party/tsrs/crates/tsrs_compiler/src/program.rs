@@ -1205,10 +1205,16 @@ impl Program {
         }
     }
 
-    /// rotor: `for_each_checker_parallel` that skips the checkers someone holds (the caller's own, from
-    /// `get_type_checker`) instead of waiting for them. Returns the built-in pool's checker count, 0 without one.
-    pub fn for_each_free_checker_parallel(&self, cb: impl Fn(usize, &mut Checker) + Sync) -> usize {
-        self.compiler_checker_pool().map_or(0, |pool| pool.for_each_free_checker_parallel(cb))
+    /// rotor: `for_each_checker_parallel` while the caller holds `held`, such as the checker `get_type_checker` locked:
+    /// that checker's task runs on the calling thread with `held`, the others on their own threads, each waiting for
+    /// its checker. Returns the built-in pool's checker count, 0 (calling `cb` for nothing) without one.
+    pub fn for_each_checker_parallel_holding(&self, held: &mut Checker, cb: impl Fn(usize, &mut Checker) + Sync) -> usize {
+        self.compiler_checker_pool().map_or(0, |pool| pool.for_each_checker_parallel_holding(held, cb))
+    }
+
+    /// rotor: the built-in pool's checker count (Go counts the groups of a `ForEachCheckerParallel`), 0 without one.
+    pub fn checker_pool_size(&self) -> usize {
+        self.compiler_checker_pool().map_or(0, |pool| pool.checker_count())
     }
 
     /// Runs `cb` for every file of `files` with the file's checker, one task per checker, each visiting its files in

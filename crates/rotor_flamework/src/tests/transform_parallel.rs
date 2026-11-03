@@ -64,11 +64,45 @@ fn write_parallel_fixture(directory: &str) {
 	);
 }
 
+/// More planned and unplanned files, each unplanned one with guards, for the scaled run.
+fn write_scaled_files(directory: &str, planned: usize, unplanned: usize) {
+	for index in 0..planned {
+		write_transform_fixture(
+			directory,
+			&format!("src/scaled_planned{index}.ts"),
+			&format!(
+				"import {{ Service }} from \"./macros\";\nexport class ScaledDependency{index} {{}}\n@Service() export class ScaledPlanned{index} {{ constructor(dependency: ScaledDependency{index}) {{}} }}\n"
+			),
+		);
+	}
+	for index in 0..unplanned {
+		write_transform_fixture(
+			directory,
+			&format!("src/scaled_unplanned{index}.ts"),
+			&format!(
+				"import {{ inspect, label, guardMacro }} from \"./macros\";\ninterface Scaled{index} {{ value: number; name: string; tags: string[]; nested: {{ ok: boolean; at: [number, string] }} }}\nexport const id{index} = inspect<Scaled{index}>();\nexport const text{index} = label();\nexport const shape{index} = guardMacro<{{ a: string; b: number[]; c: {{ d: boolean; e: \"x\" | \"y\" | \"z\" }} }}>();\nexport const guard{index} = guardMacro<Scaled{index}>();\n"
+			),
+		);
+	}
+}
+
 /// The fixture transformed with the parallel loop forced on or off: each file printed, the
 /// ordered diagnostics, the build info, and whether the parallel loop produced the result.
 fn transform_fixture(parallel: bool) -> (Vec<(String, String)>, Vec<String>, String, bool) {
+	transform_scaled_fixture(parallel, 0, 0)
+}
+
+/// [`transform_fixture`] with `planned` and `unplanned` more files. With more files, the
+/// program's semantic diagnostics run first, as in a build: every checker has checked its
+/// files before the transform holds checker 0 and the parallel loop locks the others.
+fn transform_scaled_fixture(
+	parallel: bool,
+	planned: usize,
+	unplanned: usize,
+) -> (Vec<(String, String)>, Vec<String>, String, bool) {
 	let (_dir, directory) = temp_dir();
 	write_parallel_fixture(&directory);
+	write_scaled_files(&directory, planned, unplanned);
 	rotor_tsrs::with_large_stack(|| {
 		PARALLEL_OVERRIDE.set(Some(parallel));
 		PARALLEL_RAN.set(false);
@@ -83,6 +117,12 @@ fn transform_fixture(parallel: bool) -> (Vec<(String, String)>, Vec<String>, Str
 		)
 		.expect("load program")
 		.program;
+		if planned + unplanned > 0 {
+			// Before `get_type_checker`: its handle holds checker 0's lock until the transform ends.
+			for file in program.source_files() {
+				let _ = program.get_semantic_diagnostics(&rotor_tsrs::Context::default(), Some(*file));
+			}
+		}
 		let mut checker = program.get_type_checker(&rotor_tsrs::Context::default());
 		let prefix = format!("{}/src/", rotor_support::gopath::to_slash(&directory));
 		let mut files: Vec<_> = program
@@ -106,7 +146,16 @@ fn transform_fixture(parallel: bool) -> (Vec<(String, String)>, Vec<String>, Str
 			project: &mut project,
 			analyses: Vec::new(),
 			macro_runtime: None,
-			print: None,
+			// Printed by the callback, so the parallel run prints on its workers, as Go does.
+			print: Some(Box::new(|source: &crate::transform_state::SourceMetadata| {
+				let text = rotor_tsrs::printer::new_printer(
+					rotor_tsrs::printer::PrinterOptions::default(),
+					rotor_tsrs::printer::PrintHandlers::default(),
+					Some(source.emit_context()),
+				)
+				.emit_source_file(source.transformed());
+				Ok(Some(Box::new(text) as crate::transform_state::Printed))
+			})),
 		})
 		.expect("Transform");
 		let printed = result
@@ -115,12 +164,11 @@ fn transform_fixture(parallel: bool) -> (Vec<(String, String)>, Vec<String>, Str
 			.zip(&result.sources)
 			.map(|(file, source)| {
 				let name = file.file_name().trim_start_matches(&prefix).to_owned();
-				let text = rotor_tsrs::printer::new_printer(
-					rotor_tsrs::printer::PrinterOptions::default(),
-					rotor_tsrs::printer::PrintHandlers::default(),
-					Some(source.emit_context()),
-				)
-				.emit_source_file(*file);
+				let text = source
+					.printed()
+					.and_then(|printed| printed.downcast_ref::<String>())
+					.expect("printed text")
+					.clone();
 				(name, text)
 			})
 			.collect();
@@ -162,6 +210,31 @@ fn transform_parallel_loop_matches_serial_loop() {
 		"the fixture did not exercise macros and classes:\n{serial_printed:#?}"
 	);
 	assert!(!serial_diagnostics.is_empty(), "the fixture produced no diagnostics");
+	assert_eq!(parallel_printed, serial_printed, "printed files differ");
+	assert_eq!(parallel_diagnostics, serial_diagnostics, "diagnostics differ");
+	assert_eq!(parallel_build_info, serial_build_info, "build info differs");
+}
+
+#[test]
+fn transform_parallel_loop_matches_serial_loop_at_scale() {
+	// Hundreds of files over every checker, after the checkers ran diagnostics, under a deadline:
+	// a lock taken in the wrong order hangs here instead of passing.
+	let (sender, receiver) = std::sync::mpsc::channel();
+	std::thread::spawn(move || {
+		let serial = transform_scaled_fixture(false, 40, 400);
+		let parallel = transform_scaled_fixture(true, 40, 400);
+		let _ = sender.send((serial, parallel));
+	});
+	let ((serial_printed, serial_diagnostics, serial_build_info, serial_ran), parallel) = receiver
+		.recv_timeout(std::time::Duration::from_secs(300))
+		.expect("the scaled transform deadlocked or panicked");
+	let (parallel_printed, parallel_diagnostics, parallel_build_info, parallel_ran) = parallel;
+
+	assert!(
+		!serial_ran && parallel_ran,
+		"serial ran {serial_ran}, parallel ran {parallel_ran}"
+	);
+	assert_eq!(serial_printed.len(), 458);
 	assert_eq!(parallel_printed, serial_printed, "printed files differ");
 	assert_eq!(parallel_diagnostics, serial_diagnostics, "diagnostics differ");
 	assert_eq!(parallel_build_info, serial_build_info, "build info differs");

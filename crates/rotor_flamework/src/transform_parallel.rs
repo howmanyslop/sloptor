@@ -1,10 +1,15 @@
 //! `transform_parallel.go`: the per-file loop across checkers, and the recorded build-info
 //! writes that keep its output identical to the serial loop's.
 //!
-//! The files without a planned class are spread over the program's free checkers
-//! (`Program::for_each_free_checker_parallel`, which skips the caller's own checker, locked by
-//! `get_type_checker`); the planned files then run on the caller's state. Every worker's
-//! build-info writes are recorded and replayed in input-file order.
+//! As in Go, the files without a planned class go to one worker per checker of the program's
+//! pool, all of them (`Program::for_each_checker_parallel_holding` runs checker 0's worker on the
+//! caller's thread with the caller's checker, which `get_type_checker` locked and Go shares
+//! unlocked); the planned files then run on the caller's state. Every worker prints its files,
+//! and its build-info writes are recorded and replayed in input-file order.
+//!
+//! Which worker takes which file depends on thread timing, here as in Go. A file's output can
+//! depend on its checker: the order of a union's members, which guards emit as they are, follows
+//! type creation order, which differs between checkers. Go's output has the same freedom.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -14,7 +19,7 @@ use rotor_tsrs::P;
 use rotor_tsrs::ast::SourceFile;
 use rotor_tsrs::checker::Checker;
 use rotor_tsrs::compiler::Program;
-use rotor_tsrs::printer::{EmitContext, new_emit_context};
+use rotor_tsrs::printer::new_emit_context;
 
 use crate::build_info::BuildInfo;
 use crate::id::new_uuid_v4;
@@ -197,10 +202,10 @@ enum FileWorker {
 	Serial,
 }
 
-/// `parallelFileResult`, without the print, which runs after the loop.
+/// `parallelFileResult`
 struct ParallelFileResult {
 	transformed: P<SourceFile>,
-	emit_context: P<EmitContext>,
+	metadata: SourceMetadata,
 	worker: FileWorker,
 	operations: Vec<RecordedOperation>,
 }
@@ -214,6 +219,7 @@ struct WorkerShared<'s> {
 	expression_surfaces: &'s Option<HashSet<String>>,
 	add_paths_sources: Option<Arc<AddPathsSourceIndex>>,
 	hashes: &'s Arc<Mutex<HashMap<String, String>>>,
+	print: Option<&'s PrintFn<'s>>,
 	files: &'s [P<SourceFile>],
 	queue: &'s [usize],
 	next: AtomicUsize,
@@ -291,16 +297,41 @@ impl SavedState {
 	}
 }
 
-/// `transformFilesParallel`: the files without a planned class spread over the program's free
+/// One file transformed and printed on a worker's state; `None` when either failed.
+fn transform_and_print(
+	state: &mut TransformState<'_>,
+	print: Option<&PrintFn<'_>>,
+	source_file: P<SourceFile>,
+	runtime: &crate::transform_macro_types::MacroRuntime,
+	worker: FileWorker,
+) -> Option<ParallelFileResult> {
+	if let Some(recording) = &mut state.recording {
+		recording.operations.clear();
+	}
+	let transformed = transform_source_file(state, source_file, runtime).ok()?;
+	let metadata = print_source(print, SourceMetadata::new(source_file, transformed, state.emit_context)).ok()?;
+	let operations = state
+		.recording
+		.as_mut()
+		.map(|recording| std::mem::take(&mut recording.operations))
+		.unwrap_or_default();
+	Some(ParallelFileResult {
+		transformed,
+		metadata,
+		worker,
+		operations,
+	})
+}
+
+/// `transformFilesParallel`: the files without a planned class spread over the program's
 /// checkers, then the planned files on the caller's state (a class transform re-parents the
 /// shared original tree, which no other checker may walk meanwhile). `None` when anything
 /// failed; the caller then runs the serial loop from scratch, which reports the same error, and
-/// nothing recorded here was applied. Go prints each file in its worker; the print callback is
-/// not `Send`, so here every file is printed after the loop, in input order.
+/// nothing recorded here was applied.
 pub(crate) fn transform_files_parallel(
 	state: &mut TransformState<'_>,
 	files: &[P<SourceFile>],
-	print: &mut Option<PrintFn<'_>>,
+	print: Option<&PrintFn<'_>>,
 ) -> Option<(Vec<P<SourceFile>>, Vec<SourceMetadata>)> {
 	let mut unplanned = Vec::new();
 	let mut planned = Vec::new();
@@ -314,11 +345,11 @@ pub(crate) fn transform_files_parallel(
 
 	let hashes = Arc::new(Mutex::new(HashMap::new()));
 	let program = state.program;
-	if program.for_each_free_checker_parallel(|_, _| {}) < 2 {
+	if program.checker_pool_size() < 2 {
 		return None;
 	}
 	// Workers pull files from one queue, largest first, so a few heavy files cannot leave one
-	// checker running long after the rest. Which checker visits a file does not change its result.
+	// checker running long after the rest. A stable sort, as Go's `slices.SortStableFunc`.
 	let mut queue = unplanned;
 	queue.sort_by(|&left, &right| files[right].text().len().cmp(&files[left].text().len()));
 	let results: Vec<Mutex<Option<ParallelFileResult>>> = files.iter().map(|_| Mutex::new(None)).collect();
@@ -329,6 +360,7 @@ pub(crate) fn transform_files_parallel(
 		expression_surfaces: &state.flamework_expression_surfaces,
 		add_paths_sources: state.add_paths_sources.clone(),
 		hashes: &hashes,
+		print,
 		files,
 		queue: &queue,
 		next: AtomicUsize::new(0),
@@ -336,7 +368,7 @@ pub(crate) fn transform_files_parallel(
 		results: &results,
 		group_diagnostics: Mutex::new(BTreeMap::new()),
 	};
-	program.for_each_free_checker_parallel(|group, checker| run_worker(&shared, group, checker));
+	program.for_each_checker_parallel_holding(state.checker, |group, checker| run_worker(&shared, group, checker));
 	if shared.aborted.load(Ordering::SeqCst) {
 		return None;
 	}
@@ -344,40 +376,47 @@ pub(crate) fn transform_files_parallel(
 		.group_diagnostics
 		.into_inner()
 		.unwrap_or_else(std::sync::PoisonError::into_inner);
-	let serial_diagnostics = transform_planned_files(state, files, &planned, &hashes, &results)?;
 
+	let saved = SavedState::enter(state, &hashes);
+	let runtime = state.macro_runtime();
+	let mut serial_failed = false;
+	for &index in &planned {
+		let Some(result) = transform_and_print(state, print, files[index], &runtime, FileWorker::Serial) else {
+			serial_failed = true;
+			break;
+		};
+		*lock(&results[index]) = Some(result);
+	}
+	let serial_diagnostics = saved.restore(state);
+	if serial_failed {
+		return None;
+	}
+
+	// Every checker ran its worker until the queue was empty, so every file has a result.
 	let results: Vec<ParallelFileResult> = results
 		.into_iter()
 		.map(|slot| slot.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner))
 		.collect::<Option<_>>()?;
-	let mut transformed_files = Vec::with_capacity(files.len());
-	let mut sources = Vec::with_capacity(files.len());
-	for (result, &source_file) in results.iter().zip(files) {
-		let metadata = print_source(
-			print,
-			SourceMetadata::new(source_file, result.transformed, result.emit_context),
-		)
-		.ok()?;
-		transformed_files.push(result.transformed);
-		sources.push(metadata);
-	}
 	for result in &results {
-		replay_recorded_operations(&mut state.project.build_info, &result.operations).ok()?;
+		replay_recorded_operations(state.project.build_info_mut(), &result.operations).ok()?;
 	}
 	#[cfg(test)]
 	PARALLEL_RAN.set(true);
 	let mut serial_diagnostics = Some(serial_diagnostics);
 	let mut seen = Vec::new();
-	for result in &results {
-		if seen.contains(&result.worker) {
-			continue;
+	let mut transformed_files = Vec::with_capacity(files.len());
+	let mut sources = Vec::with_capacity(files.len());
+	for result in results {
+		if !seen.contains(&result.worker) {
+			seen.push(result.worker);
+			let diagnostics = match result.worker {
+				FileWorker::Group(group) => group_diagnostics.remove(&group).unwrap_or_default(),
+				FileWorker::Serial => serial_diagnostics.take().unwrap_or_default(),
+			};
+			state.diagnostics.extend(diagnostics);
 		}
-		seen.push(result.worker);
-		let diagnostics = match result.worker {
-			FileWorker::Group(group) => group_diagnostics.remove(&group).unwrap_or_default(),
-			FileWorker::Serial => serial_diagnostics.take().unwrap_or_default(),
-		};
-		state.diagnostics.extend(diagnostics);
+		transformed_files.push(result.transformed);
+		sources.push(result.metadata);
 	}
 	Some((transformed_files, sources))
 }
@@ -393,62 +432,19 @@ fn run_worker(shared: &WorkerShared<'_>, group: usize, checker: &mut Checker) {
 			break;
 		}
 		let index = shared.queue[position];
-		if let Some(recording) = &mut worker.recording {
-			recording.operations.clear();
-		}
-		let Ok(transformed) = transform_source_file(&mut worker, shared.files[index], &runtime) else {
+		let Some(result) = transform_and_print(
+			&mut worker,
+			shared.print,
+			shared.files[index],
+			&runtime,
+			FileWorker::Group(group),
+		) else {
 			shared.aborted.store(true, Ordering::SeqCst);
 			break;
 		};
-		let operations = worker
-			.recording
-			.as_mut()
-			.map(|recording| std::mem::take(&mut recording.operations))
-			.unwrap_or_default();
-		*lock(&shared.results[index]) = Some(ParallelFileResult {
-			transformed,
-			emit_context: worker.emit_context,
-			worker: FileWorker::Group(group),
-			operations,
-		});
+		*lock(&shared.results[index]) = Some(result);
 	}
 	lock(&shared.group_diagnostics).insert(group, std::mem::take(&mut worker.diagnostics));
-}
-
-/// The planned files on the caller's state as Go's serial worker: its checker and emit context,
-/// fresh per-file state, writes recorded. The worker's diagnostics; `None` when a file failed.
-fn transform_planned_files(
-	state: &mut TransformState<'_>,
-	files: &[P<SourceFile>],
-	planned: &[usize],
-	hashes: &Arc<Mutex<HashMap<String, String>>>,
-	results: &[Mutex<Option<ParallelFileResult>>],
-) -> Option<Vec<Diagnostic>> {
-	let saved = SavedState::enter(state, hashes);
-	let runtime = state.macro_runtime();
-	let mut failed = false;
-	for &index in planned {
-		if let Some(recording) = &mut state.recording {
-			recording.operations.clear();
-		}
-		let Ok(transformed) = transform_source_file(state, files[index], &runtime) else {
-			failed = true;
-			break;
-		};
-		let operations = state
-			.recording
-			.as_mut()
-			.map(|recording| std::mem::take(&mut recording.operations))
-			.unwrap_or_default();
-		*lock(&results[index]) = Some(ParallelFileResult {
-			transformed,
-			emit_context: state.emit_context,
-			worker: FileWorker::Serial,
-			operations,
-		});
-	}
-	let diagnostics = saved.restore(state);
-	(!failed).then_some(diagnostics)
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

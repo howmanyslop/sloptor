@@ -21,10 +21,11 @@ use crate::transform_parallel::TransformRecording;
 use crate::{Error, ErrorKind};
 
 /// What `TransformInput.Print` returns for a file.
-pub type Printed = Box<dyn Any>;
+pub type Printed = Box<dyn Any + Send>;
 
-/// `TransformInput.Print`: runs for every file while its emit context is current.
-pub type PrintFn<'a> = Box<dyn FnMut(&SourceMetadata) -> Result<Option<Printed>, Error> + 'a>;
+/// `TransformInput.Print`: runs for every file while its emit context is current. The parallel
+/// loop calls it from its workers at once, as Go does, so it is `Sync`.
+pub type PrintFn<'a> = Box<dyn Fn(&SourceMetadata) -> Result<Option<Printed>, Error> + Send + Sync + 'a>;
 
 /// `TransformInput`: the native compiler boundary for Flamework.
 pub struct TransformInput<'a> {
@@ -118,10 +119,7 @@ impl SourceMetadata {
 }
 
 /// `printSource`: runs the print callback for one file's metadata.
-pub(crate) fn print_source(
-	print: &mut Option<PrintFn<'_>>,
-	mut metadata: SourceMetadata,
-) -> Result<SourceMetadata, Error> {
+pub(crate) fn print_source(print: Option<&PrintFn<'_>>, mut metadata: SourceMetadata) -> Result<SourceMetadata, Error> {
 	let Some(print) = print else {
 		return Ok(metadata);
 	};

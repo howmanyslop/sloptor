@@ -59,7 +59,7 @@ pub fn transform(input: TransformInput<'_>) -> Result<TransformResult, Error> {
 		project,
 		analyses,
 		macro_runtime,
-		mut print,
+		print,
 	} = input;
 	let mut state = new_transform_state(program, checker, project, macro_runtime.as_ref(), &[]);
 	let discovered = analyze_flamework_classes_with(&mut state, &files, false)
@@ -75,7 +75,8 @@ pub fn transform(input: TransformInput<'_>) -> Result<TransformResult, Error> {
 		state.add_diagnostic(diagnostic);
 	}
 
-	if parallel && let Some((transformed_files, sources)) = transform_files_parallel(&mut state, &files, &mut print) {
+	if parallel && let Some((transformed_files, sources)) = transform_files_parallel(&mut state, &files, print.as_ref())
+	{
 		return Ok(TransformResult {
 			files: transformed_files,
 			plans,
@@ -95,7 +96,7 @@ pub fn transform(input: TransformInput<'_>) -> Result<TransformResult, Error> {
 		})?;
 		transformed_files.push(transformed);
 		let metadata = print_source(
-			&mut print,
+			print.as_ref(),
 			SourceMetadata::new(source_file, transformed, state.emit_context),
 		)?;
 		sources.push(metadata);

@@ -279,7 +279,9 @@ fn checker_thread(
 // A checker is mutated only while its mutex is held, by exactly one thread at a time; the pool
 // never hands out references that outlive the guard. The checker's deferred closures are not
 // `Send`, which is the only reason this wrapper is needed.
-struct CheckerSlot(Mutex<SlotChecker>);
+// rotor: the second field is the id of the slot's current checker, readable while another thread holds the slot
+// (`for_each_checker_parallel_holding`).
+struct CheckerSlot(Mutex<SlotChecker>, std::sync::atomic::AtomicU32);
 
 // tsrs-only (notes/mem-recycle-checkers.md): a checker of the built-in pool and, when the type-check pass may retire
 // checkers (`max_memory`), the region that holds everything it allocates. The region is the allocation target
@@ -891,7 +893,8 @@ impl CheckerPoolImpl {
                     if shared && i == 0 {
                         crate::sharedgraph::note_fresh_checker(&c.checker);
                     }
-                    *slots[i].lock().unwrap() = Some(CheckerSlot(Mutex::new(c)));
+                    let id = std::sync::atomic::AtomicU32::new(c.checker.id);
+                    *slots[i].lock().unwrap() = Some(CheckerSlot(Mutex::new(c), id));
                 });
                 let checkers: &'static [CheckerSlot] = Box::leak(
                     slots
@@ -967,20 +970,55 @@ impl CheckerPoolImpl {
         run_work_group(self.single_threaded, state.checkers.len(), run);
     }
 
-    /// rotor: `for_each_checker_parallel` over the checkers nobody holds. A checker whose lock is taken, such as the
-    /// caller's own from `get_type_checker`, is skipped instead of waited for. Returns the pool's checker count.
-    pub(crate) fn for_each_free_checker_parallel(&self, cb: impl Fn(usize, &mut Checker) + Sync) -> usize {
+    /// rotor: the pool's checker count, creating the checkers as Go's first `ForEachCheckerParallel` does.
+    pub(crate) fn checker_count(&self) -> usize {
+        self.create_checkers().checkers.len()
+    }
+
+    /// rotor: `for_each_checker_parallel` while the calling thread holds `held`, which may be one of the pool's
+    /// checkers (Go's non-exclusive `GetTypeChecker` shares checker 0 without locking it). That checker's task runs on
+    /// the calling thread with `held`; every other checker's runs on its own thread under its lock, waiting for it as
+    /// Go does. Returns the pool's checker count.
+    pub(crate) fn for_each_checker_parallel_holding(
+        &self,
+        held: &mut Checker,
+        cb: impl Fn(usize, &mut Checker) + Sync,
+    ) -> usize {
         let state = self.create_checkers();
+        let held_index = state
+            .checkers
+            .iter()
+            .position(|slot| slot.1.load(std::sync::atomic::Ordering::Relaxed) == held.id);
         let run = |idx: usize| {
-            let Ok(mut guard) = state.checkers[idx].0.try_lock() else {
+            if Some(idx) == held_index {
                 return;
-            };
+            }
+            let mut guard = state.checkers[idx].0.lock().unwrap();
             let _scope = guard.enter();
             crate::sharedgraph::enter_checker(&guard);
             cb(idx, &mut guard);
         };
-        run_work_group(self.single_threaded, state.checkers.len(), run);
-        state.checkers.len()
+        let count = state.checkers.len();
+        if self.single_threaded || count <= 1 {
+            for idx in 0..count {
+                if Some(idx) == held_index {
+                    cb(idx, held);
+                } else {
+                    run(idx);
+                }
+            }
+            return count;
+        }
+        std::thread::scope(|scope| {
+            let others = scope.spawn(|| run_work_group(false, count, run));
+            if let Some(idx) = held_index {
+                cb(idx, held);
+            }
+            if let Err(payload) = others.join() {
+                std::panic::resume_unwind(payload);
+            }
+        });
+        count
     }
 
     // checkerpool.go:464
@@ -1209,6 +1247,7 @@ impl CheckerPoolImpl {
                 {
                     drop(scope);
                     self.retire_checker(state, &mut guard);
+                    state.checkers[checker_idx].1.store(guard.checker.id, std::sync::atomic::Ordering::Relaxed);
                     scope = guard.enter();
                     crate::sharedgraph::enter_checker(&guard);
                 }
