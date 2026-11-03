@@ -267,6 +267,12 @@ func transformImplicitClassConstructor(s *State, node *ast.Node, name luau.AnyId
 // ConstructorDeclarations (their type has construct signatures, no call
 // signatures); the `:` declaration sugar supplies self.
 func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier) *luau.List[luau.Statement] {
+	// A constructor is its own function WITH NO generics: a class type
+	// parameter is not declarable in Luau, so it must widen to `any` here
+	// instead of inheriting an enclosing function's names.
+	s.PushNativeGenerics(nil, false)
+	defer s.PopNativeGenerics()
+
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)
 	bodyStatements := node.Body().AsBlock().Statements.Nodes

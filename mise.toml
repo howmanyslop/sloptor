@@ -26,6 +26,7 @@ goreleaser = "latest"
 hk = { version = "2.9.0", workflow = "release.yml" }
 hyperfine = "1.20.0"
 jactionlint = "latest"
+luau = "latest"
 ni = "latest"
 node = "22"
 pkl = "latest"

@@ -134,6 +134,7 @@ func CompileFileDetailedWithOptions(projectDir, relPath string, opts ProjectOpti
 	state.Env = pctx.env
 	state.Files = pctx.files
 	state.OptimizedArrayAppends = opts.OptimizedArrayAppends
+	state.NativeTypes = pctx.nativeTypes
 	state.SkipSemanticDiagnostics = opts.SkipSemanticDiagnostics
 	return transformAndRenderDetailed(state)
 }

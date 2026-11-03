@@ -48,15 +48,15 @@ func propertyAccessExpressionChain(expression luau.Expression, names []string) l
 // `if (this.runtimeLibRbxPath)` — a nil Rojo context (only reachable from
 // states built outside CompileProject/CompileFile) therefore also lands on
 // the Package form.
-func (s *State) CreateRuntimeLibImport(node *ast.SourceFile) luau.Statement {
+func (state *State) CreateRuntimeLibImport(node *ast.SourceFile) luau.Statement {
 	tsID := luau.GlobalID("TS")
 
-	if s.Rojo != nil && len(s.Rojo.RuntimeLibRbxPath) > 0 {
-		if s.ProjectType == ProjectTypeGame {
+	if state.Rojo != nil && len(state.Rojo.RuntimeLibRbxPath) > 0 {
+		if state.ProjectType == ProjectTypeGame {
 			// Chain of WaitForChild method calls over the rbxPath tail,
 			// nested inside require (TransformState.ts:205-228).
-			expression := createGetService(s.Rojo.RuntimeLibRbxPath[0])
-			for _, part := range s.Rojo.RuntimeLibRbxPath[1:] {
+			expression := createGetService(state.Rojo.RuntimeLibRbxPath[0])
+			for _, part := range state.Rojo.RuntimeLibRbxPath[1:] {
 				expression = luau.NewMethodCall("WaitForChild", expression,
 					luau.NewList[luau.Expression](luau.Str(part)))
 			}
@@ -65,18 +65,18 @@ func (s *State) CreateRuntimeLibImport(node *ast.SourceFile) luau.Statement {
 		}
 
 		// Model: per-file relative property chain (TransformState.ts:229-253).
-		sourceOutPath := s.Rojo.PathTranslator.GetOutputPath(node.FileName())
-		rbxPath, ok := s.Rojo.Resolver.GetRbxPathFromFilePath(sourceOutPath)
+		sourceOutPath := state.Rojo.PathTranslator.GetOutputPath(node.FileName())
+		rbxPath, ok := state.Rojo.Resolver.GetRbxPathFromFilePath(sourceOutPath)
 		if !ok {
-			relPath, err := filepath.Rel(s.Rojo.ProjectPath, sourceOutPath)
+			relPath, err := filepath.Rel(state.Rojo.ProjectPath, sourceOutPath)
 			if err != nil {
 				relPath = sourceOutPath
 			}
-			s.Diags.Add(DiagNoRojoData(node.AsNode(), relPath, false))
+			state.Diags.Add(DiagNoRojoData(node.AsNode(), relPath, false))
 			return luau.NewVariableDeclaration(tsID, nil)
 		}
 
-		relative := rojo.Relative(rbxPath, s.Rojo.RuntimeLibRbxPath)
+		relative := rojo.Relative(rbxPath, state.Rojo.RuntimeLibRbxPath)
 		names := make([]string, len(relative))
 		for i, segment := range relative {
 			if segment.Parent {

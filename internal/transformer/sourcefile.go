@@ -19,6 +19,9 @@ var HeaderComment = " Compiled with sloptor v" + version.Version
 // rendering.
 func TransformSourceFile(s *State) *luau.List[luau.Statement] {
 	node := s.SourceFile
+	// The `//!native` directive only annotates when the nativeTypes option is
+	// on; the comment itself is emitted by the printers regardless.
+	s.IsNative = s.NativeTypes && hasNativeDirective(s)
 
 	// The file's module symbol maps to the identifier `exports`.
 	symbol := s.Checker.GetSymbolAtLocation(node.AsNode())
@@ -98,12 +101,26 @@ func getLastNonCommentStatement(listNode *luau.ListNode[luau.Statement]) *luau.L
 	return listNode
 }
 
+// nativeTypeAliasStatements appends the `type` statements registered while
+// annotations were rendered, keeping them after the header and before the
+// first real statement.
+func (state *State) nativeTypeAliasStatements() *luau.List[luau.Statement] {
+	statements := luau.NewList[luau.Statement]()
+	for _, alias := range state.nativeAliases {
+		statements.Push(alias)
+	}
+	return statements
+}
+
 // prependHeader ports transformSourceFile.ts:222-242: prepend the build
 // header — the version comment plus, when the file used the runtime library,
 // the `local TS = ...` import (CreateRuntimeLibImport) — hoisting any leading
 // Luau directive comments (`--!strict`, sourced from leading `//!...` TS
 // comments) above it. The header comment text starts with a space so it
 // renders `-- Compiled with sloptor v2.3.0` (or the HeaderComment override).
+//
+// Type aliases gathered from `//!native` annotations follow the header, before
+// the first statement.
 func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 	headerStatements := luau.NewList[luau.Statement]()
 	headerStatements.Push(luau.NewComment(HeaderComment))
@@ -111,6 +128,8 @@ func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 	if s.UsesRuntimeLib {
 		headerStatements.Push(s.CreateRuntimeLibImport(s.SourceFile))
 	}
+
+	headerStatements.PushList(s.nativeTypeAliasStatements())
 
 	// Only a run of comments already at the very head of the list qualifies;
 	// the scan stops at the first non-`!` comment or non-comment.

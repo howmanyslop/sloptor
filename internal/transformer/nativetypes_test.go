@@ -1,0 +1,515 @@
+package transformer_test
+
+import (
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+
+	"rotor/internal/luau/render"
+	"rotor/internal/transformer"
+)
+
+// renderNativeSourceFile renders a fixture with the nativeTypes option on.
+// The option is opt-in and off by default, so every annotation case states it
+// explicitly; TransformSourceFile still annotates only files that carry
+// `//!native`.
+func renderNativeSourceFile(t *testing.T, relPath string) string {
+	t.Helper()
+	return renderSourceFileWithNativeTypes(t, relPath, true)
+}
+
+// renderSourceFileWithNativeTypes renders a fixture with the option on or off.
+func renderSourceFileWithNativeTypes(t *testing.T, relPath string, nativeTypes bool) string {
+	t.Helper()
+	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s.NativeTypes = nativeTypes
+	statements := transformer.TransformSourceFile(s)
+	if ds := s.Diags.Flush(); len(ds) != 0 {
+		t.Fatalf("unexpected diagnostics: %v", ds)
+	}
+	return render.RenderAST(statements)
+}
+
+// With nativeTypes off, `//!native` is inert: the directive comment is still
+// emitted (as rbxtsc does) but no annotation, alias, or generic reaches the
+// output, so the file matches its non-native twin line for line.
+func TestNativeTypesOffEmitsDirectiveOnly(t *testing.T) {
+	got := renderSourceFileWithNativeTypes(t, "src/native.ts", false)
+
+	if !strings.Contains(got, "--!native\n") {
+		t.Fatalf("the directive comment must still be emitted:\n%s", got)
+	}
+	for _, unwanted := range []string{": number", ": vector", "type ", "local function addVector3(a: Vector3"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("nativeTypes is off but output contains %q:\n%s", unwanted, got)
+		}
+	}
+
+	plain := renderSourceFileWithNativeTypes(t, "src/nonative.ts", false)
+	var stripped []string
+	for _, line := range strings.Split(got, "\n") {
+		if line == "--!native" {
+			continue
+		}
+		stripped = append(stripped, line)
+	}
+	if got := strings.Join(stripped, "\n"); got != plain {
+		t.Errorf("directive-only output differs from the non-native twin beyond the directive line:\ngot:\n%s\nwant:\n%s", got, plain)
+	}
+}
+
+// With nativeTypes on, the same file is annotated exactly as before the option
+// existed.
+func TestNativeTypesOnAnnotatesDirectiveFiles(t *testing.T) {
+	got := renderSourceFileWithNativeTypes(t, "src/native.ts", true)
+	if !strings.Contains(got, "local function addVector(a: vector, b: vector): vector\n") {
+		t.Errorf("nativeTypes is on but the file is not annotated:\n%s", got)
+	}
+	// The opt-in gates the directive, not the project: a file without it stays
+	// plain even with the option on.
+	plain := renderSourceFileWithNativeTypes(t, "src/nonative.ts", true)
+	if strings.Contains(plain, ": number") {
+		t.Errorf("a file without //!native must stay unannotated:\n%s", plain)
+	}
+}
+
+// Under `--!native` Luau only gets a speedup from parameter annotations it
+// understands; these cases pin which TS types are annotated and how.
+func TestNativeFilesAnnotateSignatures(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"--!native\n",
+		"local function addVector(a: vector, b: vector): vector\n",
+		"local function maybeAddVector(a: vector, b: vector?): vector\n",
+		"local function addVector3(a: Vector3, b: Vector3): Vector3\n",
+		// Both names carry the same vector tag, so the union stays annotated.
+		"local function lengthOf(value: Vector3 | vector): number\n",
+		"local function scale(x: number, factor: number?, label: string?): number\n",
+		"local function nameOf(value: string?): string?\n",
+		// A constrained generic uses its constraint, which is the perf type.
+		"local function sumGeneric<T>(value: number): number\n",
+		"local arrow = function(n: number): number\n",
+		"function Counter:constructor(start: number)\n",
+		"function Counter:next(step: number, other): number\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// Table types that are not named interfaces are spelled structurally so Luau's
+// compiler tags them TABLE.
+func TestNativeFilesAnnotateTablesStructurally(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"local function sum(values: { number }, lookup: { [string]: number }, options: { size: number }): number\n",
+		// Array, ReadonlyArray, tuple, and an array return.
+		"local function arrayTypes(values: { number }, readonlyValues: { string }, pair: { string | number }): { number }\n",
+		// Map, Set, Record.
+		"local function collectionTypes(lookup: { [string]: number }, keys: { [string]: true }, counts: { [string]: number }): number\n",
+		// Nested table types.
+		"local function nested(index: { [string]: { number } }): { [string]: { number } }\n",
+		// A mixed element union widens to `any`.
+		"local function mixed(value, flag, anything): { any }\n",
+		// Property names that are not Luau identifiers are quoted.
+		"local function quirky(value: Quirky): Quirky\n",
+		// A number index signature.
+		"local function recordTypes(numbers: { [number]: string }): { [number]: string }\n",
+		// Luau allows one table indexer, so both TS signatures collapse.
+		"local function bothIndex(index: Both): Both\n",
+		// A union of table types keeps every member; an optional one is
+		// parenthesised so the `?` covers the whole union.
+		"local function unionTables(value: { string } | { number }): { string } | { number }\n",
+		"local function unionOptional(value: ({ string } | { number })?): number\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// Named interfaces and non-generic type aliases of object types become file
+// level aliases, which is what keeps a recursive type recursive.
+func TestNativeFilesAliasNamedTypes(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// Optional members use `?` and readonly is dropped: `read` is not
+		// legal in a table type.
+		"type Foo = { a: number, b: string? }\n",
+		"type Balls = { x: number, y: Vector3 }\n",
+		// A self reference resolves to the alias itself.
+		"type LinkedNode = { value: number, next: LinkedNode? }\n",
+		// A method member takes its receiver as the first Luau parameter, so
+		// `thing:run()` lines up with the type.
+		"type WithMethod = { value: number, run: (self: any) -> number }\n",
+		"type Quirky = { [\"kebab-case\"]: number, [\"1\"]: string }\n",
+		// A member that is a function type, optionally.
+		"type Handler = { onEvent: (value: number) -> (), optional: ((value: string) -> number)? }\n",
+		// Two different symbols with the same name keep separate aliases.
+		"type Node = { value: number }\n",
+		"type Node_2 = { text: string }\n",
+		"local function collision(a: Node, b: Node_2): number\n",
+		// A name Luau already reads as a type is suffixed.
+		"type table_2 = { value: number }\n",
+		"local function reserved(value: table_2): number\n",
+		// References use the alias.
+		"local function structs(foo: Foo, balls: Balls, maybe: Foo?): Foo\n",
+		"local function linked(node: LinkedNode, thing: WithMethod): number\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	if strings.Count(got, "type Foo = ") != 1 {
+		t.Errorf("Foo should be aliased exactly once, got:\n%s", got)
+	}
+	if strings.Contains(got, "read ") {
+		t.Errorf("readonly must be dropped in:\n%s", got)
+	}
+}
+
+// Function types are spelled out in parameters and returns.
+func TestNativeFilesAnnotateFunctionTypes(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"local function callback(fn: (n: number) -> number): number\n",
+		// Nested function-typed return.
+		"local function functionReturn(make: (n: number) -> (s: string) -> boolean): (n: number) -> (s: string) -> boolean\n",
+		// A non-generic function type alias keeps its name; a generic one is
+		// expanded inline.
+		"type Notify = (value: number) -> ()\n",
+		"local function notify(cb: Notify, generic: (value: string) -> ()): ()\n",
+		// void returns `()`.
+		"local function handlers(handler: Handler?): ()\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	// A method's `run()` is reached through `thing:run()`.
+	if !strings.Contains(got, "thing:run()") {
+		t.Errorf("fixture must call a method through the alias:\n%s", got)
+	}
+}
+
+// Luau spells far more callable shapes than a `(...any) -> ...any` fallback:
+// several returns, construct signatures, generic signatures, and overload
+// intersections all keep a useful tag or read better than the fallback.
+func TestNativeFilesAnnotateCallableShapes(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// LuaTuple is a return pack, in a declared return and a callback type
+		// alike.
+		"local function multiReturn(): (number, string)\n",
+		"local function optionalReturn(): (number, string?)\n",
+		"local function restReturn(): (number, ...string)\n",
+		"local function emptyReturn(): ()\n",
+		// `?` after a pack means "optional function", never "optional return",
+		// so an optional LuaTuple keeps its parameters and loses the pack; a
+		// declared return then stays unannotated.
+		"local function maybeReturn()\n",
+		// A LuaTuple of a plain array cannot be a pack either, so a callback
+		// type keeps its parameters and returns `...any`.
+		"local function looseTupleCallback(cb: () -> ...any): number\n",
+		"local function tupleCallback(cb: () -> (number, string)): number\n",
+		"local function maybeTupleCallback(cb: (() -> (number, string))?): ()\n",
+		"type TupleHolder = { pair: () -> (number, string), empty: () -> () }\n",
+		// A LuaTuple alias cannot be written, so it is inlined at the return
+		// and widens everywhere else.
+		"type PairHolder = { pair: any }\n",
+		"local function pairAlias(): (number, string)\n",
+		// A construct signature is the table roblox-ts emits: `new` plus the
+		// statics, never an intersection of tables.
+		"type FooFactory = { new: (x: number) -> Foo }\n",
+		"local function factory(f: FooFactory): Foo\n",
+		"type CtorHolder = { create: { new: (x: number) -> Foo } }\n",
+		// A class value is spelled structurally, with its instance widened.
+		"local function makeCounter(): { new: (start: number) -> any, make: (start: number) -> any, prototype: any }\n",
+		// Overloads: the entry guard wins at a top-level parameter (an
+		// intersection has no tag), precision wins everywhere else.
+		"local function overloadedParam(fn: (...any) -> ...any): number\n",
+		"type OverloadedMethod = { run: ((self: any, value: number) -> string) & ((self: any, value: string) -> number) }\n",
+		"local function overloadedMethod(thing: OverloadedMethod): number\n",
+		// A generic call signature is still a function type, and its type
+		// parameters are in scope for the body.
+		"local function genericCallback(identify: <T>(value: T) -> T): number\n",
+		"type IdentityHolder = { identify: <T>(value: T) -> T, replace: <T, U>(value: T, next: U) -> U }\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+
+	// A return pack is not a type: aliasing a LuaTuple would emit
+	// `type Pair = (number, string)`, which does not parse.
+	if strings.Contains(got, "type Pair =") {
+		t.Errorf("a LuaTuple must never become an alias body:\n%s", got)
+	}
+}
+
+// Nested positions mirror Roblox types by name; a top-level parameter never
+// does (an Instance tag is userdata, not a speedup).
+func TestNativeFilesAnnotateRobloxTypesNested(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"local function robloxTypes(lookup: { [string]: Vector3 }, part, nested: { part: Part, flag: boolean }): { [string]: Vector3 }\n",
+		"local function instanceOf(value): Instance\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// A class type parameter cannot be declared in Luau, so it maps to `any`: the
+// parameter is left unannotated and a nested use widens to `any`.
+func TestNativeFilesTreatClassTypeParametersAsAny(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"function Box:constructor(value)\n",
+		"function Box:get()\n",
+		"function Box:boxed(): { inner: any }\n",
+		"local function boxed(box): number\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// A bare generic is only tagged `any` when it belongs to the annotated
+// function itself; an outer function's generic tags the argument as userdata,
+// so that parameter stays unannotated (rule R1).
+func TestNativeFilesOnlyAnnotateOwnGenericsAtTopLevel(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		"local function ownGeneric<K>(key: K): K\n",
+		// `other: K` names the enclosing function's generic, so the inner
+		// function gets no annotation for it.
+		"local function outerGeneric<K>(key: K): (other: K) -> ()\n",
+		"return function(other): () end\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNativeFilesLeaveUnhelpfulTypesUnannotated(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// Roblox types other than the two vectors are datatypes, not tables.
+		"local function instanceOf(value): Instance\n",
+		"function Counter:next(step: number, other): number\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{
+		", part: Part,",
+		"instanceOf(value:",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("top-level parameter must stay unannotated: %q in:\n%s", unwanted, got)
+		}
+	}
+}
+
+// A bare `table` annotation is tagged userdata by Luau's compiler, which makes
+// the native entry guard fail on every call.
+func TestNativeFilesNeverEmitBareTable(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+	for _, line := range strings.Split(got, "\n") {
+		if bareTableAnnotation.MatchString(line) {
+			t.Errorf("bare table annotation: %s", line)
+		}
+	}
+}
+
+// bareTableAnnotation matches `table` as a whole annotation, not an identifier
+// that merely starts with it (an interface named `table` becomes `table_2`).
+var bareTableAnnotation = regexp.MustCompile(`: table($|[^A-Za-z0-9_])`)
+
+// A top-level interface or type alias of the compiled file emits its Luau alias
+// AT the declaration (after that declaration's leading comments), not at the top
+// of the file. Luau aliases are visible before their declaration line within the
+// same block, so a use above the declaration still resolves.
+func TestNativeFilesEmitAliasesAtTheDeclaration(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	// The owner's merged `Hi`: ONE alias with both declarations' members.
+	alias := "type Hi = { hi: string, there: \"there\" }\n"
+	if count := strings.Count(got, alias); count != 1 {
+		t.Fatalf("a merged interface must emit exactly one alias, got %d:\n%s", count, got)
+	}
+	// The doc comment belongs to the first declaration, so it stays attached
+	// and the alias follows it — not the header.
+	if leading := "-- Where the hit landed, merged across two declarations.\n" + alias; !strings.Contains(got, leading) {
+		t.Errorf("the alias must follow its declaration's leading comment:\n%s", got)
+	}
+	aliasIndex := strings.Index(got, alias)
+	if earlier := strings.Index(got, "local function nameOf"); earlier < 0 || aliasIndex < earlier {
+		t.Errorf("the alias must not be hoisted above an unrelated earlier statement:\n%s", got)
+	}
+	if useIndex := strings.Index(got, "local function getHi(): Hi"); useIndex < 0 || aliasIndex > useIndex {
+		t.Errorf("the alias must precede the function that uses it:\n%s", got)
+	}
+
+	// Declared after the use: the alias is still at the declaration.
+	laterAlias := strings.Index(got, "type Later = { value: number }")
+	laterUse := strings.Index(got, "local function usesLater(): Later")
+	if laterAlias < 0 || laterUse < 0 || laterAlias < laterUse {
+		t.Errorf("an alias declared after its use belongs at the declaration:\n%s", got)
+	}
+
+	// Declared before its only use: the alias sits between the statements that
+	// surround the declaration instead of in the header.
+	fooAlias := strings.Index(got, "type Foo = { a: number, b: string? }")
+	before := strings.Index(got, "local function collectionTypes")
+	after := strings.Index(got, "local function structs")
+	if fooAlias < 0 || fooAlias < before || fooAlias > after {
+		t.Errorf("an alias belongs at its declaration, not the header:\n%s", got)
+	}
+
+	// Fallbacks stay hoisted to the header: a namespace-scoped interface…
+	firstStatement := strings.Index(got, "local function addVector")
+	hoisted := strings.Index(got, "type Node_2 = { text: string }")
+	if hoisted < 0 || hoisted > firstStatement {
+		t.Errorf("a namespace-scoped interface must stay hoisted:\n%s", got)
+	}
+	// …and one declared inside a function body.
+	local := strings.Index(got, "type Local = { value: number }")
+	localUse := strings.Index(got, "local function localInterface(): number")
+	if local < 0 || local > firstStatement || localUse < 0 || local > localUse {
+		t.Errorf("a function-scoped interface must stay hoisted:\n%s", got)
+	}
+}
+
+// Luau has singleton string and boolean types, so a literal member must not
+// widen to the primitive.
+func TestNativeFilesMirrorLiteralTypes(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/native.ts")
+
+	for _, want := range []string{
+		// String literals, their optional form, boolean literals, `true |
+		// false` collapsing to `boolean?`, quoted keys, an escaped literal,
+		// literals in a function type, and `number` staying `number`.
+		`type Literals = { a: "x" | "y", b: ("x" | "y")?, c: true, d: false, e: boolean, f: boolean?, g: number, lit: "solo", count: number, escaped: "a\"b\\c", format: (value: "x" | "y") -> ("x" | "y"), template: string }`,
+		// An enum member keeps the primitive spelling, string or number.
+		"type EnumHolder = { direction: string, code: number }\n",
+		// A string literal parameter is tagged `string` by Luau's compiler,
+		// so the annotation is free; a boolean literal stays unannotated at a
+		// top-level parameter.
+		`local function literals(value: Literals, holder: EnumHolder, a: "x" | "y", b: ("x" | "y")?, c): string`,
+		`local function literalReturn(): "yes"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+// The LRU program the owner reviewed: recursive generic interface, function
+// types, and a nested function whose parameter names an outer generic.
+func TestNativeFilesAnnotateRecursiveGenericCache(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/lru.ts")
+
+	for _, want := range []string{
+		"type Node<K, V> = { key: K, nextNode: Node<K, V>?, previousNode: Node<K, V>?, value: V }\n",
+		"local function createLruCache<K, V>(callback: (key: K) -> V, capacity: number?, keyTransform: ((key: K) -> K)?): (key: K) -> V\n",
+		// `return nil` in a `(): ()` function is fine.
+		"local function detach(node: Node<K, V>?): ()\n",
+		"local function attachHead(node: Node<K, V>): ()\n",
+		"local function evictIfNeeded(): ()\n",
+		// R1: K belongs to createLruCache, so the parameter is unannotated,
+		// but the return type still names V.
+		"local function memoized(key): V\n",
+		"local function lruMemoize<K, V>(callback: (key: K) -> V, capacity: number?): (key: K) -> V\n",
+		"local function lruMemoizeNumeric<V>(callback: (key: number) -> V, capacity: number?, precision: number?): (key: number) -> V\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "read ") {
+		t.Errorf("readonly must be dropped in:\n%s", got)
+	}
+	if strings.Contains(got, "{ [any]: any }") {
+		t.Errorf("the recursive interface must use its alias, not a table fallback:\n%s", got)
+	}
+}
+
+func TestFilesWithoutNativeDirectiveAreNotAnnotated(t *testing.T) {
+	got := renderNativeSourceFile(t, "src/nonative.ts")
+
+	for _, want := range []string{
+		"local function addVector(a, b)\n",
+		"local function scale(x, factor, label)\n",
+		"local function sum(values, lookup, options)\n",
+		"local function arrayTypes(values, readonlyValues, pair)\n",
+		"local function structs(foo, balls, maybe)\n",
+		"local function linked(node, thing)\n",
+		"local function quirky(value)\n",
+		"local function unionOptional(value)\n",
+		"local arrow = function(n)\n",
+		"function Counter:constructor(start)\n",
+		"local function ownGeneric(key)\n",
+		"local function robloxTypes(lookup, part, nested)\n",
+		"local function multiReturn()\n",
+		"local function tupleCallback(cb)\n",
+		"local function overloadedParam(fn)\n",
+		"local function makeCounter()\n",
+		// The literal and declaration fixtures stay plain too: no singleton
+		// types and no alias, in place or hoisted.
+		"local function getHi()\n",
+		"local function usesLater()\n",
+		"local function literals(value, holder, a, b, c)\n",
+		"local function literalReturn()\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "type ") {
+		t.Errorf("type aliases are only emitted for //!native files:\n%s", got)
+	}
+	if strings.Contains(got, `: "solo"`) || strings.Contains(got, ") -> (") {
+		t.Errorf("literal types are only mirrored for //!native files:\n%s", got)
+	}
+}
+
+// Every fixture pair is one program: the non-native copy is the native file
+// without its `//!native` line, which is what pins "no directive, no change".
+func TestNativeFixturePairsDifferOnlyInDirective(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"src/native.ts", "src/nonative.ts"},
+		{"src/lru.ts", "src/lru_nonative.ts"},
+	} {
+		native, err := os.ReadFile(filepath.Join("testdata", "functions", pair[0]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		plain, err := os.ReadFile(filepath.Join("testdata", "functions", pair[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := string(native), "//!native\n"+string(plain); got != want {
+			t.Errorf("%s must be %s plus the directive", pair[0], pair[1])
+		}
+	}
+}

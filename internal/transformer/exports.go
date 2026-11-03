@@ -276,11 +276,11 @@ func IsSymbolMutable(s *State, idSymbol *ast.Symbol) bool {
 // against rbxtsc 3.0.0: `export const A = 6; export function z() {}` returns
 // `{ z = z, A = A }`, function first. Sort key: (file, functions-first pass,
 // offset); declaration-less symbols sort last by name.
-func (s *State) GetModuleExports(moduleSymbol *ast.Symbol) []*ast.Symbol {
-	if cached, ok := s.Multi.GetModuleExportsCache[moduleSymbol]; ok {
+func (state *State) GetModuleExports(moduleSymbol *ast.Symbol) []*ast.Symbol {
+	if cached, ok := state.Multi.GetModuleExportsCache[moduleSymbol]; ok {
 		return cached
 	}
-	exports := s.Checker.GetExportsOfModule(moduleSymbol)
+	exports := state.Checker.GetExportsOfModule(moduleSymbol)
 	sort.SliceStable(exports, func(i, j int) bool {
 		fi, gi, pi, oki := exportSortKey(exports[i])
 		fj, gj, pj, okj := exportSortKey(exports[j])
@@ -304,20 +304,20 @@ func (s *State) GetModuleExports(moduleSymbol *ast.Symbol) []*ast.Symbol {
 		// otherwise leak through).
 		return exports[i].Name < exports[j].Name
 	})
-	s.Multi.GetModuleExportsCache[moduleSymbol] = exports
+	state.Multi.GetModuleExportsCache[moduleSymbol] = exports
 	return exports
 }
 
 // GetModuleExportsAliasMap ports TransformState.getModuleExportsAliasMap with
 // the multi-transform-state cache: original (alias-skipped) export symbol ->
 // the name it is exported under (`export { a as b }` -> "b").
-func (s *State) GetModuleExportsAliasMap(moduleSymbol *ast.Symbol) map[*ast.Symbol]string {
-	if cached, ok := s.Multi.GetModuleExportsAliasMapCache[moduleSymbol]; ok {
+func (state *State) GetModuleExportsAliasMap(moduleSymbol *ast.Symbol) map[*ast.Symbol]string {
+	if cached, ok := state.Multi.GetModuleExportsAliasMapCache[moduleSymbol]; ok {
 		return cached
 	}
 	aliasMap := map[*ast.Symbol]string{}
-	for _, exportSymbol := range s.GetModuleExports(moduleSymbol) {
-		originalSymbol := checker.SkipAlias(exportSymbol, s.Checker)
+	for _, exportSymbol := range state.GetModuleExports(moduleSymbol) {
+		originalSymbol := checker.SkipAlias(exportSymbol, state.Checker)
 		var declaration *ast.Node
 		if len(exportSymbol.Declarations) > 0 {
 			declaration = exportSymbol.Declarations[0]
@@ -328,7 +328,7 @@ func (s *State) GetModuleExportsAliasMap(moduleSymbol *ast.Symbol) map[*ast.Symb
 			aliasMap[originalSymbol] = exportSymbol.Name
 		}
 	}
-	s.Multi.GetModuleExportsAliasMapCache[moduleSymbol] = aliasMap
+	state.Multi.GetModuleExportsAliasMapCache[moduleSymbol] = aliasMap
 	return aliasMap
 }
 

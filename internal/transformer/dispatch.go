@@ -27,7 +27,7 @@ func TransformExpression(s *State, node *ast.Node) luau.Expression {
 	return expression
 }
 
-func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) luau.Expression {
+func (state *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) luau.Expression {
 	if luau.IsNone(expression) {
 		return expression
 	}
@@ -36,7 +36,7 @@ func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) 
 		ast.KindNonNullExpression, ast.KindTypeAssertionExpression:
 		return expression
 	}
-	start, ok := s.getOriginalSourcePositionValue(node, false)
+	start, ok := state.getOriginalSourcePositionValue(node, false)
 	if !ok {
 		return expression
 	}
@@ -50,7 +50,7 @@ func (s *State) tagExpressionOrigin(expression luau.Expression, node *ast.Node) 
 	// The other State caches hold identifiers, covered above. Decorated object
 	// keys may also be literals or compound expressions.
 	if !shared {
-		_, shared = s.sourceMapObjectKeys[expression]
+		_, shared = state.sourceMapObjectKeys[expression]
 	}
 	if shared {
 		return luau.WithOrigin(expression, origin).(luau.Expression)
@@ -178,8 +178,11 @@ func transformStatementDispatch(s *State, node *ast.Node) *luau.List[luau.Statem
 	}
 
 	switch node.Kind {
-	// no emit
-	case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration, ast.KindEmptyStatement:
+	// no emit, except that a top-level interface or type alias of a `//!native`
+	// file carries its Luau `type` statement in place.
+	case ast.KindInterfaceDeclaration, ast.KindTypeAliasDeclaration:
+		return s.nativeDeclarationAlias(node)
+	case ast.KindEmptyStatement:
 		return luau.NewList[luau.Statement]()
 
 	// banned statements
