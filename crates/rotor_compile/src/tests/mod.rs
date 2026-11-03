@@ -12,6 +12,7 @@ mod comment_directives;
 mod compile;
 mod copyfilesgate;
 mod declaration_emit;
+mod declaration_union_order;
 mod declmap;
 mod declpaths;
 mod diagnostic_string_code;

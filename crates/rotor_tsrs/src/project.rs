@@ -491,6 +491,8 @@ pub fn load_project_in_cached(
 	if let Some(cache) = cache {
 		host = Arc::new(CachingHost { inner: host, cache });
 	}
+	// Union members print in Go's order only with the fork's orderings (`compat::rotor_fork`).
+	tsrs_core::compat::set_rotor_fork(true);
 	let mut program_options = ProgramOptions::new(P::new(parsed), host);
 	// A tracked program's checkers allocate in regions of their own, which its scope frees.
 	program_options.checker_regions = tracking_programs();
