@@ -1,7 +1,7 @@
 //! `binding_test.go`, `spreaddestruct_test.go`, `spread_test.go`, `nonprimitive_spread_test.go`
 //! and `TestBigIntPropertyDiagnostic` from `bitwise_test.go`, with the expected strings verbatim.
-//! The cases whose fixtures declare functions wait on slice (ii), and the JSX case on slice (vi);
-//! they are ignored until those slices merge.
+//! The rest-diagnostics case waits on slice (iv) (constructor macros) and the JSX case on slice
+//! (vi); they are ignored until those slices merge.
 
 use super::binding::object_accessor;
 use crate::prelude::*;
@@ -141,7 +141,6 @@ print(second, fourth, y)
 
 /// Binding-pattern parameters become a `_param` temp destructured at the top of the body.
 #[test]
-#[ignore = "needs slice (ii): function declarations and parameters"]
 fn parameter_destructuring() {
 	let want = "local function f(_param)
 	local a = _param[1]
@@ -169,7 +168,6 @@ print(f({ 1, 2 }), g({
 
 /// A non-`LuaTuple` call right side lands in a `_binding` temp exactly once.
 #[test]
-#[ignore = "needs slice (ii): function declarations"]
 fn destructuring_from_call_rhs() {
 	let want = "local function make()
 	return { 1, 2 }
@@ -302,7 +300,6 @@ print(first, restAssign)
 /// Object-literal spread: the `table.clone` fast path only for a definitely-object spread into
 /// an empty inline map; otherwise a copy loop, if-wrapped when possibly undefined.
 #[test]
-#[ignore = "needs slice (ii): function declarations"]
 fn object_spread() {
 	let (got, diagnostics) = render_spread_fixture("src/object.ts");
 	let want = r#"local base = {
@@ -372,7 +369,6 @@ print(spreadOnly, spreadFirst, spreadLast, spreadTwice, spreadMaybe, spreadOptio
 
 /// Array-literal spread through the shared builders.
 #[test]
-#[ignore = "needs slice (ii): function declarations"]
 fn array_spread() {
 	let (got, diagnostics) = render_spread_fixture("src/array.ts");
 	let want = "local function getObj()
@@ -452,7 +448,6 @@ print(a1, a2, a3, a4, a5, a6, a7, a8, a9)
 /// Call-argument spread: `unpack(arr1)` for arrays; other iterables collect into
 /// `_array`/`_length` (`local _length = 0` here) first.
 #[test]
-#[ignore = "needs slice (ii): function declarations"]
 fn call_spread() {
 	let (got, diagnostics) = render_spread_fixture("src/call.ts");
 	let want = r##"local arr1 = { 1, 2 }
@@ -475,7 +470,6 @@ print(takeNums(unpack(_array)))
 
 /// `??=`, `&&=` and `||=`.
 #[test]
-#[ignore = "needs slice (ii): function declarations"]
 fn logical_assignments() {
 	let (got, diagnostics) = render_spread_fixture("src/logical.ts");
 	let want = r#"local v
