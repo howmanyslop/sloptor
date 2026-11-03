@@ -8,7 +8,7 @@ use crate::build_info::{BuildMetadata, GoStrings};
 use crate::build_info_clone::clone_runtime_config;
 use crate::glob::{GlobPaths, expand_globs, marshal_globs_artifact, resolve_glob_paths};
 use crate::project::Project;
-use crate::project_discovery::{find_package_json, package_identity};
+use crate::project_discovery::{find_package_json, package_name};
 use crate::runtime_config::{RuntimeConfig, marshal_runtime_config_artifact};
 use crate::{Error, ErrorKind};
 
@@ -130,7 +130,7 @@ impl Project {
 		let data = std::fs::read(&package_json_path).map_err(|error| {
 			Error::io("open", &package_json_path, &error).wrap("read package identity for build info")
 		})?;
-		let Some((name, _)) = package_identity(&data).filter(|(name, _)| !name.is_empty()) else {
+		let Some(name) = package_name(&data).filter(|name| !name.is_empty()) else {
 			return Err(Error::kinded(
 				ErrorKind::InvalidPackage,
 				&format!(" at {package_json_path}"),

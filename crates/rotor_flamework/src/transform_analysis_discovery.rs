@@ -11,7 +11,7 @@ use rotor_tsrs::checker::Type;
 use crate::Error;
 use crate::ErrorKind;
 use crate::plan::{ClassPlan, DecoratorPlan};
-use crate::project_discovery::{find_package_json, package_identity};
+use crate::project_discovery::{find_package_json, package_name};
 use crate::transform::preload_class_identifier;
 use crate::transform_analysis::DiscoveredFlameworkClass;
 use crate::transform_analysis_build::{add_package_build_class, root_build_class_by_internal_id};
@@ -215,9 +215,9 @@ pub(crate) fn declaration_internal_id(state: &TransformState<'_>, declaration: P
 	let package_json = find_package_json(&gopath::dir(&file_name));
 	let data = std::fs::read(&package_json)
 		.map_err(|error| Error::io("open", &package_json, &error).wrap("read Flamework declaration package"))?;
-	let Some((package_name, _)) = package_identity(&data).filter(|(package_name, _)| !package_name.is_empty()) else {
+	let Some(package) = package_name(&data).filter(|package| !package.is_empty()) else {
 		return Err(Error::kinded(ErrorKind::InvalidPackage, ": declaration package"));
 	};
 	let relative = package_relative_module(&package_json, &file_name)?;
-	Ok(format!("{package_name}:{relative}@{name}"))
+	Ok(format!("{package}:{relative}@{name}"))
 }

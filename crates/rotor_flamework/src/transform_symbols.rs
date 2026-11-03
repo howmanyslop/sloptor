@@ -11,7 +11,7 @@ use rotor_tsrs::checker::{Type, TypeFlags};
 
 use crate::Error;
 use crate::build_info::BuildInfo;
-use crate::project_discovery::{find_package_json, package_identity};
+use crate::project_discovery::{find_package_json, package_name};
 use crate::state::{DeclarationIdentity, FLAMEWORK_VERSION};
 use crate::transform::lua_file_name;
 use crate::transform_macro_types::{alloc, invalid_macro, string_literal_value};
@@ -160,14 +160,14 @@ fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>,
 	}
 	let data = std::fs::read(&package_json)
 		.map_err(|error| Error::io("open", &package_json, &error).wrap("read Flamework declaration package"))?;
-	let Some((package_name, _)) = package_identity(&data).filter(|(package_name, _)| !package_name.is_empty()) else {
+	let Some(package) = package_name(&data).filter(|package| !package.is_empty()) else {
 		return Err(invalid_macro(
 			declaration,
 			format!("Could not read package identity for declaration {}", quote(name)),
 		));
 	};
 	let internal_id = format!(
-		"{package_name}:{}@{name}",
+		"{package}:{}@{name}",
 		package_relative_module(&package_json, &file_name)?
 	);
 	let mut package_prefix = String::new();

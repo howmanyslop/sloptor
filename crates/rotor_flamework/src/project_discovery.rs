@@ -37,6 +37,20 @@ pub(crate) fn package_identity(data: &[u8]) -> Option<(String, String)> {
 	Some((field("name")?, field("version")?))
 }
 
+/// The `name` a Go `struct { Name string }` decodes from a `package.json`, or `None` when
+/// `json.Unmarshal` fails. Only the name: a `version` of any type decodes.
+pub(crate) fn package_name(data: &[u8]) -> Option<String> {
+	match json_syntax::parse(data).ok()? {
+		Value::Null => Some(String::new()),
+		document @ Value::Object(_) => match document.field("name") {
+			None | Some(Value::Null) => Some(String::new()),
+			Some(Value::String(text)) => Some(text.clone()),
+			Some(_) => None,
+		},
+		_ => None,
+	}
+}
+
 pub(crate) fn open_project_root(directory: &str) -> Result<ProjectRoot, Error> {
 	let project_directory =
 		crate::abs(directory).map_err(|error| Error::msg(format!("resolve Flamework project directory: {error}")))?;
