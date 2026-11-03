@@ -55,6 +55,7 @@ export interface MetadataPackage {
 }
 
 const CARGO_MANIFEST = "Cargo.toml";
+const RUSTFMT_CONFIG = ".rustfmt.toml";
 const QUIET = "--quiet";
 const STDIO_QUIET: StdioOptions = ["ignore", "inherit", "inherit"];
 const STDIO_CAPTURE: StdioOptions = ["ignore", "pipe", "inherit"];
@@ -313,6 +314,11 @@ export function mirror(options: MirrorOptions): MirrorResult {
 		}
 		if (existsSync(path.join(options.source, "licenses"))) {
 			cpSync(path.join(options.source, "licenses"), path.join(staging, "licenses"), { recursive: true });
+		}
+		// Keep tsrs's own rustfmt settings. `cargo fmt --all` also formats path
+		// dependencies, and would otherwise apply rotor's root rustfmt.toml.
+		if (existsSync(path.join(options.source, RUSTFMT_CONFIG))) {
+			cpSync(path.join(options.source, RUSTFMT_CONFIG), path.join(staging, RUSTFMT_CONFIG));
 		}
 		const rootManifest = readFileSync(path.join(options.source, CARGO_MANIFEST), "utf8");
 		writeFileSync(path.join(staging, CARGO_MANIFEST), trimWorkspaceManifest(rootManifest, crates));
