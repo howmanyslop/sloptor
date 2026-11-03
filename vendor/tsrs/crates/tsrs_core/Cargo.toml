@@ -1,0 +1,41 @@
+[package]
+name = "tsrs_core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Atomic borrow checking for FrozenCell in release builds (always on with debug_assertions).
+checked-cells = []
+# Opt out of Unix pointer compression (build.rs; for comparisons: `--features tsrs_core/plain-ptrs`).
+plain-ptrs = []
+# The shared type graph (src/sharedgraph.rs, on with TSRS_SHARED_GRAPH=1). Without it every frozen-object test is a
+# constant false and its read and write paths fold away.
+shared-graph = []
+
+[dependencies]
+rustc-hash.workspace = true
+hashbrown.workspace = true
+indexmap.workspace = true
+memchr.workspace = true
+unicode-id-start.workspace = true
+icu_normalizer.workspace = true
+simdutf8.workspace = true
+dragonbox_ecma.workspace = true
+num-bigint.workspace = true
+num-traits.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+unicode-normalization.workspace = true
+
+[lib]
+test = false
+doctest = false

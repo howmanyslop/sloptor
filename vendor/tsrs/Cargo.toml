@@ -1,0 +1,218 @@
+# Trimmed by tools/tsrs-mirror from the upstream tsrs workspace manifest.
+[workspace]
+resolver = "3"
+members = ["crates/tsrs_ast", "crates/tsrs_astnav", "crates/tsrs_binder", "crates/tsrs_checker", "crates/tsrs_compiler", "crates/tsrs_contentmapper", "crates/tsrs_core", "crates/tsrs_declarations", "crates/tsrs_diagnostics", "crates/tsrs_ipc", "crates/tsrs_module", "crates/tsrs_modulespecifiers", "crates/tsrs_parser", "crates/tsrs_printer", "crates/tsrs_pseudochecker", "crates/tsrs_scanner", "crates/tsrs_sourcemap", "crates/tsrs_spanmap", "crates/tsrs_transformers", "crates/tsrs_tsoptions", "crates/tsrs_vfs"]
+
+[workspace.package]
+version = "0.20.1"
+edition = "2024"
+rust-version = "1.99"
+license = "Apache-2.0"
+publish = false
+
+# The microsoft/TypeScript commit this port follows. Read by crates/tsrs_execute/build.rs (`tsrs --version`), by
+# npm/build.mjs (npm version = "<workspace version>-ts<version>") and by CI (conformance testdata checkout).
+# `nightly` is the npm `typescript` package matching `commit` (a nightly or prerelease; its package.json `gitHead`
+# is `commit`, or a later commit that changes nothing under tsc/). Release builds stamp it
+# as TypeScript's version (TSRS_TS_VERSION, crates/tsrs_core/src/version.rs), as the package's own build does, so the
+# tsbuildinfo `version`, `typesVersions` matching and `--version` agree with that tsgo; the release checks both.
+[workspace.metadata.typescript]
+version = "7.1.0-beta"
+commit = "3e9236361fa97a9e6c685f4833ac457ae2d8c50a"
+nightly = "7.1.0-beta"
+
+[workspace.dependencies]
+criterion2 = { version = "3.0.5", default-features = false } # Benchmarking
+base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+rustc-hash = "2"
+indexmap = "2"
+hashbrown = { version = "0.17", default-features = false, features = ["inline-more"] }
+smallvec = { version = "1.16", features = ["union"] }
+smallbitvec = "2.6.1"
+bitflags = "2"
+rayon = "1"
+memchr = "2"
+simdutf8 = "0.1.5"
+dragonbox_ecma = "0.1.12"
+num-bigint = "0.5.1"
+num-traits = "0.2"
+# Keep every mimalloc binary on the CLI's heap policy, even when built separately. On Linux, each binary calls
+# tsrs_core::allocator::init_mimalloc to retain huge-page advice for the arena (notes/mem-no-thp.md).
+mimalloc-safe = { version = "0.1.67", features = ["v3", "no_thp"] }
+# Pin exactly: 1.1.2 uses Unicode 15.1.0, matching the pinned TypeScript identifier tables.
+# Newer Unicode versions accept additional identifier characters; upgrade only when TypeScript's tables change.
+unicode-id-start = "=1.1.2"
+# Pin Unicode 17 behavior; unicode-normalization is the development-only parity oracle.
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+unicode-normalization = "=0.1.25"
+# Match criterion2's CodSpeed dependency so both benchmarks link one CodSpeed runtime.
+codspeed = "6.0.0"
+flate2 = "1"
+libc = "0.2"
+regex = "1"
+rustix = { version = "1.1.5", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.11"
+similar = "3"
+tar = { version = "0.4", default-features = false }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_Threading",
+] }
+xxhash-rust = { version = "0.8", features = ["xxh3", "const_xxh3"] }
+tsrs_core = { path = "crates/tsrs_core" }
+tsrs_diagnostics = { path = "crates/tsrs_diagnostics" }
+tsrs_spanmap = { path = "crates/tsrs_spanmap" }
+tsrs_ast = { path = "crates/tsrs_ast" }
+tsrs_scanner = { path = "crates/tsrs_scanner" }
+tsrs_parser = { path = "crates/tsrs_parser" }
+tsrs_binder = { path = "crates/tsrs_binder" }
+tsrs_vfs = { path = "crates/tsrs_vfs" }
+tsrs_module = { path = "crates/tsrs_module" }
+tsrs_tsoptions = { path = "crates/tsrs_tsoptions" }
+tsrs_checker = { path = "crates/tsrs_checker" }
+tsrs_pseudochecker = { path = "crates/tsrs_pseudochecker" }
+tsrs_modulespecifiers = { path = "crates/tsrs_modulespecifiers" }
+tsrs_compiler = { path = "crates/tsrs_compiler" }
+tsrs_printer = { path = "crates/tsrs_printer" }
+tsrs_transformers = { path = "crates/tsrs_transformers" }
+tsrs_sourcemap = { path = "crates/tsrs_sourcemap" }
+tsrs_declarations = { path = "crates/tsrs_declarations" }
+tsrs_astnav = { path = "crates/tsrs_astnav" }
+tsrs_ipc = { path = "crates/tsrs_ipc" }
+tsrs_contentmapper = { path = "crates/tsrs_contentmapper" }
+
+[workspace.lints.rust]
+non_upper_case_globals = "deny"
+non_camel_case_types = "deny"
+non_snake_case = "deny"
+# Rust 1.99: forming raw pointers through intermediate references can strengthen aliasing assumptions accidentally.
+raw_borrows_via_references = "warn"
+
+[workspace.lints.clippy]
+# Keep the baseline aligned with oxc-project/oxc. Deny every enabled Clippy lint directly.
+all = { level = "deny", priority = -2 }
+pedantic = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+
+# Oxc's global allowlist: noisy, chaotic or unsuitable for a non-const compiler implementation.
+struct_excessive_bools = "allow"
+too_many_lines = "allow"
+must_use_candidate = "allow"
+wildcard_imports = "allow"
+similar_names = "allow"
+too_many_arguments = "allow"
+missing_const_for_fn = "allow"
+option_if_let_else = "allow"
+or_fun_call = "allow"
+use_self = "allow"
+significant_drop_tightening = "allow"
+branches_sharing_code = "allow"
+useless_let_if_seq = "allow"
+
+# Tsrs-specific exceptions to Oxc's policy. This workspace is an unpublished, mechanical Go port: visibility,
+# signatures, numeric conversions, declaration placement and control-flow decomposition follow the Go source.
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+cast_lossless = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+cast_possible_wrap = "allow"
+type_complexity = "allow"
+struct_field_names = "allow"
+many_single_char_names = "allow"
+
+# Oxc restriction and nursery additions.
+empty_drop = "deny"
+empty_enum_variants_with_brackets = "deny"
+fn_to_numeric_cast_any = "deny"
+unnecessary_self_imports = "deny"
+try_err = "deny"
+error_impl_error = "deny"
+filetype_is_file = "deny"
+get_unwrap = "deny"
+rest_pat_in_fully_bound_structs = "deny"
+unnecessary_safety_comment = "deny"
+infinite_loop = "deny"
+map_with_unused_argument_over_ranges = "deny"
+unused_result_ok = "deny"
+pathbuf_init_then_push = "deny"
+pub_underscore_fields = "deny"
+non_zero_suggestions = "deny"
+precedence_bits = "deny"
+iter_on_single_items = "deny"
+unused_peekable = "deny"
+suspicious_operation_groupings = "deny"
+return_and_then = "deny"
+
+# A `.clone()` that remains is a real copy.
+redundant_clone = "deny"
+clone_on_copy = "deny"
+implicit_clone = "deny"
+clone_on_ref_ptr = "deny"
+assigning_clones = "deny"
+cloned_instead_of_copied = "deny"
+
+# Allocations nobody asked for.
+format_push_string = "deny"
+inefficient_to_string = "deny"
+needless_collect = "deny"
+unnecessary_box_returns = "deny"
+rc_buffer = "deny"
+vec_box = "deny"
+stable_sort_primitive = "deny"
+
+# Argument passing and stack use.
+needless_pass_by_value = "deny"
+trivially_copy_pass_by_ref = "deny"
+large_types_passed_by_value = "deny"
+large_stack_arrays = "deny"
+large_stack_frames = "deny"
+inline_always = "deny"
+
+# Hashing and iteration order (clippy.toml bans the SipHash std maps).
+disallowed_types = "deny"
+set_contains_or_insert = "deny"
+zero_sized_map_values = "deny"
+iter_over_hash_type = "deny"
+
+# Locks and threads.
+mutex_atomic = "deny"
+mutex_integer = "deny"
+rc_mutex = "deny"
+significant_drop_in_scrutinee = "deny"
+non_send_fields_in_send_ty = "deny"
+
+# `unsafe` (clippy.toml lists the unchecked operations that need a measured reason).
+undocumented_unsafe_blocks = "deny"
+missing_safety_doc = "deny"
+ptr_as_ptr = "deny"
+ptr_cast_constness = "deny"
+ref_as_ptr = "deny"
+borrow_as_ptr = "deny"
+cast_ptr_alignment = "deny"
+as_ptr_cast_mut = "deny"
+transmute_ptr_to_ptr = "deny"
+mem_forget = "deny"
+disallowed_methods = "deny"
+
+# Leftovers and escape hatches. A suppression is `#[expect(lint, reason = "...")]`, never a bare `#[allow]`.
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+disallowed_macros = "deny"
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"

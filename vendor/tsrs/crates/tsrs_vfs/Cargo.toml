@@ -1,0 +1,27 @@
+[package]
+name = "tsrs_vfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Read standard libraries beside the executable, as in upstream npm builds.
+noembed = []
+
+[dependencies]
+tsrs_core.workspace = true
+rustc-hash.workspace = true
+rayon.workspace = true
+bitflags.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rustix.workspace = true
+
+[lib]
+test = false
+doctest = false

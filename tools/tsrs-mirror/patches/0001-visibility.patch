@@ -1,0 +1,72 @@
+diff --git a/crates/tsrs_checker/src/checker_09.rs b/crates/tsrs_checker/src/checker_09.rs
+index 3a16b574..316795c3 100644
+--- a/crates/tsrs_checker/src/checker_09.rs
++++ b/crates/tsrs_checker/src/checker_09.rs
+@@ -3148,7 +3148,7 @@ impl Checker {
+     // Return the index type of the given kind in the given type. Creates synthetic union index types when necessary and
+     // maps primitive types and type parameters are to their apparent types.
+     // checker.go:19337
+-    pub(crate) fn get_index_type_of_type(
++    pub fn get_index_type_of_type(
+         &mut self,
+         t: P<Type>,
+         key_type: P<Type>,
+diff --git a/crates/tsrs_checker/src/checker_15.rs b/crates/tsrs_checker/src/checker_15.rs
+index 2d416bf2..1743d729 100644
+--- a/crates/tsrs_checker/src/checker_15.rs
++++ b/crates/tsrs_checker/src/checker_15.rs
+@@ -3186,7 +3186,7 @@ impl Checker {
+     }
+ 
+     // checker.go:32656
+-    pub(crate) fn get_emit_resolver(&mut self) -> P<EmitResolver> {
++    pub fn get_emit_resolver(&mut self) -> P<EmitResolver> {
+         if self.emit_resolver.is_none() {
+             self.emit_resolver = Some(new_emit_resolver(self, tsrs_printer::new_emit_context()));
+         }
+diff --git a/crates/tsrs_checker/src/services.rs b/crates/tsrs_checker/src/services.rs
+index 15dc8bdb..5a15045b 100644
+--- a/crates/tsrs_checker/src/services.rs
++++ b/crates/tsrs_checker/src/services.rs
+@@ -1397,7 +1397,7 @@ impl Checker {
+     // [ a ] from
+     //
+     //	[a] = [ some array ...]
+-    fn get_type_of_assignment_pattern(&mut self, expr: P<Node>) -> Option<P<Type>> {
++    pub fn get_type_of_assignment_pattern(&mut self, expr: P<Node>) -> Option<P<Type>> {
+         let parent = expr.parent().unwrap();
+         // If this is from "for of"
+         //     for ( { a } of elems) {
+diff --git a/crates/tsrs_checker/src/types.rs b/crates/tsrs_checker/src/types.rs
+index 3e319258..07c55030 100644
+--- a/crates/tsrs_checker/src/types.rs
++++ b/crates/tsrs_checker/src/types.rs
+@@ -1706,7 +1706,7 @@ impl Type {
+     }
+ 
+     #[inline]
+-    pub(crate) fn target_tuple_type(&self) -> &'static TupleType {
++    pub fn target_tuple_type(&self) -> &'static TupleType {
+         self.as_type_reference().target.get().unwrap().as_tuple_type()
+     }
+ 
+@@ -2943,8 +2943,8 @@ impl SubstitutionType {
+ 
+ #[derive(Default)]
+ pub struct ConditionalRoot {
+-    pub(crate) node: Cell<Option<P<Node>>>, // ConditionalTypeNode
+-    pub(crate) check_type: Cell<Option<P<Type>>>,
++    pub node: Cell<Option<P<Node>>>, // ConditionalTypeNode
++    pub check_type: Cell<Option<P<Type>>>,
+     pub(crate) extends_type: Cell<Option<P<Type>>>,
+     pub(crate) is_distributive: Cell<bool>,
+     pub(crate) infer_type_parameters: Cell<&'static [P<Type>]>,
+@@ -2956,7 +2956,7 @@ pub struct ConditionalRoot {
+ #[derive(Default)]
+ pub struct ConditionalType {
+     constrained_type: ConstrainedType,
+-    pub(crate) root: Cell<Option<P<ConditionalRoot>>>,
++    pub root: Cell<Option<P<ConditionalRoot>>>,
+     pub(crate) check_type: Cell<Option<P<Type>>>,
+     pub(crate) extends_type: Cell<Option<P<Type>>>,
+     pub(crate) resolved_true_type: OvCell<Option<P<Type>>>,
