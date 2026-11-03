@@ -478,6 +478,17 @@ dependencies = [
 [[package]]
 name = "rotor_compile"
 version = "0.0.0"
+dependencies = [
+ "rotor_config",
+ "rotor_luau",
+ "rotor_rojo",
+ "rotor_support",
+ "rotor_transformer",
+ "rotor_tsrs",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
 
 [[package]]
 name = "rotor_config"
