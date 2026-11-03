@@ -773,7 +773,8 @@ fn compare_types_same_flags(c: &mut Checker, t1: P<Type>, t2: P<Type>) -> Orderi
             }
             let mut m1 = t1.as_object_type().mapper.get();
             let mut m2 = t2.as_object_type().mapper.get();
-            if t1.object_flags().intersects(ObjectFlags::Mapped) {
+            // rotor: its typescript-go fork compares the raw mappers, fresh type parameter included.
+            if t1.object_flags().intersects(ObjectFlags::Mapped) && !tsrs_core::compat::rotor_fork() {
                 // instantiateAnonymousType prepends a fresh type parameter mapping.
                 // Compare the effective instantiation, not the identity of that fresh parameter.
                 if let Some(m) = m1 {

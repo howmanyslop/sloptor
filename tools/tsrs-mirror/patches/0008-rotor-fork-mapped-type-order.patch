@@ -1,0 +1,37 @@
+diff --git a/crates/tsrs_checker/src/utilities.rs b/crates/tsrs_checker/src/utilities.rs
+index 84a2d687..108d42d8 100644
+--- a/crates/tsrs_checker/src/utilities.rs
++++ b/crates/tsrs_checker/src/utilities.rs
+@@ -773,7 +773,8 @@ fn compare_types_same_flags(c: &mut Checker, t1: P<Type>, t2: P<Type>) -> Orderi
+             }
+             let mut m1 = t1.as_object_type().mapper.get();
+             let mut m2 = t2.as_object_type().mapper.get();
+-            if t1.object_flags().intersects(ObjectFlags::Mapped) {
++            // rotor: its typescript-go fork compares the raw mappers, fresh type parameter included.
++            if t1.object_flags().intersects(ObjectFlags::Mapped) && !tsrs_core::compat::rotor_fork() {
+                 // instantiateAnonymousType prepends a fresh type parameter mapping.
+                 // Compare the effective instantiation, not the identity of that fresh parameter.
+                 if let Some(m) = m1 {
+diff --git a/crates/tsrs_core/src/compat.rs b/crates/tsrs_core/src/compat.rs
+index cfde5269..340a1f8d 100644
+--- a/crates/tsrs_core/src/compat.rs
++++ b/crates/tsrs_core/src/compat.rs
+@@ -53,3 +53,18 @@ pub fn use_go_history_for_tsgo_baselines() {
+     crate::fast::set_enabled(fast);
+     set_go_compatible_history(!canonical && (assignment == "go" || history == "go" || !fast));
+ }
++
++/// rotor: whether checker orderings follow rotor's typescript-go fork where TS 7.1 changed them (see
++/// `compare_types`'s mapped types). Set before creating checkers.
++static ROTOR_FORK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++/// rotor: see [`rotor_fork`].
++pub fn set_rotor_fork(on: bool) {
++    // A plain flag set before any checker exists; nothing is published through it.
++    ROTOR_FORK.store(on, Ordering::Relaxed);
++}
++
++/// rotor: whether checker orderings follow rotor's typescript-go fork.
++pub fn rotor_fork() -> bool {
++    ROTOR_FORK.load(Ordering::Relaxed)
++}

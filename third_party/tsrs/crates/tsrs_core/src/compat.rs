@@ -53,3 +53,18 @@ pub fn use_go_history_for_tsgo_baselines() {
     crate::fast::set_enabled(fast);
     set_go_compatible_history(!canonical && (assignment == "go" || history == "go" || !fast));
 }
+
+/// rotor: whether checker orderings follow rotor's typescript-go fork where TS 7.1 changed them (see
+/// `compare_types`'s mapped types). Set before creating checkers.
+static ROTOR_FORK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// rotor: see [`rotor_fork`].
+pub fn set_rotor_fork(on: bool) {
+    // A plain flag set before any checker exists; nothing is published through it.
+    ROTOR_FORK.store(on, Ordering::Relaxed);
+}
+
+/// rotor: whether checker orderings follow rotor's typescript-go fork.
+pub fn rotor_fork() -> bool {
+    ROTOR_FORK.load(Ordering::Relaxed)
+}
