@@ -75,7 +75,7 @@ pub enum NativeTypeKind {
 }
 
 /// `hasNativeDirective`: the file's leading comments contain `//!native`.
-pub fn has_native_directive(state: &State<'_>) -> bool {
+pub fn has_native_directive(state: &mut State<'_>) -> bool {
 	if state.remove_comments() {
 		return false;
 	}
@@ -83,10 +83,15 @@ pub fn has_native_directive(state: &State<'_>) -> bool {
 	for range in scanner::get_leading_comment_ranges(text, 0) {
 		let mut end = range.end() as usize;
 		if range.kind != TsKind::SingleLineCommentTrivia {
-			end -= 2;
+			end = end.saturating_sub(2);
 		}
 		let start = range.pos() as usize + 2;
-		if text.get(start..end).unwrap_or_default().trim() == "!native" {
+		// Go slices `text[pos+2:end]`, which panics for an unterminated `/*` (end - 2 < start).
+		let Some(body) = text.get(start..end) else {
+			state.ice("transformer: hasNativeDirective: comment range out of bounds");
+			return false;
+		};
+		if body.trim() == "!native" {
 			return true;
 		}
 	}

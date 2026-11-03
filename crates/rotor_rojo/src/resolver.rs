@@ -116,8 +116,32 @@ pub struct PartitionInfo {
 pub struct ResolverFilePathState {
 	/// The mapped file.
 	pub path: String,
-	/// Where the file lands in the instance tree.
-	pub rbx_path: RbxPath,
+	/// Where the file lands in the instance tree. `None` is Go's nil path: a tree-root `$path`
+	/// naming a module file before anything was pushed.
+	pub rbx_path: Option<RbxPath>,
+}
+
+/// [`RojoResolver::lookup_rbx_path`]: Go's `(RbxPath, bool)`, with the stored nil path kept apart
+/// from a found (possibly empty) one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RbxPathLookup {
+	/// No Rojo data covers the file (`ok == false`).
+	Missing,
+	/// An exact mapping that stores Go's nil path (`ok == true`, `path == nil`).
+	Nil,
+	/// A mapped path.
+	Found(RbxPath),
+}
+
+impl RbxPathLookup {
+	/// The path, unless the lookup missed or found Go's nil path (`!ok || path == nil`).
+	#[must_use]
+	pub fn found(self) -> Option<RbxPath> {
+		match self {
+			Self::Found(path) => Some(path),
+			Self::Missing | Self::Nil => None,
+		}
+	}
 }
 
 /// A deterministic, serializable snapshot of a [`RojoResolver`]. Partition
@@ -162,8 +186,10 @@ impl std::error::Error for InvalidResolverState {}
 pub struct RojoResolver {
 	warnings: Vec<String>,
 	rbx_path: RbxPath,
+	/// Go's `rbxPath == nil`: nothing has been pushed yet, so a mapping recorded now is nil.
+	rbx_path_nil: bool,
 	partitions: Vec<PartitionInfo>,
-	file_path_to_rbx_path_map: HashMap<String, RbxPath>,
+	file_path_to_rbx_path_map: HashMap<String, Option<RbxPath>>,
 	isolated_containers: Vec<RbxPath>,
 	walked_configs: Vec<String>,
 	walked_directories: Vec<String>,
@@ -282,6 +308,7 @@ impl RojoResolver {
 	fn new() -> Self {
 		Self {
 			isolated_containers: DEFAULT_ISOLATED_CONTAINERS.clone(),
+			rbx_path_nil: true,
 			..Self::default()
 		}
 	}
@@ -328,6 +355,8 @@ impl RojoResolver {
 		Ok(Self {
 			warnings: state.warnings.clone(),
 			rbx_path: state.rbx_path.clone(),
+			// A restored resolver is never walked again, so its own nil state is moot.
+			rbx_path_nil: false,
 			partitions: state.partitions.clone(),
 			file_path_to_rbx_path_map: state
 				.file_paths
@@ -390,14 +419,28 @@ impl RojoResolver {
 
 	/// Resolves an output file path to its rbx path (`RojoResolver.ts`
 	/// L316-337): exact map hit first, then the first matching partition
-	/// (LIFO). Returns `None` when no Rojo data covers the file.
+	/// (LIFO). Returns `None` when no Rojo data covers the file. Go's stored
+	/// nil path comes back empty; [`Self::lookup_rbx_path`] keeps it apart.
 	#[must_use]
 	pub fn get_rbx_path_from_file_path(&self, file_path: &str) -> Option<RbxPath> {
-		let abs = gopath::abs(file_path).ok()?;
+		match self.lookup_rbx_path(file_path) {
+			RbxPathLookup::Missing => None,
+			RbxPathLookup::Nil => Some(RbxPath::new()),
+			RbxPathLookup::Found(path) => Some(path),
+		}
+	}
+
+	/// Go's `GetRbxPathFromFilePath` with both of its results: whether Rojo
+	/// data covers the file, and whether the stored path is nil.
+	#[must_use]
+	pub fn lookup_rbx_path(&self, file_path: &str) -> RbxPathLookup {
+		let Ok(abs) = gopath::abs(file_path) else {
+			return RbxPathLookup::Missing;
+		};
 		let file_path = convert_to_luau(&abs);
 
 		if let Some(rbx_path) = self.file_path_to_rbx_path_map.get(&file_path) {
-			return Some(rbx_path.clone());
+			return rbx_path.clone().map_or(RbxPathLookup::Nil, RbxPathLookup::Found);
 		}
 
 		let ext = extname(&file_path);
@@ -418,10 +461,10 @@ impl RojoResolver {
 				let mut result = Vec::with_capacity(partition.rbx_path.len() + relative_parts.len());
 				result.extend(partition.rbx_path.iter().cloned());
 				result.extend(relative_parts.into_iter().map(str::to_owned));
-				return Some(result);
+				return RbxPathLookup::Found(result);
 			}
 		}
-		None
+		RbxPathLookup::Missing
 	}
 
 	/// Classifies a file by sub-extension (`RojoResolver.ts` L339-349).
@@ -584,6 +627,7 @@ impl<'a> Walker<'a> {
 	fn parse_tree(&mut self, base_path: &str, name: &str, tree: &Tree, do_not_push: bool) {
 		if !do_not_push {
 			self.resolver.rbx_path.push(name.to_owned());
+			self.resolver.rbx_path_nil = false;
 		}
 
 		if let Some(path) = &tree.path {
@@ -627,7 +671,8 @@ impl<'a> Walker<'a> {
 		};
 		let ext = extname(&item_path);
 		if is_rojo_module_ext(ext) {
-			let rbx_path = self.resolver.rbx_path.clone();
+			// Go's `slices.Clone(r.rbxPath)` keeps a nil path nil.
+			let rbx_path = (!self.resolver.rbx_path_nil).then(|| self.resolver.rbx_path.clone());
 			self.resolver.file_path_to_rbx_path_map.insert(item_path, rbx_path);
 			return;
 		}
@@ -709,6 +754,7 @@ impl<'a> Walker<'a> {
 
 		if !item.is_empty() {
 			self.resolver.rbx_path.push(item.to_owned());
+			self.resolver.rbx_path_nil = false;
 		}
 
 		// *.project.json (regular files). The reference stats realpathSync(child)

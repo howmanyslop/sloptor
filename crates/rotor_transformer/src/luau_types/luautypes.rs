@@ -9,7 +9,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use rotor_luau::render::{RenderState, render};
+use rotor_luau::render::{RenderError, RenderState, render};
 use rotor_luau::{TypeAccess, TypeGeneric, TypeReference};
 use rotor_tsrs::ast::SymbolFlags;
 
@@ -395,6 +395,14 @@ impl Builder<'_, '_> {
 		&mut self.s.ast
 	}
 
+	/// [`render_type_text`], with Go's render panic as an internal error.
+	pub fn luau_type_text(&mut self, node: NodeId) -> String {
+		render_type_text(&self.s.ast, node).unwrap_or_else(|error| {
+			self.s.ice(format!("transformer: renderTypeText: {error}"));
+			String::new()
+		})
+	}
+
 	/// The builder's spelling.
 	pub fn spelling(&mut self) -> Spelling {
 		self.b().spelling
@@ -436,7 +444,7 @@ impl Builder<'_, '_> {
 		ctx: TypeContext,
 		reason: &str,
 	) {
-		let luau = replacement.map_or_else(String::new, |node| render_type_text(&self.s.ast, node));
+		let luau = replacement.map_or_else(String::new, |node| self.luau_type_text(node));
 		self.b().losses.push(FidelityLoss {
 			kind,
 			ts_text,
@@ -520,9 +528,14 @@ pub fn type_alias_for(state: &mut State<'_>, symbol: Option<P<Symbol>>) -> Optio
 	types(state).alias_for(symbol.map(SymKey::Real))
 }
 
-/// `renderTypeText`: a type node rendered on one line.
-pub fn render_type_text(ast: &Ast, node: NodeId) -> String {
-	render(&mut RenderState::new(), ast, node).unwrap_or_default()
+/// `renderTypeText`: a type node rendered on one line. Go's `render.Render` panics on a node it
+/// cannot render; callers turn the error into an internal error.
+///
+/// # Errors
+///
+/// When the node does not render.
+pub fn render_type_text(ast: &Ast, node: NodeId) -> Result<String, RenderError> {
+	render(&mut RenderState::new(), ast, node)
 }
 
 /// `cloneType`: an occurrence-specific copy of a node reused at several sites.

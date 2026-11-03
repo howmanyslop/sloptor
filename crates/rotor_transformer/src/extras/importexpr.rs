@@ -133,11 +133,12 @@ fn validate_module(rojo: &RojoContext, scope: &str) -> bool {
 		.any(|type_root| scoped_modules == gopath::clean(&gopath::from_slash(type_root)))
 }
 
-/// `findRelativeRbxPath` (L61-68): the first package resolver that covers the path wins.
-fn find_relative_rbx_path(module_out_path: &str, pkg_rojo_resolvers: &[RojoResolver]) -> Option<RbxPath> {
+/// `findRelativeRbxPath` (L61-68): the first package resolver that covers the path wins. A
+/// stored nil path is a miss, so the next resolver is tried.
+pub(super) fn find_relative_rbx_path(module_out_path: &str, pkg_rojo_resolvers: &[RojoResolver]) -> Option<RbxPath> {
 	pkg_rojo_resolvers
 		.iter()
-		.find_map(|resolver| resolver.get_rbx_path_from_file_path(module_out_path))
+		.find_map(|resolver| resolver.lookup_rbx_path(module_out_path).found())
 }
 
 fn get_paths_with_scope(resolver: &RojoResolver, module_scope: &str) -> Vec<String> {
@@ -494,7 +495,8 @@ fn get_import_parts_impl(
 		}
 		module_out_path
 	});
-	let Some(module_rbx_path) = rojo.resolver.get_rbx_path_from_file_path(&module_out_path) else {
+	// `!ok || moduleRbxPath == nil`: a stored nil path carries no location.
+	let Some(module_rbx_path) = rojo.resolver.lookup_rbx_path(&module_out_path).found() else {
 		let path = rel_to_project(rojo, &module_out_path);
 		state
 			.diags
@@ -558,7 +560,8 @@ fn get_folder_import_parts(
 			continue;
 		}
 		let module_out_path = rojo.path_translator.get_output_path(&dir);
-		let Some(module_rbx_path) = rojo.resolver.get_rbx_path_from_file_path(&module_out_path) else {
+		// A stored nil path carries no location: try the next candidate.
+		let Some(module_rbx_path) = rojo.resolver.lookup_rbx_path(&module_out_path).found() else {
 			continue;
 		};
 		return Some(get_project_import_parts(

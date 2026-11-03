@@ -2,6 +2,7 @@
 
 mod async_;
 mod decorators;
+mod importexpr;
 mod imports_elision;
 mod jsx;
 mod jsxtext;

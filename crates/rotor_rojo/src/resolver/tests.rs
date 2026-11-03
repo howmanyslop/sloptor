@@ -5,8 +5,8 @@ use std::fs;
 use rotor_support::gopath;
 
 use super::{
-	FileRelation, NetworkType, RbxType, RelativeRbxPathSegment, RojoResolver, find_rojo_config_file_path, realpath_or,
-	relative,
+	FileRelation, NetworkType, RbxPathLookup, RbxType, RelativeRbxPathSegment, RojoResolver,
+	find_rojo_config_file_path, realpath_or, relative,
 };
 use crate::config::{Tree, TreeEntry};
 use crate::project_files::ProjectFiles;
@@ -779,4 +779,73 @@ fn from_tree() {
 	assert!(r.is_game, "DataModel in tree must set is_game");
 	let got = must_rbx_path(&r, &gopath::join(&[&src_path, "x.luau"]));
 	assert_eq!(got, rbx(&["Game", "ReplicatedStorage", "src", "x"]), "from_tree path");
+}
+
+// --- Go's nil rbx path (resolver.go L432: `slices.Clone` of a never-pushed path) ---
+
+#[test]
+fn tree_root_module_path_is_nil() {
+	let project = write_project(&[
+		("default.project.json", r#"{"name":"p","tree":{"$path":"init.lua"}}"#),
+		("init.lua", ""),
+	]);
+	let r = RojoResolver::from_path(&project.path("default.project.json"));
+	assert_eq!(
+		r.lookup_rbx_path(&project.path("init.luau")),
+		RbxPathLookup::Nil,
+		"a tree-root module $path stores Go's nil path"
+	);
+	assert_eq!(
+		r.get_rbx_path_from_file_path(&project.path("init.luau")),
+		Some(Vec::new()),
+		"the nil path still reports ok"
+	);
+	let state = r.state();
+	assert_eq!(state.file_paths.len(), 1, "one exact mapping");
+	assert_eq!(state.file_paths[0].rbx_path, None, "the snapshot keeps the nil path");
+}
+
+#[test]
+fn pushed_module_paths_are_not_nil() {
+	let project = write_project(&[
+		(
+			"default.project.json",
+			r#"{"name":"p","tree":{"Child":{"$path":"child.lua"},"Nested":{"$path":"nested"}}}"#,
+		),
+		("child.lua", ""),
+		(
+			"nested/default.project.json",
+			r#"{"name":"n","tree":{"$path":"init.lua"}}"#,
+		),
+		("nested/init.lua", ""),
+	]);
+	let r = RojoResolver::from_path(&project.path("default.project.json"));
+	assert_eq!(
+		r.lookup_rbx_path(&project.path("child.luau")),
+		RbxPathLookup::Found(rbx(&["Child"])),
+		"a pushed mapping is found"
+	);
+	assert_eq!(
+		r.lookup_rbx_path(&project.path("nested/init.luau")),
+		RbxPathLookup::Found(rbx(&["Nested"])),
+		"a nested project mounted under a pushed name is found"
+	);
+}
+
+#[test]
+fn package_root_module_path_is_nil() {
+	// A type root that is itself a project mounts it without a push.
+	let project = write_project(&[
+		(
+			"@scope/default.project.json",
+			r#"{"name":"pkg","tree":{"$path":"init.lua"}}"#,
+		),
+		("@scope/init.lua", ""),
+	]);
+	let r = RojoResolver::package_imports(&project.path("@scope"), &ProjectFiles::new());
+	assert_eq!(
+		r.lookup_rbx_path(&project.path("@scope/init.luau")),
+		RbxPathLookup::Nil,
+		"the package resolver stores Go's nil path"
+	);
 }

@@ -39,6 +39,10 @@ impl NativeOrigins for Fake {
 			self.origins.insert(to, symbol);
 		}
 	}
+
+	fn ice(&mut self, message: String) {
+		panic!("internal error: {message}");
+	}
 }
 
 /// The arena and the fake origins a case builds into.
@@ -173,7 +177,9 @@ fn run_policy_cases(cases: &[Case]) {
 		let mut env = Env::default();
 		let node = (case.build)(&mut env);
 		let (result, kind, outer) = apply_native_policy(&mut env.ast, &mut env.f, node, case.position, 0);
-		let got = result.map_or_else(String::new, |node| render_type_text(&env.ast, node));
+		let got = result.map_or_else(String::new, |node| {
+			render_type_text(&env.ast, node).expect("the type renders")
+		});
 		if got != case.want {
 			failures.push(format!("{}: spelling = {got:?}, want {:?}", case.name, case.want));
 		}
@@ -189,7 +195,9 @@ fn run_policy_cases(cases: &[Case]) {
 		// The spelling hook probes a constraint with the policy before the parameter pass runs
 		// over the whole annotation, so a second pass must change nothing.
 		let (again, again_kind, _) = apply_native_policy(&mut env.ast, &mut env.f, result, case.position, 0);
-		let again_text = again.map_or_else(String::new, |node| render_type_text(&env.ast, node));
+		let again_text = again.map_or_else(String::new, |node| {
+			render_type_text(&env.ast, node).expect("the type renders")
+		});
 		if again.is_none() || again_text != got || again_kind != kind {
 			failures.push(format!("{}: second pass changed the result: {again_text:?}", case.name));
 		}

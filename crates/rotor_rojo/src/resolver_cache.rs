@@ -377,7 +377,11 @@ fn cache_file_json(compiler_version: &str, key: &str, state: &ResolverState, man
 		.map(|file_path| {
 			JsonValue::Object(vec![
 				("path".to_owned(), JsonValue::String(file_path.path.clone())),
-				("rbxPath".to_owned(), string_array(&file_path.rbx_path)),
+				// Go marshals a nil path as `null`.
+				(
+					"rbxPath".to_owned(),
+					file_path.rbx_path.as_deref().map_or(JsonValue::Null, string_array),
+				),
 			])
 		})
 		.collect();
@@ -475,7 +479,10 @@ fn state_from_json(v: &JsonValue) -> Option<ResolverState> {
 		file_paths: optional_list(v.member("filePaths"), |p| {
 			Some(ResolverFilePathState {
 				path: optional(p.member("path"), |s| s.as_str().map(str::to_owned))?,
-				rbx_path: string_list(p.member("rbxPath"))?,
+				rbx_path: match p.member("rbxPath") {
+					None | Some(JsonValue::Null) => None,
+					Some(value) => Some(string_list(Some(value))?),
+				},
 			})
 		})?,
 		isolated_containers: optional_list(v.member("isolatedContainers"), |c| string_list(Some(c)))?,

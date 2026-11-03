@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use super::{RESOLVER_CACHE_FORMAT_VERSION, RojoResolverCache, cache_key, parse_cache_file};
-use crate::resolver::{PartitionInfo, ResolverFilePathState, ResolverState, RojoResolver};
+use crate::resolver::{PartitionInfo, RbxPathLookup, ResolverFilePathState, ResolverState, RojoResolver};
 use crate::test_support::{must_rbx_path, rbx, set_mtime, write_project};
 
 fn unix_time(seconds: u64) -> SystemTime {
@@ -71,7 +71,7 @@ fn resolver_state_rejects_malformed_mappings() {
 			ResolverState {
 				file_paths: vec![ResolverFilePathState {
 					path: String::new(),
-					rbx_path: rbx(&["ReplicatedStorage"]),
+					rbx_path: Some(rbx(&["ReplicatedStorage"])),
 				}],
 				..ResolverState::default()
 			},
@@ -82,11 +82,11 @@ fn resolver_state_rejects_malformed_mappings() {
 				file_paths: vec![
 					ResolverFilePathState {
 						path: "/project/src/module.luau".to_owned(),
-						rbx_path: rbx(&["ReplicatedStorage", "Module"]),
+						rbx_path: Some(rbx(&["ReplicatedStorage", "Module"])),
 					},
 					ResolverFilePathState {
 						path: "/project/src/module.luau".to_owned(),
-						rbx_path: rbx(&["ServerStorage", "Module"]),
+						rbx_path: Some(rbx(&["ServerStorage", "Module"])),
 					},
 				],
 				..ResolverState::default()
@@ -97,7 +97,7 @@ fn resolver_state_rejects_malformed_mappings() {
 			ResolverState {
 				file_paths: vec![ResolverFilePathState {
 					path: "/project/src/module.lua".to_owned(),
-					rbx_path: rbx(&["ReplicatedStorage", "Module"]),
+					rbx_path: Some(rbx(&["ReplicatedStorage", "Module"])),
 				}],
 				..ResolverState::default()
 			},
@@ -157,6 +157,34 @@ fn rojo_cache_loads_resolver_state_from_disk() {
 	assert!(
 		!file.mtime_manifest.is_empty(),
 		"cache file must persist the walked-path mtime manifest"
+	);
+}
+
+#[test]
+fn rojo_cache_keeps_nil_paths_apart_from_empty_ones() {
+	// Given a tree-root module mapping, which Go stores as a nil path and marshals as `null`
+	let project = write_project(&[
+		("default.project.json", r#"{"name":"p","tree":{"$path":"init.lua"}}"#),
+		("init.lua", ""),
+	]);
+	let config_path = project.path("default.project.json");
+	let cache_dir = project.path(".cache");
+	let first_cache = RojoResolverCache::new(&cache_dir, "compiler-v1");
+	let _ = first_cache.load(&config_path);
+
+	// When the state is read back from disk
+	let data = fs::read(first_cache.cache_path(&config_path)).expect("cache file");
+	let file = parse_cache_file(&data).expect("cache file must be valid JSON");
+	let reloaded = RojoResolverCache::new(&cache_dir, "compiler-v1").load(&config_path);
+
+	// Then both keep the nil path
+	let text = String::from_utf8(data).expect("UTF-8 cache");
+	assert!(text.contains(r#""rbxPath": null"#), "nil path written as null: {text}");
+	assert_eq!(file.state.file_paths[0].rbx_path, None, "parsed nil path");
+	assert_eq!(
+		reloaded.lookup_rbx_path(&project.path("init.luau")),
+		RbxPathLookup::Nil,
+		"reloaded nil path"
 	);
 }
 

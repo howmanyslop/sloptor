@@ -37,7 +37,7 @@ pub struct SliceState {
 }
 
 /// `hasNativeDirective` (`nativetypes.go`): the file's leading comments contain `//!native`.
-pub fn has_native_directive(state: &State<'_>) -> bool {
+pub fn has_native_directive(state: &mut State<'_>) -> bool {
 	nativetypes::has_native_directive(state)
 }
 

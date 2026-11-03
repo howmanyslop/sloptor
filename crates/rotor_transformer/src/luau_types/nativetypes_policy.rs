@@ -33,22 +33,35 @@ pub trait NativeOrigins {
 	fn own_generic(&self, name: &str) -> bool;
 	/// Records that `to` was rebuilt from `from`.
 	fn transfer_origin(&mut self, from: NodeId, to: NodeId);
+	/// Records an internal error (Go panics).
+	fn ice(&mut self, message: String);
 }
 
 /// The file's builder as [`NativeOrigins`]: its origins and registry, and the generic scope.
 pub struct BuilderOrigins<'x> {
 	slice: &'x mut SliceState,
 	id: BuilderId,
+	internal_error: &'x mut Option<String>,
 }
 
 impl<'x> BuilderOrigins<'x> {
-	/// The origins of builder `id` of `slice`.
-	pub const fn new(slice: &'x mut SliceState, id: BuilderId) -> Self {
-		Self { slice, id }
+	/// The origins of builder `id` of `slice`, reporting internal errors into `internal_error`.
+	pub const fn new(slice: &'x mut SliceState, id: BuilderId, internal_error: &'x mut Option<String>) -> Self {
+		Self {
+			slice,
+			id,
+			internal_error,
+		}
 	}
 }
 
 impl NativeOrigins for BuilderOrigins<'_> {
+	fn ice(&mut self, message: String) {
+		if self.internal_error.is_none() {
+			*self.internal_error = Some(message);
+		}
+	}
+
 	fn origin_of(&self, node: NodeId) -> Option<SymKey> {
 		self.slice
 			.builder(self.id)
@@ -81,7 +94,7 @@ impl Builder<'_, '_> {
 		position: NativePosition,
 		depth: usize,
 	) -> (Option<NodeId>, NativeTypeKind, bool) {
-		let mut origins = BuilderOrigins::new(&mut self.s.slices.luau_types, self.id);
+		let mut origins = BuilderOrigins::new(&mut self.s.slices.luau_types, self.id, &mut self.s.internal_error);
 		apply_native_policy(&mut self.s.ast, &mut origins, node, position, depth)
 	}
 }
@@ -356,7 +369,10 @@ fn apply_native_union_policy(
 			return (Some(member), NativeTypeKind::Unspellable, outer);
 		}
 		changed = changed || member != current;
-		let text = render_type_text(ast, member);
+		let text = render_type_text(ast, member).unwrap_or_else(|error| {
+			origins.ice(format!("transformer: renderTypeText: {error}"));
+			String::new()
+		});
 		if members.iter().any(|(_, _, existing)| *existing == text) {
 			changed = true;
 			continue;

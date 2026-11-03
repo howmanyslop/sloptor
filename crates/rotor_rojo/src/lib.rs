@@ -18,8 +18,8 @@ pub use json::{JsonValue, parse as parse_json};
 pub use pathtranslator::PathTranslator;
 pub use project_files::ProjectFiles;
 pub use resolver::{
-	FileRelation, InvalidResolverState, NetworkType, ParseProjectFileError, PartitionInfo, RbxPath, RbxType,
-	RelativeRbxPath, RelativeRbxPathSegment, ResolverFilePathState, ResolverState, RojoResolver, canonical_file_name,
-	find_rojo_config_file_path, parse_project_file, relative,
+	FileRelation, InvalidResolverState, NetworkType, ParseProjectFileError, PartitionInfo, RbxPath, RbxPathLookup,
+	RbxType, RelativeRbxPath, RelativeRbxPathSegment, ResolverFilePathState, ResolverState, RojoResolver,
+	canonical_file_name, find_rojo_config_file_path, parse_project_file, relative,
 };
 pub use resolver_cache::RojoResolverCache;

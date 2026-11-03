@@ -17,7 +17,7 @@ use rotor_tsrs::types::TypeCheck;
 
 use super::luautypes::{
 	AliasPlacement, Builder, BuiltType, EntryId, FidelityLossKind, Spelling, SymKey, TypeAliasEntry, TypeContext,
-	TypePosition, any_function, any_table, any_type, is_any_type, render_type_text,
+	TypePosition, any_function, any_table, any_type, is_any_type,
 };
 use super::luautypes_alias::{alias_declaration_of_symbol, alias_placement_for, is_luau_exported_type};
 use super::nativetypes::{
@@ -226,7 +226,7 @@ impl Builder<'_, '_> {
 			if is_any_type(&self.s.ast, built.node) {
 				return self.finish(built.node, outer_generic);
 			}
-			let text = render_type_text(&self.s.ast, built.node);
+			let text = self.luau_type_text(built.node);
 			if !members.iter().any(|(_, existing)| *existing == text) {
 				members.push((built.node, text));
 			}
@@ -877,7 +877,7 @@ impl Builder<'_, '_> {
 		let mut elements: Vec<(NodeId, String)> = Vec::new();
 		for &element_type in get_type_arguments(self.s, t) {
 			let node = self.build(element_type, ctx.nested()).node;
-			let text = render_type_text(&self.s.ast, node);
+			let text = self.luau_type_text(node);
 			if !elements.iter().any(|(_, existing)| *existing == text) {
 				elements.push((node, text));
 			}
@@ -1132,12 +1132,11 @@ impl Builder<'_, '_> {
 			(Some(string_info), Some(number_info)) => {
 				let string_value = self.build(string_info.value_type(), nested).node;
 				let number_value = self.build(number_info.value_type(), nested).node;
-				let value =
-					if render_type_text(&self.s.ast, string_value) == render_type_text(&self.s.ast, number_value) {
-						string_value
-					} else {
-						any_type(self.ast())
-					};
+				let value = if self.luau_type_text(string_value) == self.luau_type_text(number_value) {
+					string_value
+				} else {
+					any_type(self.ast())
+				};
 				self.lose_text(
 					FidelityLossKind::IndexerCollapsed,
 					"[string] + [number]",
