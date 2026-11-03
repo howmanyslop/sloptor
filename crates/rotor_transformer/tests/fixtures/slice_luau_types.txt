@@ -1,0 +1,2 @@
+# Slice v (Luau types and native types): no diff golden depends on this slice. Both features
+# are off by default, and the core fixtures in core.txt pin that the hooks change nothing.
