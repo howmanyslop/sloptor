@@ -1,0 +1,17 @@
+[package]
+name = "rotor_cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "rotor-rs"
+path = "src/main.rs"
+
+[dependencies]
+mimalloc-safe.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,69 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# vendor/tsrs is its own workspace, mirrored by tools/tsrs-mirror and pulled in as path
+# dependencies only, so rotor's lints never apply to it. editors/zed is the standalone Zed
+# extension (wasm, edition 2021, its own lockfile and rustfmt.toml).
+exclude = ["editors/zed", "vendor/tsrs"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+mimalloc-safe = { version = "0.1.67", features = ["no_thp", "v3"] }
+rotor_compile = { path = "crates/rotor_compile" }
+rotor_config = { path = "crates/rotor_config" }
+rotor_flamework = { path = "crates/rotor_flamework" }
+rotor_jecs = { path = "crates/rotor_jecs" }
+rotor_lsp = { path = "crates/rotor_lsp" }
+rotor_luau = { path = "crates/rotor_luau" }
+rotor_rojo = { path = "crates/rotor_rojo" }
+rotor_transformer = { path = "crates/rotor_transformer" }
+rotor_tsrs = { path = "crates/rotor_tsrs" }
+tsrs_ast = { path = "vendor/tsrs/crates/tsrs_ast" }
+tsrs_checker = { path = "vendor/tsrs/crates/tsrs_checker" }
+tsrs_compiler = { path = "vendor/tsrs/crates/tsrs_compiler" }
+tsrs_core = { path = "vendor/tsrs/crates/tsrs_core" }
+tsrs_tsoptions = { path = "vendor/tsrs/crates/tsrs_tsoptions" }
+tsrs_vfs = { path = "vendor/tsrs/crates/tsrs_vfs" }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+nursery = { level = "warn", priority = -1 }
+panic = "deny"
+pedantic = { level = "warn", priority = -1 }
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_crate_dependencies = "warn"
+
+[profile.dev]
+debug = 1
+
+# Matches tsrs's release profile. tsrs may rely on unwinding, so panic stays "unwind".
+[profile.release]
+opt-level = 3
+debug = false
+lto = "fat"
+panic = "unwind"
+codegen-units = 1
+
+# Iteration profile: optimized, no LTO, parallel codegen.
+[profile.fastrel]
+inherits = "release"
+debug = false
+lto = "off"
+codegen-units = 16

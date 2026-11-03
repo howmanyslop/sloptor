@@ -1,0 +1,18 @@
+[package]
+name = "rotor_tsrs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tsrs_ast.workspace = true
+tsrs_checker.workspace = true
+tsrs_compiler.workspace = true
+tsrs_core.workspace = true
+tsrs_tsoptions.workspace = true
+tsrs_vfs.workspace = true
+
+[lints]
+workspace = true

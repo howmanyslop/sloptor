@@ -1,0 +1,1 @@
+//! Rotor configuration loading.

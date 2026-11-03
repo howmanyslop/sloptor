@@ -1,0 +1,54 @@
+# cargo-deny: https://embarkstudios.github.io/cargo-deny/
+# Run locally with `cargo deny check`.
+
+[graph]
+# Only the platforms rotor ships for.
+targets = [
+	"aarch64-apple-darwin",
+	"x86_64-apple-darwin",
+	"aarch64-unknown-linux-gnu",
+	"x86_64-unknown-linux-gnu",
+	"x86_64-pc-windows-msvc",
+]
+all-features = true
+
+[advisories]
+# Unmaintained crates are reported, but only direct dependencies fail.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[licenses]
+# Permissive licenses plus MPL-2.0, whose copyleft covers only the files of the
+# crate that uses it.
+allow = [
+	"Apache-2.0",
+	"Apache-2.0 WITH LLVM-exception",
+	"BSD-2-Clause",
+	"BSD-3-Clause",
+	"BSL-1.0",
+	"CDLA-Permissive-2.0",
+	"ISC",
+	"MIT",
+	"MPL-2.0",
+	"Unicode-3.0",
+	# unicode-id-start (via tsrs_core) is "(MIT OR Apache-2.0) AND Unicode-DFS-2016".
+	"Unicode-DFS-2016",
+	"Unlicense",
+	"Zlib",
+]
+confidence-threshold = 0.9
+unused-allowed-license = "allow"
+
+[bans]
+# Duplicate versions are reported without failing.
+multiple-versions = "warn"
+# Registry dependencies must name a version. Path dependencies between unpublished
+# crates (the rotor crates and vendored tsrs) carry no version, which
+# allow-wildcard-paths permits.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
