@@ -17,6 +17,7 @@ use rotor_config as _;
 use rotor_luau as _;
 use rotor_rojo as _;
 use rotor_support as _;
+use rotor_transformer as _;
 use rotor_tsrs as _;
 use tempfile as _;
 
@@ -86,45 +87,26 @@ fn differential_fixtures_match_the_goldens() {
 			);
 		}
 
-		let mut project = harness::load(&root.join("testdata/diff/project/tsconfig.json"));
+		// One project-wide compile, as Go's diff test: multi-file fixtures import each other.
+		let outputs = harness::compile_project(&root.join("testdata/diff/project"));
 		let mut failures = String::new();
 		let mut seen = BTreeSet::new();
-		for file in project.source_files() {
-			let file_name = file.file_name().to_owned();
-			let Some(stem) = std::path::Path::new(&file_name)
-				.file_stem()
-				.and_then(|stem| stem.to_str())
-			else {
+		for name in &enabled {
+			let Some(got) = outputs.get(&format!("out/{name}.luau")) else {
 				continue;
 			};
-			if !enabled.contains(stem) {
-				continue;
-			}
-			seen.insert(stem.to_owned());
-			let output = project.compile_file(file);
-			let golden =
-				fs::read_to_string(root.join(format!("testdata/diff/golden/{stem}.luau"))).expect("the golden reads");
-			match output.text {
-				Some(text) if text == golden => {}
-				Some(text) => {
-					let _ = writeln!(failures, "{stem}: {}", first_difference(&text, &golden));
-				}
-				None => {
-					let _ = writeln!(
-						failures,
-						"{stem}: no output (internal error: {:?}; diagnostics: {:?})",
-						output.internal_error,
-						output
-							.diagnostics
-							.iter()
-							.map(|diagnostic| format!("{}: {}", diagnostic.code, diagnostic.message))
-							.collect::<Vec<_>>()
-					);
-				}
+			seen.insert(name.clone());
+			let golden = fs::read(root.join(format!("testdata/diff/golden/{name}.luau"))).expect("the golden reads");
+			if *got != golden {
+				let _ = writeln!(
+					failures,
+					"{name}: {}",
+					first_difference(&String::from_utf8_lossy(got), &String::from_utf8_lossy(&golden))
+				);
 			}
 		}
 		for name in enabled.difference(&seen) {
-			let _ = writeln!(failures, "{name}: not a source file of the diff project");
+			let _ = writeln!(failures, "out/{name}.luau missing from CompileProject output");
 		}
 		assert!(failures.is_empty(), "differential failures:\n{failures}");
 	});

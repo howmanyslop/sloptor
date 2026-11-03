@@ -14,6 +14,7 @@ rotor_support.workspace = true
 rotor_tsrs.workspace = true
 
 [dev-dependencies]
+rotor_compile.workspace = true
 tempfile.workspace = true
 
 [lints]

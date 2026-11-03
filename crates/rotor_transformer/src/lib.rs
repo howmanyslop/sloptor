@@ -65,5 +65,9 @@ pub use nodemodulespath::{NodeModulesPathMapping, NodeModulesPathPattern};
 pub use sourcefile::{header_comment, transform_source_file};
 pub use state::{MultiState, ProjectType, RojoContext, State, StateOptions, TryUses};
 
+// The diff gate (an integration test) compiles through rotor_compile; unit tests do not.
+#[cfg(test)]
+use rotor_compile as _;
+
 #[cfg(test)]
 mod tests;
