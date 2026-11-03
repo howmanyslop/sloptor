@@ -41,15 +41,10 @@ impl Counts {
 	}
 }
 
-/// The source files the spike walked: non-declaration files that are not from external libraries.
+/// The source files the spike walked: the ones rotor compiles ([`crate::project::project_source_files`]).
 #[must_use]
 pub fn project_files(program: &Program) -> Vec<P<SourceFile>> {
-	program
-		.source_files()
-		.iter()
-		.copied()
-		.filter(|&file| !file.is_declaration_file.get() && !program.is_source_file_from_external_library(file))
-		.collect()
+	crate::project::project_source_files(program)
 }
 
 fn walk(node: P<Node>, visit: &mut dyn FnMut(P<Node>)) {

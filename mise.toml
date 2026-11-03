@@ -320,6 +320,17 @@ run = "vitest run tools/parity tools/tsrs-mirror"
 description = "Re-vendors the pinned tsrs release into third_party/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
 run = "node tools/tsrs-mirror/main.ts"
 
+[tasks."tsrs:oracle-bench"]
+description = "Runs the rotor_tsrs differential on the project at ROTOR_BENCH_PROJECT (a tsconfig path): writes the Go dump, then compares the Rust one with it."
+shell = "sh -o errexit -c"
+run = """
+: "${ROTOR_BENCH_PROJECT:?set ROTOR_BENCH_PROJECT to a tsconfig path}"
+oracle="$(mktemp)"
+trap 'rm -f "$oracle"' EXIT
+go run ./tools/tsrs-oracle -project "$ROTOR_BENCH_PROJECT" -out "$oracle"
+ROTOR_BENCH_ORACLE="$oracle" cargo nextest run --locked --cargo-profile fastrel -p rotor_tsrs --test oracle --run-ignored only --no-capture
+"""
+
 [tasks."tsrs:oracle"]
 description = "Regenerates the Go side of the rotor_tsrs differential for the conformance project (testdata/tsrs-oracle/conformance.tsv)."
 run = "go run ./tools/tsrs-oracle -project testdata/conformance/project/tsconfig.json -out testdata/tsrs-oracle/conformance.tsv"

@@ -8,14 +8,24 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rotor_tsrs::replay::{Counts, project_files, replay_basic, replay_rotor_apis};
-use rotor_tsrs::{OpenedProgram, load_program, open_program, with_large_stack};
+use rotor_tsrs::{Project, ProjectOptions, load_program, load_project, with_large_stack};
 
 // An integration test is handed every dependency of its package, so the ones only the library
 // uses must be acknowledged to keep `unused_crate_dependencies` quiet.
+use regex as _;
+use rotor_support as _;
+use serde_json as _;
+use tempfile as _;
 use tsrs_ast as _;
 use tsrs_checker as _;
 use tsrs_compiler as _;
 use tsrs_core as _;
+use tsrs_diagnostics as _;
+use tsrs_module as _;
+use tsrs_parser as _;
+use tsrs_printer as _;
+use tsrs_scanner as _;
+use tsrs_sourcemap as _;
 use tsrs_tsoptions as _;
 use tsrs_vfs as _;
 
@@ -31,7 +41,8 @@ struct Replayed {
 
 fn replay_project(tsconfig: &Path) -> Result<Replayed, String> {
 	with_large_stack(|| {
-		let OpenedProgram { program, .. } = open_program(tsconfig, None).map_err(|error| error.to_string())?;
+		let Project { program } =
+			load_project(tsconfig, &ProjectOptions::default()).map_err(|error| error.to_string())?;
 		let files = project_files(program);
 		let basic = replay_basic(program, &files).ok_or("program has no checker pool")?;
 		let rotor = replay_rotor_apis(program, &files).ok_or("program has no checker pool")?;
@@ -67,12 +78,10 @@ fn replays_the_benchmark_project() {
 		PathBuf::from(std::env::var_os("ROTOR_BENCH_PROJECT").expect("set ROTOR_BENCH_PROJECT to a tsconfig path"));
 	with_large_stack(|| {
 		let started = Instant::now();
-		let OpenedProgram {
-			program,
-			config_diagnostics,
-		} = open_program(&tsconfig, None).expect("benchmark tsconfig loads");
+		let Project { program } =
+			load_project(&tsconfig, &ProjectOptions::default()).expect("benchmark tsconfig loads");
 		println!(
-			"open (parse + bind): {} source files, {config_diagnostics} config diagnostics, {:.3}s",
+			"open (parse + bind): {} source files, {:.3}s",
 			program.source_files().len(),
 			started.elapsed().as_secs_f64()
 		);

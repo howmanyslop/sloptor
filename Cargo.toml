@@ -36,6 +36,12 @@ tsrs_ast = { path = "third_party/tsrs/crates/tsrs_ast" }
 tsrs_checker = { path = "third_party/tsrs/crates/tsrs_checker" }
 tsrs_compiler = { path = "third_party/tsrs/crates/tsrs_compiler" }
 tsrs_core = { path = "third_party/tsrs/crates/tsrs_core" }
+tsrs_diagnostics = { path = "third_party/tsrs/crates/tsrs_diagnostics" }
+tsrs_module = { path = "third_party/tsrs/crates/tsrs_module" }
+tsrs_parser = { path = "third_party/tsrs/crates/tsrs_parser" }
+tsrs_printer = { path = "third_party/tsrs/crates/tsrs_printer" }
+tsrs_scanner = { path = "third_party/tsrs/crates/tsrs_scanner" }
+tsrs_sourcemap = { path = "third_party/tsrs/crates/tsrs_sourcemap" }
 tsrs_tsoptions = { path = "third_party/tsrs/crates/tsrs_tsoptions" }
 tsrs_vfs = { path = "third_party/tsrs/crates/tsrs_vfs" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
