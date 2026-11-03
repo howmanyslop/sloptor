@@ -259,10 +259,7 @@ impl DeclarationPathRewriter {
 
 	/// `relativeFrom`: `path.relative` with the platform's case rule.
 	fn relative_from(&self, from: &str, to: &str) -> String {
-		if (tspath::get_root_length(from) > 0) != (tspath::get_root_length(to) > 0) {
-			return to.to_owned();
-		}
-		tspath::get_relative_path_from_directory(from, to, &self.compare)
+		relative_from(&self.compare, from, to)
 	}
 
 	/// `longestContainingRoot`: the longest `rootDirs` entry containing `candidate`.
@@ -275,6 +272,14 @@ impl DeclarationPathRewriter {
 		}
 		best
 	}
+}
+
+/// `relativeFrom`: `path.relative` under `compare`'s case rule.
+pub(crate) fn relative_from(compare: &tspath::ComparePathsOptions, from: &str, to: &str) -> String {
+	if (tspath::get_root_length(from) > 0) != (tspath::get_root_length(to) > 0) {
+		return to.to_owned();
+	}
+	tspath::get_relative_path_from_directory(from, to, compare)
 }
 
 /// The specifier visitor of `specifierEdits`: every module specifier in the tree, nested `import()`

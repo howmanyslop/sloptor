@@ -16,7 +16,7 @@ use crate::rotortypes::ROTOR_TYPES_FILE_NAME;
 use crate::timings::BuildTimings;
 use crate::{BuildFailure, BuildResult, ProjectOptions};
 
-fn try_build(dir: &str, opts: &ProjectOptions) -> Result<BuildResult, BuildFailure> {
+pub fn try_build(dir: &str, opts: &ProjectOptions) -> Result<BuildResult, BuildFailure> {
 	large_stack(|| build_project_with_options(dir, opts))
 }
 

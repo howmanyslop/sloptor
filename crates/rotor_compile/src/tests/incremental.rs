@@ -44,7 +44,7 @@ fn write_incremental_fixture(temp: &Temp) {
 }
 
 /// `emittedFileBases`
-fn emitted_file_bases(result: &BuildResult) -> Vec<String> {
+pub fn emitted_file_bases(result: &BuildResult) -> Vec<String> {
 	let mut bases: Vec<String> = result
 		.emitted_files
 		.iter()

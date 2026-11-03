@@ -102,14 +102,17 @@ file maps to one Rust module, and the expected strings are copied verbatim.
 `logservice_test.go` is ported into `rotor_support::logservice`. `tests/conformance.rs` is the
 conformance golden gate, and `tests/filemacro_bytes.rs` covers `$file` on Windows-1252 bytes.
 
-Ported: `array_append_optimization`, `baseurl`, `comment_directives`, `compile`,
-`copyfilesgate`, `declmap`, `diagnostic_string_code`, `env_macro`, `exportfrom`,
-`getmoduletree_folder`, `imports`, `incremental`, `jsx_build`, `labels`, `luau_types`,
-`luau_types_emit`, `macro`, `macro_inputs`, `native_types`, `output`, `output_guard`,
-`outputwriter`, `overlayfs` (through the overlay route rotor_compile takes), `parallelwrite`,
-`pnpm`, `project`, `rbxts_options`, `rotortypes`, `skip_identical_writes`, `source_trace`,
-`sourcemap_acceptance`, `sourcemap_columns`, `sourcemap_fallback`, `sourcemap_lines`,
-`sourcemap_paths`, `unreachable_function`, `validateoptions`, `vector_math`.
+Ported: `array_append_optimization`, `audit`, `baseurl`, `comment_directives`, `compile`,
+`copyfilesgate`, `declaration_emit`, `declmap`, `declpaths`, `diagnostic_string_code`,
+`env_macro`, `exportfrom`, `getmoduletree_folder`, `imports`, `incremental`,
+`incremental_plugin_salt`, `incremental_signature`, `incremental_signature_build`, `jsx_build`,
+`labels`, `luau_types`, `luau_types_emit`, `macro`, `macro_inputs`, `native_types`, `output`,
+`output_guard`, `outputwriter`, `overlayfs` (through the overlay route rotor_compile takes),
+`package_layout`, `packageexports`, `packageexports_compile`, `parallelwrite`, `pnpm`, `project`,
+`project_context_selection`, `rbxts_options`, `rotortypes`, `skip_identical_writes`,
+`source_trace`, `sourcemap_acceptance`, `sourcemap_columns`, `sourcemap_fallback`,
+`sourcemap_lines`, `sourcemap_paths`, `timings`, `unreachable_function`, `validateoptions`,
+`vector_math`.
 
 `src/tests/needs_later_stages.rs` holds the Go tests whose subject is 5b or Stage 6 as ignored tests:
 `task7_*`, `sourcemap_plugin_acceptance`, `sourcemap_performance_acceptance` and
@@ -121,9 +124,10 @@ Ported: `array_append_optimization`, `baseurl`, `comment_directives`, `compile`,
 - Tests that inject `outputWriterOperations` or count calls on `newOverlayFS`.
 - Tests that need string-code diagnostics, which tsrs does not have.
 - Halves of tests that build a solution (`BuildSolutionWithOptions`, 5b).
+- Tests that run a transformer plugin through the sidecar or read its response metrics (5b),
+  and the package watch tests that drive the solution coordinator (5b).
+- Tests that swap Go's `declarationTextsForSelection` variable, and the guard against a
+  selection with a nil emitter, which a Rust `DeclarationSignatureSelection` cannot express.
 
-Not ported yet, though their subject is 5a: `audit`, `declaration_emit`, `declpaths`,
-`incremental_plugin_salt`, `incremental_signature`, `incremental_signature_build`,
-`package_layout`, `packageexports`, `packageexports_compile`, `project_context_selection` and
-`timings`. The 5b and Stage 6 files (`census*`, `flamework_*`, `jecs_*`, `performance_parity*`,
+The 5b and Stage 6 files (`census*`, `flamework_*`, `jecs_*`, `performance_parity*`,
 `project_reference_import`, `sidecar*`, `solution*`, `transformer*`) move with their stage.

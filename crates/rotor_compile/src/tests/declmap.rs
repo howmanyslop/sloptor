@@ -71,7 +71,7 @@ fn wrap_mappings(mappings: &str) -> String {
 }
 
 /// `declarationMapMappings`
-fn declaration_map_mappings(map_text: &str) -> &str {
+pub fn declaration_map_mappings(map_text: &str) -> &str {
 	const KEY: &str = r#""mappings":""#;
 	let Some(start) = map_text.find(KEY) else {
 		panic!("declaration map has no mappings field: {map_text}");

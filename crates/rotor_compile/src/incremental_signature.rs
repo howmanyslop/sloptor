@@ -23,15 +23,15 @@ use crate::package_layout::hex_sha256;
 use crate::timings::{BuildTimings, Stage, log_stage_named};
 
 /// `declarationSignatureSelection`
-struct DeclarationSignatureSelection<'a> {
-	project_dir: String,
-	declaration_path: &'a dyn Fn(&str) -> String,
-	previous_outputs: &'a std::collections::BTreeMap<String, String>,
-	emit: &'a Emit<'a>,
+pub(crate) struct DeclarationSignatureSelection<'a> {
+	pub(crate) project_dir: String,
+	pub(crate) declaration_path: &'a dyn Fn(&str) -> String,
+	pub(crate) previous_outputs: &'a std::collections::BTreeMap<String, String>,
+	pub(crate) emit: &'a Emit<'a>,
 }
 
 /// The declaration emit of one selection wave.
-type Emit<'a> = dyn Fn(&[P<SourceFile>]) -> Result<Vec<DeclarationEmitFile>, Error> + 'a;
+pub(crate) type Emit<'a> = dyn Fn(&[P<SourceFile>]) -> Result<Vec<DeclarationEmitFile>, Error> + 'a;
 
 impl DeclarationSignatureSelection<'_> {
 	/// `signatureHeld`: the file's re-emitted declaration hashes to the recorded one.
@@ -47,7 +47,7 @@ impl DeclarationSignatureSelection<'_> {
 	}
 
 	/// `outputKey`: project-relative and slash-separated.
-	fn output_key(&self, path: &str) -> String {
+	pub(crate) fn output_key(&self, path: &str) -> String {
 		if self.project_dir.is_empty() || path.is_empty() {
 			return String::new();
 		}
@@ -61,7 +61,7 @@ impl DeclarationSignatureSelection<'_> {
 
 /// `selectByDeclarationSignature`: waves of re-emission from the seeds, propagating to importers
 /// only past files whose declaration changed.
-fn select_by_declaration_signature(
+pub(crate) fn select_by_declaration_signature(
 	source_files: &[P<SourceFile>],
 	seeds: &BTreeSet<String>,
 	current: &IncrementalManifest,
@@ -124,7 +124,7 @@ fn select_by_declaration_signature(
 }
 
 /// `changedSourcePaths`
-fn changed_source_paths(current: &IncrementalManifest, previous: &IncrementalManifest) -> BTreeSet<String> {
+pub(crate) fn changed_source_paths(current: &IncrementalManifest, previous: &IncrementalManifest) -> BTreeSet<String> {
 	let mut changed = BTreeSet::new();
 	for (path, state) in &current.files {
 		if previous.files.get(path).is_none_or(|prev| prev.hash != state.hash) {

@@ -9,7 +9,7 @@ use crate::project::{new_project_context, new_project_program_with_options};
 use crate::rbxts_options::RbxtsOptions;
 
 /// `luauTypesArgv`
-fn luau_types_argv(value: bool) -> RbxtsOptions {
+pub fn luau_types_argv(value: bool) -> RbxtsOptions {
 	RbxtsOptions {
 		luau_types: Some(value),
 		..RbxtsOptions::default()

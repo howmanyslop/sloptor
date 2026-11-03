@@ -44,9 +44,9 @@ pub(crate) fn shift_declaration_map_columns(map_text: &str, decl_text: &str, edi
 
 /// `columnShift`: every mapping on a line at or past `column` moves by `delta` UTF-16 units.
 #[derive(Clone, Copy, Debug)]
-struct ColumnShift {
+pub(crate) struct ColumnShift {
 	column: i64,
-	delta: i64,
+	pub(crate) delta: i64,
 }
 
 fn to_i64(value: usize) -> i64 {
@@ -54,7 +54,7 @@ fn to_i64(value: usize) -> i64 {
 }
 
 /// `declarationColumnShifts`: the edits as per-line UTF-16 column shifts.
-fn declaration_column_shifts(
+pub(crate) fn declaration_column_shifts(
 	decl_text: &str,
 	edits: &[TextEdit],
 	bom_offset: usize,
