@@ -509,6 +509,16 @@ dependencies = [
 [[package]]
 name = "rotor_flamework"
 version = "0.0.0"
+dependencies = [
+ "getrandom",
+ "rotor_config",
+ "rotor_rojo",
+ "rotor_support",
+ "rotor_tsrs",
+ "rustix",
+ "sha2",
+ "tempfile",
+]
 
 [[package]]
 name = "rotor_jecs"
