@@ -473,6 +473,11 @@ pub(crate) fn project_label(config_path: &str) -> String {
 	gopath::base(&gopath::dir(config_path))
 }
 
+/// `logStage`
+pub(crate) fn log_stage(config_path: &str, stage: Stage) -> impl FnOnce() -> Duration {
+	log_stage_named(config_path, stage.trace_name())
+}
+
 /// `logStageNamed`: verbose start and completion lines around work timed elsewhere; the returned
 /// function reports the elapsed time.
 pub(crate) fn log_stage_named(config_path: &str, name: &str) -> impl FnOnce() -> Duration {
@@ -528,6 +533,13 @@ impl BuildTimings {
 			state.report.counts.selected_projects = 1;
 		}
 		Arc::new(child)
+	}
+
+	/// Whether a sidecar round trip and an overlay program were recorded, for tests.
+	#[cfg(test)]
+	pub(crate) fn sidecar_flags(&self) -> (bool, bool) {
+		let state = lock(&self.state);
+		(state.sidecar_round_trip_recorded, state.overlay_program_recorded)
 	}
 
 	/// The report's current values.
@@ -751,6 +763,75 @@ impl BuildTimings {
 		state.report.counts.selected_projects = usize_count(config_paths.len());
 	}
 
+	/// `projectTiming`'s lookup: the report entry of `config_path`, if any.
+	#[must_use]
+	pub fn project_timing(&self, config_path: &str) -> Option<ProjectBuildTimings> {
+		let state = lock(&self.state);
+		state
+			.project_index
+			.get(config_path)
+			.map(|&index| state.report.projects[index].clone())
+	}
+
+	/// `applyProjectSelection`
+	pub(crate) fn apply_project_selection(&self, selected: &HashSet<String>, satisfied: &HashSet<String>) {
+		let mut state = lock(&self.state);
+		state.report.counts.scheduled_projects = usize_count(selected.len());
+		state.report.counts.selected_projects = usize_count(selected.len());
+		state.report.counts.satisfied_projects = usize_count(satisfied.len());
+		for project in &mut state.report.projects {
+			project.counts.scheduled_projects = 0;
+			project.counts.selected_projects = 0;
+			project.counts.satisfied_projects = 0;
+			if selected.contains(&project.config_path) {
+				project.counts.scheduled_projects = 1;
+				project.counts.selected_projects = 1;
+			}
+			if satisfied.contains(&project.config_path) {
+				project.counts.satisfied_projects = 1;
+				"satisfied".clone_into(&mut project.status);
+			}
+		}
+	}
+
+	/// Whether [`BuildTimings::finish`] ran.
+	pub(crate) fn finished(&self) -> bool {
+		lock(&self.state).finished
+	}
+
+	/// `recordPreparedTransformerProgram`
+	pub(crate) fn record_prepared_transformer_program(&self, prepared: &crate::sidecar::PreparedTransformerProgram) {
+		let costs = &prepared.stats;
+		self.add_stage_duration(Stage::SidecarSessionWait, costs.wait);
+		self.add_stage_duration(Stage::SidecarPreparation, costs.prep);
+		self.add_stage_duration(Stage::SidecarRoundTrip, costs.round_trip);
+		self.add_stage_duration(Stage::SidecarResponseDecode, costs.decode);
+		self.add_stage_duration(Stage::OverlayProgram, prepared.overlay_program_duration);
+		let (recorded_round_trip, recorded_overlay, node_version) = {
+			let mut state = lock(&self.state);
+			state.sidecar_round_trip_recorded |= prepared.sidecar_round_trip_recorded;
+			state.overlay_program_recorded |= prepared.overlay_program_recorded;
+			add_sidecar_counts(&mut state.report.counts, costs);
+			if !costs.node_version.is_empty() {
+				costs.node_version.clone_into(&mut state.report.metadata.node_version);
+			}
+			(
+				state.sidecar_round_trip_recorded,
+				state.overlay_program_recorded,
+				state.report.metadata.node_version.clone(),
+			)
+		};
+		if let Some(parent) = &self.parent {
+			let mut state = lock(&parent.state);
+			state.sidecar_round_trip_recorded |= recorded_round_trip;
+			state.overlay_program_recorded |= recorded_overlay;
+			add_sidecar_counts(&mut state.report.counts, costs);
+			if !node_version.is_empty() {
+				state.report.metadata.node_version = node_version;
+			}
+		}
+	}
+
 	fn attach_project(
 		&self,
 		snapshot: ProjectBuildTimings,
@@ -792,6 +873,24 @@ impl BuildTimings {
 			state.report.projects[index] = snapshot;
 		}
 	}
+}
+
+const fn add_sidecar_counts(counts: &mut BuildTimingCounts, stats: &crate::sidecar::SidecarCallStats) {
+	counts.sidecar_request_bytes += stats.request_bytes;
+	counts.sidecar_response_bytes += stats.response_bytes;
+	counts.sidecar_stats += stats.stats;
+	counts.sidecar_source_reads += stats.reads;
+	counts.sidecar_changed_files += stats.changed_files;
+	if stats.spawned {
+		counts.sidecar_spawns += 1;
+	}
+	counts.sidecar_spawns += stats.additional_spawns;
+	if stats.restarted {
+		counts.sidecar_restarts += 1;
+	}
+	counts.node_wall_ms += stats.node_wall_ms;
+	counts.node_cpu_user_us += stats.node_cpu_user_us;
+	counts.node_cpu_system_us += stats.node_cpu_system_us;
 }
 
 fn snapshot_locked(state: &TimingsState) -> ProjectBuildTimings {

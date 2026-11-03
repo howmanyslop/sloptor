@@ -164,9 +164,16 @@ pub(crate) fn match_overlays_to_program(
 	Ok(matched.len())
 }
 
-/// `matchProgramOverlays`: the single-project rule, lifted by `ignore_unmatched_overlays`. The
-/// solution-wide rule is Stage 5b.
+/// `matchProgramOverlays`: the single-project rule, lifted by `ignore_unmatched_overlays`, or the
+/// solution-wide rule of a solution census.
 pub(crate) fn match_program_overlays(program: &Program, opts: &ProjectOptions) -> Result<usize, Error> {
+	if let Some(tracker) = &opts.solution_overlays {
+		return Ok(crate::census_solution::match_solution_overlays_to_program(
+			program,
+			&opts.overlays,
+			tracker,
+		));
+	}
 	if opts.ignore_unmatched_overlays {
 		let (matched, _) = overlay_keys_in_program(program, &opts.overlays);
 		return Ok(matched.len());

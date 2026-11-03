@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use rotor_compile::{ProjectOptions, build_project_with_options};
 
+use icu_normalizer as _;
 use rotor_config as _;
 use rotor_luau as _;
 use rotor_rojo as _;

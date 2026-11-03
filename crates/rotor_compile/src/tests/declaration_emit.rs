@@ -183,17 +183,87 @@ fn declaration_emit_rewrites_overlaid_imports() {
 	);
 }
 
-#[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn emit_declaration_only_still_reports_a_failing_plugin() {}
+/// A declaration-only plugin fixture over `plugins`.
+fn declaration_plugin_project(pkg_name: &str, plugins: &str) -> (Temp, super::sidecar::SessionsGuard) {
+	super::sidecar::set_repo_sidecar_path();
+	let sessions = super::sidecar::SessionsGuard::new();
+	let temp = write_project(pkg_name, "");
+	super::sidecar::write_sidecar_plugin_fixture(
+		&temp.dir(),
+		"",
+		&super::sidecar_declaration::sidecar_declaration_config(plugins),
+	);
+	(temp, sessions)
+}
+
+fn declaration_only() -> ProjectOptions {
+	ProjectOptions {
+		emit_declaration_only: true,
+		..ProjectOptions::default()
+	}
+}
 
 #[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn emit_declaration_only_validates_plugins_without_invoking_factories() {}
+fn emit_declaration_only_still_reports_a_failing_plugin() {
+	let (temp, _sessions) = declaration_plugin_project(
+		"@scope/emit-declaration-only-plugin",
+		r#"[{ "transform": "./plugins/does-not-exist.js" }]"#,
+	);
+	let (_, diags, error) = super::sidecar::build(&temp.dir(), &declaration_only());
+	assert!(error.is_some(), "build succeeded with an unloadable transformer plugin");
+	assert!(
+		diags.join("\n").contains("does-not-exist.js"),
+		"diagnostics do not name the failing plugin: {diags:?}"
+	);
+}
 
+/// Catches declaration-only builds executing transformer factories even though no transformed
+/// source participates in declaration emit.
 #[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn emit_declaration_only_rejects_missing_plugin_export() {}
+fn emit_declaration_only_validates_plugins_without_invoking_factories() {
+	let (temp, _sessions) = declaration_plugin_project(
+		"@scope/declaration-plugin-validation",
+		"[\n\t\t{ \"transform\": \"./plugins/program.js\" },\n\t\t{ \"transform\": \"./plugins/raw.js\", \"type\": \"raw\" }\n\t]",
+	);
+	let marker = temp.join("factory-ran").to_string_lossy().into_owned();
+	let plugin = format!(
+		"const fs = require(\"node:fs\");\nmodule.exports = () => {{\n\tfs.writeFileSync({}, \"called\");\n\tthrow new Error(\"declaration validation must not invoke factories\");\n}};\n",
+		rotor_support::gostr::quote(&marker)
+	);
+	for name in ["program.js", "raw.js"] {
+		temp.write(&format!("plugins/{name}"), &plugin);
+	}
+	let (_, diags, error) = super::sidecar::build(&temp.dir(), &declaration_only());
+	assert!(error.is_none(), "declaration-only build: {error:?} (diags: {diags:?})");
+	assert!(
+		!Path::new(&marker).exists(),
+		"plugin factory marker exists after declaration validation"
+	);
+	assert!(
+		temp.join("out/main.d.ts").exists(),
+		"declaration-only build did not emit main.d.ts"
+	);
+}
+
+/// Catches a declaration-only build accepting a configured module that does not export the
+/// requested transformer factory.
+#[test]
+fn emit_declaration_only_rejects_missing_plugin_export() {
+	let (temp, _sessions) = declaration_plugin_project(
+		"@scope/declaration-plugin-export",
+		r#"[{ "transform": "./plugins/invalid.js" }]"#,
+	);
+	temp.write("plugins/invalid.js", "module.exports = {};\n");
+	let (_, diags, error) = super::sidecar::build(&temp.dir(), &declaration_only());
+	assert!(
+		error.is_some(),
+		"declaration-only build accepted a plugin without a factory export"
+	);
+	assert!(
+		diags.join("\n").contains("factory not a function"),
+		"diagnostics do not explain the missing factory export: {diags:?}"
+	);
+}
 
 /// Declaration text must not depend on the order in which files reach their checker.
 ///

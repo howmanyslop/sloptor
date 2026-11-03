@@ -6,9 +6,8 @@ output writing. Stage 5b ports the solution builder, the transformer-plugin side
 and watch mode. Stage 6 ports native Flamework and Jecs (`internal/flamework`, `internal/jecs`)
 and the glue that calls them.
 
-A file split between stages keeps one Rust module per Go file. The 5a part is ported, and each
-5b or Stage 6 entry point keeps Go's signature and returns an explicit "not yet ported" error
-(`sidecar::not_yet_ported`). The stubs return errors rather than calling `todo!`,
+A file split between stages keeps one Rust module per Go file. Each Stage 6 entry point keeps
+Go's signature and returns an explicit "not yet ported" error (`sidecar::not_yet_ported`). The stubs return errors rather than calling `todo!`,
 `unimplemented!` or `panic!`. With Flamework and transformer plugins off, every stubbed path
 takes the branch Go takes.
 
@@ -19,12 +18,12 @@ Rows whose Rust module reads "(none yet)" have no Rust file until their stage po
 | Go file | Stage | Rust module | Notes |
 | --- | --- | --- | --- |
 | `afterdeclarations.go` | 5a | `afterdeclarations` | |
-| `census.go` | 5b | `census` | Stub `CensusCollector`; the project pipeline's census branches are kept |
-| `census_solution.go` | 5b | (none yet) | |
+| `census.go` | 5b | `census` | |
+| `census_solution.go` | 5b | `census_solution` | |
 | `compile.go` | 5a | `compile` | |
 | `compiler_options.go` | 5a | `compiler_options` | The loader in `rotor_tsrs::project` applies the same overrides |
 | `copyfilesgate.go` | 5a | `copyfilesgate` | |
-| `crossproject.go` | 5a (part) | `crossproject` | `addProjectRealPathAliases` only; the solution's cross-project map is 5b |
+| `crossproject.go` | 5a, 5b | `crossproject` | |
 | `declaration_prefetch.go` | 5a | `declaration_prefetch` | |
 | `declmap.go` | 5a | `declmap` | |
 | `declpaths.go` | 5a | `declpaths` | |
@@ -49,26 +48,26 @@ Rows whose Rust module reads "(none yet)" have no Rust file until their stage po
 | `outputwriter_manifest.go` | 5a | `outputwriter_manifest` | |
 | `overlayfs.go` | 5a | `overlayfs` | Overlays go through `rotor_tsrs::project::update_with_overlays` |
 | `package_layout.go` | 5a | `package_layout` | |
-| `package_layout_watch.go` | 5b | (none yet) | Watch mode |
+| `package_layout_watch.go` | 5b | `package_layout_watch` | |
 | `packageexports.go` | 5a | `packageexports` | |
 | `packageexports_parse.go` | 5a | `packageexports_parse` | Condition order comes from the `gojson` ordered parse |
 | `parallelwrite.go` | 5a | `parallelwrite` | |
 | `project.go` | 5a | `project` | Program construction is in `rotor_tsrs::project` |
 | `project_config.go` | 5a | `project_config` | |
-| `project_references.go` | 5b | (none yet) | Single-project reference path maps are in `project` |
+| `project_references.go` | 5b | `project_references` | Single-project reference path maps are in `project` |
 | `rbxts_options.go` | 5a | `rbxts_options` | |
 | `rbxts_schema.go` | 5a | `rbxts_schema` | |
-| `reference_validation.go` | 5b | (none yet) | |
+| `reference_validation.go` | 5b | `reference_validation` | |
 | `rotortypes.go` | 5a | `rotortypes` | |
 | `sanitize.go` | 5a | `sanitize` | Re-exports `rotor_tsrs::tsconfig` |
-| `sidecar.go` | 5b (part) | `sidecar` | 5a has the helpers the pipeline calls (plugin detection, overlay paths, `realpath`); plugins on is "not yet ported" |
-| `sidecar_install.go`, `sidecar_parallel.go`, `sidecar_roots.go`, `sidecar_shards.go` | 5b | (none yet) | |
-| `solution.go` | 5b (part) | `solution` | `canonicalExplicitPath` and `pathHasExplicitSymlink` only |
-| `solution_cache.go`, `solution_drain.go`, `solution_satisfied.go`, `solution_scheduler.go`, `solution_watch.go` | 5b | (none yet) | |
+| `sidecar.go` | 5b | `sidecar` | The embedded worker is `include_bytes!` of `tools/sidecar` (`sidecar_install`) |
+| `sidecar_install.go`, `sidecar_parallel.go`, `sidecar_roots.go`, `sidecar_shards.go` | 5b | `sidecar_install`, `sidecar_parallel`, `sidecar_roots`, `sidecar_shards` | |
+| `solution.go` | 5b | `solution` | |
+| `solution_cache.go`, `solution_drain.go`, `solution_satisfied.go`, `solution_scheduler.go`, `solution_watch.go` | 5b | `solution_cache`, `solution_drain`, `solution_satisfied`, `solution_scheduler`, `solution_watch` | `solution_watch` is the coordinator's half; the watch loop is Stage 7 |
 | `source_trace.go` | 5a | `source_trace` | |
 | `source_trace_sourcemap.go` | 5a | `source_trace_sourcemap` | |
 | `timings.go` | 5a | `timings` | Go runtime metadata fields are left out |
-| `transformer_host.go`, `transformer_host_sidecar.go` | 5b | (none yet) | |
+| `transformer_host.go`, `transformer_host_sidecar.go` | 5b | `transformer_host`, `transformer_host_sidecar` | |
 | `transformer_order.go` | 5a | `transformer_order` | |
 
 Outside the Go file map:
@@ -94,6 +93,39 @@ Outside the Go file map:
 - `OutputWriter` confines writes without `os.Root`. Each output's parent directory is resolved
   once and cached (`dir_roots`, Go's `dirRoot`), and only a final symlink is resolved per write.
 - tsrs diagnostics have no string codes, so every diagnostic code is `TS####`.
+- Stage 5b:
+  - The solution's shared parse cache goes through a `SourceFileCache` hook on a caching
+    `CompilerHost` in `rotor_tsrs` (`load_project_in_cached`); Go's shared `cachedvfs` stat
+    cache is not ported.
+  - Cancellation is a flag (`project::Cancellation`) checked where Go checks `ctx.Err()`; there
+    is no deadline context. Tests build Go's countdown context with `Cancellation::countdown`.
+  - The API transformer callback rides on `ProjectOptions::transformer_callback` instead of the
+    context (`transformer_host::with_transformer_callback`). It gets
+    `Cancellation::with_timeout`, Go's `context.WithTimeout` (`Cancellation::err` gives
+    `context deadline exceeded`).
+  - The CLI has no admission or runtime policy yet (Stage 7), so the build share stays 1.
+  - Go's owned-stderr spawn mode is not distinguished (`sidecar::spawn_sidecar_session_mode`);
+    a worker's stderr is always a pipe whose tail outlives `close`.
+  - The embedded worker's file list is written out (`sidecar_install::EMBEDDED_SIDECAR`) where
+    Go embeds `lib/*.js`; a test fails when `tools/sidecar` gains or changes a file.
+  - When `update_with_overlays` fails, the error is returned; Go's
+    `newProjectProgramWithOverlay` fallback is not ported.
+  - tsrs leaves out an empty `sourceRoot` in declaration maps where tsgo writes
+    `"sourceRoot":""`; `declmap::restore_empty_source_root` puts it back.
+  - The persistence queue lives on the coordinator (`SolutionCoordinator::persist_queue`),
+    used when the drainer opts in (`SolutionProjectDrainer::queues_persistence`), where Go's
+    build drainer owns it. A reload empties it with the build drainer it replaces, as Go's fresh
+    drainer starts empty. Persistence steps are `FnMut`, so a failed step is retried.
+  - A build frees its programs when it ends (`output::build_project` opens a
+    `rotor_tsrs::project::ProgramScope`, and tracked programs get tsrs's checker regions), as
+    Go drops them. Parsed files stay in tsrs's thread arena, so the solution parse cache can
+    share them; Go's collector frees those too. A census, `compile_file` and `compile_project`
+    keep their programs.
+  - The sidecar shard count's CPU count is `std::thread::available_parallelism`, which honours
+    cgroup CPU quotas where Go's `runtime.NumCPU` does not. Only cgroup-limited Linux can see a
+    smaller default pool than Go.
+  - Tests override the environment the sidecar reads through `sidecar::set_test_env` (Go's
+    `t.Setenv`); the process environment is never touched.
 
 ## Go tests
 
@@ -114,20 +146,20 @@ Ported: `array_append_optimization`, `audit`, `baseurl`, `comment_directives`, `
 `sourcemap_lines`, `sourcemap_paths`, `timings`, `unreachable_function`, `validateoptions`,
 `vector_math`.
 
-`src/tests/needs_later_stages.rs` holds the Go tests whose subject is 5b or Stage 6 as ignored tests:
-`task7_*`, `sourcemap_plugin_acceptance`, `sourcemap_performance_acceptance` and
-`react_syntax_origin`. Other ignored tests name their reason in `#[ignore]`:
+`src/tests/needs_later_stages.rs` holds the Go tests whose subject is Stage 6 (native
+Flamework) as ignored tests. Other ignored tests name their reason in `#[ignore]`:
 
 - Tests that swap Go's `transformer.TransformStatement` variable.
-- Tests that set process environment variables. That is `unsafe` in Rust 2024, which the
-  workspace denies.
+- Tests that set process environment variables outside the sidecar's settings. That is
+  `unsafe` in Rust 2024, which the workspace denies.
 - Tests that inject `outputWriterOperations` or count calls on `newOverlayFS`.
 - Tests that need string-code diagnostics, which tsrs does not have.
-- Halves of tests that build a solution (`BuildSolutionWithOptions`, 5b).
-- Tests that run a transformer plugin through the sidecar or read its response metrics (5b),
-  and the package watch tests that drive the solution coordinator (5b).
 - Tests that swap Go's `declarationTextsForSelection` variable, and the guard against a
   selection with a nil emitter, which a Rust `DeclarationSignatureSelection` cannot express.
 
-The 5b and Stage 6 files (`census*`, `flamework_*`, `jecs_*`, `performance_parity*`,
-`project_reference_import`, `sidecar*`, `solution*`, `transformer*`) move with their stage.
+Stage 5b ports `census`, `census_solution`, `project_reference_import`, `sidecar*`,
+`solution*` (all but the benchmark-only `solution_watch_bench`), `transformer_host` and
+`transformers_integration`, and turns on the 5a tests that were waiting for it. Scripted
+sidecar sessions (`sidecar_parallel`) are small Node workers instead of Go's in-memory pipes.
+
+The Stage 6 files (`flamework_*`, `jecs_*`, `performance_parity*`) move with their stage.

@@ -32,7 +32,7 @@ fn decode_source_map_lines(map_json: &str) -> BTreeMap<u32, Vec<Mapping>> {
 }
 
 /// `assertSourceMapContract`
-fn assert_source_map_contract(text: &str, map_json: &str, source: &str) {
+pub fn assert_source_map_contract(text: &str, map_json: &str, source: &str) {
 	let fields: serde_json::Map<String, serde_json::Value> = serde_json::from_str(map_json).expect("the map parses");
 	assert_eq!(fields.len(), 5, "source map fields, want exactly five: {fields:?}");
 	for key in ["version", "file", "sources", "sourcesContent", "mappings"] {
@@ -115,7 +115,7 @@ fn compile_with_source_map(name: &str, source: &str) -> (String, String) {
 }
 
 /// `annotateSourceMapSegments`: 1-based lines and 0-based UTF-16 columns.
-fn annotate_source_map_segments(luau_text: &str, map_json: &str, column_zero_only: bool) -> String {
+pub fn annotate_source_map_segments(luau_text: &str, map_json: &str, column_zero_only: bool) -> String {
 	let mut segments: BTreeMap<u32, Vec<String>> = BTreeMap::new();
 	for (line, mappings) in decode_source_map_lines(map_json) {
 		for mapping in mappings {

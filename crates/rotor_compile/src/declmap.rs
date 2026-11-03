@@ -165,3 +165,35 @@ pub(crate) fn decode_base64_vlq(text: &[u8], mut index: usize) -> Option<(i64, u
 pub(crate) fn utf16_length(text: &str) -> usize {
 	text.chars().map(char::len_utf16).sum()
 }
+
+/// tsgo writes an empty `sourceRoot` into every declaration map; tsrs (TypeScript 7.1) leaves an
+/// empty one out. Puts it back after `file`, where tsgo writes it, so the maps match Go's bytes.
+pub(crate) fn restore_empty_source_root(map_text: &str) -> String {
+	const FILE_KEY: &str = "\"file\":\"";
+	const SOURCE_ROOT: &str = ",\"sourceRoot\":\"\"";
+	let Some(start) = map_text.find(FILE_KEY) else {
+		return map_text.to_owned();
+	};
+	let value_start = start + FILE_KEY.len();
+	let bytes = map_text.as_bytes();
+	let mut index = value_start;
+	while index < bytes.len() {
+		match bytes[index] {
+			b'\\' => index += 2,
+			b'"' => break,
+			_ => index += 1,
+		}
+	}
+	if index >= bytes.len() {
+		return map_text.to_owned();
+	}
+	let after = index + 1;
+	if map_text[after..].starts_with(",\"sourceRoot\":") {
+		return map_text.to_owned();
+	}
+	let mut restored = String::with_capacity(map_text.len() + SOURCE_ROOT.len());
+	restored.push_str(&map_text[..after]);
+	restored.push_str(SOURCE_ROOT);
+	restored.push_str(&map_text[after..]);
+	restored
+}

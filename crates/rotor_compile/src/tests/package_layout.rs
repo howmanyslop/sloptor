@@ -150,10 +150,112 @@ fn package_imports_pnpm_projects() {
 	}
 }
 
-#[test]
-#[ignore = "needs 5b: the solution coordinator's package watch inputs"]
-fn package_watch_retains_missing_explicit_project() {}
+fn drain_coordinator(coordinator: &mut crate::solution::SolutionCoordinator, what: &str) {
+	let (_, diags, error) = large_stack(|| coordinator.drain());
+	if let Some(error) = error {
+		panic!("{what}: {error} ({diags:?})");
+	}
+}
+
+fn new_coordinator(config: &str) -> crate::solution::SolutionCoordinator {
+	large_stack(|| crate::solution::SolutionCoordinator::new(config, &ProjectOptions::default()))
+		.unwrap_or_else(|error| panic!("{error}"))
+}
 
 #[test]
-#[ignore = "needs 5b: the solution coordinator's package watch inputs"]
-fn package_watch_explicit_junction_retarget() {}
+fn package_watch_retains_missing_explicit_project() {
+	use crate::solution_watch::{canonical_watch_directory, canonical_watch_paths};
+	let temp = write_package_layout_fixture();
+	let dir = temp.dir();
+	temp.write(
+		"node_modules/@rbxts/lib/default.project.json",
+		r#"{"name":"lib","tree":{"Mounted":{"$path":"layout.project.json"}}}"#,
+	);
+	let named = temp
+		.join("node_modules/@rbxts/lib/layout.project.json")
+		.to_string_lossy()
+		.into_owned();
+	temp.write(
+		"node_modules/@rbxts/lib/layout.project.json",
+		r#"{"name":"ignored","tree":{"$path":"out"}}"#,
+	);
+	let mut coordinator = new_coordinator(&rotor_support::gopath::join(&[&dir, "tsconfig.json"]));
+	drain_coordinator(&mut coordinator, "initial drain");
+	let config = coordinator.watch_sets()[0].project_path.clone();
+	fs::remove_file(&named).expect("remove");
+	assert!(
+		coordinator.refresh_package_watch_inputs(&config),
+		"removing explicit composition did not change the layout"
+	);
+	let inputs = coordinator.watch_sets()[0].package_inputs.clone();
+	assert!(
+		inputs
+			.as_ref()
+			.is_some_and(|inputs| canonical_watch_paths(&inputs.files).contains(&canonical_watch_directory(&named))),
+		"missing explicit project lost its watch: {inputs:?}"
+	);
+	temp.write(
+		"node_modules/@rbxts/lib/layout.project.json",
+		r#"{"name":"ignored","tree":{"$path":"out"}}"#,
+	);
+	assert!(
+		coordinator.refresh_package_watch_inputs(&config),
+		"recreating explicit composition did not change the layout"
+	);
+}
+
+#[test]
+fn package_watch_explicit_junction_retarget() {
+	use crate::solution_watch::{canonical_watch_directory, canonical_watch_paths};
+	for suffix in ["", "/shared.project.json", "/sub/deeper/shared.project.json"] {
+		let temp = write_package_layout_fixture();
+		let dir = temp.dir();
+		temp.write(
+			"node_modules/@rbxts/lib/default.project.json",
+			format!(r#"{{"name":"lib","tree":{{"Mounted":{{"$path":"../../../links/runtime{suffix}"}}}}}}"#),
+		);
+		for name in ["One", "Two"] {
+			let body =
+				format!(r#"{{"name":"ignored","tree":{{"{name}":{{"$path":"../../node_modules/@rbxts/lib/out"}}}}}}"#);
+			temp.write(&format!("targets/{name}/default.project.json"), &body);
+			temp.write(&format!("targets/{name}/shared.project.json"), &body);
+			temp.write(
+				&format!("targets/{name}/sub/deeper/shared.project.json"),
+				body.replacen("../../node_modules", "../../../../node_modules", 1),
+			);
+		}
+		let alias = temp.join("links/runtime");
+		fs::create_dir_all(alias.parent().expect("a parent")).expect("mkdir");
+		let link = |name: &str| {
+			#[cfg(unix)]
+			std::os::unix::fs::symlink(temp.join(&format!("targets/{name}")), &alias).expect("symlink");
+			#[cfg(windows)]
+			std::os::windows::fs::symlink_dir(temp.join(&format!("targets/{name}")), &alias).expect("symlink");
+		};
+		link("One");
+		let mut coordinator = new_coordinator(&rotor_support::gopath::join(&[&dir, "tsconfig.json"]));
+		drain_coordinator(&mut coordinator, "initial drain");
+		let set = coordinator.watch_sets()[0].clone();
+		let parent = canonical_watch_directory(&temp.join("links").to_string_lossy());
+		assert!(
+			set.package_inputs
+				.as_ref()
+				.is_some_and(|inputs| canonical_watch_paths(&inputs.directories).contains(&parent)),
+			"{suffix}: junction parent is not watched: {:?}",
+			set.package_inputs
+		);
+		fs::remove_file(&alias).expect("remove");
+		link("Two");
+		assert!(
+			coordinator.refresh_package_watch_inputs(&set.project_path),
+			"{suffix}: junction retarget did not change the layout"
+		);
+		coordinator.invalidate(std::slice::from_ref(&set.project_path));
+		drain_coordinator(&mut coordinator, "retargeted drain");
+		let got = fs::read_to_string(temp.join("out/main.luau")).expect("read");
+		assert!(
+			got.contains(".Mounted.Two"),
+			"{suffix}: retargeted layout is stale:\n{got}"
+		);
+	}
+}

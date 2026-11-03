@@ -93,23 +93,88 @@ pub struct ProjectContext {
 
 /// A cancellation flag: Go's `context.Context` for the parts of a build that check it.
 #[derive(Clone, Debug, Default)]
-pub struct Cancellation(Arc<AtomicBool>);
+pub struct Cancellation {
+	flag: Arc<AtomicBool>,
+	/// `context.WithTimeout`'s parent and deadline.
+	parent: Option<Box<Self>>,
+	deadline: Option<std::time::Instant>,
+	#[cfg(test)]
+	countdown: Option<Arc<Countdown>>,
+}
+
+/// A test cancellation that turns cancelled from its (after+1)th check on (Go's
+/// `countdownContext`).
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct Countdown {
+	after: i64,
+	pub(crate) calls: std::sync::atomic::AtomicI64,
+}
 
 impl Cancellation {
-	/// Cancels the work holding this flag.
-	pub fn cancel(&self) {
-		self.0.store(true, Ordering::Relaxed);
+	/// `context.WithTimeout(parent, timeout)`: cancelled with `parent` or once `timeout` passed.
+	#[must_use]
+	pub fn with_timeout(parent: Option<&Self>, timeout: std::time::Duration) -> Self {
+		Self {
+			parent: parent.map(|parent| Box::new(parent.clone())),
+			deadline: std::time::Instant::now().checked_add(timeout),
+			..Self::default()
+		}
 	}
 
-	/// Whether [`Cancellation::cancel`] ran.
+	/// Cancels the work holding this flag.
+	pub fn cancel(&self) {
+		self.flag.store(true, Ordering::Relaxed);
+	}
+
+	/// Whether [`Cancellation::cancel`] ran, the parent was cancelled, or the deadline passed.
 	#[must_use]
 	pub fn is_cancelled(&self) -> bool {
-		self.0.load(Ordering::Relaxed)
+		self.err().is_some()
+	}
+
+	/// `ctx.Err()`'s text: `context canceled` once cancelled, `context deadline exceeded` once
+	/// the deadline passed first.
+	#[must_use]
+	pub fn err(&self) -> Option<&'static str> {
+		#[cfg(test)]
+		if let Some(countdown) = &self.countdown {
+			if countdown.calls.fetch_add(1, Ordering::Relaxed) < countdown.after {
+				return None;
+			}
+			self.cancel();
+		}
+		if self.flag.load(Ordering::Relaxed) {
+			return Some("context canceled");
+		}
+		if let Some(error) = self.parent.as_ref().and_then(|parent| parent.err()) {
+			return Some(error);
+		}
+		self.deadline
+			.is_some_and(|deadline| std::time::Instant::now() >= deadline)
+			.then_some("context deadline exceeded")
+	}
+
+	/// A cancellation that reports cancelled from its (after+1)th check on.
+	#[cfg(test)]
+	pub(crate) fn countdown(after: i64) -> (Self, Arc<Countdown>) {
+		let countdown = Arc::new(Countdown {
+			after,
+			..Countdown::default()
+		});
+		(
+			Self {
+				countdown: Some(Arc::clone(&countdown)),
+				..Self::default()
+			},
+			countdown,
+		)
 	}
 }
 
-/// A persistence step a solution build defers until every project built.
-pub type PendingPersist = Box<dyn FnOnce() -> Result<(), Error> + Send>;
+/// A persistence step a solution build defers until every project built. A failed step stays
+/// queued and runs again on the next drain.
+pub type PendingPersist = Box<dyn FnMut() -> Result<(), Error> + Send>;
 
 /// `ProjectOptions`: the CLI-controlled knobs of upstream `ProjectOptions` that affect
 /// compilation. The default is upstream's defaults without include emission.
@@ -125,7 +190,18 @@ pub struct ProjectOptions {
 	pub(crate) project_reference_paths: Option<Arc<HashMap<String, String>>>,
 	pub(crate) project_reference_salt_paths: Option<Arc<HashMap<String, String>>>,
 	pub(crate) pending_solution_persists: Option<Arc<Mutex<Vec<PendingPersist>>>>,
+	/// Persistence a dependant reads, published as soon as the project built.
+	pub(crate) pending_solution_dependency_persists: Option<Arc<Mutex<Vec<PendingPersist>>>>,
 	pub(crate) defer_rojo_cache_persist: bool,
+	/// The drain's shared parse cache.
+	pub(crate) compile_cache: Option<Arc<crate::solution_cache::SolutionCompileCache>>,
+	/// Set only by a solution census: the solution-wide overlay matches.
+	pub(crate) solution_overlays: Option<Arc<crate::census_solution::SolutionOverlayMatches>>,
+	/// The one-shot CLI build's parallel transformer token.
+	pub(crate) cli_transformer_build: Option<Arc<crate::sidecar_parallel::CliTransformerBuild>>,
+	/// Runs transformer requests in an API client instead of the Node sidecar (Go carries it on
+	/// the context).
+	pub(crate) transformer_callback: Option<Arc<crate::transformer_host_sidecar::CallbackTransformerHost>>,
 	/// Runs when this build selected source files to compile, before any stage.
 	pub(crate) on_compile_start: Option<Arc<dyn Fn() + Send + Sync>>,
 	/// The raw `--includePath`; empty means `<projectDir>/include`.
@@ -212,12 +288,18 @@ pub fn new_project_program_with_options(
 		single_threaded: opts.single_threaded,
 		skip_validation: false,
 	};
-	let program = load_program(&dir, &config_path, &load_options)?;
+	let cache = opts.compile_cache.as_ref().map(|cache| {
+		let mut skip = crate::solution_cache::synthetic_decl_skip(&config_path);
+		skip.extend(opts.overlays.keys().cloned());
+		Arc::new(crate::solution_cache::ProjectParseCache::new(Arc::clone(cache), skip))
+			as Arc<dyn rotor_tsrs::project::SourceFileCache>
+	});
+	let program = load_program_cached(&dir, &config_path, &load_options, cache)?;
 	if opts.overlays.is_empty() {
 		return Ok((dir, program));
 	}
 	let (overlays, mut unmatched) = rekey_overlays_to_program(program, &opts.overlays);
-	if !unmatched.is_empty() && !opts.ignore_unmatched_overlays {
+	if !unmatched.is_empty() && opts.solution_overlays.is_none() && !opts.ignore_unmatched_overlays {
 		unmatched.sort();
 		let message = format!(
 			"compile: overlay matches no file in the program: {}",
@@ -244,12 +326,14 @@ pub fn new_project_program_with_options(
 
 /// `newProjectProgramFromFSWithOptions` over the OS file system: loads and binds the program,
 /// mapping the load errors to Go's diagnostics and errors.
-pub(crate) fn load_program(
+/// A solution's shared parse cache, when set, parses the files the projects share.
+fn load_program_cached(
 	dir: &str,
 	config_path: &str,
 	options: &rotor_tsrs::ProjectOptions,
+	cache: Option<Arc<dyn rotor_tsrs::project::SourceFileCache>>,
 ) -> Result<&'static Program, Failure> {
-	match rotor_tsrs::load_project_in(Path::new(config_path), Some(dir), options) {
+	match rotor_tsrs::project::load_project_in_cached(Path::new(config_path), Some(dir), options, cache) {
 		Ok(project) => Ok(project.program),
 		Err(rotor_tsrs::LoadError::Config(diagnostics)) => Err(Failure::strings(
 			diagnostics,

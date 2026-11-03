@@ -57,9 +57,43 @@ fn build_timings_pluginless_build_records_zero_sidecar_and_overlay_stages() {
 	assert_build_timings_non_negative(&report);
 }
 
+/// The fixture the transformer timing tests build: `prefixStringPlugin` over one file.
+fn write_timings_transformer_project(pkg_name: &str, prefix: &str) -> super::Temp {
+	super::sidecar::set_repo_sidecar_path();
+	let temp = write_project(pkg_name, "");
+	super::sidecar::write_sidecar_plugin_fixture(
+		&temp.dir(),
+		"",
+		&super::sidecar::plugin_config(&format!(
+			r#"[{{"transform": "./plugins/prefix-string.js", "prefix": "{prefix}"}}]"#
+		)),
+	);
+	temp.write("src/main.ts", "export const value = \"value\";\n");
+	temp
+}
+
 #[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn build_timings_transformer_build_records_separate_sidecar_and_overlay_stages() {}
+fn build_timings_transformer_build_records_separate_sidecar_and_overlay_stages() {
+	// Given
+	let _sessions = super::sidecar::SessionsGuard::new();
+	let temp = write_timings_transformer_project("@scope/timings-transformer", "timings");
+	let timings = Arc::new(BuildTimings::new());
+	// When
+	let opts = ProjectOptions {
+		timings: Some(Arc::clone(&timings)),
+		..ProjectOptions::default()
+	};
+	let (_, diags, error) = super::sidecar::build(&temp.dir(), &opts);
+	// Then
+	assert!(error.is_none(), "BuildProjectWithOptions: {error:?} (diags: {diags:?})");
+	assert_eq!(
+		timings.sidecar_flags(),
+		(true, true),
+		"transformer stages were not separately recorded: {:?}",
+		timings.report().stages
+	);
+	assert_build_timings_non_negative(&timings.report());
+}
 
 /// `assertBuildTimingsNonNegative`
 fn assert_build_timings_non_negative(report: &BuildTimingsReport) {
@@ -170,8 +204,34 @@ fn build_timings_collector_overlapping_stage_work_may_exceed_wall_time() {
 }
 
 #[test]
-#[ignore = "needs 5b: recordPreparedTransformerProgram records the sidecar flags"]
-fn build_timings_collector_sidecar_flags_or_across_children() {}
+fn build_timings_collector_sidecar_flags_or_across_children() {
+	let temp = write_project("@scope/timings-flags", "");
+	let program = super::large_stack(|| {
+		crate::project::new_project_program_with_options(&temp.dir(), "", &ProjectOptions::default())
+			.unwrap_or_else(|failure| panic!("{}", failure.error))
+			.1
+	});
+	let parent = Arc::new(BuildTimings::new());
+	let pluginless = parent.new_project("/plain/tsconfig.json");
+	pluginless.record_prepared_transformer_program(&crate::sidecar::PreparedTransformerProgram::plain(
+		program,
+		Vec::new(),
+		None,
+	));
+	pluginless.finish();
+	let transformer = parent.new_project("/plugin/tsconfig.json");
+	let mut prepared = crate::sidecar::PreparedTransformerProgram::plain(program, Vec::new(), None);
+	prepared.sidecar_round_trip_recorded = true;
+	prepared.overlay_program_recorded = true;
+	prepared.stats.round_trip = Duration::from_millis(1);
+	transformer.record_prepared_transformer_program(&prepared);
+	transformer.finish();
+	let (round_trip, overlay) = parent.sidecar_flags();
+	assert!(
+		round_trip && overlay,
+		"parent sidecar flags = roundTrip {round_trip} overlay {overlay}, want both true"
+	);
+}
 
 #[test]
 fn build_timings_collector_deferred_persist_is_measured_after_child_finish() {
@@ -205,18 +265,175 @@ fn build_timings_collector_deferred_persist_is_measured_after_child_finish() {
 	);
 }
 
+/// The port decodes a worker response but never encodes one (Go's `json.Marshal` half of the
+/// round trip has no Rust caller), so the decode is what is pinned.
 #[test]
-#[ignore = "needs 5b: the sidecar response and its metrics"]
-fn sidecar_metrics_json_round_trip() {}
+fn sidecar_metrics_json_round_trip() {
+	use crate::transformer_host::{TransformerPhaseMetrics, TransformerResponse};
+	let plain = TransformerResponse::from_json(r#"{"diagnostics":[],"transformed":[],"declarations":[]}"#)
+		.unwrap_or_else(|error| panic!("unmarshal without metrics: {error}"));
+	assert!(plain.metrics.is_none(), "metrics = {:?}, want nil", plain.metrics);
+	let metered = TransformerResponse::from_json(
+		r#"{"diagnostics":[],"transformed":[],"metrics":{"wallMs":12,"cpuUserUs":3,"cpuSystemUs":4,"nodeVersion":"v22.0.0"}}"#,
+	)
+	.unwrap_or_else(|error| panic!("unmarshal with metrics: {error}"));
+	let metrics = metered.metrics.expect("metrics");
+	assert!(
+		metrics.wall_ms == 12 && metrics.node_version == "v22.0.0",
+		"metrics = {metrics:?}"
+	);
+	assert!(
+		metrics.phases.is_none(),
+		"phases = {:?}, want nil for older worker",
+		metrics.phases
+	);
+	let metered = TransformerResponse::from_json(
+		r#"{"diagnostics":[],"transformed":[],"metrics":{"wallMs":21,"phases":{"configMs":1,"programMs":2,"factoriesMs":3,"transformMs":9,"parentRepairMs":5,"printMs":6,"futureMs":7},"futureMetric":8}}"#,
+	)
+	.unwrap_or_else(|error| panic!("unmarshal with phases and future fields: {error}"));
+	let want = TransformerPhaseMetrics {
+		config_ms: 1,
+		program_ms: 2,
+		factories_ms: 3,
+		transform_ms: 9,
+		parent_repair_ms: 5,
+		print_ms: 6,
+	};
+	assert_eq!(metered.metrics.and_then(|metrics| metrics.phases), Some(want), "phases");
+}
 
 #[test]
-#[ignore = "needs 5b: the callback transformer host"]
-fn transformer_phase_metrics_verbose_gate() {}
+fn transformer_phase_metrics_verbose_gate() {
+	use crate::transformer_host::{
+		TransformerHost, TransformerPhaseMetrics, TransformerResponse, TransformerResponseMetrics,
+	};
+	let temp = super::Temp::new();
+	let dir = temp.dir();
+	let host = crate::transformer_host_sidecar::CallbackTransformerHost::new(Arc::new(|_, _| {
+		Ok(TransformerResponse {
+			metrics: Some(TransformerResponseMetrics {
+				phases: Some(TransformerPhaseMetrics {
+					config_ms: 1,
+					program_ms: 2,
+					factories_ms: 3,
+					transform_ms: 9,
+					parent_repair_ms: 5,
+					print_ms: 6,
+				}),
+				..TransformerResponseMetrics::default()
+			}),
+			..TransformerResponse::default()
+		})
+	}));
+	let config_path = rotor_support::gopath::join(&[&dir, "tsconfig.json"]);
+	let verbose = rotor_support::logservice::verbose();
+	rotor_support::logservice::set_verbose(true);
+	rotor_support::logservice::capture();
+	host.validate(None, &dir, &config_path)
+		.unwrap_or_else(|error| panic!("{error}"));
+	let logged = rotor_support::logservice::take_capture();
+	for line in [
+		"transformer worker config ( 1 ms )",
+		"transformer worker program ( 2 ms )",
+		"transformer worker factories ( 3 ms )",
+		"transformer worker transform (includes parent repair) ( 9 ms )",
+		"transformer worker parent repair ( 5 ms )",
+		"transformer worker print/trace map ( 6 ms )",
+	] {
+		assert!(logged.contains(line), "missing {line:?} in log: {logged}");
+	}
+	rotor_support::logservice::set_verbose(false);
+	rotor_support::logservice::capture();
+	host.validate(None, &dir, &config_path)
+		.unwrap_or_else(|error| panic!("{error}"));
+	let logged = rotor_support::logservice::take_capture();
+	rotor_support::logservice::set_verbose(verbose);
+	assert!(logged.is_empty(), "non-verbose phase log = {logged:?}, want empty");
+}
+
+/// `buildVerboseTransformerProject`: the verbose log of one transformer build.
+fn build_verbose_transformer_project() -> String {
+	let _sessions = super::sidecar::SessionsGuard::new();
+	let temp = write_timings_transformer_project("@scope/verbose-sidecar", "verbose");
+	let verbose = rotor_support::logservice::verbose();
+	rotor_support::logservice::set_verbose(true);
+	rotor_support::logservice::capture();
+	let opts = ProjectOptions {
+		timings: Some(Arc::new(BuildTimings::new())),
+		..ProjectOptions::default()
+	};
+	let (_, diags, error) = super::sidecar::build(&temp.dir(), &opts);
+	let logged = rotor_support::logservice::take_capture();
+	rotor_support::logservice::set_verbose(verbose);
+	assert!(error.is_none(), "BuildProjectWithOptions: {error:?} (diags: {diags:?})");
+	logged
+}
+
+/// `assertStageLogged`: a start line and a completion line for `name`.
+fn assert_stage_logged(logged: &str, name: &str) {
+	let lines: Vec<&str> = logged.lines().collect();
+	let strip = |line: &str| -> String { line.split_once(": ").map_or(line, |(_, rest)| rest).to_owned() };
+	let started = lines
+		.iter()
+		.any(|line| *line == format!("{name}...") || strip(line) == format!("{name}..."));
+	assert!(started, "missing start line for stage {name:?}; log: {logged}");
+	let completed = lines.iter().any(|line| {
+		let rest = if line.starts_with(name) {
+			(*line).to_owned()
+		} else {
+			strip(line)
+		};
+		rest.strip_prefix(name)
+			.and_then(|tail| tail.strip_prefix(" ( "))
+			.and_then(|tail| tail.strip_suffix(" ms )"))
+			.is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+	});
+	assert!(completed, "missing completion line for stage {name:?}; log: {logged}");
+}
 
 #[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn verbose_sidecar_stages_transformer_build_prints_every_sidecar_stage() {}
+fn verbose_sidecar_stages_transformer_build_prints_every_sidecar_stage() {
+	use crate::timings::Stage;
+	let logged = build_verbose_transformer_project();
+	for name in [
+		Stage::SidecarSessionWait.trace_name().to_owned(),
+		Stage::SidecarPreparation.trace_name().to_owned(),
+		format!("{} (./plugins/prefix-string.js)", Stage::SidecarRoundTrip.trace_name()),
+		Stage::SidecarResponseDecode.trace_name().to_owned(),
+		Stage::OverlayProgram.trace_name().to_owned(),
+	] {
+		assert_stage_logged(&logged, &name);
+	}
+}
 
 #[test]
-#[ignore = "needs 5b: a transformer plugin through the sidecar"]
-fn verbose_sidecar_stages_transformer_build_charges_the_round_trip_to_its_plugins() {}
+fn verbose_sidecar_stages_transformer_build_charges_the_round_trip_to_its_plugins() {
+	let logged = build_verbose_transformer_project();
+	let ms_line = |line: &str, label: &str| -> bool {
+		line.split_once(": ")
+			.and_then(|(_, rest)| rest.strip_prefix(label))
+			.and_then(|tail| tail.strip_prefix(" ( "))
+			.and_then(|tail| tail.strip_suffix(" ms )"))
+			.is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+	};
+	assert!(
+		logged
+			.lines()
+			.any(|line| ms_line(line, "transformer plugin ./plugins/prefix-string.js")),
+		"missing per-plugin line; log: {logged}"
+	);
+	for phase in [
+		"config",
+		"program",
+		"factories",
+		"transform (includes parent repair)",
+		"parent repair",
+		"print/trace map",
+	] {
+		let label = format!("transformer worker {phase}");
+		assert!(
+			logged.lines().any(|line| ms_line(line, &label)),
+			"missing worker phase {phase:?}; log: {logged}"
+		);
+	}
+}

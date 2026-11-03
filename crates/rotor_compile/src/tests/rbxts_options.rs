@@ -261,6 +261,29 @@ fn per_project_rbxts_options() {
 	);
 }
 
+/// The last half of `TestPerProjectRbxtsOptions`: a solution build applies the child's own
+/// `luau` option.
 #[test]
-#[ignore = "needs 5b: the last half of TestPerProjectRbxtsOptions builds a solution (BuildSolutionWithOptions)"]
-fn per_project_rbxts_options_in_a_solution_build() {}
+fn per_project_rbxts_options_in_a_solution_build() {
+	let temp = Temp::new();
+	temp.write(
+		"child/base.json",
+		r#"{"compilerOptions":{"allowSyntheticDefaultImports":true,"module":"CommonJS","moduleResolution":"Node","noLib":true,"moduleDetection":"force","strict":true,"target":"ESNext","types":[],"typeRoots":["node_modules/@rbxts"],"rootDir":"src","outDir":"out"}}"#,
+	);
+	temp.write(
+		"child/tsconfig.json",
+		r#"{"extends":"./base.json","compilerOptions":{"composite":true},"include":["src"],"rbxts":{"type":"package","luau":false}}"#,
+	);
+	temp.write("child/package.json", r#"{"name":"@scope/child"}"#);
+	temp.write("child/src/globals.d.ts", super::NO_LIB_GLOBAL_STUBS);
+	temp.write("child/src/main.ts", "export {};\n");
+	temp.write("solution.json", r#"{"files":[],"references":[{"path":"./child"}]}"#);
+	super::solution_drain::build_solution(
+		&temp.join("solution.json").to_string_lossy(),
+		&ProjectOptions::default(),
+	);
+	assert!(
+		temp.join("child/out/main.lua").exists(),
+		"per-project luau option was not applied"
+	);
+}

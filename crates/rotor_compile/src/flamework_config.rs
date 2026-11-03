@@ -11,7 +11,7 @@ use crate::incremental_manifest::normalize_source_file_path;
 use crate::sidecar::config_file_transformer_plugins;
 
 /// `legacyFlameworkTransformer`
-const LEGACY_FLAMEWORK_TRANSFORMER: &str = "rbxts-transformer-flamework";
+pub(crate) const LEGACY_FLAMEWORK_TRANSFORMER: &str = "rbxts-transformer-flamework";
 
 /// `prepareFlameworkConfig`: the active `[flamework]` configuration, `None` when Flamework is
 /// off.

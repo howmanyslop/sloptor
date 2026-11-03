@@ -72,3 +72,73 @@ impl DeclarationPrefetch {
 		lock(&self.result).clone()
 	}
 }
+
+/// `prefetchingTransformerHost`: runs its prefetch beside the first transform round trip and
+/// waits for it before returning. A failed round trip fails the build, so it abandons the emit
+/// instead of waiting it out.
+pub(crate) struct PrefetchingTransformerHost<'a> {
+	inner: &'a dyn crate::transformer_host::TransformerHost,
+	prefetch: &'a Arc<DeclarationPrefetch>,
+}
+
+impl<'a> PrefetchingTransformerHost<'a> {
+	pub(crate) const fn new(
+		inner: &'a dyn crate::transformer_host::TransformerHost,
+		prefetch: &'a Arc<DeclarationPrefetch>,
+	) -> Self {
+		Self { inner, prefetch }
+	}
+}
+
+impl crate::transformer_host::TransformerHost for PrefetchingTransformerHost<'_> {
+	fn transform(
+		&self,
+		cancel: Option<&crate::project::Cancellation>,
+		call: crate::transformer_host::TransformerCall,
+	) -> Result<
+		(
+			crate::transformer_host::TransformerResponse,
+			crate::sidecar::SidecarCallStats,
+		),
+		Error,
+	> {
+		let abandon = AtomicBool::new(false);
+		std::thread::scope(|scope| {
+			let prefetch = std::thread::Builder::new()
+				.stack_size(crate::project::CHECKER_STACK_BYTES)
+				.spawn_scoped(scope, || self.prefetch.run(&abandon));
+			let result = self.inner.transform(cancel, call);
+			if result.is_err() {
+				abandon.store(true, Ordering::Relaxed);
+			}
+			match prefetch {
+				Ok(handle) => {
+					if let Err(payload) = handle.join() {
+						std::panic::resume_unwind(payload);
+					}
+				}
+				Err(_) => self.prefetch.run(&abandon),
+			}
+			result
+		})
+	}
+
+	fn validate(
+		&self,
+		cancel: Option<&crate::project::Cancellation>,
+		dir: &str,
+		config_path: &str,
+	) -> Result<
+		(
+			crate::transformer_host::TransformerResponse,
+			crate::sidecar::SidecarCallStats,
+		),
+		Error,
+	> {
+		self.inner.validate(cancel, dir, config_path)
+	}
+
+	fn uses_subprocess_sidecar(&self) -> bool {
+		self.inner.uses_subprocess_sidecar()
+	}
+}

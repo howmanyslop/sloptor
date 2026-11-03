@@ -186,12 +186,22 @@ pub(crate) fn write_incremental_manifest(
 	manifest: &IncrementalManifest,
 	program: &Program,
 ) -> Result<(), Error> {
+	write_incremental_manifest_data(path, &encode_incremental_manifest(manifest, program))
+}
+
+/// The bytes [`write_incremental_manifest`] writes, with the source paths encoded against
+/// `program`. A deferred write encodes first, so it does not keep the program alive.
+pub(crate) fn encode_incremental_manifest(manifest: &IncrementalManifest, program: &Program) -> String {
 	let encode = incremental_source_path_encoder(program);
 	let stored = IncrementalManifest {
 		files: map_incremental_files(&manifest.files, &*encode),
 		..manifest.clone()
 	};
-	let data = stored.to_json();
+	stored.to_json()
+}
+
+/// Writes encoded manifest `data` to `path` atomically.
+pub(crate) fn write_incremental_manifest_data(path: &str, data: &str) -> Result<(), Error> {
 	let io = |error: std::io::Error| Error::message(rotor_support::gostr::io_error_text(&error));
 	let directory = gopath::dir(path);
 	fsutil::mkdir_all(&directory, 0o755).map_err(io)?;

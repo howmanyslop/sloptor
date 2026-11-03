@@ -325,9 +325,14 @@ impl Parser<'_> {
 	}
 }
 
-/// Appends `text` as `json.Marshal` writes a string: HTML-safe, with ` ` and ` `
+/// Appends `text` as `json.Marshal` writes a string: HTML-safe, with U+2028 and U+2029
 /// escaped and invalid UTF-8 already replaced.
 pub fn write_string(out: &mut String, text: &str) {
+	write_string_escaping(out, text, true);
+}
+
+/// Appends `text` as a `json.Encoder` writes a string; `escape_html` is its `SetEscapeHTML`.
+pub fn write_string_escaping(out: &mut String, text: &str, escape_html: bool) {
 	out.push('"');
 	for character in text.chars() {
 		match character {
@@ -339,7 +344,9 @@ pub fn write_string(out: &mut String, text: &str) {
 			'\x08' => out.push_str("\\b"),
 			'\x0c' => out.push_str("\\f"),
 			character
-				if u32::from(character) < 0x20 || matches!(character, '<' | '>' | '&' | '\u{2028}' | '\u{2029}') =>
+				if u32::from(character) < 0x20
+					|| matches!(character, '\u{2028}' | '\u{2029}')
+					|| (escape_html && matches!(character, '<' | '>' | '&')) =>
 			{
 				let _ = write!(out, "\\u{:04x}", u32::from(character));
 			}

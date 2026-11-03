@@ -8,6 +8,7 @@ use std::path::Path;
 use rotor_compile::ProjectOptions;
 use rotor_compile::compile::compile_file_with_options;
 
+use icu_normalizer as _;
 use rotor_config as _;
 use rotor_luau as _;
 use rotor_rojo as _;

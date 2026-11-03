@@ -479,6 +479,7 @@ dependencies = [
 name = "rotor_compile"
 version = "0.0.0"
 dependencies = [
+ "icu_normalizer",
  "rotor_config",
  "rotor_luau",
  "rotor_rojo",

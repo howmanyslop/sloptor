@@ -14,6 +14,7 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 mimalloc-safe = { version = "0.1.67", features = ["no_thp", "v3"] }
 miniz_oxide = "0.9"
 rayon = "1"

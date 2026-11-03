@@ -90,3 +90,21 @@ impl ProjectOutputHost for ProjectConfig {
 		)
 	}
 }
+
+impl outputpaths::OutputPathsHost for ProjectConfig {
+	fn common_source_directory(&self) -> String {
+		ProjectOutputHost::common_source_directory(self)
+	}
+
+	fn content_mapper_extensions(&self) -> Vec<String> {
+		Vec::new()
+	}
+
+	fn get_current_directory(&self) -> &str {
+		&self.current_directory
+	}
+
+	fn use_case_sensitive_file_names(&self) -> bool {
+		self.case_sensitive
+	}
+}

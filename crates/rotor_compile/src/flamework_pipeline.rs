@@ -12,7 +12,9 @@ use rotor_tsrs::compiler::Program;
 
 use crate::compile::Failure;
 use crate::project::ProjectOptions;
-use crate::sidecar::{PreparedTransformerProgram, not_yet_ported, prepare_transformer_program};
+use crate::sidecar::{
+	PreparedTransformerProgram, not_yet_ported, prepare_transformer_program_with_host, transformer_host_for,
+};
 
 /// `flameworkPipeline`: the native Flamework stages (Stage 6).
 pub struct FlameworkPipeline {
@@ -57,13 +59,29 @@ pub(crate) fn run_compile_pipeline_with_options(
 	dir: &str,
 	program: &'static Program,
 	source_files: &[P<SourceFile>],
-	_overlays: &BTreeMap<String, String>,
+	overlays: &BTreeMap<String, String>,
 	pipeline: Option<&FlameworkPipeline>,
-	_opts: &ProjectOptions,
+	opts: &ProjectOptions,
 ) -> Result<CompilePipelineResult, Failure> {
+	let cancel = opts.context.as_ref();
+	let base = transformer_host_for(opts);
+	let prefetching = opts
+		.declaration_prefetch
+		.as_ref()
+		.map(|prefetch| crate::declaration_prefetch::PrefetchingTransformerHost::new(base, prefetch));
+	let host: &dyn crate::transformer_host::TransformerHost = prefetching.as_ref().map_or(base, |prefetching| {
+		prefetching as &dyn crate::transformer_host::TransformerHost
+	});
+	// Project setup already rejected unmatched overlays (or left them to the solution-wide
+	// check); the transformer stages need only this program's exact spellings.
+	let overlays = if overlays.is_empty() {
+		BTreeMap::new()
+	} else {
+		crate::overlayfs::rekey_overlays_to_program(program, overlays).0
+	};
 	if pipeline.is_some() {
 		return Err(not_yet_ported("native Flamework"));
 	}
-	let prepared = prepare_transformer_program(dir, program, source_files)?;
+	let prepared = prepare_transformer_program_with_host(cancel, host, dir, program, source_files, &overlays)?;
 	Ok(CompilePipelineResult { prepared })
 }

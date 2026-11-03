@@ -460,8 +460,23 @@ fn apply_automatic_types_cases() {
 }
 
 #[test]
-#[ignore = "needs 5b: EffectiveSolutionBuilders is the solution builder's"]
-fn effective_solution_builders_single_threaded() {}
+fn effective_solution_builders_single_threaded() {
+	let options = |single_threaded| crate::ProjectOptions {
+		builders: Some(4),
+		single_threaded: Some(single_threaded),
+		..crate::ProjectOptions::default()
+	};
+	assert_eq!(
+		crate::effective_solution_builders(&options(true)),
+		1,
+		"singleThreaded builders"
+	);
+	assert_eq!(
+		crate::effective_solution_builders(&options(false)),
+		4,
+		"singleThreaded=false builders"
+	);
+}
 
 #[test]
 fn apply_checker_override_cases() {

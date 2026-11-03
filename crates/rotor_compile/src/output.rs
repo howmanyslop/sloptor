@@ -25,8 +25,9 @@ use crate::declmap::shift_declaration_map_columns;
 use crate::declpaths::{DeclarationPathRewriter, TextEdit, apply_text_edits, non_overlapping_text_edits};
 use crate::flamework_pipeline::{prepare_flamework_pipeline, run_compile_pipeline_with_options};
 use crate::incremental_manifest::{
-	IncrementalManifest, build_incremental_manifest, normalize_source_file_path, prune_missing_outputs,
-	read_incremental_manifest, same_incremental_manifest, select_incremental_source_files, write_incremental_manifest,
+	IncrementalManifest, build_incremental_manifest, encode_incremental_manifest, normalize_source_file_path,
+	prune_missing_outputs, read_incremental_manifest, same_incremental_manifest, select_incremental_source_files,
+	write_incremental_manifest, write_incremental_manifest_data,
 };
 use crate::incremental_salt::{incremental_salt_with_flamework, output_manifest_path};
 use crate::incremental_signature::{narrow_selection_by_declaration_signature, recovered_input_paths};
@@ -116,8 +117,20 @@ pub fn build_project_with_options(project_dir: &str, opts: &ProjectOptions) -> R
 	result
 }
 
+/// `buildProject`: frees the build's programs when it ends, as Go drops them.
+#[expect(unsafe_code, reason = "frees the build's programs once nothing borrows them")]
+fn build_project(project_dir: &str, opts: ProjectOptions) -> Result<BuildResult, BuildFailure> {
+	// SAFETY: declared first, so it drops last; nothing this build derives from its programs
+	// leaves the build. The result, the failure and the deferred persistence own their data
+	// (the manifest is encoded before it is queued), and every thread that checks or emits is
+	// scoped to the build.
+	let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+	build_project_in_scope(project_dir, opts)
+}
+
+/// [`build_project`] inside its program scope.
 #[expect(clippy::too_many_lines, reason = "one function in Go")]
-fn build_project(project_dir: &str, mut opts: ProjectOptions) -> Result<BuildResult, BuildFailure> {
+fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result<BuildResult, BuildFailure> {
 	let mut writer = OutputWriter::new();
 	if let Some(timings) = &opts.timings {
 		timings.set_effective_write_workers(write_workers());
@@ -393,6 +406,9 @@ fn build_after_copy(
 	let pipeline =
 		run_compile_pipeline_with_options(dir, program, selected_files, &opts.overlays, None, &pipeline_opts)?;
 	let prepared = pipeline.prepared;
+	if let Some(timings) = timings {
+		timings.record_prepared_transformer_program(&prepared);
+	}
 	*program = prepared.program;
 	let selected_files = prepared.source_files.clone();
 	if prepared
@@ -509,14 +525,16 @@ fn build_after_copy(
 		..crate::copyfilesgate::CopyFilesGateOutputs::default()
 	};
 	let manifest_path_owned = manifest_path.to_owned();
-	let persist: crate::project::PendingPersist = Box::new(move || {
-		if let Some(cache) = rojo_cache {
+	// Encoded now: a deferred write must not keep the program, which the build frees.
+	// The graph describes original inputs: a transformer can replace their imports.
+	let manifest_data = manifest_changed.then(|| encode_incremental_manifest(&manifest, original_program));
+	let mut persist: crate::project::PendingPersist = Box::new(move || {
+		if let Some(cache) = &rojo_cache {
 			cache.persist();
 		}
 		gate.persist()?;
-		if manifest_changed {
-			// The graph describes original inputs: a transformer can replace their imports.
-			write_incremental_manifest(&manifest_path_owned, &manifest, original_program)?;
+		if let Some(data) = &manifest_data {
+			write_incremental_manifest_data(&manifest_path_owned, data)?;
 		}
 		Ok(())
 	});
@@ -652,10 +670,15 @@ fn build_declarations_only(
 		)
 		.into());
 	}
-	// Transformers cannot affect declaration output; validating their modules is the sidecar's
-	// (Stage 5b).
+	// Declarations come from the original program. Configured transformer modules are validated
+	// without running their factories: transformed text cannot affect declarations.
 	if project_uses_transformer_plugins(Some(&program.command_line())) {
-		return Err(crate::sidecar::not_yet_ported("the transformer plugin sidecar").into());
+		crate::sidecar::validate_transformer_host(
+			opts.context.as_ref(),
+			crate::sidecar::transformer_host_for(opts),
+			dir,
+			program,
+		)?;
 	}
 	let stop = start_stage(timings, Stage::DeclarationEmitWrites);
 	let emitted = emit_declarations(program, None, None, opts.write_only_changed, writer, timings);
@@ -864,6 +887,11 @@ fn rewrite_declaration_emit(
 	source_file: P<SourceFile>,
 	emitted: &mut [DeclarationEmitFile],
 ) {
+	for entry in emitted.iter_mut() {
+		if entry.file_name.ends_with(".d.ts.map") {
+			entry.text = crate::declmap::restore_empty_source_root(&entry.text);
+		}
+	}
 	for index in 0..emitted.len() {
 		if !emitted[index].file_name.ends_with(tspath::EXTENSION_DTS) {
 			continue;
@@ -1104,7 +1132,7 @@ fn cleanup_dir_recursively(path_translator: &PathTranslator, dir: &str, source_m
 }
 
 /// `tryRemoveOutput`
-fn try_remove_output(path_translator: &PathTranslator, out_path: &str, source_maps_enabled: bool) {
+pub(crate) fn try_remove_output(path_translator: &PathTranslator, out_path: &str, source_maps_enabled: bool) {
 	if !is_output_file_orphaned_with_source_maps(path_translator, out_path, source_maps_enabled) {
 		return;
 	}
@@ -1174,7 +1202,7 @@ pub(crate) fn copy_non_compiled_files(path_translator: &PathTranslator, root_dir
 }
 
 /// `copyItem`
-fn copy_item(path_translator: &PathTranslator, item_path: &str) -> Result<(), Error> {
+pub(crate) fn copy_item(path_translator: &PathTranslator, item_path: &str) -> Result<(), Error> {
 	let info = fs::metadata(item_path).map_err(|error| Error::message(gostr::path_error("stat", item_path, &error)))?;
 	if info.is_dir() {
 		let entries = crate::packageexports::read_dir_sorted(item_path)
