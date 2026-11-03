@@ -95,6 +95,9 @@ pub struct ProjectOptions {
 	pub declaration: bool,
 	/// The Flamework configuration.
 	pub config: FlameworkConfig,
+	/// rotor-rs: the build's Rojo resolver cache, which already holds the configuration's parse;
+	/// Go parses it again.
+	pub rojo_resolvers: Option<std::sync::Arc<rotor_rojo::RojoResolverCache>>,
 }
 
 /// `Project`
@@ -173,7 +176,12 @@ pub fn open_project(options: &ProjectOptions) -> Result<Project, Error> {
 	}
 
 	let translator = PathTranslator::new(&root_directory, &out_directory, "", options.declaration, false);
-	let resolver = open_rojo_resolver(&directory, &out_directory, &options.rojo_config_path)?;
+	let resolver = open_rojo_resolver(
+		&directory,
+		&out_directory,
+		&options.rojo_config_path,
+		options.rojo_resolvers.as_deref(),
+	)?;
 	let mut build_info = load_project_build_info(&directory, &project_root.package_directory)?;
 	if !options.config.salt.is_empty() {
 		build_info.set_salt(None);

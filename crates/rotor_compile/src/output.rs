@@ -149,6 +149,15 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	let program_result = new_project_program_with_options(project_dir, &opts.ts_config_path, &opts);
 	stop_initial_program.stop();
 	let (dir, mut program) = program_result?;
+	// Loaded before the native Flamework project opens, which reads the same Rojo configuration
+	// through it, and before the salt, which fingerprints the resolver. Declaration-only builds
+	// never resolve Rojo paths.
+	let rojo_cache: Option<Arc<RojoResolverCache>> = if opts.emit_declaration_only {
+		None
+	} else {
+		load_rojo_caches_pre_build(&dir, &opts).map(Arc::new)
+	};
+	opts.rojo_cache.clone_from(&rojo_cache);
 	let native_pipeline = prepare_flamework_pipeline(&dir, program, &opts)?;
 	let flamework_inputs = flamework_incremental_inputs(native_pipeline.as_ref())
 		.map_err(|error| Error::message(format!("compile: collect native Flamework incremental inputs: {error}")))?;
@@ -170,12 +179,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 			return Err(error.into());
 		}
 	};
-	// Loaded before the salt, which fingerprints the resolver. Declaration-only builds never
-	// resolve Rojo paths.
-	let mut rojo_cache: Option<Arc<RojoResolverCache>> = None;
 	if !opts.emit_declaration_only {
-		rojo_cache = load_rojo_caches_pre_build(&dir, &opts).map(Arc::new);
-		opts.rojo_cache.clone_from(&rojo_cache);
 		match prepare_package_layout(&dir, &program.options(), &opts) {
 			Ok(layout) => opts.package_layout = layout.map(Arc::new),
 			Err(error) => {
@@ -218,7 +222,9 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 		return Err(error.into());
 	}
 	stop_manifest.stop();
-	let previous_presence = writer.new_output_presence_index(writer.previous.keys());
+	// rotor-rs: validation lstat'd every previous output a moment ago; Go reads their
+	// directories again.
+	let previous_presence = writer.validated_presence_index();
 
 	if opts.emit_declaration_only {
 		return build_declarations_only(
@@ -434,14 +440,29 @@ fn build_after_copy(
 		if native_pipeline.config.no_semantic_diagnostics {
 			opts.skip_semantic_diagnostics = true;
 		}
-		let final_inputs = flamework_incremental_inputs(Some(native_pipeline)).map_err(|error| {
-			Error::message(format!("compile: refresh native Flamework incremental inputs: {error}"))
-		})?;
-		current_manifest.salt =
-			incremental_salt_with_flamework(dir, program, opts, manifest_path, final_inputs.as_ref())?;
+		// rotor-rs: with nothing selected the pipeline transformed nothing, so the inputs and the
+		// salt are the ones the build started with; Go collects them again.
+		if !selected_files.is_empty() {
+			let final_inputs = flamework_incremental_inputs(Some(native_pipeline)).map_err(|error| {
+				Error::message(format!("compile: refresh native Flamework incremental inputs: {error}"))
+			})?;
+			current_manifest.salt =
+				incremental_salt_with_flamework(dir, program, opts, manifest_path, final_inputs.as_ref())?;
+		}
 	}
 	if let Some(timings) = timings {
 		timings.set_source_counts(source_files.len(), selected_files.len());
+	}
+	// rotor-rs: the original program is past its last check once a transform replaced it and its
+	// declarations are emitted, so its checkers go before the replacing program's fill up.
+	let declarations_ready = !original_program.options().get_emit_declarations()
+		|| signature_declarations.is_some()
+		|| pipeline_opts
+			.declaration_prefetch
+			.as_ref()
+			.is_some_and(|prefetch| prefetch.has_result());
+	if declarations_ready && !std::ptr::eq(*program, original_program) {
+		crate::flamework_pipeline::release_transformed_checkers(original_program);
 	}
 
 	let stop_project_context = start_stage(timings, Stage::ProjectContext);
@@ -538,6 +559,12 @@ fn build_after_copy(
 		prune_missing_outputs(&current_presence, &mut current_outputs);
 	}
 	writer.set_current_outputs(current_outputs.clone());
+	writer.persist_stamps();
+	// rotor-rs: a build that wrote outputs refreshes, when it persists (after every project of a
+	// solution wrote), the Rojo cache entries those writes invalidated, so the next build loads
+	// them from disk (`RojoResolverCache::refresh`).
+	let refresh_rojo_cache =
+		!(selected_files.is_empty() && copy_files_gate.skip_cleanup && copy_files_gate.skip_copy_files);
 	current_manifest.outputs = current_outputs;
 	// rotor extension: keep the rotor.d.ts editor companion fresh for macro users.
 	let mut wrote_rotor_types = false;
@@ -567,6 +594,9 @@ fn build_after_copy(
 	let manifest_data = manifest_changed.then(|| encode_incremental_manifest(&manifest, original_program));
 	let mut persist: crate::project::PendingPersist = Box::new(move || {
 		if let Some(cache) = &rojo_cache {
+			if refresh_rojo_cache {
+				cache.refresh();
+			}
 			cache.persist();
 		}
 		gate.persist()?;
@@ -728,6 +758,8 @@ fn build_declarations_only(
 	let mut outputs = writer.current_outputs();
 	let presence = writer.new_output_presence_index(outputs.keys());
 	prune_missing_outputs(&presence, &mut outputs);
+	writer.set_current_outputs(outputs.clone());
+	writer.persist_stamps();
 	current_manifest.outputs = outputs;
 	if !same_incremental_manifest(previous_manifest, Some(&current_manifest))
 		&& let Err(error) = write_incremental_manifest(manifest_path, &current_manifest, program)
@@ -757,7 +789,8 @@ fn load_rojo_caches_pre_build(dir: &str, opts: &ProjectOptions) -> Option<RojoRe
 		// version, so Go-written and Rust-written caches never pass for each other.
 		&crate::copyfilesgate::compiler_version(),
 		opts.defer_rojo_cache_persist,
-	);
+	)
+	.for_one_build();
 	let _ = cache.load(&rojo_config_path);
 	Some(cache)
 }

@@ -90,6 +90,7 @@ pub(crate) fn open_rojo_resolver(
 	project_directory: &str,
 	out_directory: &str,
 	configured: &str,
+	cache: Option<&rotor_rojo::RojoResolverCache>,
 ) -> Result<RojoResolver, Error> {
 	let config_path = if configured.is_empty() {
 		rotor_rojo::find_rojo_config_file_path(project_directory)
@@ -106,7 +107,10 @@ pub(crate) fn open_rojo_resolver(
 	if let Err(error) = std::fs::metadata(&config_path) {
 		return Err(Error::io("stat", &config_path, &error).wrap("read Flamework Rojo configuration"));
 	}
-	Ok(RojoResolver::from_path(&config_path))
+	Ok(cache.map_or_else(
+		|| RojoResolver::from_path(&config_path),
+		|cache| (*cache.load(&config_path)).clone(),
+	))
 }
 
 /// `findPackageJSON`: the nearest regular `package.json` at or above `directory`, or `""`.

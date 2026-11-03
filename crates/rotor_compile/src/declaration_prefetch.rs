@@ -67,6 +67,11 @@ impl DeclarationPrefetch {
 		});
 	}
 
+	/// Whether a round trip produced a result.
+	pub(crate) fn has_result(&self) -> bool {
+		lock(&self.result).is_some()
+	}
+
 	/// `result`: the prefetched text, `None` when no round trip produced it.
 	pub(crate) fn result(&self) -> Option<Result<Vec<DeclarationEmitFile>, Error>> {
 		lock(&self.result).clone()

@@ -112,6 +112,7 @@ pub(crate) fn prepare_flamework_pipeline(
 		rojo_config_path: opts.rojo_config_path.clone(),
 		declaration: options.get_emit_declarations(),
 		config: configured.clone(),
+		rojo_resolvers: opts.rojo_cache.clone(),
 	})
 	.map_err(|error| {
 		Failure::strings(
@@ -189,6 +190,7 @@ pub(crate) fn run_compile_pipeline_with_options(
 		});
 	}
 	let state = Arc::new(Mutex::new(SidecarBuildState::default()));
+	let original = program;
 	let mut program = program;
 	let mut current_files = source_files.to_vec();
 	let mut traces = DiagnosticTraces::default();
@@ -215,6 +217,9 @@ pub(crate) fn run_compile_pipeline_with_options(
 		traces = prepared.source_traces;
 	}
 	let mut prepared = apply_native_flamework_transform(program, &current_files, &traces, pipeline)?;
+	if !std::ptr::eq(program, original) && !std::ptr::eq(program, prepared.program) {
+		release_transformed_checkers(program);
+	}
 	lock(&state).absorb_source_files(&prepared.source_files);
 	if !pipeline.suffix.is_empty() {
 		prepared = apply_external_transformer_stage(
@@ -237,6 +242,17 @@ pub(crate) fn run_compile_pipeline_with_options(
 		prepared,
 		flamework_project: Some(Arc::clone(&pipeline.project)),
 	})
+}
+
+/// rotor-rs: frees the checkers of `program`, a transform's input that the transform's output
+/// replaced. Go's collector frees them once the program is unreachable; `ProgramScope` would hold
+/// them to the end of the build, beside the checkers of the programs after it.
+#[expect(unsafe_code, reason = "frees the checkers of a program nothing checks any more")]
+pub(crate) fn release_transformed_checkers(program: &'static Program) {
+	// SAFETY: the transform dropped its checker handle, and what it kept from the checker is
+	// printed text, traces and owned diagnostics. Later stages check the replacing program, and
+	// the build reads `program` only for its files.
+	unsafe { rotor_tsrs::compiler::release_checkers(program) };
 }
 
 /// `applyExternalTransformerStage`: one sidecar stage over `source_files`, its traces composed

@@ -29,10 +29,17 @@ impl OutputWriter {
 				if !metadata.file_type().is_file() {
 					return Ok(());
 				}
+				let stamp = crate::output_stamps::FileStamp::of(&metadata);
+				if self.stamps.holds(path, stamp, hash) {
+					self.stamps.observe(path, stamp, hash);
+					lock(validated).insert(path.clone(), hash.clone());
+					return Ok(());
+				}
 				let Ok(contents) = std::fs::read(&absolute) else {
 					return Ok(());
 				};
 				if hex_sha256(&contents) == *hash {
+					self.stamps.observe(path, stamp, hash);
 					lock(validated).insert(path.clone(), hash.clone());
 				}
 				Ok(())
@@ -42,6 +49,19 @@ impl OutputWriter {
 		validated
 			.into_inner()
 			.unwrap_or_else(std::sync::PoisonError::into_inner)
+	}
+
+	/// `newOutputPresenceIndex(previous)` for the validated previous outputs, which validation
+	/// just found to be regular files, without reading their directories again.
+	pub(crate) fn validated_presence_index(&self) -> OutputPresenceIndex {
+		OutputPresenceIndex {
+			case_sensitive: self.case_sensitive,
+			regular: self
+				.previous
+				.keys()
+				.filter_map(|path| normalize_output_presence_key(path, self.case_sensitive))
+				.collect(),
+		}
 	}
 
 	/// `newOutputPresenceIndex`: which of the outputs exist as regular files now, reading each

@@ -167,15 +167,26 @@ pub(crate) fn read_incremental_manifest(
 		})
 		.collect();
 	let preserve_symlinks = program.options().preserve_symlinks.is_true();
+	// A name recurs as every importer's ref; each converts once.
+	let converted: std::cell::RefCell<HashMap<String, String>> = std::cell::RefCell::default();
 	manifest.files = map_incremental_files(&manifest.files, &|name: &str| {
-		let mut absolute = resolve_incremental_source_path(project_dir, name);
-		if let Some(source) = source_paths.get(&normalize_source_file_path(&absolute)) {
-			return source.clone();
+		if let Some(done) = converted.borrow().get(name) {
+			return done.clone();
 		}
-		if !preserve_symlinks && let Ok(real) = fsutil::eval_symlinks(&absolute) {
-			absolute = real;
-		}
-		normalize_source_file_path(&absolute)
+		let absolute = resolve_incremental_source_path(project_dir, name);
+		let result = source_paths.get(&normalize_source_file_path(&absolute)).map_or_else(
+			|| {
+				let real = if preserve_symlinks {
+					None
+				} else {
+					fsutil::eval_symlinks(&absolute).ok()
+				};
+				normalize_source_file_path(real.as_deref().unwrap_or(&absolute))
+			},
+			Clone::clone,
+		);
+		converted.borrow_mut().insert(name.to_owned(), result.clone());
+		result
 	});
 	Ok(Some(manifest))
 }

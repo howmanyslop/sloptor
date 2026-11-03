@@ -36,6 +36,7 @@ pub mod macro_inputs;
 pub mod macrodecl;
 pub mod native_types;
 pub mod output;
+pub mod output_stamps;
 pub mod outputwriter;
 pub mod outputwriter_manifest;
 pub mod overlayfs;

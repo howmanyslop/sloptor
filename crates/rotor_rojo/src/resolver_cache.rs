@@ -59,7 +59,19 @@ pub struct RojoResolverCache {
 	cache_dir: String,
 	compiler_version: String,
 	defer_persist: bool,
+	/// rotor-rs: whether an in-memory entry, once loaded or parsed, is trusted without checking
+	/// its manifest again (`Self::for_one_build`).
+	trust_memory: bool,
 	entries: Mutex<Entries>,
+}
+
+impl std::fmt::Debug for RojoResolverCache {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("RojoResolverCache")
+			.field("cache_dir", &self.cache_dir)
+			.field("defer_persist", &self.defer_persist)
+			.finish_non_exhaustive()
+	}
 }
 
 impl RojoResolverCache {
@@ -83,35 +95,44 @@ impl RojoResolverCache {
 			cache_dir: cache_dir.to_owned(),
 			compiler_version: compiler_version.to_owned(),
 			defer_persist,
+			trust_memory: false,
 			entries: Mutex::new(Entries::default()),
 		}
 	}
 
+	/// rotor-rs: this cache serves one build, during which nothing but the build's own writes
+	/// changes what the resolver read, so an in-memory entry is not checked again on every load
+	/// (Go checks its manifest each time). [`Self::refresh`] still checks it after the writes.
+	#[must_use]
+	pub const fn for_one_build(mut self) -> Self {
+		self.trust_memory = true;
+		self
+	}
+
 	/// A resolver for `rojo_config_file_path`, preferring a valid in-memory
 	/// entry, then a valid disk entry.
+	/// The lock covers the whole load, so concurrent loads of one key build the resolver once.
 	#[must_use]
-	#[expect(
-		clippy::significant_drop_tightening,
-		reason = "the lock covers the whole load, so concurrent loads of one key build the resolver once"
-	)]
 	pub fn load(&self, rojo_config_file_path: &str) -> Arc<RojoResolver> {
 		let key = cache_key(rojo_config_file_path);
 		let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
 		if let Some(entry) = entries.l1.get_mut(&key)
-			&& manifest_still_valid(&mut entry.manifest)
+			&& (self.trust_memory || manifest_still_valid(&mut entry.manifest))
 		{
 			return Arc::clone(&entry.resolver);
 		}
 		entries.l1.remove(&key);
 
-		if let Some((resolver, manifest)) = self.load_disk(&key) {
-			entries.l1.insert(
-				key,
-				CacheEntry {
-					resolver: Arc::clone(&resolver),
-					manifest,
-				},
-			);
+		if let Some((resolver, manifest, refreshed)) = self.load_disk(&key) {
+			let entry = CacheEntry {
+				resolver: Arc::clone(&resolver),
+				manifest,
+			};
+			if refreshed {
+				// Writing the new mtimes back spares the next build listing those directories.
+				self.store(&mut entries, &key, &entry);
+			}
+			entries.l1.insert(key, entry);
 			return resolver;
 		}
 
@@ -124,13 +145,50 @@ impl RojoResolverCache {
 			resolver: Arc::clone(&resolver),
 			manifest,
 		};
-		entries.l1.insert(key.clone(), entry.clone());
-		if self.defer_persist {
-			entries.pending.insert(key, entry);
-		} else {
-			self.write_disk(&key, &state, &entry.manifest);
-		}
+		self.store(&mut entries, &key, &entry);
+		entries.l1.insert(key, entry);
 		resolver
+	}
+
+	/// Writes `entry` to disk now, or queues it for [`Self::persist`].
+	fn store(&self, entries: &mut Entries, key: &str, entry: &CacheEntry) {
+		if self.defer_persist {
+			entries.pending.insert(key.to_owned(), entry.clone());
+		} else {
+			self.write_disk(key, &entry.resolver.state(), &entry.manifest);
+		}
+	}
+
+	/// rotor-rs: once a build has written its outputs, parses again each in-memory entry whose
+	/// manifest no longer holds (the outputs created directories the resolver walks), and stores
+	/// it, so the next build's disk entry is valid. Go stores the manifest taken before the
+	/// writes, so the build after any output change parses again. An entry whose directories only
+	/// changed mtimes is stored with the new ones.
+	pub fn refresh(&self) {
+		let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+		let mut keys: Vec<String> = entries.l1.keys().cloned().collect();
+		keys.sort();
+		for key in keys {
+			let Some(entry) = entries.l1.get_mut(&key) else {
+				continue;
+			};
+			let before = entry.manifest.clone();
+			if manifest_still_valid(&mut entry.manifest) {
+				if entry.manifest != before {
+					let entry = entry.clone();
+					self.store(&mut entries, &key, &entry);
+				}
+				continue;
+			}
+			let resolver = Arc::new(RojoResolver::from_path(&key));
+			let Some(manifest) = resolver_mtime_manifest(&resolver.state()) else {
+				entries.l1.remove(&key);
+				continue;
+			};
+			let entry = CacheEntry { resolver, manifest };
+			self.store(&mut entries, &key, &entry);
+			entries.l1.insert(key, entry);
+		}
 	}
 
 	/// Writes every entry whose write was deferred.
@@ -142,7 +200,8 @@ impl RojoResolverCache {
 		entries.pending.clear();
 	}
 
-	fn load_disk(&self, key: &str) -> Option<(Arc<RojoResolver>, Vec<ManifestEntry>)> {
+	/// A valid disk entry, and whether checking it refreshed a directory's mtime.
+	fn load_disk(&self, key: &str) -> Option<(Arc<RojoResolver>, Vec<ManifestEntry>, bool)> {
 		if self.cache_dir.is_empty() {
 			return None;
 		}
@@ -166,7 +225,7 @@ impl RojoResolverCache {
 			discard();
 			return None;
 		}
-		let mut manifest = file.mtime_manifest;
+		let mut manifest = file.mtime_manifest.clone();
 		if !manifest_still_valid(&mut manifest) {
 			return None;
 		}
@@ -174,7 +233,8 @@ impl RojoResolverCache {
 			discard();
 			return None;
 		};
-		Some((Arc::new(resolver), manifest))
+		let refreshed = manifest != file.mtime_manifest;
+		Some((Arc::new(resolver), manifest, refreshed))
 	}
 
 	fn write_disk(&self, key: &str, state: &ResolverState, manifest: &[ManifestEntry]) {
@@ -314,8 +374,24 @@ fn resolver_directory_listing(dir: &str) -> Option<String> {
 	Some(listing)
 }
 
+/// Whether `manifest` covers exactly the paths `state` read: its walked configurations and
+/// directories, in order, then partition paths recorded as missing. Whether those paths still
+/// hold is `manifest_still_valid`'s question. Go compares a manifest taken now, which fails
+/// whenever a build output changed a walked directory's mtime.
 fn state_matches_manifest(state: &ResolverState, manifest: &[ManifestEntry]) -> bool {
-	resolver_mtime_manifest(state).is_some_and(|expected| expected == manifest)
+	let mut paths = state.walked_configs.clone();
+	paths.extend(state.walked_directories.iter().cloned());
+	paths.sort();
+	paths.dedup();
+	if paths.is_empty() {
+		return false;
+	}
+	let (present, missing) = manifest.split_at(manifest.iter().take_while(|entry| !entry.missing).count());
+	present.len() == paths.len()
+		&& present.iter().zip(&paths).all(|(entry, path)| entry.path == *path)
+		&& missing
+			.iter()
+			.all(|entry| entry.missing && state.partitions.iter().any(|partition| partition.fs_path == entry.path))
 }
 
 /// Writes `data` to a temporary file beside `path` and renames it into place,

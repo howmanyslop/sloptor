@@ -194,6 +194,10 @@ pub(crate) fn validate_project_outputs(
 /// share, so a watch cycle does not walk the Rojo tree or read every reference's config again.
 pub struct ReferenceRojoCache {
 	pub(crate) resolvers: Arc<RojoResolverCache>,
+	/// rotor-rs: without a shared cache, each Rojo configuration's resolver comes from the disk
+	/// cache its project's builds keep beside it (`.rotor/cache/rojo`), read but never written,
+	/// where Go parses every configuration again.
+	disk: Option<Mutex<HashMap<String, Arc<RojoResolverCache>>>>,
 	options: Mutex<HashMap<String, Result<Option<RbxtsOptions>, Error>>>,
 }
 
@@ -201,6 +205,7 @@ impl ReferenceRojoCache {
 	/// `newReferenceRojoCache`
 	pub(crate) fn new(resolvers: Option<Arc<RojoResolverCache>>) -> Self {
 		Self {
+			disk: resolvers.is_none().then(Mutex::default),
 			resolvers: resolvers.unwrap_or_else(|| Arc::new(RojoResolverCache::memory())),
 			options: Mutex::new(HashMap::new()),
 		}
@@ -208,7 +213,18 @@ impl ReferenceRojoCache {
 
 	/// `resolver`
 	pub(crate) fn resolver(&self, path: &str) -> Arc<RojoResolver> {
-		self.resolvers.load(path)
+		let Some(disk) = &self.disk else {
+			return self.resolvers.load(path);
+		};
+		let directory = gopath::dir(path);
+		let cache = Arc::clone(lock(disk).entry(directory.clone()).or_insert_with(|| {
+			Arc::new(RojoResolverCache::with_deferred_persist(
+				&gopath::join(&[&directory, ".rotor", "cache", "rojo"]),
+				&crate::copyfilesgate::compiler_version(),
+				true,
+			))
+		}));
+		cache.load(path)
 	}
 
 	/// `rbxtsOptions`

@@ -143,6 +143,24 @@ Outside the Go file map:
   - Test hooks: `PROGRAM_UPDATES` and `LAST_PREPARSE` (flamework_program_update.rs:322) stand
     in for Go's `CreateCheckerPool` counting hook and its `program.Host().(nativeOverlayHost)`
     assertion; `solution_cache::wrap` is Go's `cache.wrap` over any host.
+- Build speed and memory (no output changes):
+  - Output-hash validation (`validated_output_hashes`) trusts an output whose size, mtime,
+    ctime, inode and device match the stamp recorded when its hash was last confirmed
+    (`output_stamps.rs`, `.rotor/cache/output-stamps`); Go reads and hashes every output. The
+    previous outputs' presence index comes from that validation, where Go lists their
+    directories again (`validated_presence_index`).
+  - The Rojo resolver cache loads before the native Flamework project opens, which reuses its
+    resolver (`ProjectOptions::rojo_resolvers`), and trusts its in-memory entries for the build
+    (`RojoResolverCache::for_one_build`). A build that wrote outputs refreshes the entries those
+    writes invalidated before persisting (`RojoResolverCache::refresh`), and a disk entry is
+    checked against the paths its manifest recorded rather than a rebuilt manifest
+    (`state_matches_manifest`). Reference validation reads the same disk caches, read-only.
+  - A build that selected no files does not collect the Flamework inputs and the salt a second
+    time after the pipeline; nothing changed them.
+  - A transform's input program and, once its declarations are emitted, the original program
+    drop their checkers when the transform's output replaces them (tsrs patch 0009,
+    `release_checkers`); `ProgramScope` would otherwise hold them to the end of the build.
+    Go's collector frees them once the programs are unreachable.
 
 ## Go tests
 

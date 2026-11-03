@@ -26,6 +26,8 @@ pub struct OutputWriter {
 	/// The canonical project directory, once [`OutputWriter::use_hashes`] confined the writer.
 	canonical_root: Option<String>,
 	pub(crate) previous: HashMap<String, String>,
+	/// The outputs' stat fields beside their hashes (Rust only, `output_stamps`).
+	pub(crate) stamps: crate::output_stamps::OutputStamps,
 	current: Option<Mutex<BTreeMap<String, String>>>,
 	hash_skips: AtomicUsize,
 	prepared: Mutex<HashSet<String>>,
@@ -64,6 +66,7 @@ impl OutputWriter {
 			project_dir: String::new(),
 			canonical_root: None,
 			previous: HashMap::new(),
+			stamps: crate::output_stamps::OutputStamps::default(),
 			current: None,
 			hash_skips: AtomicUsize::new(0),
 			prepared: Mutex::new(HashSet::new()),
@@ -84,6 +87,9 @@ impl OutputWriter {
 		let canonical = fs::canonicalize(&self.project_dir)
 			.map_err(|error| Error::message(gostr::path_error("openat", &self.project_dir, &error)))?;
 		self.canonical_root = Some(canonical.to_string_lossy().into_owned());
+		if !previous.is_empty() {
+			self.stamps = crate::output_stamps::OutputStamps::load(&self.project_dir);
+		}
 		self.previous = self.validated_output_hashes(previous);
 		Ok(())
 	}
@@ -108,8 +114,11 @@ impl OutputWriter {
 		let hash = hex_sha256(contents);
 		let key = self.output_key(path);
 		if self.previous.get(&key) == Some(&hash)
-			&& self.lstat(path).is_ok_and(|metadata| metadata.file_type().is_file())
+			&& let Ok(metadata) = self.lstat(path)
+			&& metadata.file_type().is_file()
 		{
+			self.stamps
+				.observe(&key, crate::output_stamps::FileStamp::of(&metadata), &hash);
 			if let Some(current) = &self.current {
 				lock(current).insert(key, hash);
 			}
@@ -117,12 +126,14 @@ impl OutputWriter {
 			return Ok(false);
 		}
 		if self.same_contents(path, contents) {
+			self.observe_written(path, &key, &hash);
 			self.record_hash(key, hash);
 			return Ok(false);
 		}
 		self.check_confined_parent(path)?;
 		self.check_confined_final(path)?;
 		fsutil::write_file(Path::new(path), contents, 0o644).map_err(|error| io_error(&error))?;
+		self.observe_written(path, &key, &hash);
 		self.record_hash(key, hash);
 		Ok(true)
 	}
@@ -233,6 +244,25 @@ impl OutputWriter {
 			|_| gopath::to_slash(&gopath::clean(path)).into_owned(),
 			|relative| gopath::to_slash(&relative).into_owned(),
 		)
+	}
+
+	/// Records the stamp of the regular file at `path`, which now holds content hashing to
+	/// `hash`.
+	fn observe_written(&self, path: &str, key: &str, hash: &str) {
+		if let Ok(metadata) = fs::symlink_metadata(path)
+			&& metadata.file_type().is_file()
+		{
+			self.stamps
+				.observe(key, crate::output_stamps::FileStamp::of(&metadata), hash);
+		}
+	}
+
+	/// Writes the stamps of this build's outputs (`output_stamps`).
+	pub(crate) fn persist_stamps(&self) {
+		if self.project_dir.is_empty() {
+			return;
+		}
+		self.stamps.persist(&self.project_dir, &self.current_outputs());
 	}
 
 	/// `recordHash`
