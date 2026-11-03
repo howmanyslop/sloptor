@@ -69,5 +69,12 @@ pub fn path_error(op: &str, path: &str, err: &io::Error) -> String {
 	format!("{op} {path}: {}", io_error_text(err))
 }
 
+/// An `io::Error` of the same kind whose text is Go's `*fs.PathError` ([`path_error`]), for
+/// callers that report [`io_error_text`] and would otherwise lose the path.
+#[must_use]
+pub fn with_path(op: &str, path: &str, err: &io::Error) -> io::Error {
+	io::Error::new(err.kind(), path_error(op, path, err))
+}
+
 #[cfg(test)]
 mod tests;

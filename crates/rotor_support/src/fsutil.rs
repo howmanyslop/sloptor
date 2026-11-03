@@ -4,6 +4,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+use crate::gostr;
+
 /// Whether `path` is a regular file (not a symlink to one) holding exactly
 /// `data`. It compares sizes before reading, so a changed file usually costs
 /// one stat.
@@ -35,8 +37,13 @@ pub fn write_file_if_changed(path: impl AsRef<Path>, data: &[u8], mode: u32) -> 
 	Ok(true)
 }
 
-/// `os.WriteFile`: create or truncate, and write.
-fn write_file(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
+/// `os.WriteFile`: create or truncate, and write. A new file gets `mode` (before the umask) on
+/// unix.
+///
+/// # Errors
+///
+/// Returns the I/O error from opening or writing the file.
+pub fn write_file(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
 	use std::io::Write;
 	let mut options = fs::OpenOptions::new();
 	options.write(true).create(true).truncate(true);
@@ -47,7 +54,52 @@ fn write_file(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
 	}
 	#[cfg(not(unix))]
 	let _ = mode;
-	options.open(path)?.write_all(data)
+	let name = path.to_string_lossy();
+	let mut file = options
+		.open(path)
+		.map_err(|error| gostr::with_path("open", &name, &error))?;
+	file.write_all(data)
+		.map_err(|error| gostr::with_path("write", &name, &error))
+}
+
+/// `os.MkdirAll`: creates `path` and its missing parents, each with `mode` (before the umask) on
+/// unix.
+///
+/// # Errors
+///
+/// Returns the I/O error from creating a directory.
+pub fn mkdir_all(path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+	let mut builder = fs::DirBuilder::new();
+	builder.recursive(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::DirBuilderExt;
+		builder.mode(mode);
+	}
+	#[cfg(not(unix))]
+	let _ = mode;
+	let path = path.as_ref();
+	builder
+		.create(path)
+		.map_err(|error| gostr::with_path("mkdir", &path.to_string_lossy(), &error))
+}
+
+/// `(*os.File).Chmod`: sets an open file's permission bits on unix (not subject to the umask).
+///
+/// # Errors
+///
+/// Returns the I/O error from changing the mode.
+pub fn chmod(file: &fs::File, mode: u32) -> io::Result<()> {
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt;
+		file.set_permissions(fs::Permissions::from_mode(mode))
+	}
+	#[cfg(not(unix))]
+	{
+		let _ = (file, mode);
+		Ok(())
+	}
 }
 
 /// `filepath.EvalSymlinks`, which also resolves junctions on Windows.

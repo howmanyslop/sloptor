@@ -9,7 +9,6 @@
 //! the copies drift.
 
 use std::fmt;
-use std::fs;
 use std::io;
 
 use rotor_support::fsutil;
@@ -70,23 +69,11 @@ pub fn read(name: &str) -> Result<&'static [u8], NotFound> {
 ///
 /// Returns the I/O error from creating the directory or writing a file.
 pub fn copy(include_path: &str) -> io::Result<()> {
-	make_dir_all(include_path)?;
+	fsutil::mkdir_all(include_path, 0o755)?;
 	for (name, data) in FILES {
 		fsutil::write_file_if_changed(gopath::join(&[include_path, name]), data, 0o644)?;
 	}
 	Ok(())
-}
-
-/// `os.MkdirAll(path, 0o755)`.
-fn make_dir_all(path: &str) -> io::Result<()> {
-	let mut builder = fs::DirBuilder::new();
-	builder.recursive(true);
-	#[cfg(unix)]
-	{
-		use std::os::unix::fs::DirBuilderExt;
-		builder.mode(0o755);
-	}
-	builder.create(path)
 }
 
 #[cfg(test)]
