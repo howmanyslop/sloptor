@@ -16,12 +16,15 @@ static VERBOSE: AtomicBool = AtomicBool::new(false);
 struct Channel {
 	/// A captured sink replacing stdout, for tests.
 	sink: Option<Vec<u8>>,
+	/// Whether the channel writes to stderr instead of stdout (Go's `Output = os.Stderr`).
+	stderr: bool,
 	/// Whether the last write left an unterminated line (`LogService.ts` L5-9).
 	partial: bool,
 }
 
 static CHANNEL: Mutex<Channel> = Mutex::new(Channel {
 	sink: None,
+	stderr: false,
 	partial: false,
 });
 
@@ -40,6 +43,9 @@ fn write_locked(channel: &mut Channel, message: &str) {
 	channel.partial = !message.ends_with('\n');
 	match &mut channel.sink {
 		Some(buffer) => buffer.extend_from_slice(message.as_bytes()),
+		None if channel.stderr => {
+			let _ = io::stderr().lock().write_all(message.as_bytes());
+		}
 		None => {
 			// Go's fmt.Fprint drops a failed stdout write too.
 			let _ = io::stdout().lock().write_all(message.as_bytes());
@@ -131,6 +137,13 @@ fn use_color() -> bool {
 		return false;
 	}
 	io::stdout().is_terminal()
+}
+
+/// Sends the output to stderr (`true`) or stdout, as Go's `logservice.Output` assignment does;
+/// returns the previous setting.
+pub fn set_output_stderr(stderr: bool) -> bool {
+	let mut channel = CHANNEL.lock().unwrap_or_else(PoisonError::into_inner);
+	std::mem::replace(&mut channel.stderr, stderr)
 }
 
 /// Redirects the output to a buffer until [`take_capture`], resetting the partial-line tracker.
