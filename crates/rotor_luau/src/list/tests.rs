@@ -120,3 +120,35 @@ fn list_some_every() {
 	assert!(a.list_some(l, |node| name(node) == "2"), "Some failed");
 	assert!(!a.list_every(l, |node| name(node).as_str() < "3"), "Every failed");
 }
+
+/// `addFinalizers` (`transformForStatement.ts`) splices before the head and before a middle
+/// link; the spliced list's head keeps no back link, as upstream leaves it.
+#[test]
+fn list_splice_before_head_and_middle() {
+	let mut a = Ast::new();
+	let l = list(&mut a, &["a", "b"]);
+	let head = a.list_head(l).expect("a head");
+	let front = list(&mut a, &["x", "y"]);
+	a.list_splice_before(l, head, front);
+	assert_eq!(values(&a, l), ["x", "y", "a", "b"], "before the head");
+	assert_eq!(
+		a.link_prev(head),
+		a.list_tail(front),
+		"the link points back at the spliced tail"
+	);
+
+	let tail = a.list_tail(l).expect("a tail");
+	let middle = list(&mut a, &["m"]);
+	a.list_splice_before(l, tail, middle);
+	assert_eq!(values(&a, l), ["x", "y", "a", "m", "b"], "before a middle link");
+	let spliced_head = a.list_head(middle).expect("a head");
+	assert_eq!(
+		a.link_prev(spliced_head),
+		None,
+		"upstream leaves the back link dangling"
+	);
+
+	let empty = a.new_list::<element::AnyIdentifier>();
+	a.list_splice_before(l, tail, empty);
+	assert_eq!(values(&a, l), ["x", "y", "a", "m", "b"], "an empty splice is a no-op");
+}

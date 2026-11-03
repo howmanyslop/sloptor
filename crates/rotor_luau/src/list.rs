@@ -411,6 +411,24 @@ impl Ast {
 		}
 	}
 
+	/// Splices all of `other`'s links in before `link`, which must belong to `list`: the move
+	/// upstream's `addFinalizers` (`transformForStatement.ts`) makes by hand. `link`'s previous
+	/// link (or `list`'s head) now leads to `other`'s head, and `other`'s tail leads to `link`.
+	/// Like upstream, `other`'s head keeps no back link and `other`'s header is left as it was.
+	pub fn list_splice_before<T>(&mut self, list: List<T>, link: ListNodeId, other: List<T>) {
+		let source = self.lists[other.id.index()];
+		let (Some(other_head), Some(other_tail)) = (source.head, source.tail) else {
+			return;
+		};
+		if let Some(prev) = self.links[link.index()].prev {
+			self.links[prev.index()].next = Some(other_head);
+		} else if self.lists[list.id.index()].head == Some(link) {
+			self.lists[list.id.index()].head = Some(other_head);
+		}
+		self.links[link.index()].prev = Some(other_tail);
+		self.links[other_tail.index()].next = Some(link);
+	}
+
 	/// Whether the list has no values.
 	#[must_use]
 	pub fn list_is_empty<T>(&self, list: List<T>) -> bool {
