@@ -1,10 +1,10 @@
 //! `artifacts.go`: writing Flamework's artifacts as one transaction under the project root.
 //!
 //! Go confines every file operation to the project root with `os.Root`. [`ArtifactRoot`] is its
-//! counterpart: on Unix it holds the root directory's descriptor and walks each path from it with
-//! `openat(O_NOFOLLOW)`, so a moved root or a symlinked directory cannot redirect a write. Go's
-//! `os.Root` follows symlinks that stay inside the root; this rejects every symlinked directory.
-//! Elsewhere it joins paths onto the root.
+//! counterpart: on Unix it holds the root directory's descriptor and resolves each path from it
+//! as `os.Root` does, one `openat(O_NOFOLLOW)` at a time, following symlinks that stay inside the
+//! root and rejecting the rest, with `os.Root`'s error text. Elsewhere it joins paths onto the
+//! root.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -43,6 +43,7 @@ pub(crate) struct ArtifactInfo {
 enum FileKind {
 	Regular,
 	Directory,
+	Symlink,
 	Other,
 }
 
@@ -97,9 +98,11 @@ pub(crate) fn rename_artifact(root: &ArtifactRoot, old_path: &str, new_path: &st
 mod root {
 	use std::fs::File;
 	use std::io::Read as _;
-	use std::os::fd::OwnedFd;
+	use std::os::fd::{AsFd as _, BorrowedFd, OwnedFd};
 
+	use rotor_support::gostr::with_path;
 	use rustix::fs::{AtFlags, CWD, FileType, Mode, OFlags};
+	use rustix::io::Errno;
 
 	use super::{ArtifactInfo, FileKind};
 
@@ -109,10 +112,58 @@ mod root {
 		directory: OwnedFd,
 	}
 
+	/// `rootMaxSymlinks`
+	const MAX_SYMLINKS: usize = 8;
+
+	/// Why one step of [`ArtifactRoot::do_in_root`] stopped.
+	enum Fail {
+		/// A plain error, which the operation names with its path.
+		Io(std::io::Error),
+		/// The component is a symlink to this target, which resolution follows (`errSymlink`).
+		Symlink(String),
+		/// A `*PathError` without a path: resolution names it with the components so far.
+		Op(&'static str, std::io::Error),
+	}
+
+	impl From<Errno> for Fail {
+		fn from(error: Errno) -> Self {
+			Self::Io(error.into())
+		}
+	}
+
+	/// What [`ArtifactRoot::do_in_root`] returns on failure.
+	enum Failure {
+		Plain(std::io::Error),
+		Named(&'static str, String, std::io::Error),
+	}
+
+	impl Failure {
+		/// The error as Go's `*PathError{Op: op, Path: name}` wraps a plain failure.
+		fn named(self, op: &str, name: &str) -> std::io::Error {
+			match self {
+				Self::Plain(error) => with_path(op, name, &error),
+				Self::Named(op, path, error) => with_path(op, &path, &error),
+			}
+		}
+	}
+
+	/// `doInRoot`'s flags.
+	#[derive(Clone, Copy, Default)]
+	struct Flags {
+		creating_directory: bool,
+		no_handle_terminal_slash: bool,
+	}
+
+	/// `errPathEscapes`
+	fn path_escapes() -> std::io::Error {
+		std::io::Error::other("path escapes from parent")
+	}
+
 	fn info(stat: &rustix::fs::Stat) -> ArtifactInfo {
 		let kind = match FileType::from_raw_mode(stat.st_mode) {
 			FileType::RegularFile => FileKind::Regular,
 			FileType::Directory => FileKind::Directory,
+			FileType::Symlink => FileKind::Symlink,
 			_ => FileKind::Other,
 		};
 		ArtifactInfo {
@@ -149,10 +200,79 @@ mod root {
 			.fold(0, |bits, (bit, _)| bits | bit)
 	}
 
-	fn components(path: &str) -> Vec<&str> {
-		path.split('/')
-			.filter(|part| !part.is_empty() && *part != ".")
-			.collect()
+	/// `splitPathInRoot`: `path`'s components between `prefix` and `suffix`, and whether it ends
+	/// in a slash. `.` components go, except a last one.
+	fn split_path_in_root(path: &str, prefix: &[String], suffix: &[String]) -> std::io::Result<(Vec<String>, bool)> {
+		if path.is_empty() {
+			return Err(std::io::Error::other("empty path"));
+		}
+		if path.starts_with('/') {
+			return Err(path_escapes());
+		}
+		let mut parts = prefix.to_vec();
+		let pieces: Vec<&str> = path.split('/').collect();
+		let ends_in_slash = pieces.len() > 1 && pieces.last().is_some_and(|last| last.is_empty());
+		let mut components = pieces.into_iter().filter(|piece| !piece.is_empty()).peekable();
+		while let Some(component) = components.next() {
+			if component != "." || components.peek().is_none() {
+				parts.push(component.to_owned());
+			}
+		}
+		if !suffix.is_empty() && parts.last().is_some_and(|last| last == ".") {
+			parts.pop();
+		}
+		parts.extend_from_slice(suffix);
+		Ok((parts, ends_in_slash))
+	}
+
+	fn lstatat(parent: BorrowedFd<'_>, name: &str) -> Result<rustix::fs::Stat, Errno> {
+		rustix::fs::statat(parent, name, AtFlags::SYMLINK_NOFOLLOW)
+	}
+
+	fn is_link(stat: &rustix::fs::Stat) -> bool {
+		FileType::from_raw_mode(stat.st_mode) == FileType::Symlink
+	}
+
+	/// `isNoFollowErr`
+	fn is_no_follow_error(error: Errno) -> bool {
+		error == Errno::LOOP || error == Errno::MLINK
+	}
+
+	/// `checkSymlink`: the link's target to follow, or `original` when `name` is no symlink.
+	fn check_symlink(parent: BorrowedFd<'_>, name: &str, original: Errno) -> Fail {
+		rustix::fs::readlinkat(parent, name, Vec::new()).map_or_else(
+			|_| original.into(),
+			|target| Fail::Symlink(target.to_string_lossy().into_owned()),
+		)
+	}
+
+	/// `rootOpenDir`
+	fn root_open_dir(parent: BorrowedFd<'_>, name: &str) -> Result<OwnedFd, Fail> {
+		match rustix::fs::openat(
+			parent,
+			name,
+			OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::RDONLY,
+			Mode::empty(),
+		) {
+			Ok(fd) => Ok(fd),
+			Err(error) if is_no_follow_error(error) || error == Errno::NOTDIR => {
+				Err(check_symlink(parent, name, error))
+			}
+			Err(error) if error == Errno::NOTSUP || error == Errno::OPNOTSUPP => Err(Errno::NOTDIR.into()),
+			Err(error) => Err(error.into()),
+		}
+	}
+
+	/// `removeat`: a file, else an empty directory.
+	fn removeat(parent: BorrowedFd<'_>, name: &str) -> Result<(), Errno> {
+		let Err(file_error) = rustix::fs::unlinkat(parent, name, AtFlags::empty()) else {
+			return Ok(());
+		};
+		match rustix::fs::unlinkat(parent, name, AtFlags::REMOVEDIR) {
+			Ok(()) => Ok(()),
+			Err(directory_error) if directory_error != Errno::NOTDIR => Err(directory_error),
+			Err(_) => Err(file_error),
+		}
 	}
 
 	impl ArtifactRoot {
@@ -166,115 +286,240 @@ mod root {
 			Ok(Self { directory })
 		}
 
-		/// The directory holding `path`'s last component, reached without following symlinks,
-		/// and that component.
-		fn parent<'p>(&self, path: &'p str) -> std::io::Result<(Option<OwnedFd>, &'p str)> {
-			let parts = components(path);
-			let Some((leaf, directories)) = parts.split_last() else {
-				return Ok((None, "."));
-			};
-			let mut current: Option<OwnedFd> = None;
-			for part in directories {
-				let base = current.as_ref().map_or(&self.directory, |fd| fd);
-				let next = rustix::fs::openat(
-					base,
-					*part,
-					OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY,
-					Mode::empty(),
-				)?;
-				current = Some(next);
+		/// `doInRoot`: resolves `name` from the root's descriptor one component at a time, so a
+		/// moved root or a swapped directory cannot redirect it, following symlinks whose
+		/// targets stay inside the root, then runs `last` on the final component.
+		fn do_in_root<T>(
+			&self,
+			name: &str,
+			flags: Flags,
+			open_dir: &dyn Fn(BorrowedFd<'_>, &str) -> Result<OwnedFd, Fail>,
+			mut last: impl FnMut(BorrowedFd<'_>, &str, bool) -> Result<T, Fail>,
+		) -> Result<T, Failure> {
+			// Go stops only once both limits are exceeded.
+			const MAX_STEPS: usize = 255;
+			const MAX_RESTARTS: usize = 8;
+			let (mut parts, mut ends_in_slash) = split_path_in_root(name, &[], &[]).map_err(Failure::Plain)?;
+			let mut directory: Option<OwnedFd> = None;
+			let (mut index, mut steps, mut restarts, mut symlinks) = (0, 0, 0, 0);
+			loop {
+				steps += 1;
+				if steps > MAX_STEPS && restarts > MAX_RESTARTS {
+					return Err(Failure::Plain(Errno::NAMETOOLONG.into()));
+				}
+				if parts[index] == ".." {
+					// Resolution restarts from the root without the components `..` removes.
+					restarts += 1;
+					let mut end = index + 1;
+					while end < parts.len() && parts[end] == ".." {
+						end += 1;
+					}
+					let count = end - index;
+					if count > index {
+						return Err(Failure::Plain(path_escapes()));
+					}
+					parts.drain(index - count..end);
+					if parts.is_empty() {
+						parts.push(".".to_owned());
+					}
+					index = 0;
+					directory = None;
+					continue;
+				}
+				let base = directory
+					.as_ref()
+					.map_or_else(|| self.directory.as_fd(), |fd| fd.as_fd());
+				let step = if index == parts.len() - 1 {
+					let mut checked = Ok(());
+					if ends_in_slash && !flags.no_handle_terminal_slash {
+						match lstatat(base, &parts[index]) {
+							Err(error) if error == Errno::NOENT && flags.creating_directory => {}
+							Err(error) => return Err(Failure::Plain(error.into())),
+							Ok(stat) if FileType::from_raw_mode(stat.st_mode) == FileType::Directory => {}
+							Ok(stat) if is_link(&stat) => {
+								checked = Err(check_symlink(base, &parts[index], Errno::NOTDIR));
+							}
+							Ok(_) => return Err(Failure::Plain(Errno::NOTDIR.into())),
+						}
+					}
+					match checked.and_then(|()| last(base, &parts[index], ends_in_slash)) {
+						Ok(value) => return Ok(value),
+						Err(error) => Err(error),
+					}
+				} else {
+					open_dir(base, &parts[index]).map(Some)
+				};
+				match step {
+					Ok(opened) => directory = opened,
+					Err(Fail::Symlink(target)) => {
+						symlinks += 1;
+						if symlinks > MAX_SYMLINKS {
+							return Err(Failure::Plain(Errno::LOOP.into()));
+						}
+						let at_last = index == parts.len() - 1;
+						let (new_parts, new_ends_in_slash) =
+							split_path_in_root(&target, &parts[..index], &parts[index + 1..])
+								.map_err(Failure::Plain)?;
+						if at_last && new_ends_in_slash {
+							ends_in_slash = true;
+						}
+						if new_parts.len() < index || parts[..index] != new_parts[..index] {
+							// A component already walked changed: start over from the root.
+							index = 0;
+							directory = None;
+						}
+						parts = new_parts;
+						continue;
+					}
+					Err(Fail::Op(op, error)) => return Err(Failure::Named(op, parts[..=index].join("/"), error)),
+					Err(Fail::Io(error)) => return Err(Failure::Plain(error)),
+				}
+				index += 1;
 			}
-			Ok((current, leaf))
 		}
 
-		fn with_parent<T>(
-			&self,
-			path: &str,
-			run: impl FnOnce(&OwnedFd, &str) -> std::io::Result<T>,
-		) -> std::io::Result<T> {
-			let (parent, leaf) = self.parent(path)?;
-			run(parent.as_ref().unwrap_or(&self.directory), leaf)
+		/// `rootStat`
+		fn root_stat(&self, path: &str, lstat: bool) -> std::io::Result<ArtifactInfo> {
+			self.do_in_root(path, Flags::default(), &root_open_dir, |parent, name, _| {
+				let stat = lstatat(parent, name)?;
+				if !lstat && is_link(&stat) {
+					return Err(check_symlink(parent, name, Errno::LOOP));
+				}
+				Ok(info(&stat))
+			})
+			.map_err(|failure| failure.named("statat", path))
 		}
 
 		pub fn lstat(&self, path: &str) -> std::io::Result<ArtifactInfo> {
-			self.with_parent(path, |parent, leaf| {
-				Ok(info(&rustix::fs::statat(parent, leaf, AtFlags::SYMLINK_NOFOLLOW)?))
-			})
+			self.root_stat(path, true)
 		}
 
 		pub fn stat(&self, path: &str) -> std::io::Result<ArtifactInfo> {
-			self.with_parent(path, |parent, leaf| {
-				Ok(info(&rustix::fs::statat(parent, leaf, AtFlags::empty())?))
+			self.root_stat(path, false)
+		}
+
+		/// `rootOpenFileNolog`
+		fn open_file(&self, path: &str, flags: OFlags, mode: u32) -> std::io::Result<OwnedFd> {
+			let create_exclusive = flags.contains(OFlags::CREATE | OFlags::EXCL);
+			self.do_in_root(path, Flags::default(), &root_open_dir, |parent, name, _| {
+				match rustix::fs::openat(parent, name, OFlags::NOFOLLOW | OFlags::CLOEXEC | flags, mode_of(mode)) {
+					Ok(fd) => Ok(fd),
+					// Never follow symlinks when creating exclusively.
+					Err(error) if !create_exclusive && (is_no_follow_error(error) || error == Errno::NOTDIR) => {
+						Err(check_symlink(parent, name, error))
+					}
+					Err(error) => Err(error.into()),
+				}
 			})
+			.map_err(|failure| failure.named("openat", path))
 		}
 
 		pub fn read_with_info(&self, path: &str) -> std::io::Result<(Vec<u8>, ArtifactInfo)> {
-			self.with_parent(path, |parent, leaf| {
-				let fd = rustix::fs::openat(
-					parent,
-					leaf,
-					OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-					Mode::empty(),
-				)?;
-				let opened = info(&rustix::fs::fstat(&fd)?);
-				let mut file = File::from(fd);
-				let mut contents = Vec::new();
-				file.read_to_end(&mut contents)?;
-				Ok((contents, opened))
-			})
+			let fd = self.open_file(path, OFlags::RDONLY, 0)?;
+			let opened = info(&rustix::fs::fstat(&fd)?);
+			let mut file = File::from(fd);
+			let mut contents = Vec::new();
+			file.read_to_end(&mut contents)?;
+			Ok((contents, opened))
 		}
 
+		/// `rootRemove`
 		pub fn remove(&self, path: &str) -> std::io::Result<()> {
-			self.with_parent(path, |parent, leaf| {
-				match rustix::fs::unlinkat(parent, leaf, AtFlags::empty()) {
-					Ok(()) => Ok(()),
-					Err(file_error) => rustix::fs::unlinkat(parent, leaf, AtFlags::REMOVEDIR)
-						.map_err(|_| std::io::Error::from(file_error)),
-				}
+			self.do_in_root(path, Flags::default(), &root_open_dir, |parent, name, _| {
+				Ok(removeat(parent, name)?)
 			})
+			.map_err(|failure| failure.named("removeat", path))
 		}
 
+		/// `rootMkdirAll`
 		pub fn mkdir_all(&self, path: &str, mode: u32) -> std::io::Result<()> {
-			let mut current: Option<OwnedFd> = None;
-			for part in components(path) {
-				let base = current.as_ref().unwrap_or(&self.directory);
-				match rustix::fs::mkdirat(base, part, mode_of(mode)) {
-					Ok(()) | Err(rustix::io::Errno::EXIST) => {}
-					Err(error) => return Err(error.into()),
+			let open_dir = |parent: BorrowedFd<'_>, name: &str| -> Result<OwnedFd, Fail> {
+				for attempt in 0..2 {
+					match root_open_dir(parent, name) {
+						Err(Fail::Io(error)) if attempt == 0 && error.kind() == std::io::ErrorKind::NotFound => {}
+						Err(Fail::Io(error)) => return Err(Fail::Op("openat", error)),
+						result => return result,
+					}
+					// Created by another process meanwhile is fine.
+					match rustix::fs::mkdirat(parent, name, mode_of(mode)) {
+						Ok(()) | Err(Errno::EXIST) => {}
+						Err(error) => return Err(Fail::Op("mkdirat", error.into())),
+					}
 				}
-				let next = rustix::fs::openat(
-					base,
-					part,
-					OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::RDONLY,
-					Mode::empty(),
-				)?;
-				current = Some(next);
-			}
-			Ok(())
+				Err(Fail::Op("openat", Errno::NOENT.into()))
+			};
+			let flags = Flags {
+				creating_directory: true,
+				no_handle_terminal_slash: cfg!(any(target_os = "linux", target_os = "openbsd")),
+			};
+			self.do_in_root(path, flags, &open_dir, |parent, name, _| {
+				let mut result = rustix::fs::mkdirat(parent, name, mode_of(mode)).map_err(std::io::Error::from);
+				if matches!(&result, Err(error) if error.raw_os_error() == Some(Errno::EXIST.raw_os_error()))
+					&& let Ok(stat) = lstatat(parent, name)
+				{
+					if FileType::from_raw_mode(stat.st_mode) == FileType::Directory {
+						result = Ok(());
+					} else if is_link(&stat) {
+						// A link to a directory is one, as for `os.MkdirAll`.
+						match self.stat(path) {
+							Ok(target) if target.is_dir() => result = Ok(()),
+							Ok(_) => result = Err(Errno::NOTDIR.into()),
+							Err(error) if error.kind() != std::io::ErrorKind::NotFound => result = Err(error),
+							Err(_) => {}
+						}
+					}
+				}
+				result.map_err(|error| Fail::Op("mkdirat", error))
+			})
+			.map_err(|failure| failure.named("mkdirat", path))
 		}
 
+		/// `rootRename`
 		pub fn rename(&self, old_path: &str, new_path: &str) -> std::io::Result<()> {
-			let (old_parent, old_leaf) = self.parent(old_path)?;
-			let (new_parent, new_leaf) = self.parent(new_path)?;
-			rustix::fs::renameat(
-				old_parent.as_ref().unwrap_or(&self.directory),
-				old_leaf,
-				new_parent.as_ref().unwrap_or(&self.directory),
-				new_leaf,
-			)?;
-			Ok(())
+			let new_flags = Flags {
+				creating_directory: true,
+				no_handle_terminal_slash: false,
+			};
+			self.do_in_root(old_path, Flags::default(), &root_open_dir, |old_parent, old_name, _| {
+				self.do_in_root(
+					new_path,
+					new_flags,
+					&root_open_dir,
+					|new_parent, new_name, new_ends_in_slash| {
+						if new_ends_in_slash
+							&& FileType::from_raw_mode(lstatat(old_parent, old_name)?.st_mode) != FileType::Directory
+						{
+							return Err(Errno::NOTDIR.into());
+						}
+						if let Ok(existing) = lstatat(new_parent, new_name)
+							&& FileType::from_raw_mode(existing.st_mode) == FileType::Directory
+						{
+							let old = lstatat(old_parent, old_name)?;
+							if new_name == old_name || existing.st_dev != old.st_dev || existing.st_ino != old.st_ino {
+								return Err(Errno::EXIST.into());
+							}
+						}
+						Ok(rustix::fs::renameat(old_parent, old_name, new_parent, new_name)?)
+					},
+				)
+				.map_err(|failure| match failure {
+					Failure::Plain(error) => Fail::Io(error),
+					Failure::Named(op, path, error) => Fail::Io(with_path(op, &path, &error)),
+				})
+			})
+			.map_err(|failure| {
+				// Go's `*LinkError`: `renameat <old> <new>: <error>`.
+				let error = match failure {
+					Failure::Plain(error) => error,
+					Failure::Named(op, path, error) => with_path(op, &path, &error),
+				};
+				with_path("renameat", &format!("{old_path} {new_path}"), &error)
+			})
 		}
 
 		pub fn create_exclusive(&self, path: &str, mode: u32) -> std::io::Result<File> {
-			self.with_parent(path, |parent, leaf| {
-				let fd = rustix::fs::openat(
-					parent,
-					leaf,
-					OFlags::RDWR | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-					mode_of(mode),
-				)?;
-				Ok(File::from(fd))
-			})
+			let fd = self.open_file(path, OFlags::RDWR | OFlags::CREATE | OFlags::EXCL, mode)?;
+			Ok(File::from(fd))
 		}
 
 		pub fn file_info(file: &File) -> std::io::Result<ArtifactInfo> {
@@ -304,7 +549,7 @@ mod root {
 
 	fn info(metadata: &std::fs::Metadata) -> ArtifactInfo {
 		let kind = if metadata.file_type().is_symlink() {
-			FileKind::Other
+			FileKind::Symlink
 		} else if metadata.is_file() {
 			FileKind::Regular
 		} else if metadata.is_dir() {

@@ -169,15 +169,7 @@ fn stage_artifact_data(root: &ArtifactRoot, mut entry: StagedArtifact) -> Result
 			format!("flamework: set artifact mode {}: {}", quote(&path), text(&error)),
 		));
 	}
-	if let Err(error) = temp.sync_all().and(Ok(())) {
-		drop(temp);
-		return Err(fail(
-			root,
-			&entry,
-			Some(&temp_path),
-			format!("flamework: close staged artifact {}: {}", quote(&path), text(&error)),
-		));
-	}
+	// Go's `Close` here; it does not sync, and a dropped `File` cannot report a close error.
 	drop(temp);
 	entry.temp.digest = Some(sha256(&data));
 	Ok(entry)

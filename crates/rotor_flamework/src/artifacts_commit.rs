@@ -92,7 +92,6 @@ fn restore_artifact(root: &ArtifactRoot, entry: &StagedArtifact) -> std::io::Res
 	let result = (|| {
 		temp.write_all(&entry.prior)?;
 		ArtifactRoot::chmod(&temp, entry.mode)?;
-		temp.sync_all()?;
 		drop(temp);
 		entry.parent.revalidate_directory(root)?;
 		identity.revalidate_regular(root)?;

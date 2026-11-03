@@ -237,3 +237,94 @@ fn cleanup_staged_artifacts_when_temp_path_collides() {
 	cleanup_staged_artifacts(&transaction, &[entry]);
 	assert_eq!(std::fs::read(&temp).unwrap(), b"attacker");
 }
+
+#[test]
+fn persist_artifacts_names_the_root_operation_that_failed() {
+	// `os.Root`'s `*PathError` text: the operation and the whole path.
+	let (_dir, root) = temp_dir();
+	std::fs::create_dir(join(&[&root, "include"])).unwrap();
+	std::fs::write(join(&[&root, "include", "flamework"]), "file").unwrap();
+	let error = persist_artifacts(&root, &[artifact("include/flamework/config.json", Some(b"{}"))])
+		.unwrap_err()
+		.to_string();
+	assert_eq!(
+		error,
+		r#"flamework: stat artifact "include/flamework/config.json": statat include/flamework/config.json: not a directory"#
+	);
+}
+
+#[cfg(unix)]
+#[test]
+fn persist_artifacts_follows_symlinks_inside_the_root() {
+	// `os.Root` follows a symlinked directory whose target stays inside the root.
+	let (_dir, root) = temp_dir();
+	std::fs::create_dir_all(join(&[&root, "vendor", "include"])).unwrap();
+	std::os::unix::fs::symlink(join(&["vendor", "include"]), join(&[&root, "include"])).unwrap();
+	persist_artifacts(&root, &[artifact("include/flamework/config.json", Some(b"{}"))]).unwrap();
+	assert_eq!(
+		std::fs::read(join(&[&root, "vendor", "include", "flamework", "config.json"])).unwrap(),
+		b"{}"
+	);
+	assert!(
+		std::fs::symlink_metadata(join(&[&root, "include"]))
+			.unwrap()
+			.file_type()
+			.is_symlink()
+	);
+
+	// A relative target that climbs out of the root is refused, as is an absolute one.
+	let (_outside_dir, outside) = temp_dir();
+	std::fs::remove_file(join(&[&root, "include"])).unwrap();
+	std::os::unix::fs::symlink(join(&["..", ".."]), join(&[&root, "include"])).unwrap();
+	let error = persist_artifacts(&root, &[artifact("include/config.json", Some(b"{}"))])
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("path escapes from parent"), "{error}");
+	std::fs::remove_file(join(&[&root, "include"])).unwrap();
+	std::os::unix::fs::symlink(&outside, join(&[&root, "include"])).unwrap();
+	let error = persist_artifacts(&root, &[artifact("include/config.json", Some(b"{}"))])
+		.unwrap_err()
+		.to_string();
+	assert!(error.contains("path escapes from parent"), "{error}");
+	assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn artifact_root_errors_read_as_go_os_root_errors() {
+	// The texts Go 1.26's `os.Root` gives for the same operations.
+	let (_dir, root) = temp_dir();
+	std::fs::create_dir(join(&[&root, "include"])).unwrap();
+	std::fs::write(join(&[&root, "include", "flamework"]), "file").unwrap();
+	std::os::unix::fs::symlink(join(&["..", ".."]), join(&[&root, "up"])).unwrap();
+	let root = open_artifact_root(&root).unwrap();
+	let text = |error: std::io::Error| rotor_support::gostr::io_error_text(&error);
+	assert_eq!(
+		text(root.lstat("include/flamework/config.json").unwrap_err()),
+		"statat include/flamework/config.json: not a directory"
+	);
+	assert_eq!(
+		text(root.mkdir_all("include/flamework/x", 0o755).unwrap_err()),
+		"openat include/flamework: not a directory"
+	);
+	assert_eq!(
+		text(root.mkdir_all("include/flamework", 0o755).unwrap_err()),
+		"mkdirat include/flamework: file exists"
+	);
+	assert_eq!(
+		text(root.remove("include/flamework/x").unwrap_err()),
+		"removeat include/flamework/x: not a directory"
+	);
+	assert_eq!(
+		text(root.rename("include/nope", "include/flamework/y").unwrap_err()),
+		"renameat include/nope include/flamework/y: not a directory"
+	);
+	assert_eq!(
+		text(root.create_exclusive("include/flamework/t", 0o600).unwrap_err()),
+		"openat include/flamework/t: not a directory"
+	);
+	assert_eq!(
+		text(root.lstat("up/x").unwrap_err()),
+		"statat up/x: path escapes from parent"
+	);
+}
