@@ -92,3 +92,6 @@ documentation/playwright-report/
 .agents/skills/wayfinder
 .agents/skills/wizard
 .agents/skills/writing-for-agents
+
+# Rust build output
+/target

@@ -7,8 +7,11 @@ HK_MISE = 1
 experimental = true
 auto_install = false
 lockfile = true
+cargo.binstall_native = true
 
 [tools]
+"cargo:cargo-nextest" = "latest"
+"github:bnjbvr/cargo-machete" = "latest"
 "github:lune-org/lune" = "0.10.1"
 "github:rojo-rbx/rojo" = "7.6.1"
 "go:github.com/uudashr/gocognit/cmd/gocognit" = "latest"
@@ -18,6 +21,7 @@ lockfile = true
 "go:golang.org/x/vuln/cmd/govulncheck" = "latest"
 betterleaks = "latest"
 bun = "latest"
+cargo-deny = "latest"
 communique = "latest"
 go = "1.26.10"
 gofumpt = "0.12.0"
@@ -27,13 +31,16 @@ hk = { version = "2.9.0", workflow = "release.yml" }
 hyperfine = "1.20.0"
 jactionlint = "latest"
 luau = "latest"
+mr-boxington = { version = "latest", workflow = "release.yml@refs/heads/main" }
 ni = "latest"
 node = "22"
 pkl = "latest"
 pnpm = "12.16.1"
 rumdl = "latest"
+rust = { version = "1.99.1", components = ["rustfmt", "clippy"], mr_boxington = true }
 shellcheck = "latest"
 shfmt = "latest"
+tombi = "latest"
 typos = "latest"
 vale = "latest"
 
@@ -270,6 +277,48 @@ git commit --signoff --message "${usage_message?}" --no-verify
 [tasks."docs:generate"]
 description = "Write the CLI reference pages for the documentation site from the live command tree."
 run = "go run ./cmd/rotor gen-docs documentation/src/content/docs/commands"
+
+[tasks."rust:build"]
+description = "Builds the Rust workspace."
+run = "cargo build --locked --workspace"
+
+[tasks."rust:check"]
+description = "Lints, then tests the Rust workspace."
+depends = ["rust:lint"]
+run = "mise run rust:test"
+
+[tasks."rust:fmt"]
+description = "Formats the Rust workspace."
+run = "cargo fmt"
+
+[tasks."rust:gc"]
+description = "Garbage-collects the mbx build cache."
+run = "mbx gc"
+
+[tasks."rust:lint"]
+description = "Checks formatting, clippy (-D warnings), cargo-deny, and cargo-machete."
+run = [
+	"cargo fmt -- --check",
+	"cargo clippy --locked --workspace --all-targets -- -D warnings",
+	"cargo deny check",
+	"cargo machete",
+]
+
+[tasks."rust:release"]
+description = "Builds the rotor-rs release binary."
+run = "cargo build --locked --release -p rotor_cli"
+
+[tasks."rust:test"]
+description = "Runs the Rust workspace tests with nextest."
+run = "cargo nextest run --locked --workspace --no-tests=pass"
+
+[tasks."tools:test"]
+description = "Runs the unit tests for tools/tsrs-mirror and tools/parity."
+run = "vitest run tools/parity tools/tsrs-mirror"
+
+[tasks."tsrs:mirror"]
+description = "Re-vendors the pinned tsrs release into vendor/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
+run = "node tools/tsrs-mirror/main.ts"
 
 [tasks.amend]
 description = "Amends the staged changes, reusing the previous commit message."
