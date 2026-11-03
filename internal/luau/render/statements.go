@@ -207,7 +207,7 @@ func renderFunctionDeclaration(s *RenderState, node *luau.FunctionDeclaration) {
 	}
 	s.write("function ")
 	s.render(node.Name)
-	s.write(luau.GenericsString(node.Generics))
+	s.typeGenerics(node.Generics, false)
 	s.write("(")
 	s.parameters(node)
 	s.write(")")
@@ -224,7 +224,7 @@ func renderMethodDeclaration(s *RenderState, node *luau.MethodDeclaration) {
 	s.render(node.Expression)
 	s.write(":")
 	s.write(node.Name)
-	s.write(luau.GenericsString(node.Generics))
+	s.typeGenerics(node.Generics, false)
 	s.write("(")
 	s.parameters(node)
 	s.write(")")
@@ -236,18 +236,9 @@ func renderMethodDeclaration(s *RenderState, node *luau.MethodDeclaration) {
 	s.newline()
 }
 
-func renderTypeAlias(s *RenderState, node *luau.TypeAlias) {
-	s.write("type ")
-	s.write(node.Name)
-	s.write(luau.GenericsString(node.Generics))
-	s.write(" = ")
-	s.write(node.Type)
-	s.newline()
-}
-
 func renderVariableDeclaration(s *RenderState, node *luau.VariableDeclaration) {
 	s.write("local ")
-	s.exprOrList(node.Left)
+	s.bindings(node.Left)
 	if node.Right != nil {
 		s.write(" = ")
 		s.exprOrList(node.Right)

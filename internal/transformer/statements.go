@@ -11,7 +11,9 @@ import (
 
 // transformVariable ports transformVariableStatement.ts transformVariable
 // (L19-55) — the identifier-binding core, shared later by for-loop
-// initializers and catch clauses.
+// initializers and catch clauses. With luauTypes on, a fresh `local` is
+// annotated where Luau could not infer the type (getLuauLocalType); a
+// hoisted local was annotated by createHoistDeclaration.
 func transformVariable(s *State, identifier *ast.Node, right luau.Expression) luau.WritableExpression {
 	ValidateIdentifier(s, identifier)
 
@@ -43,6 +45,9 @@ func transformVariable(s *State, identifier *ast.Node, right luau.Expression) lu
 		var rightValue luau.NodeOrList
 		if right != nil {
 			rightValue = right
+		}
+		if s.IsLuauTyped {
+			left = luauTypedBinding(s, symbol, left, getLuauLocalType(s, identifier, right))
 		}
 		s.Prereq(luau.NewVariableDeclaration(left, rightValue))
 	}

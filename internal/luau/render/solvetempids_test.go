@@ -310,3 +310,50 @@ func BenchmarkTempIdsRepeatedHints(b *testing.B) {
 		})
 	}
 }
+
+func TestTempIdsInsideTypeof(t *testing.T) {
+	// A temporary referenced from `typeof(expr)` is solved like any other use,
+	// not left to the counter fallback.
+	temp := luau.TempID("instance")
+	x := luau.ID("x")
+	luau.SetBindingType(x, luau.NewTypeTypeof(temp))
+	statements := luau.NewList[luau.Statement](
+		luau.NewVariableDeclaration(temp, luau.Num(1)),
+		luau.NewVariableDeclaration(x, luau.Num(2)),
+		luau.NewReturn(luau.NewCast(luau.ID("y"), luau.NewTypeTypeof(temp))),
+	)
+	want := "local _instance = 1\nlocal x: typeof(_instance) = 2\nreturn y :: typeof(_instance)\n"
+	if got := renderAST(t, statements); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTempIdsTypeofReservesIdentifierUses(t *testing.T) {
+	// An identifier used inside `typeof(expr)` is reserved like a value use.
+	temp := luau.TempID("instance")
+	alias := luau.NewTypeAlias("T", nil, luau.NewTypeTypeof(luau.ID("_instance")))
+	statements := luau.NewList[luau.Statement](
+		alias,
+		luau.NewVariableDeclaration(temp, luau.Num(1)),
+	)
+	want := "type T = typeof(_instance)\nlocal _instance_1 = 1\n"
+	if got := renderAST(t, statements); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestTempIdsTypeFunctionScope(t *testing.T) {
+	// Type function parameters live in the function's scope: a temporary in
+	// the body avoids them, and a temporary after the function does not.
+	inner, outer := luau.TempID("result"), luau.TempID("result")
+	declaration := luau.NewTypeFunctionDeclaration("Keys", luau.NewList[luau.AnyIdentifier](luau.ID("_result")), false,
+		luau.NewList[luau.Statement](luau.NewVariableDeclaration(inner, luau.Num(1))))
+	statements := luau.NewList[luau.Statement](
+		declaration,
+		luau.NewVariableDeclaration(outer, luau.Num(2)),
+	)
+	want := "type function Keys(_result)\n\tlocal _result_1 = 1\nend\nlocal _result = 2\n"
+	if got := renderAST(t, statements); got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}

@@ -28,6 +28,7 @@ type projectOptions struct {
 	optimizedLoops         bool
 	allowCommentDirectives bool
 	luau                   bool
+	luauTypes              bool
 
 	emitDeclarationOnly bool
 
@@ -70,6 +71,7 @@ type partialProjectOptions struct {
 	optimizedLoops         *bool
 	allowCommentDirectives *bool
 	luau                   *bool
+	luauTypes              *bool
 }
 
 // mergeProjectOptions ports the handler's Object.assign({},
@@ -124,6 +126,9 @@ func mergeProjectOptions(base projectOptions, layers ...*partialProjectOptions) 
 		if layer.luau != nil {
 			out.luau = *layer.luau
 		}
+		if layer.luauTypes != nil {
+			out.luauTypes = *layer.luauTypes
+		}
 	}
 	return out
 }
@@ -168,6 +173,7 @@ func (p *partialProjectOptions) rbxtsOptions() *compile.RbxtsOptions {
 		IncludePath:            p.includePath,
 		LogTruthyChanges:       p.logTruthyChanges,
 		Luau:                   p.luau,
+		LuauTypes:              p.luauTypes,
 		NoInclude:              p.noInclude,
 		OptimizedArrayAppends:  p.optimizedArrayAppends,
 		OptimizedLoops:         p.optimizedLoops,
@@ -191,5 +197,6 @@ func readRbxtsOptionsChecked(tsConfigPath string) (*partialProjectOptions, error
 		optimizedLoops:         r.OptimizedLoops,
 		allowCommentDirectives: r.AllowCommentDirectives,
 		luau:                   r.Luau,
+		luauTypes:              r.LuauTypes,
 	}, nil
 }

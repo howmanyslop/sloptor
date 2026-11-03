@@ -135,10 +135,12 @@ func buildInlineConditionExpression(s *State, node *ast.Node, tsBinaryOperator a
 
 	conditionID := luau.TempID("condition")
 	buildLogicalChainPrereqs(s, chain, conditionID, buildCondition, 0)
-	return conditionID
+	return luauRefinedCondition(s, node, conditionID)
 }
 
-// transformLogical ports transformLogical (L147-167).
+// transformLogical ports transformLogical (L147-167). With luauTypes on, a
+// `_condition` temp is re-bound to the expression's TS type after the chain
+// (luauRefinedCondition); the inline `a and b` / `a or b` forms need none.
 func transformLogical(s *State, node *ast.Node) luau.Expression {
 	operatorKind := node.AsBinaryExpression().OperatorToken.Kind
 	switch operatorKind {
@@ -164,7 +166,7 @@ func transformLogical(s *State, node *ast.Node) luau.Expression {
 		chain := getLogicalChain(s, node, ast.KindQuestionQuestionToken, false)
 		conditionID := luau.TempID("condition")
 		buildLogicalChainPrereqs(s, chain, conditionID, buildCondition, 0)
-		return conditionID
+		return luauRefinedCondition(s, node, conditionID)
 	}
 	panic("transformer: transformLogical operator not implemented: " + kindName(operatorKind)) // upstream assert(false)
 }

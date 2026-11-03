@@ -263,7 +263,14 @@ func transformPropertyAssignment(s *State, ptr *MapPointer, name *ast.Node, init
 	if leftPrereqs.IsNonEmpty() || rightPrereqs.IsNonEmpty() {
 		DisableMapInline(s, ptr)
 		s.PrereqList(leftPrereqs)
-		left = s.PushToVar(left, "left")
+		// With luauTypes on, a literal key is not pinned: `_object.host = v`
+		// lets Luau keep the spilled table's shape (`{ host: string, ... }`),
+		// where `_object[_left] = v` with `_left: string` would make it an
+		// indexer table that no declared type accepts. Only a computed key
+		// needs the pin for its evaluation order.
+		if !s.IsLuauTyped || !luau.IsSimplePrimitive(left) {
+			left = s.PushToVar(left, "left")
+		}
 	}
 
 	s.PrereqList(rightPrereqs)

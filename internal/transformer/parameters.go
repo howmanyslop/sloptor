@@ -32,12 +32,22 @@ func transformInitializer(s *State, id luau.WritableExpression, initializer *ast
 //   - a TS `this` parameter emits nothing (its only effect is via isMethod);
 //   - rest `...args` sets hasDotDotDot and prepends `local args = { ... }`;
 //   - defaults run BEFORE destructuring, via transformInitializer.
+//
+// Annotations (luautypes_emit.go, nativetypes.go): with luauTypes on,
+// `self`, every parameter and every `_param` temp get the builder's type and
+// a defaulted parameter is re-bound to its non-nil type right after its
+// default; a `//!native` file keeps the native annotations instead. The
+// `...: T` annotation is the caller's (getLuauVarargType on the function).
 func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.AnyIdentifier], statements *luau.List[luau.Statement], hasDotDotDot bool, varArgsData *VarArgsData) {
 	parameters = luau.NewList[luau.AnyIdentifier]()
 	statements = luau.NewList[luau.Statement]()
 
 	if isMethod(s, node) {
-		parameters.Push(luau.GlobalID("self"))
+		self := luau.GlobalID("self")
+		if s.luauTypedSignatures() {
+			luau.SetBindingType(self, getLuauSelfType(s, node))
+		}
+		parameters.Push(self)
 	}
 
 	for _, parameterNode := range node.Parameters() {
@@ -81,13 +91,20 @@ func transformParameters(s *State, node *ast.Node) (parameters *luau.List[luau.A
 			}
 		} else {
 			parameters.Push(paramID)
-			if s.IsNative && ast.IsIdentifier(name) {
-				luau.SetParameterType(paramID, getNativeParameterType(s, parameterNode))
+			if s.luauTypedSignatures() {
+				luau.SetBindingType(paramID, getLuauParameterType(s, parameterNode))
+			} else if s.IsNative && ast.IsIdentifier(name) {
+				luau.SetBindingType(paramID, getNativeParameterType(s, parameterNode))
 			}
 		}
 
 		if parameter.Initializer != nil {
 			statements.Push(transformInitializer(s, paramID.(luau.WritableExpression), parameter.Initializer))
+			if s.luauTypedSignatures() {
+				if refinement := luauDefaultRefinement(s, name, parameterNode, paramID); refinement != nil {
+					statements.Push(refinement)
+				}
+			}
 		}
 
 		// destructuring
@@ -129,14 +146,22 @@ func optimizeArraySpreadParameter(s *State, parameters *luau.List[luau.AnyIdenti
 				paramID := TransformIdentifierDefined(s, name)
 				ValidateIdentifier(s, name)
 				parameters.Push(paramID)
+				if s.luauTypedSignatures() {
+					luau.SetBindingType(paramID, getLuauBindingElementType(s, element))
+				}
 				if bindingElement.Initializer != nil {
 					s.Prereq(transformInitializer(s, paramID.(luau.WritableExpression), bindingElement.Initializer))
+					prereqLuauDefaultRefinement(s, name, element, paramID)
 				}
 			} else {
 				paramID := luau.TempID("param")
 				parameters.Push(paramID)
+				if s.luauTypedSignatures() {
+					luau.SetBindingType(paramID, getLuauBindingElementType(s, element))
+				}
 				if bindingElement.Initializer != nil {
 					s.Prereq(transformInitializer(s, paramID, bindingElement.Initializer))
+					prereqLuauDefaultRefinement(s, name, element, paramID)
 				}
 				if ast.IsArrayBindingPattern(name) {
 					transformArrayBindingPattern(s, name, paramID)
@@ -145,5 +170,16 @@ func optimizeArraySpreadParameter(s *State, parameters *luau.List[luau.AnyIdenti
 				}
 			}
 		}
+	}
+}
+
+// prereqLuauDefaultRefinement prereqs the luauTypes re-binding of a
+// defaulted flattened parameter (see luauDefaultRefinement).
+func prereqLuauDefaultRefinement(s *State, name *ast.Node, owner *ast.Node, paramID luau.AnyIdentifier) {
+	if !s.luauTypedSignatures() {
+		return
+	}
+	if refinement := luauDefaultRefinement(s, name, owner, paramID); refinement != nil {
+		s.Prereq(refinement)
 	}
 }

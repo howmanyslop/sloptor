@@ -173,23 +173,38 @@ type State struct {
 	// directive comment itself is emitted either way, as rbxtsc does.
 	NativeTypes bool
 
+	// LuauTypes enables rotor's experimental full Luau type annotations: when
+	// true, every file gets parameter, return, local, class-field and exported
+	// type-alias annotations so Luau code can consume the output with real
+	// types. It defaults off because the emitted code intentionally differs
+	// from rbxtsc, and the output may change between releases. When both
+	// LuauTypes and NativeTypes are on in a `//!native` file, the native
+	// policy owns the signatures (parameters, returns, generics and the
+	// colon-form class methods that come with them) and LuauTypes owns the
+	// locals, enums and type aliases.
+	LuauTypes bool
+
 	// IsNative is set when the file carries a `//!native` directive AND
 	// NativeTypes is enabled; only then are Luau type annotations emitted
 	// (see nativetypes.go).
 	IsNative bool
 
-	// nativeScopes tracks the generic names in scope while a `//!native`
-	// annotation is rendered: one entry per enclosing function that declares
-	// type parameters, in addition to one barrier entry per type alias body
-	// being built (see nativetypes.go).
-	nativeScopes []nativeGenericScope
-	// nativeAliases holds the emitted `type` statements in registration order;
-	// prependHeader places them after the header.
-	nativeAliases []*luau.TypeAlias
-	// nativeAliasBySymbol and nativeAliasByName dedupe aliases (a symbol keeps
-	// one alias however many times it is referenced) and detect name clashes.
-	nativeAliasBySymbol map[*ast.Symbol]*nativeAliasEntry
-	nativeAliasByName   map[string]*nativeAliasEntry
+	// IsLuauTyped is set when the LuauTypes option is on. Unlike IsNative it
+	// needs no comment directive, so removeComments cannot disable it.
+	IsLuauTyped bool
+
+	// typeScopes tracks the generic names in scope while a type annotation
+	// is built: one entry per enclosing function that declares type
+	// parameters, in addition to one barrier entry per type alias body being
+	// built (see nativetypes.go). Both the native annotations and the
+	// luauTypes builder consult it.
+	typeScopes []typeGenericScope
+	// luauTypeBuilder is the file's TS-to-Luau type builder, created on first
+	// use by State.types (see luautypes.go). Its alias registry serves the
+	// `//!native` annotations too, unless luauTypes is on as well: the native
+	// annotations then build through nativeTypeBuilder (State.nativeTypes).
+	luauTypeBuilder   *typeBuilder
+	nativeTypeBuilder *typeBuilder
 
 	// SkipSemanticDiagnostics honors [flamework] noSemanticDiagnostics: the
 	// roblox-ts precheck does not run GetSemanticDiagnostics, so identifiers
@@ -294,9 +309,6 @@ func NewState(program *compiler.Program, chk *checker.Checker, sourceFile *ast.S
 
 		ClassIdentifierMap:         make(map[*ast.Node]luau.AnyIdentifier),
 		classElementToObjectKeyMap: make(map[*ast.Node]luau.Expression),
-
-		nativeAliasBySymbol: make(map[*ast.Symbol]*nativeAliasEntry),
-		nativeAliasByName:   make(map[string]*nativeAliasEntry),
 	}
 	if sourceFile != nil {
 		s.SourceFileText = sourceFile.Text()

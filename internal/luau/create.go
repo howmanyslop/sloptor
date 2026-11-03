@@ -45,6 +45,10 @@ func adoptNodeOrList(parent Node, v NodeOrList) NodeOrList {
 		return adoptList(parent, x)
 	case *List[Statement]:
 		return adoptList(parent, x)
+	case *List[TypeNode]:
+		return adoptList(parent, x)
+	case *List[TypeTableField]:
+		return adoptList(parent, x)
 	case Node:
 		return adopt(parent, x)
 	default:
@@ -124,11 +128,6 @@ func Str(value string) *StringLiteral { return &StringLiteral{Value: value} }
 func ID(name string) *Identifier      { return NewIdentifier(name) }
 
 func NewComment(text string) *Comment { return &Comment{Text: text} }
-
-// NewTypeAlias builds `type Name<Generics> = typeText`.
-func NewTypeAlias(name string, generics []string, typeText string) *TypeAlias {
-	return &TypeAlias{Name: name, Generics: generics, Type: typeText}
-}
 
 func NewFunctionExpression(params *List[AnyIdentifier], hasDotDotDot bool, statements *List[Statement]) *FunctionExpression {
 	n := &FunctionExpression{HasDotDotDot: hasDotDotDot}

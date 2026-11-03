@@ -205,7 +205,15 @@ func createHoistDeclaration(s *State, statement *ast.Node) luau.Statement {
 	left := luau.NewList[luau.AnyIdentifier]()
 	for _, hoist := range hoists {
 		ValidateIdentifier(s, hoist)
-		left.Push(TransformIdentifierDefined(s, hoist))
+		id := TransformIdentifierDefined(s, hoist)
+		if s.IsLuauTyped {
+			// A hoisted `local x` has no initializer to infer from, so it
+			// carries the symbol's declared type (luautypes_emit.go).
+			if symbol := s.Checker.GetSymbolAtLocation(hoist); symbol != nil {
+				id = luauTypedBinding(s, symbol, id, getLuauLocalType(s, hoist, nil))
+			}
+		}
+		left.Push(id)
 	}
 	return luau.NewVariableDeclaration(left, nil)
 }

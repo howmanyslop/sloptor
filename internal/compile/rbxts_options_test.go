@@ -24,7 +24,7 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	}
 	basePath := filepath.Join(baseDir, "base.json")
 	childPath := filepath.Join(childDir, "tsconfig.json")
-	if err := os.WriteFile(basePath, []byte(`{"rbxts":{"type":"package","luau":true,"nativeTypes":true,"noInclude":true,"optimizedArrayAppends":true,"rojo":"./base.project.json"}}`), 0o644); err != nil {
+	if err := os.WriteFile(basePath, []byte(`{"rbxts":{"type":"package","luau":true,"luauTypes":true,"nativeTypes":true,"noInclude":true,"optimizedArrayAppends":true,"rojo":"./base.project.json"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(childPath, []byte(`{"extends":"../base/base.json","rbxts":{"type":"game","luau":false,"includePath":"./runtime","rojo":"./child.project.json"}}`), 0o644); err != nil {
@@ -54,6 +54,9 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	}
 	if opts.NativeTypes == nil || !*opts.NativeTypes {
 		t.Errorf("nativeTypes = %v, want true from parent", opts.NativeTypes)
+	}
+	if opts.LuauTypes == nil || !*opts.LuauTypes {
+		t.Errorf("luauTypes = %v, want true from parent", opts.LuauTypes)
 	}
 	if opts.IncludePath == nil || *opts.IncludePath != filepath.Join(childDir, "runtime") {
 		t.Errorf("includePath = %v, want child-relative absolute path", opts.IncludePath)
@@ -96,13 +99,13 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	if rbxts["additionalProperties"] != false {
 		t.Errorf("schema additionalProperties = %v, want false", rbxts["additionalProperties"])
 	}
-	if properties, ok := rbxts["properties"].(map[string]any); !ok || properties["nativeTypes"] == nil {
-		t.Errorf("schema does not declare nativeTypes: %v", rbxts["properties"])
+	if properties, ok := rbxts["properties"].(map[string]any); !ok || properties["nativeTypes"] == nil || properties["luauTypes"] == nil {
+		t.Errorf("schema does not declare nativeTypes and luauTypes: %v", rbxts["properties"])
 	}
 	// The child overrides an inherited boolean the same way it overrides any
 	// other rbxts option.
 	overridePath := filepath.Join(root, "override.json")
-	if err := os.WriteFile(overridePath, []byte(`{"extends":"./base/base.json","rbxts":{"nativeTypes":false}}`), 0o644); err != nil {
+	if err := os.WriteFile(overridePath, []byte(`{"extends":"./base/base.json","rbxts":{"nativeTypes":false,"luauTypes":false}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	override, err := ReadRbxtsOptions(overridePath)
@@ -111,6 +114,9 @@ func TestRbxtsOptionsCascade(t *testing.T) {
 	}
 	if override == nil || override.NativeTypes == nil || *override.NativeTypes {
 		t.Errorf("child nativeTypes = %+v, want explicit false overriding the parent", override)
+	}
+	if override == nil || override.LuauTypes == nil || *override.LuauTypes {
+		t.Errorf("child luauTypes = %+v, want explicit false overriding the parent", override)
 	}
 }
 
@@ -190,7 +196,7 @@ func TestRbxtsOptionsValidation(t *testing.T) {
 	}
 
 	// When / Then
-	unknown := writeConfig("unknown.json", `{"rbxts":{"rojo":"a.project.json","nativeTypes":true,"watch":true,"unknownOpt":true}}`)
+	unknown := writeConfig("unknown.json", `{"rbxts":{"rojo":"a.project.json","nativeTypes":true,"luauTypes":true,"watch":true,"unknownOpt":true}}`)
 	opts, err := ReadRbxtsOptions(unknown)
 	if err != nil {
 		t.Fatal(err)
@@ -201,10 +207,13 @@ func TestRbxtsOptionsValidation(t *testing.T) {
 	if opts.NativeTypes == nil || !*opts.NativeTypes {
 		t.Errorf("nativeTypes = %v, want the known key to parse", opts.NativeTypes)
 	}
+	if opts.LuauTypes == nil || !*opts.LuauTypes {
+		t.Errorf("luauTypes = %v, want the known key to parse", opts.LuauTypes)
+	}
 	if got := warnings.String(); !strings.Contains(got, `Unknown "rbxts" option "watch" in `+unknown+` (ignored)`) || !strings.Contains(got, `Unknown "rbxts" option "unknownOpt" in `+unknown+` (ignored)`) {
 		t.Errorf("warning = %q", got)
-	} else if strings.Contains(got, "nativeTypes") {
-		t.Errorf("nativeTypes must be a known key, warning = %q", got)
+	} else if strings.Contains(got, "nativeTypes") || strings.Contains(got, "luauTypes") {
+		t.Errorf("nativeTypes and luauTypes must be known keys, warning = %q", got)
 	}
 
 	badType := writeConfig("bad-type.json", `{"rbxts":{"type":"library"}}`)

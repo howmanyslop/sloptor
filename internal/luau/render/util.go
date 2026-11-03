@@ -36,40 +36,65 @@ func (s *RenderState) identifiers(identifiers *luau.List[luau.AnyIdentifier]) {
 	}
 }
 
-func (s *RenderState) typedParameters(identifiers *luau.List[luau.AnyIdentifier]) {
+// binding renders an identifier where it is bound, with its `: T` annotation.
+func (s *RenderState) binding(identifier luau.AnyIdentifier) {
+	s.render(identifier)
+	if annotation := luau.BindingType(identifier); annotation != nil {
+		s.write(": ")
+		s.renderType(annotation, typeSlotTop)
+	}
+}
+
+func (s *RenderState) typedBindings(identifiers *luau.List[luau.AnyIdentifier]) {
 	for current := identifiers.Head; current != nil; current = current.Next {
 		if current != identifiers.Head {
 			s.write(", ")
 		}
-		s.render(current.Value)
-		if annotation := luau.ParameterType(current.Value); annotation != nil {
-			s.write(": ")
-			s.write(annotation.String())
+		s.binding(current.Value)
+	}
+}
+
+// bindings renders the left side of a `local`: one identifier or a list,
+// each with its binding annotation.
+func (s *RenderState) bindings(left luau.NodeOrList) {
+	switch x := left.(type) {
+	case *luau.List[luau.AnyIdentifier]:
+		if x.IsEmpty() {
+			panic("empty identifier list")
 		}
+		s.typedBindings(x)
+	case luau.AnyIdentifier:
+		s.binding(x)
+	default:
+		s.exprOrList(left)
 	}
 }
 
 func (s *RenderState) parameters(node luau.HasParameters) {
-	params, hasDotDotDot := node.ParamData()
+	params, hasDotDotDot, varArgsType := node.ParamData()
 	if params == nil {
 		// Unreachable: every function constructor receives its (possibly
 		// empty) parameter list. Fail loudly here rather than nil-dereffing
 		// in identifiers below.
 		panic("render: parameters got nil parameter list") // upstream assert
 	}
-	s.typedParameters(params)
+	s.typedBindings(params)
 	if hasDotDotDot {
 		if params.IsNonEmpty() {
 			s.write(", ")
 		}
 		s.write("...")
+		if varArgsType != nil {
+			s.write(": ")
+			s.renderType(varArgsType, typeSlotTop)
+		}
 	}
 }
 
 func (s *RenderState) returnType(node luau.HasParameters) {
 	if annotation := node.ReturnTypeData(); annotation != nil {
 		s.write(": ")
-		s.write(annotation.String())
+		s.renderType(annotation, typeSlotTop)
 	}
 }
 

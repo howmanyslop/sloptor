@@ -77,6 +77,7 @@ type buildFlags struct {
 	optimizedLoops         bool
 	allowCommentDirectives bool
 	luau                   bool
+	luauTypes              bool
 	jsonOut                bool
 	bell                   bool
 	clear                  bool
@@ -132,6 +133,8 @@ func registerBuildFlags(cmd *cobra.Command, flags *buildFlags) {
 		"allow @ts-ignore et al.")
 	addBoolFlag(cmd, &flags.luau, "luau", "", true,
 		"emit files with .luau extension (default true; --luau=false emits .lua)")
+	addBoolFlag(cmd, &flags.luauTypes, "luauTypes", "", false,
+		"experimental: emit full Luau type annotations in compiled output")
 	addStringFlag(cmd, &flags.cpuprofile, "cpuprofile", "", "", "<path>",
 		"write a pprof CPU profile of the build (diagnostics)")
 	addStringFlag(cmd, &flags.traceOut, "trace-out", "", "", "<path>",
@@ -182,6 +185,7 @@ func collectBuildArgs(f *pflag.FlagSet, argv []string, flags *buildFlags, ba *bu
 		"writeTransformedFiles": &ba.opts.writeTransformedFiles, "optimizedArrayAppends": &ba.opts.optimizedArrayAppends,
 		"optimizedLoops":         &ba.opts.optimizedLoops,
 		"allowCommentDirectives": &ba.opts.allowCommentDirectives, "luau": &ba.opts.luau,
+		"luauTypes": &ba.opts.luauTypes,
 	} {
 		if f.Changed(name) {
 			v, _ := f.GetBool(name)
@@ -608,6 +612,7 @@ func projectCompileOptions(tsConfigPath string, opts projectOptions) compile.Pro
 		OptimizedArrayAppends:  opts.optimizedArrayAppends,
 		NoOptimizedLoops:       !opts.optimizedLoops,
 		LuaExtension:           !opts.luau,
+		LuauTypes:              opts.luauTypes,
 		WriteOnlyChanged:       opts.writeOnlyChanged,
 		EmitDeclarationOnly:    opts.emitDeclarationOnly,
 		Builders:               opts.builders,

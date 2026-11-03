@@ -6,7 +6,7 @@ description: "Every key in rotor.toml, generated from rotor.schema.json."
 import SchemaReference from "$components/schema-reference.astro";
 import schema from "../../../../../rotor.schema.json";
 
-`rotor.toml` at the project root configures optional rotor settings: the `//!native` type-annotation opt-in (`nativeTypes`), native Flamework, and experimental parallel external transformers. Add a schema directive for editor validation and completion:
+`rotor.toml` at the project root configures optional rotor settings: the `//!native` type-annotation opt-in (`nativeTypes`), the experimental full Luau type-annotation opt-in (`luauTypes`), native Flamework, and experimental parallel external transformers. Add a schema directive for editor validation and completion:
 
 ```toml
 #:schema https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json

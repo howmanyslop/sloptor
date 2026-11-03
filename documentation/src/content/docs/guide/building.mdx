@@ -15,7 +15,7 @@ sloptor build testdata/diff/project
 
 A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`). The fixture project above is a minimal working example of that setup.
 
-`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--luauTypes` (experimental), `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
 
 TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
 
@@ -114,6 +114,174 @@ A parameter that callers may omit becomes optional: a `?` marker, a default valu
 sloptor never emits a bare `table`. Luau's compiler tags it as userdata, so the native entry guard would fail on every call.
 
 Return annotations don't affect native code generation. They only help Luau's type checker. A wrong annotation costs an interpreter fallback, never a crash. Luau's analyzer may still warn that a defaulted parameter is `number?` where the body uses it in arithmetic after the `if x == nil then x = default end` check. That only affects Studio script-analysis warnings, and the `?` is required: an omitted argument arrives as `nil`, and a plain `number` annotation would send every such call back to the interpreter.
+
+## Luau type annotations (experimental)
+
+`luauTypes` is an experimental, opt-in rotor extension and off by default. With the option on, sloptor emits full Luau type annotations in every compiled file. That covers parameters, `...`, returns, generics, the `self` of every method, locals that Luau can't infer, class instance aliases, enum aliases, and a `type` / `export type` statement for every interface and type alias. Luau code that requires the output then gets real types instead of `any`. The emitted Luau differs from rbxtsc, and the output may change between releases. The design record is `docs/superpowers/specs/2026-10-29-luau-types-design.md`.
+
+Enable it on the command line, in `tsconfig.json`, or in `rotor.toml`:
+
+```sh
+sloptor build --luauTypes
+```
+
+```json
+{
+	"rbxts": { "luauTypes": true }
+}
+```
+
+```toml
+luauTypes = true
+```
+
+The command-line flag overrides both files, and `--luauTypes=false` turns a declared option off again. `rbxts.luauTypes` overrides `rotor.toml`, whose value applies only when neither of the others declares the key. Toggling the option changes the incremental salt, and the next build rewrites every output. With `nativeTypes` also on, a `//!native` file keeps the native policy for its signatures: parameters, returns, generics, and the colon-form class methods that come with them. `luauTypes` still annotates that file's locals, enums, and type aliases. The option doesn't depend on a comment directive, and `removeComments` leaves it on.
+
+### Before and after
+
+A module with an interface, a string enum, a function with a defaulted parameter, and a class:
+
+```ts
+export interface Point {
+	x: number;
+	y: number;
+}
+
+export enum Direction {
+	Up = "up",
+	Down = "down",
+}
+
+export function scale(point: Point, factor = 2): Point {
+	return { x: point.x * factor, y: point.y * factor };
+}
+
+export class Counter {
+	constructor(public count: number) {}
+
+	step(direction: Direction): number {
+		this.count += direction === Direction.Up ? 1 : -1;
+		return this.count;
+	}
+}
+```
+
+With the option off it compiles to the same Luau as rbxtsc:
+
+```lua
+local Direction = {
+	Up = "up",
+	Down = "down",
+}
+local function scale(point, factor)
+	if factor == nil then
+		factor = 2
+	end
+	return {
+		x = point.x * factor,
+		y = point.y * factor,
+	}
+end
+local Counter
+do
+	Counter = setmetatable({}, {
+		__tostring = function()
+			return "Counter"
+		end,
+	})
+	Counter.__index = Counter
+	function Counter.new(...)
+		local self = setmetatable({}, Counter)
+		return self:constructor(...) or self
+	end
+	function Counter:constructor(count)
+		self.count = count
+	end
+	function Counter:step(direction)
+		self.count += if direction == Direction.Up then 1 else -1
+		return self.count
+	end
+end
+return {
+	scale = scale,
+	Direction = Direction,
+	Counter = Counter,
+}
+```
+
+With `luauTypes` on:
+
+```lua
+export type Point = { x: number, y: number }
+export type Direction = "up" | "down"
+local Direction: { read Up: "up", read Down: "down" } = {
+	Up = "up",
+	Down = "down",
+}
+local function scale(point: Point, factor: number?): Point
+	if factor == nil then
+		factor = 2
+	end
+	local factor = factor :: number
+	return {
+		x = point.x * factor,
+		y = point.y * factor,
+	}
+end
+export type Counter = { count: number, step: (self: Counter, direction: Direction) -> number }
+local Counter = setmetatable({}, {
+	__tostring = function()
+		return "Counter"
+	end,
+})
+do
+	Counter.__index = Counter
+	function Counter.new(count: number): Counter
+		local self = (setmetatable({}, Counter) :: any) :: Counter
+		return Counter.constructor(self, count) or self
+	end
+	function Counter.constructor(self: Counter, count: number)
+		self.count = count
+	end
+	function Counter.step(self: Counter, direction: Direction): number
+		self.count += if direction == Direction.Up then 1 else -1
+		return self.count
+	end
+end
+return {
+	scale = scale,
+	Direction = Direction,
+	Counter = Counter,
+}
+```
+
+A Luau consumer of the compiled module gets `Point`, `Direction` and `Counter` as importable types: `local M = require(path)`, then `M.Point`. It also gets a checked `M.scale(p, 3)`, a `Counter.new(1)` whose result has `count` and `step`, and an error on `M.scale("x")` or `Direction.Sideways`.
+
+What changed, line by line:
+
+- Every interface and type alias of the file becomes `type` / `export type` at its declaration. `readonly` is `read`, optional members are `T?`, `T[]` is `{ T }`, `Map`/`Set` are `{ [K]: V }` / `{ [K]: true }`, overloads are `((A) -> B) & ((C) -> D)`, and `keyof T` / `T[K]` with an unresolved `T` are `keyof<T>` / `index<T, K>`. sloptor mirrors types from a namespace, a function, another file, `node_modules` or the lib as hoisted aliases after the header, under their local import name, because `TS.import` is opaque to Luau's checker. A name that collides with a Luau builtin, a Roblox type, or a type parameter used in the file takes `_2`.
+- Parameters and returns take the TypeScript type: `?` and a default make `number?`, a rest parameter annotates `...: string`, a destructured parameter annotates its `_param` temp, and `this` is `self`. A `LuaTuple<[A, B]>` return is the pack `(A, B)`, `void` is `()`, and a void body with an explicit `return` is `...nil`. Neither Luau solver refines `factor: number?` through the `if factor == nil then` default, and the shadow `local factor = factor :: number` after it supplies the narrowing instead. A `??`, `||` or `&&` temp gets the same re-binding.
+- Locals read like hand-written Luau. An initialized local takes its type from its value, so `let count: number = 0` compiles to `local count = 0` and an imported binding to `local aNumber = _primitives.aNumber`. A local is annotated only when it has no initializer, such as `local label: string?`, or when its written type differs from what the value would give it, such as the upcast `local box: Box<number> = pair` or the narrowing `local mode: "r" | "w" = "r"`. An `async` function's local gets the type `(n: number) -> Promise<number>`, since that annotation is its only signature, while the callback inside `TS.async` returns the settled type.
+- A class becomes a structural instance alias and a class table initialized on its declaration line. The alias leaves `constructor` out and re-lists inherited members, with an explicit `self` on every method. `new` takes the constructor's parameters and builds `self` through `(setmetatable({}, Counter) :: any) :: Counter`, then calls `Counter.constructor(self, ...) or self`. Every method is a dot-form function with an annotated `self`. Class generics appear again on every function, for example `function Box.get<T>(self: Box<T>): T`, and statics take `self: typeof(Counter)`. The colon form never appears: a colon-form `self` is an inferred table unrelated to the alias, and `self.nope` passes without an error.
+- A string enum is a union alias plus a `read` map, and a numeric enum is `number` plus the inverse-indexed table. A `const enum` is the alias alone.
+- A generic alias whose body is a mapped, conditional or template literal type becomes a Luau `type function`. It computes the same type at analysis time, and `Partial2<T>`, `T extends (infer U)[] ? U : T` and ``{ [K in T as `on${K}`]: () => void }`` all translate this way. `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `Exclude`, `Extract`, `NonNullable`, `ReturnType` and `Parameters` used with a free type parameter go through a hoisted prelude such as `__Partial<T>`. Used with concrete arguments they expand to the exact resolved type.
+
+### Luau's new solver
+
+`keyof<T>`, `index<T, K>` and user-defined `type function`s exist only under Luau's new type solver, and the class idiom relies on its subtyping. That's `luau-analyze`'s default since 0.721, `luau-lsp analyze --flag:LuauSolverV2=true` on the command line or `luau-lsp.fflags.enableNewSolver` in the editor, and the new type solver in Roblox Studio. sloptor doesn't add a mode directive. A `//!strict` comment at the top of the TypeScript file passes through as `--!strict` as before, and sloptor's own tests check the output in strict mode.
+
+### What is lossy
+
+Luau can't say everything TypeScript can. sloptor records each substitution below as a fidelity loss. Only the alias-level ones get a `-- luauTypes: <type> spelled as <Luau>: <reason>` comment before the statement. The full list and policy are in `docs/superpowers/specs/2026-10-29-luau-types-design.md`.
+
+- A tuple used as a value type, `[A, B]`, is `{ A | B }` and loses its positions, because Luau has packs only in parameter and return positions. A rest parameter typed by a tuple or a bare type parameter is `...any`.
+- Number literal types such as `1 | 2` and numeric enum members are `number`, because Luau has no number singletons. Template literal types are `string`, `bigint` is `number`, and `symbol` is `any`.
+- `LuaTuple<[A, B?]>` is `(A, B?)`. A Luau pack requires every element, which means a short return must pass `undefined` explicitly. `LuaTuple<...> | undefined` is `...any`, and a `LuaTuple` outside a return position is `any`.
+- sloptor drops generic constraints, because Luau has no `extends`. On class instances it drops `readonly` and exposes private members, because the constructor writes through `self`.
+- sloptor emits a type function only for what the translator can express. An `infer` outside `T extends (infer U)[]` and `T extends (...args: any) => infer R`, an `as` clause, a member type naming another alias such as `Uppercase<K>`, `Box<T[K]>` or `Promise<infer U>`, or a self reference makes the whole alias `any` under a loss comment. Uses of such an alias with concrete arguments still expand exactly. Only generic uses get the `any`.
+- A recursive alias referenced with different arguments, such as `Weird<T[]>` inside `Weird<T>` or the lib's `Promise<T>`, spells that member `any`, as Luau's recursion rule requires.
+- A class referenced before its declaration keeps the hoisted `local Late: any`. A class value, `typeof Foo`, is the structural `{ new: ..., statics }` table with no `self` on the statics. The new solver can't instantiate a generic method called through a subtype receiver, such as `pair.map(...)` where `Box<T>` declares `map`. Call it through the base type instead.
+- `typeof x` stays `typeof(x)` only for a top-level `const`, function or class that the same file declares before the use. Anything else takes its spelling from the resolved type. `export { X as Y }` keeps `X` as the alias name.
 
 ## Shell completion
 

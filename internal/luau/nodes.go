@@ -5,7 +5,7 @@ package luau
 type Identifier struct {
 	base
 	Name       string
-	Annotation *Type // parameter annotation, rendered only in a parameter list
+	Annotation TypeNode // binding annotation, rendered in parameter lists and `local` left sides
 }
 
 type TemporaryIdentifier struct {
@@ -13,7 +13,7 @@ type TemporaryIdentifier struct {
 	Name       string
 	ID         int
 	ExactName  bool
-	Annotation *Type // parameter annotation, rendered only in a parameter list
+	Annotation TypeNode // binding annotation, rendered in parameter lists and `local` left sides
 }
 
 type ComputedIndexExpression struct {
@@ -69,8 +69,9 @@ type VarArgsLiteral struct{ base }
 
 type FunctionExpression struct {
 	base
-	ReturnType   *Type
-	Generics     []string // `<K, V>` rendered after `function`
+	ReturnType   TypeNode      // `: R` after the parameter list; nil leaves the return unannotated
+	Generics     []TypeGeneric // `<K, V>` rendered after `function`; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -181,10 +182,11 @@ type ForStatement struct {
 
 type FunctionDeclaration struct {
 	base
-	ReturnType   *Type
+	ReturnType   TypeNode // `: R` after the parameter list; nil leaves the return unannotated
 	Localize     bool
-	Name         Expression // AnyIdentifier | PropertyAccessExpression
-	Generics     []string   // `<K, V>` rendered after the name
+	Name         Expression    // AnyIdentifier | PropertyAccessExpression
+	Generics     []TypeGeneric // `<K, V>` rendered after the name; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -192,10 +194,11 @@ type FunctionDeclaration struct {
 
 type MethodDeclaration struct {
 	base
-	ReturnType   *Type
+	ReturnType   TypeNode // `: R` after the parameter list; nil leaves the return unannotated
 	Expression   IndexableExpression
 	Name         string
-	Generics     []string // `<K, V>` rendered after `:name`
+	Generics     []TypeGeneric // `<K, V>` rendered after `:name`; defaults are not allowed
+	VarArgsType  TypeNode      // `...: T` on the rest parameter; nil leaves it unannotated
 	Parameters   *List[AnyIdentifier]
 	HasDotDotDot bool
 	Statements   *List[Statement]
@@ -215,15 +218,6 @@ type ReturnStatement struct {
 type Comment struct {
 	base
 	Text string
-}
-
-// TypeAlias is a rotor extension: `type Name<K, V> = <Type>`. Type is
-// pre-rendered Luau type text; the node has no child nodes.
-type TypeAlias struct {
-	base
-	Name     string
-	Generics []string
-	Type     string
 }
 
 // ---- fields ----
@@ -279,7 +273,6 @@ func (*MethodDeclaration) Kind() SyntaxKind        { return KindMethodDeclaratio
 func (*VariableDeclaration) Kind() SyntaxKind      { return KindVariableDeclaration }
 func (*ReturnStatement) Kind() SyntaxKind          { return KindReturnStatement }
 func (*Comment) Kind() SyntaxKind                  { return KindComment }
-func (*TypeAlias) Kind() SyntaxKind                { return KindTypeAlias }
 func (*MapField) Kind() SyntaxKind                 { return KindMapField }
 func (*InterpolatedStringPart) Kind() SyntaxKind   { return KindInterpolatedStringPart }
 
@@ -323,7 +316,6 @@ func (n *MethodDeclaration) shallowClone() Node        { c := *n; return &c }
 func (n *VariableDeclaration) shallowClone() Node      { c := *n; return &c }
 func (n *ReturnStatement) shallowClone() Node          { c := *n; return &c }
 func (n *Comment) shallowClone() Node                  { c := *n; return &c }
-func (n *TypeAlias) shallowClone() Node                { c := *n; return &c }
 func (n *MapField) shallowClone() Node                 { c := *n; return &c }
 func (n *InterpolatedStringPart) shallowClone() Node   { c := *n; return &c }
 
@@ -376,7 +368,6 @@ func (*MethodDeclaration) statementNode()   {}
 func (*VariableDeclaration) statementNode() {}
 func (*ReturnStatement) statementNode()     {}
 func (*Comment) statementNode()             {}
-func (*TypeAlias) statementNode()           {}
 
 func (*MapField) fieldNode()               {}
 func (*InterpolatedStringPart) fieldNode() {}
@@ -391,20 +382,20 @@ func (*ComputedIndexExpression) writableNode()  {}
 
 // ---- HasParameters ----
 
-func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *FunctionExpression) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
 
-func (n *FunctionExpression) ReturnTypeData() *Type { return n.ReturnType }
+func (n *FunctionExpression) ReturnTypeData() TypeNode { return n.ReturnType }
 
-func (n *FunctionDeclaration) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *FunctionDeclaration) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
 
-func (n *FunctionDeclaration) ReturnTypeData() *Type { return n.ReturnType }
+func (n *FunctionDeclaration) ReturnTypeData() TypeNode { return n.ReturnType }
 
-func (n *MethodDeclaration) ParamData() (*List[AnyIdentifier], bool) {
-	return n.Parameters, n.HasDotDotDot
+func (n *MethodDeclaration) ParamData() (*List[AnyIdentifier], bool, TypeNode) {
+	return n.Parameters, n.HasDotDotDot, n.VarArgsType
 }
 
-func (n *MethodDeclaration) ReturnTypeData() *Type { return n.ReturnType }
+func (n *MethodDeclaration) ReturnTypeData() TypeNode { return n.ReturnType }

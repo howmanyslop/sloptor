@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"rotor/internal/luau"
+	"rotor/internal/luau/render"
 	"rotor/internal/rojo"
 	"rotor/internal/version"
 	"rotor/tsgo/ast"
@@ -22,6 +23,7 @@ func TransformSourceFile(s *State) *luau.List[luau.Statement] {
 	// The `//!native` directive only annotates when the nativeTypes option is
 	// on; the comment itself is emitted by the printers regardless.
 	s.IsNative = s.NativeTypes && hasNativeDirective(s)
+	s.IsLuauTyped = s.LuauTypes
 
 	// The file's module symbol maps to the identifier `exports`.
 	symbol := s.Checker.GetSymbolAtLocation(node.AsNode())
@@ -48,6 +50,12 @@ func TransformSourceFile(s *State) *luau.List[luau.Statement] {
 	ensureModuleReturn(statements, isModuleScript)
 
 	prependHeader(s, statements)
+
+	if s.IsLuauTyped {
+		// Full-fidelity aliases run long; break wide tables and alias-body
+		// unions across lines. Native output stays single-line.
+		render.LayoutTypes(statements, render.DefaultTypeLineWidth)
+	}
 
 	return statements
 }
@@ -101,17 +109,6 @@ func getLastNonCommentStatement(listNode *luau.ListNode[luau.Statement]) *luau.L
 	return listNode
 }
 
-// nativeTypeAliasStatements appends the `type` statements registered while
-// annotations were rendered, keeping them after the header and before the
-// first real statement.
-func (state *State) nativeTypeAliasStatements() *luau.List[luau.Statement] {
-	statements := luau.NewList[luau.Statement]()
-	for _, alias := range state.nativeAliases {
-		statements.Push(alias)
-	}
-	return statements
-}
-
 // prependHeader ports transformSourceFile.ts:222-242: prepend the build
 // header — the version comment plus, when the file used the runtime library,
 // the `local TS = ...` import (CreateRuntimeLibImport) — hoisting any leading
@@ -119,8 +116,11 @@ func (state *State) nativeTypeAliasStatements() *luau.List[luau.Statement] {
 // comments) above it. The header comment text starts with a space so it
 // renders `-- Compiled with sloptor v2.3.0` (or the HeaderComment override).
 //
-// Type aliases gathered from `//!native` annotations follow the header, before
-// the first statement.
+// Hoisted type aliases follow the header, before the first statement: the
+// registry's hoisted entries (nested, ambient, imported, library and
+// synthesized types; see luautypes_alias.go) in luauTypes mode, else the
+// aliases the `//!native` annotations registered without a declaration of
+// their own to sit at (nativetypes_alias.go).
 func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 	headerStatements := luau.NewList[luau.Statement]()
 	headerStatements.Push(luau.NewComment(HeaderComment))
@@ -129,7 +129,11 @@ func prependHeader(s *State, statements *luau.List[luau.Statement]) {
 		headerStatements.Push(s.CreateRuntimeLibImport(s.SourceFile))
 	}
 
-	headerStatements.PushList(s.nativeTypeAliasStatements())
+	if s.IsLuauTyped {
+		headerStatements.PushList(s.luauHoistedTypeStatements())
+	} else {
+		headerStatements.PushList(s.nativeHoistedTypeStatements())
+	}
 
 	// Only a run of comments already at the very head of the list qualifies;
 	// the scan stops at the first non-`!` comment or non-comment.

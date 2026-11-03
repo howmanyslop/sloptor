@@ -265,13 +265,19 @@ func transformImplicitClassConstructor(s *State, node *ast.Node, name luau.AnyId
 //
 // NOTE transformParameters does NOT inject `self` here: isMethod is false for
 // ConstructorDeclarations (their type has construct signatures, no call
-// signatures); the `:` declaration sugar supplies self.
-func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier) *luau.List[luau.Statement] {
-	// A constructor is its own function WITH NO generics: a class type
-	// parameter is not declarable in Luau, so it must widen to `any` here
-	// instead of inheriting an enclosing function's names.
-	s.PushNativeGenerics(nil, false)
-	defer s.PopNativeGenerics()
+// signatures); the `:` declaration sugar supplies self. In luauTypes mode
+// (class non-nil) the constructor is a dot-form function with an explicit
+// `self: Foo<T...>` re-declaring the class generics (luautypes_class.go).
+func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier, class *luauClass) *luau.List[luau.Statement] {
+	if class != nil {
+		s.PushTypeGenerics(typeGenericNames(signatureGenerics(s, node)), false)
+	} else {
+		// A constructor is its own function WITH NO generics: a class type
+		// parameter is not declarable in Luau, so it must widen to `any` here
+		// instead of inheriting an enclosing function's names.
+		s.PushTypeGenerics(nil, false)
+	}
+	defer s.PopTypeGenerics()
 
 	parameters, statements, hasDotDotDot, varArgsData := transformParameters(s, node)
 	restParam := registerOptimizableVarArgsForFunction(s, node, varArgsData)
@@ -308,7 +314,12 @@ func transformClassConstructor(s *State, node *ast.Node, name luau.AnyIdentifier
 		s.unregisterOptimizableVarArgs(restParam)
 	}
 
-	constructor := luau.NewMethodDeclaration(name, constructorMethodName, parameters, hasDotDotDot, statements)
+	var constructor luau.Statement
+	if class != nil {
+		constructor = class.constructorFunction(parameters, hasDotDotDot, statements, getLuauVarargType(s, node))
+	} else {
+		constructor = luau.NewMethodDeclaration(name, constructorMethodName, parameters, hasDotDotDot, statements)
+	}
 	s.setNodeSourcePosition(constructor, node)
 	return luau.NewList[luau.Statement](constructor)
 }
@@ -394,17 +405,41 @@ func transformClassLikeDeclaration(s *State, node *ast.Node) (*luau.List[luau.St
 		internalName = returnVar
 	}
 	s.ClassIdentifierMap[node] = internalName
-	if !isClassHoisted(s, node) {
+
+	// luauTypes: the instance alias at the declaration, the class generics in
+	// scope for the whole body, and the typed boilerplate, whose declaration
+	// line replaces the bare `local className` (luautypes_class.go).
+	var class *luauClass
+	if s.luauTypedSignatures() {
+		class = newLuauClass(s, node, internalName)
+		if !isClassExpression {
+			statements.PushList(s.luauDeclarationStatements(node))
+		}
+		s.PushTypeGenerics(class.genericNames(), false)
+		defer s.PopTypeGenerics()
+	} else if !isClassHoisted(s, node) {
 		statements.Push(luau.NewVariableDeclaration(returnVar, nil))
 	}
 
 	// OOP boilerplate + class functions
 	statementsInner := luau.NewList[luau.Statement]()
-	statementsInner.PushList(createClassBoilerplate(s, node, internalName, isClassExpression))
-
-	if constructor := findConstructor(node); constructor != nil {
-		statementsInner.PushList(transformClassConstructor(s, constructor, internalName))
+	if class != nil {
+		if shouldUseInternalName && !isClassHoisted(s, node) {
+			statements.Push(luau.NewVariableDeclaration(returnVar, nil))
+		}
+		outer, inner := class.boilerplate(isClassExpression)
+		statements.PushList(outer)
+		statementsInner.PushList(inner)
 	} else {
+		statementsInner.PushList(createClassBoilerplate(s, node, internalName, isClassExpression))
+	}
+
+	switch constructor := findConstructor(node); {
+	case constructor != nil:
+		statementsInner.PushList(transformClassConstructor(s, constructor, internalName, class))
+	case class != nil:
+		statementsInner.PushList(class.implicitConstructor())
+	default:
 		statementsInner.PushList(transformImplicitClassConstructor(s, node, internalName))
 	}
 
@@ -479,7 +514,11 @@ func transformClassLikeDeclaration(s *State, node *ast.Node) (*luau.List[luau.St
 		methodStatements := s.CaptureStatements(func() {
 			// statements and prereqs are concatenated in order, so one capture
 			// covers upstream's [statements, prereqs] split.
-			s.PrereqList(transformMethodDeclaration(s, method, &MapPointer{Name: "name", Value: internalName}))
+			var receiver luau.TypeNode
+			if class != nil {
+				receiver = class.receiverFor(method)
+			}
+			s.PrereqList(transformMethodDeclarationWithReceiver(s, method, &MapPointer{Name: "name", Value: internalName}, receiver))
 		})
 		statementsInner.PushList(methodStatements)
 	}
@@ -488,7 +527,9 @@ func transformClassLikeDeclaration(s *State, node *ast.Node) (*luau.List[luau.St
 	// instance type carries a toString METHOD (symbol flag check excludes
 	// function-typed properties) re-emits the __tostring wrapper.
 	toStringProperty := s.Checker.GetPropertyOfType(instanceType, magicToStringMethod)
-	if toStringProperty != nil && toStringProperty.Flags&ast.SymbolFlagsMethod != 0 {
+	if toStringProperty != nil && toStringProperty.Flags&ast.SymbolFlagsMethod != 0 && class != nil {
+		statementsInner.Push(class.toStringFunction())
+	} else if toStringProperty != nil && toStringProperty.Flags&ast.SymbolFlagsMethod != 0 {
 		statementsInner.Push(luau.NewMethodDeclaration(
 			internalName,
 			"__tostring",

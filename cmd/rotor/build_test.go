@@ -61,13 +61,17 @@ func TestParseBuildArgs(t *testing.T) {
 		if got.opts.optimizedArrayAppends == nil || *got.opts.optimizedArrayAppends {
 			t.Error("--optimizedArrayAppends=false not parsed")
 		}
+		got = parseBuildArgsForTest(t, []string{"--luauTypes=false"})
+		if got.opts.luauTypes == nil || *got.opts.luauTypes {
+			t.Error("--luauTypes=false not parsed")
+		}
 	})
 
 	t.Run("plain boolean flags set true", func(t *testing.T) {
 		got := parseBuildArgsForTest(t, []string{
 			"--verbose", "--noInclude", "--logTruthyChanges",
 			"--writeOnlyChanged", "--writeTransformedFiles", "--allowCommentDirectives",
-			"--optimizedArrayAppends",
+			"--optimizedArrayAppends", "--luauTypes",
 		})
 		for name, p := range map[string]*bool{
 			"verbose":                got.opts.verbose,
@@ -77,6 +81,7 @@ func TestParseBuildArgs(t *testing.T) {
 			"writeTransformedFiles":  got.opts.writeTransformedFiles,
 			"allowCommentDirectives": got.opts.allowCommentDirectives,
 			"optimizedArrayAppends":  got.opts.optimizedArrayAppends,
+			"luauTypes":              got.opts.luauTypes,
 		} {
 			if p == nil || !*p {
 				t.Errorf("--%s not parsed", name)
@@ -727,6 +732,24 @@ func TestProjectCompileOptionsConcurrencyControls(t *testing.T) {
 	present := projectCompileOptions("tsconfig.json", projectOptions{checkers: &checkers})
 	if present.Checkers == nil || *present.Checkers != 3 {
 		t.Fatalf("present checker override = %v, want 3", present.Checkers)
+	}
+}
+
+// --luauTypes reaches the compile layer twice: as the merged fallback value
+// and, through SolutionArgv, as the command-line layer that outranks every
+// project file.
+func TestProjectCompileOptionsLuauTypes(t *testing.T) {
+	got := projectCompileOptions("tsconfig.json", projectOptions{luauTypes: true, argv: &partialProjectOptions{luauTypes: boolPtr(false)}})
+	if !got.LuauTypes {
+		t.Fatalf("LuauTypes = %v, want the merged value", got.LuauTypes)
+	}
+	if got.SolutionArgv == nil || got.SolutionArgv.LuauTypes == nil || *got.SolutionArgv.LuauTypes {
+		t.Fatalf("SolutionArgv = %+v, want the command line's explicit false", got.SolutionArgv)
+	}
+
+	silent := projectCompileOptions("tsconfig.json", projectOptions{argv: &partialProjectOptions{}})
+	if silent.LuauTypes || silent.SolutionArgv == nil || silent.SolutionArgv.LuauTypes != nil {
+		t.Fatalf("silent CLI = LuauTypes %v, SolutionArgv %+v; want off and an unset argv layer", silent.LuauTypes, silent.SolutionArgv)
 	}
 }
 

@@ -60,11 +60,26 @@ type WritableExpression interface {
 	writableNode()
 }
 
-// HasParameters mirrors the upstream HasParameters interface.
+// TypeNode is any production of the Luau type grammar (the KindType* range).
+// Type nodes are never statements (the renderer indents statements) and never
+// reuse *Identifier (solveTempIDs reserves identifier names as values).
+type TypeNode interface {
+	Node
+	typeNode()
+}
+
+// TypeTableField = *TypeTableProp | *TypeTableIndexer
+type TypeTableField interface {
+	Node
+	typeTableFieldNode()
+}
+
+// HasParameters mirrors the upstream HasParameters interface. varArgsType is
+// the `...: T` annotation of the rest parameter, nil when unannotated.
 type HasParameters interface {
 	Node
-	ParamData() (params *List[AnyIdentifier], hasDotDotDot bool)
-	ReturnTypeData() *Type
+	ParamData() (params *List[AnyIdentifier], hasDotDotDot bool, varArgsType TypeNode)
+	ReturnTypeData() TypeNode
 }
 
 // base is embedded in every node struct.

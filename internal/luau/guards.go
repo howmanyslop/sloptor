@@ -6,6 +6,18 @@ func IsIndexableExpression(n Node) bool {
 func IsExpression(n Node) bool { return n.Kind() >= FirstExpression && n.Kind() <= LastExpression }
 func IsStatement(n Node) bool  { return n.Kind() >= FirstStatement && n.Kind() <= LastStatement }
 func IsField(n Node) bool      { return n.Kind() >= FirstField && n.Kind() <= LastField }
+func IsTypeNode(n Node) bool   { return n.Kind() >= FirstType && n.Kind() <= LastType }
+
+// IsTypePack reports a pack-shaped type: `(A, B)`, `...T`, or `T...`. Packs
+// are legal only as the last type argument, the last pack element, a function
+// type's varargs, and a return.
+func IsTypePack(n Node) bool {
+	switch n.Kind() {
+	case KindTypePack, KindTypeVariadic, KindTypeGenericPack:
+		return true
+	}
+	return false
+}
 
 func IsSimple(n Node) bool {
 	switch n.Kind() {
@@ -50,7 +62,7 @@ func IsNone(n Node) bool {
 
 func IsFunctionLike(n Node) bool {
 	switch n.Kind() {
-	case KindFunctionDeclaration, KindFunctionExpression, KindMethodDeclaration:
+	case KindFunctionDeclaration, KindFunctionExpression, KindMethodDeclaration, KindTypeFunctionDeclaration:
 		return true
 	}
 	return false
@@ -60,7 +72,7 @@ func HasStatements(n Node) bool {
 	switch n.Kind() {
 	case KindForStatement, KindNumericForStatement, KindFunctionExpression, KindDoStatement,
 		KindFunctionDeclaration, KindIfStatement, KindMethodDeclaration, KindRepeatStatement,
-		KindWhileStatement:
+		KindWhileStatement, KindTypeFunctionDeclaration:
 		return true
 	}
 	return false
@@ -86,6 +98,8 @@ func StatementsOf(n Node) *List[Statement] {
 	case *RepeatStatement:
 		return x.Statements
 	case *WhileStatement:
+		return x.Statements
+	case *TypeFunctionDeclaration:
 		return x.Statements
 	}
 	return nil
