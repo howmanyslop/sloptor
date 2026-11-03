@@ -1328,7 +1328,7 @@ pub struct Checker {
     pub(crate) auto_type: P<Type>,
     pub(crate) wildcard_type: P<Type>,
     pub(crate) blocked_string_type: P<Type>,
-    pub(crate) error_type: P<Type>,
+    pub error_type: P<Type>,
     pub(crate) unresolved_type: P<Type>,
     pub(crate) non_inferrable_any_type: P<Type>,
     pub(crate) intrinsic_marker_type: P<Type>,

@@ -265,7 +265,7 @@ impl NodeFactory {
     }
 
     // factory.go:229
-    pub(crate) fn new_strict_equality_expression(&self, left: P<Node>, right: P<Node>) -> P<Node> {
+    pub fn new_strict_equality_expression(&self, left: P<Node>, right: P<Node>) -> P<Node> {
         self.new_binary_expression(
             None, /*modifiers*/
             left,

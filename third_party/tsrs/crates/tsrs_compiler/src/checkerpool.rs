@@ -804,7 +804,7 @@ impl CheckerPoolImpl {
         // Go's default is a constant 4; tsrs picks it per machine and program (default_checker_count).
         let checker_count: i64 = if program.single_threaded() {
             1
-        } else if let Some(c) = program.options().checkers {
+        } else if let Some(c) = program.opts.checker_count.or(program.options().checkers) {
             c
         } else {
             default_checker_count(program)

@@ -2427,7 +2427,7 @@ bitflags! {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
 pub struct TupleElementInfo {
-    pub(crate) flags: ElementFlags,
+    pub flags: ElementFlags,
     pub(crate) labeled_declaration: Option<P<Node>>, // NamedTupleMember | ParameterDeclaration | nil
 }
 

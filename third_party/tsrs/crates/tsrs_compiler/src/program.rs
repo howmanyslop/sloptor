@@ -85,6 +85,8 @@ pub struct ProgramOptions {
     /// program reused from this one lives (watch mode keeps the full build's files). The language server frees it
     /// with this program, so it leaves this off and gets Go's full rebuild.
     pub reuse_synthetic_imports: bool,
+    /// rotor: the built-in pool's checker count, over the `checkers` option (Go `ProgramOptions.CheckerCount`).
+    pub checker_count: Option<i64>,
 }
 
 impl ProgramOptions {
@@ -106,6 +108,7 @@ impl ProgramOptions {
             checker_diagnostic_regions: false,
             regions: None,
             reuse_synthetic_imports: false,
+            checker_count: None,
         }
     }
 
@@ -133,6 +136,7 @@ impl ProgramOptions {
             checker_diagnostic_regions: false,
             regions: None,
             reuse_synthetic_imports: false,
+            checker_count: config.checker_count,
         }
     }
 
@@ -145,6 +149,7 @@ impl ProgramOptions {
             project_name: self.project_name.clone(),
             skip_module_resolution: self.skip_module_resolution,
             regions: self.regions.clone(),
+            checker_count: self.checker_count,
         }
     }
 }
@@ -158,6 +163,7 @@ pub struct ProgramConfig {
     project_name: String,
     pub(crate) skip_module_resolution: bool,
     pub(crate) regions: Option<std::sync::Arc<crate::programregions::ProgramRegions>>,
+    pub(crate) checker_count: Option<i64>,
 }
 
 impl ProgramConfig {
@@ -325,7 +331,7 @@ impl Program {
 
     // GetRedirectTargets returns the list of file paths that redirect to the given path.
     // These are files from the same package (same name@version) installed in different locations.
-    pub(crate) fn get_redirect_targets(&self, path: &Path) -> &[String] {
+    pub fn get_redirect_targets(&self, path: &Path) -> &[String] {
         self.redirect_targets_map.get(path).map_or(&[] as &[String], std::vec::Vec::as_slice)
     }
 
@@ -689,7 +695,23 @@ impl Program {
         create_checker_pool: Option<CreateCheckerPool>,
         create_module_resolver: Option<CreateModuleResolver>,
     ) -> (&'static Program, Option<P<SourceFile>>, bool) {
-        let (result, new_file, reused) = self.reuse_program(
+        self.update_program_with_checkers(changed_file_path, new_host, create_checker_pool, create_module_resolver, None)
+    }
+
+    /// rotor: `update_program` whose result's built-in pool has `checker_count` checkers when set
+    /// (Go `UpdateProgramFilesWithCheckers`).
+    pub fn update_program_with_checkers(
+        &'static self,
+        changed_file_path: &Path,
+        new_host: Arc<dyn CompilerHost>,
+        create_checker_pool: Option<CreateCheckerPool>,
+        create_module_resolver: Option<CreateModuleResolver>,
+        checker_count: Option<i64>,
+    ) -> (&'static Program, Option<P<SourceFile>>, bool) {
+        let mut config = self.opts.clone();
+        config.checker_count = checker_count.or(config.checker_count);
+        let (result, new_file, reused) = self.reuse_program_with(
+            config.clone(),
             changed_file_path,
             Arc::clone(&new_host),
             create_checker_pool.clone(),
@@ -699,7 +721,7 @@ impl Program {
             (result.unwrap(), new_file, true)
         } else {
             let mut opts = ProgramOptions::from_config(
-                self.opts.clone(),
+                config,
                 new_host,
                 create_checker_pool,
                 create_module_resolver,
@@ -718,6 +740,17 @@ impl Program {
     // different host) do not pay for a discarded program build.
     pub fn reuse_program(
         &'static self,
+        changed_file_path: &Path,
+        new_host: Arc<dyn CompilerHost>,
+        create_checker_pool: Option<CreateCheckerPool>,
+        create_module_resolver: Option<CreateModuleResolver>,
+    ) -> (Option<&'static Program>, Option<P<SourceFile>>, bool) {
+        self.reuse_program_with(self.opts.clone(), changed_file_path, new_host, create_checker_pool, create_module_resolver)
+    }
+
+    fn reuse_program_with(
+        &'static self,
+        config: ProgramConfig,
         changed_file_path: &Path,
         new_host: Arc<dyn CompilerHost>,
         create_checker_pool: Option<CreateCheckerPool>,
@@ -796,7 +829,7 @@ impl Program {
             self.resolution_data.clone_data()
         };
         let mut result = Program {
-            opts: self.opts.clone(),
+            opts: config,
             resolution_host: crate::projectreferencefilemapper::resolution_host_for(Arc::clone(
                 &new_host,
             )),
