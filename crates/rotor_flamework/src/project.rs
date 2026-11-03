@@ -123,10 +123,6 @@ pub struct Project {
 	pub(crate) build_info: Arc<BuildInfo>,
 	#[expect(dead_code, reason = "Go's Project keeps it; nothing reads it")]
 	pub(crate) runtime_config: Option<RuntimeConfig>,
-	/// What `packageDeclarationUID` read from disk, by directory (rotor-rs only: Go reads it
-	/// again for every declaration). Shared by a parallel worker's copy.
-	pub(crate) package_declarations:
-		Arc<std::sync::Mutex<std::collections::HashMap<String, crate::transform_symbols::PackageDeclarationFacts>>>,
 }
 
 /// `OpenProject`
@@ -234,7 +230,6 @@ pub fn open_project(options: &ProjectOptions) -> Result<Project, Error> {
 		analysis: Arc::new(AnalysisState::new()),
 		build_info: Arc::new(build_info),
 		runtime_config: clone_runtime_config(loaded_runtime_config.as_ref()),
-		package_declarations: Arc::default(),
 	})
 }
 

@@ -129,8 +129,8 @@ Outside the Go file map:
   - `sidecar::merge_sidecar_overlays` (sidecar.rs:1652) indexes the sidecar's overlays by
     normalized path; Go rescans them per file (`overlayByPath`). Same result, linear time.
   - `rotor_flamework` caches each directory's `package.json` and `flamework.build` facts for
-    a build (`package_declaration_facts`, transform_symbols.rs:163) and indexes plans by path
-    suffix (`plan_index`, transform_state.rs:174); Go rereads and rescans per lookup.
+    one transform (`package_declaration_facts`, transform_symbols.rs:167) and indexes plans by
+    path suffix (`plan_index`, transform_state.rs:174); Go rereads and rescans per lookup.
   - `parallel_overlay_aliases` (flamework_program_update.rs:455) and `overlay_aliases` take
     overlays in path order; Go ranges over its map, so a colliding alias's text is
     nondeterministic there.

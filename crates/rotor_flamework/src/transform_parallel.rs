@@ -219,6 +219,7 @@ struct WorkerShared<'s> {
 	expression_surfaces: &'s Option<HashSet<String>>,
 	add_paths_sources: Option<Arc<AddPathsSourceIndex>>,
 	hashes: &'s Arc<Mutex<HashMap<String, String>>>,
+	package_declarations: &'s crate::transform_symbols::PackageDeclarationCache,
 	print: Option<&'s PrintFn<'s>>,
 	files: &'s [P<SourceFile>],
 	queue: &'s [usize],
@@ -257,6 +258,7 @@ fn new_worker_state<'a>(
 			hashes: Arc::clone(shared.hashes),
 			..TransformRecording::default()
 		}),
+		package_declarations: Arc::clone(shared.package_declarations),
 	}
 }
 
@@ -361,6 +363,7 @@ pub(crate) fn transform_files_parallel(
 		expression_surfaces: &state.flamework_expression_surfaces,
 		add_paths_sources: state.add_paths_sources.clone(),
 		hashes: &hashes,
+		package_declarations: &state.package_declarations,
 		print,
 		files,
 		queue: &queue,

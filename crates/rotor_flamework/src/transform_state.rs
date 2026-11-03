@@ -182,6 +182,10 @@ pub struct TransformState<'a> {
 	pub(crate) add_paths_sources: Option<std::sync::Arc<AddPathsSourceIndex>>,
 	/// A parallel worker's build-info writes (Go's `Project.recording`).
 	pub(crate) recording: Option<TransformRecording>,
+	/// What `packageDeclarationUID` read from disk, by directory (rotor-rs only: Go reads it
+	/// again for every declaration). One transform's, shared with its parallel workers, so a
+	/// later build reads the files again.
+	pub(crate) package_declarations: crate::transform_symbols::PackageDeclarationCache,
 }
 
 /// `newTransformState`
@@ -236,6 +240,7 @@ pub(crate) fn new_transform_state_base<'a>(
 		flamework_expression_surfaces: None,
 		add_paths_sources: None,
 		recording: None,
+		package_declarations: std::sync::Arc::default(),
 	}
 }
 

@@ -158,7 +158,11 @@ pub(crate) struct PackageDeclarationFacts {
 	package_prefix: String,
 }
 
-/// The facts for `directory`, read once per project; a failed read is not kept, so it fails
+/// [`PackageDeclarationFacts`] by directory, for one transform.
+pub(crate) type PackageDeclarationCache =
+	std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, PackageDeclarationFacts>>>;
+
+/// The facts for `directory`, read once per transform; a failed read is not kept, so it fails
 /// again the way Go's uncached read does.
 fn package_declaration_facts(
 	state: &TransformState<'_>,
@@ -167,7 +171,6 @@ fn package_declaration_facts(
 	name: &str,
 ) -> Result<PackageDeclarationFacts, Error> {
 	if let Some(facts) = state
-		.project
 		.package_declarations
 		.lock()
 		.unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -206,7 +209,6 @@ fn package_declaration_facts(
 		package_prefix,
 	};
 	state
-		.project
 		.package_declarations
 		.lock()
 		.unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -215,7 +217,7 @@ fn package_declaration_facts(
 }
 
 /// `packageDeclarationUID`. Go reads the package's files for every declaration; the reads go
-/// through [`package_declaration_facts`], once per directory and build.
+/// through [`package_declaration_facts`], once per directory and transform.
 fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>, name: &str) -> Result<String, Error> {
 	let file_name = get_source_file_of_node(declaration).map_or_else(String::new, |file| file.file_name().to_owned());
 	let PackageDeclarationFacts {
