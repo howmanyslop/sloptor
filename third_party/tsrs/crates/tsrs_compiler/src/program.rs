@@ -266,10 +266,30 @@ pub struct Program {
     // tsrs-only: the address of the program `reuse_program` made this one from, 0 for a program built in full
     // (`is_reuse_of`). An address, not a reference: the watch frees that program once this one has replaced it.
     reused_from: usize,
+    // rotor: the module resolutions of this program's files. The processed files' own, unless
+    // `update_program_files_with_checkers` re-resolved a file whose imports changed (Go clones `resolvedModules`).
+    pub(crate) resolved_modules: ResolvedModulesRef,
     // tsrs-only: what `reuse_program` allocated for this program when its programs are freed (`checker_regions`):
     // the file list and the resolution data with its copy of the package.json cache table, about 40 KB per edit on a
     // 4k-file project. Last: the fields above point into it.
     own_region: Option<tsrs_core::arena::Region>,
+}
+
+/// rotor: a program's module resolutions, shared with the processed files or its own copy.
+#[derive(Clone)]
+pub(crate) enum ResolvedModulesRef {
+    Shared(&'static FxHashMap<Path, ModeAwareCache<P<ResolvedModule>>>),
+    Owned(Arc<FxHashMap<Path, ModeAwareCache<P<ResolvedModule>>>>),
+}
+
+impl std::ops::Deref for ResolvedModulesRef {
+    type Target = FxHashMap<Path, ModeAwareCache<P<ResolvedModule>>>;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            ResolvedModulesRef::Shared(modules) => modules,
+            ResolvedModulesRef::Owned(modules) => modules,
+        }
+    }
 }
 
 impl std::ops::Deref for Program {
@@ -548,6 +568,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
         std::mem::take(&mut processed.file_include_data.processing_diagnostics);
     let files = std::mem::take(&mut processed.files);
     let files_by_path = std::mem::take(&mut processed.files_by_path);
+    let processed: &'static ProcessedFiles = Box::leak(Box::new(processed));
     let host = Arc::clone(&opts.host);
     let mut p = Program {
         opts: opts.program_config(),
@@ -562,7 +583,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
         module_resolution_error,
         files,
         files_by_path,
-        processed: Box::leak(Box::new(processed)),
+        processed,
         project_reference_file_mapper,
         processing_diagnostics: Mutex::new(processing_diagnostics),
         uses_uri_style_node_core_modules: Tristate::Unknown,
@@ -588,6 +609,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
         checker_diagnostic_regions: opts.checker_diagnostic_regions,
         reuse_synthetic_imports: opts.reuse_synthetic_imports,
         reused_from: 0,
+        resolved_modules: ResolvedModulesRef::Shared(&processed.resolved_modules),
         own_region: None,
     };
     // Go initializes the checker pool before verifying options; the pool factory takes the program by
@@ -745,6 +767,238 @@ impl Program {
         }
     }
 
+    /// rotor: Go `UpdateProgramFilesWithCheckers` (rotor's typescript-go patch): `update_program` for several changed
+    /// files at once. Each file is asked of `new_host` in the order of `changed_file_paths`, with its old version's
+    /// parse options. A file whose imports changed is re-resolved, and kept, when every import it resolves names a
+    /// file this program holds and nothing else of its shape changed. Anything else builds the program again in full
+    /// with `new_host`. The flag is whether this program's files were reused.
+    pub fn update_program_files_with_checkers(
+        &'static self,
+        changed_file_paths: &[Path],
+        new_host: Arc<dyn CompilerHost>,
+        create_checker_pool: Option<CreateCheckerPool>,
+        checker_count: Option<i64>,
+    ) -> (&'static Program, bool) {
+        if changed_file_paths.is_empty() {
+            return (self, true);
+        }
+        let mut config = self.opts.clone();
+        config.checker_count = checker_count.or(config.checker_count);
+        let rebuild = || {
+            let mut opts = ProgramOptions::from_config(
+                config.clone(),
+                Arc::clone(&new_host),
+                create_checker_pool.clone(),
+                None,
+            );
+            opts.canonical_diagnostics = self.canonical_diagnostics;
+            (new_program(opts), false)
+        };
+        if self.module_resolution_error.is_some() {
+            return rebuild();
+        }
+
+        struct Replacement {
+            path: Path,
+            new_file: P<SourceFile>,
+            resolutions: Option<ModeAwareCache<P<ResolvedModule>>>,
+        }
+        let mut replacements: Vec<Replacement> = Vec::with_capacity(changed_file_paths.len());
+        for changed_file_path in changed_file_paths {
+            // Package redirect groups need a full rebuild so redirect targets recalculate.
+            if self.redirect_files_by_path.contains_key(changed_file_path)
+                || self.redirect_targets_map.contains_key(changed_file_path)
+            {
+                return rebuild();
+            }
+            let Some(&old_file) = self.files_by_path.get(changed_file_path) else {
+                return rebuild();
+            };
+            // tsrs-only: a content-mapped file is produced by an external transform a reparse cannot reproduce.
+            if !old_file.content_mapper().is_empty() {
+                return rebuild();
+            }
+            let Some(new_file) = new_host.get_source_file(old_file.parse_options().clone()) else {
+                return rebuild();
+            };
+            if !self.can_keep_synthetic_imports(old_file, new_file) {
+                return rebuild();
+            }
+            if self.can_replace_file_in_program(old_file, Some(new_file)) {
+                replacements.push(Replacement { path: changed_file_path.clone(), new_file, resolutions: None });
+                continue;
+            }
+            let Some(resolutions) = self.resolutions_keeping_existing_file_set(old_file, new_file) else {
+                return rebuild();
+            };
+            replacements.push(Replacement {
+                path: changed_file_path.clone(),
+                new_file,
+                resolutions: Some(resolutions),
+            });
+        }
+
+        let mut files = self.files.to_vec();
+        let mut files_by_path = self.files_by_path.clone();
+        let shape_changed = replacements.iter().any(|entry| entry.resolutions.is_some());
+        let mut resolved_modules = shape_changed.then(|| (*self.resolved_modules).clone());
+        let mut first_index_by_path: FxHashMap<Path, usize> = FxHashMap::default();
+        for (index, file) in files.iter().enumerate() {
+            first_index_by_path.entry(file.path().clone()).or_insert(index);
+        }
+        for entry in replacements {
+            // A replacement keeps its path (the host parses it with the old version's options), so the first
+            // position of each path does not move.
+            let Some(&index) = first_index_by_path.get(&entry.path) else {
+                return rebuild();
+            };
+            files[index] = entry.new_file;
+            files_by_path.insert(entry.path.clone(), entry.new_file);
+            if let (Some(resolutions), Some(modules)) = (entry.resolutions, resolved_modules.as_mut()) {
+                modules.insert(entry.path, resolutions);
+            }
+        }
+
+        let own_region =
+            self.checker_regions.then(|| tsrs_core::arena::Region::new_scratch(64 << 10));
+        let resolution_data = {
+            let _scope = own_region.as_ref().map(tsrs_core::arena::Region::enter);
+            self.resolution_data.clone_data()
+        };
+        let mut result = Program {
+            opts: config,
+            resolution_host: crate::projectreferencefilemapper::resolution_host_for(Arc::clone(
+                &new_host,
+            )),
+            host: new_host,
+            resolution_data,
+            checker_pool: OnceLock::new(),
+            include_processor: IncludeProcessor::default(),
+            module_resolution_error: None,
+            compare_paths_options: self.compare_paths_options.clone(),
+            files: self.files,
+            files_by_path,
+            processed: self.processed,
+            project_reference_file_mapper: self.project_reference_file_mapper,
+            processing_diagnostics: Mutex::new(self.processing_diagnostics().clone()),
+            uses_uri_style_node_core_modules: self.uses_uri_style_node_core_modules,
+            common_source_directory: OnceLock::new(),
+            declaration_diagnostic_cache: Mutex::new(FxHashMap::default()),
+            program_diagnostics: self.program_diagnostics.clone(),
+            has_emit_blocking_diagnostics: self.has_emit_blocking_diagnostics.clone(),
+            content_mapper_option_diagnostics: self.content_mapper_option_diagnostics.clone(),
+            unresolved_imports: OnceLock::new(),
+            known_symlinks: OnceLock::new(),
+            package_names: OnceLock::new(),
+            has_ts_file: OnceLock::new(),
+            packages_map: OnceLock::new(),
+            exports_module_name_cache: tsrs_modulespecifiers::ExportsModuleNameCache::default(),
+            // A reused program keeps the files of this one, so nothing of them may be freed.
+            leaf_files: crate::fileregions::LeafMode::Off,
+            leaf_pass_started: std::sync::atomic::AtomicBool::new(false),
+            leaf_referred: OnceLock::new(),
+            tsgo_check_slots: OnceLock::new(),
+            tsgo_import_adjacency: OnceLock::new(),
+            checker_recycling: false,
+            canonical_diagnostics: self.canonical_diagnostics,
+            checker_regions: self.checker_regions,
+            checker_diagnostic_regions: self.checker_diagnostic_regions,
+            reuse_synthetic_imports: self.reuse_synthetic_imports,
+            // Several files changed, so this is not the one-file reuse `is_reuse_of` describes.
+            reused_from: 0,
+            resolved_modules: match resolved_modules {
+                Some(modules) => ResolvedModulesRef::Owned(Arc::new(modules)),
+                None => self.resolved_modules.clone(),
+            },
+            own_region,
+        };
+        try_reuse(&result.unresolved_imports, &self.unresolved_imports);
+        // The import graph holds only while every file keeps its imports.
+        if !shape_changed {
+            try_reuse(&result.tsgo_import_adjacency, &self.tsgo_import_adjacency);
+        }
+        try_reuse(&result.known_symlinks, &self.known_symlinks);
+        try_reuse(&result.package_names, &self.package_names);
+        result.files = {
+            let _scope = result.own_region.as_ref().map(tsrs_core::arena::Region::enter);
+            tsrs_core::alloc_vec(files)
+        };
+        let result: &'static Program = Box::leak(Box::new(result));
+        result.init_checker_pool(create_checker_pool, self.compiler_checker_pool());
+        (result, true)
+    }
+
+    // rotor: Go `resolutionsKeepingExistingFileSet`: `new_file`'s imports resolved again when its import shape
+    // changed. `None` unless the rest of its shape still matches and every successful resolution names a file this
+    // program already holds. Unresolved imports are allowed.
+    fn resolutions_keeping_existing_file_set(
+        &self,
+        old_file: P<SourceFile>,
+        new_file: P<SourceFile>,
+    ) -> Option<ModeAwareCache<P<ResolvedModule>>> {
+        if !Self::can_replace_file_ignoring_imports(old_file, new_file) {
+            return None;
+        }
+        let module_names = new_file.imports().iter().copied().chain(
+            new_file
+                .module_augmentations()
+                .iter()
+                .copied()
+                .filter(|augmentation| augmentation.kind() == tsrs_ast::Kind::StringLiteral),
+        );
+        let mut resolutions: ModeAwareCache<P<ResolvedModule>> = ModeAwareCache::default();
+        for entry in module_names {
+            let module_name = entry.text();
+            if module_name.is_empty() {
+                continue;
+            }
+            let mode = self.get_mode_for_usage_location(new_file, entry);
+            let resolved = self.resolve_module_name(module_name, new_file.file_name(), mode);
+            let Some(resolved) = resolved else {
+                continue;
+            };
+            resolutions.insert(module::ModeAwareCacheKey { name: module_name, mode }, resolved);
+            if !resolved.is_resolved() {
+                continue;
+            }
+            // Successful resolution to a file not already loaded requires a full rebuild.
+            if !self.files_by_path.contains_key(&self.to_path(resolved.resolved_file_name)) {
+                return None;
+            }
+        }
+        Some(resolutions)
+    }
+
+    // rotor: Go `canReplaceFileIgnoringImports`, `can_replace_file_in_program` without import-list equality.
+    fn can_replace_file_ignoring_imports(file1: P<SourceFile>, file2: P<SourceFile>) -> bool {
+        file1.parse_options() == file2.parse_options()
+            && file1.script_kind.get() == file2.script_kind.get()
+            && ast::is_external_or_common_js_module(file1)
+                == ast::is_external_or_common_js_module(file2)
+            && file1.uses_uri_style_node_core_modules() == file2.uses_uri_style_node_core_modules()
+            && equal_func(
+                file1.module_augmentations(),
+                file2.module_augmentations(),
+                equal_module_augmentation_names,
+            )
+            && file1.ambient_module_names() == file2.ambient_module_names()
+            && equal_func(file1.referenced_files(), file2.referenced_files(), equal_file_references)
+            && equal_func(
+                file1.type_reference_directives.get(),
+                file2.type_reference_directives.get(),
+                equal_file_references,
+            )
+            && equal_func(
+                file1.lib_reference_directives.get(),
+                file2.lib_reference_directives.get(),
+                equal_file_references,
+            )
+            && equal_check_js_directives(
+                file1.check_js_directive.get(),
+                file2.check_js_directive.get(),
+            )
+    }
+
     // program.go:347
     // ReuseProgram attempts to produce a new program by replacing only
     // changedFilePath in place, reusing the rest of p. It returns
@@ -882,6 +1136,7 @@ impl Program {
             checker_diagnostic_regions: self.checker_diagnostic_regions,
             reuse_synthetic_imports: self.reuse_synthetic_imports,
             reused_from: std::ptr::from_ref(self) as usize,
+            resolved_modules: self.resolved_modules.clone(),
             own_region,
         };
         try_reuse(&result.unresolved_imports, &self.unresolved_imports);
@@ -1294,7 +1549,7 @@ impl Program {
     }
 
     pub fn get_resolved_modules(&self) -> &FxHashMap<Path, ModeAwareCache<P<ResolvedModule>>> {
-        &self.resolved_modules
+        &*self.resolved_modules
     }
 
     pub fn module_resolution_error(&self) -> Option<&str> {
