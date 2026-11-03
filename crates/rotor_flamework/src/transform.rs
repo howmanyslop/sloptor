@@ -71,6 +71,7 @@ pub fn transform(input: TransformInput<'_>) -> Result<TransformResult, Error> {
 		.map_err(|error| error.wrap("analyze Flamework sources"))?;
 	preload_transform_identifiers(&mut state, &plans)?;
 	state.plans.clone_from(&plans);
+	state.plan_index = std::cell::OnceCell::new();
 	for diagnostic in discovered.diagnostics() {
 		state.add_diagnostic(diagnostic);
 	}

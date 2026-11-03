@@ -149,9 +149,33 @@ pub(crate) fn trim_extension(slashed: &str, native: &str) -> String {
 	slashed.strip_suffix(extension).unwrap_or(slashed).to_owned()
 }
 
-fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>, name: &str) -> Result<String, Error> {
-	let file_name = get_source_file_of_node(declaration).map_or_else(String::new, |file| file.file_name().to_owned());
-	let package_json = find_package_json(&gopath::dir(&file_name));
+/// What `packageDeclarationUID` reads from disk for the declarations of one directory: the
+/// nearest `package.json`, the package's name and its `flamework.build` identifier prefix.
+#[derive(Clone, Debug)]
+pub(crate) struct PackageDeclarationFacts {
+	package_json: String,
+	package: String,
+	package_prefix: String,
+}
+
+/// The facts for `directory`, read once per project; a failed read is not kept, so it fails
+/// again the way Go's uncached read does.
+fn package_declaration_facts(
+	state: &TransformState<'_>,
+	declaration: P<Node>,
+	directory: &str,
+	name: &str,
+) -> Result<PackageDeclarationFacts, Error> {
+	if let Some(facts) = state
+		.project
+		.package_declarations
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner)
+		.get(directory)
+	{
+		return Ok(facts.clone());
+	}
+	let package_json = find_package_json(directory);
 	if package_json.is_empty() {
 		return Err(invalid_macro(
 			declaration,
@@ -166,10 +190,6 @@ fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>,
 			format!("Could not read package identity for declaration {}", quote(name)),
 		));
 	};
-	let internal_id = format!(
-		"{package}:{}@{name}",
-		package_relative_module(&package_json, &file_name)?
-	);
 	let mut package_prefix = String::new();
 	let build_path = gopath::join(&[&gopath::dir(&package_json), "flamework.build"]);
 	if std::fs::metadata(&build_path).is_ok() {
@@ -180,6 +200,35 @@ fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>,
 			.unwrap_or_default()
 			.clone_into(&mut package_prefix);
 	}
+	let facts = PackageDeclarationFacts {
+		package_json,
+		package,
+		package_prefix,
+	};
+	state
+		.project
+		.package_declarations
+		.lock()
+		.unwrap_or_else(std::sync::PoisonError::into_inner)
+		.insert(directory.to_owned(), facts.clone());
+	Ok(facts)
+}
+
+/// `packageDeclarationUID`. Go reads the package's files for every declaration; the reads go
+/// through [`package_declaration_facts`], once per directory and build.
+fn package_declaration_uid(state: &mut TransformState<'_>, declaration: P<Node>, name: &str) -> Result<String, Error> {
+	let file_name = get_source_file_of_node(declaration).map_or_else(String::new, |file| file.file_name().to_owned());
+	let PackageDeclarationFacts {
+		package_json,
+		package,
+		package_prefix,
+	} = package_declaration_facts(state, declaration, &gopath::dir(&file_name), name)?;
+	// Go resolves the module path before it reads `flamework.build`; neither can fail once the
+	// facts are known, so the order of their errors is the same.
+	let internal_id = format!(
+		"{package}:{}@{name}",
+		package_relative_module(&package_json, &file_name)?
+	);
 	state.identifier(&DeclarationIdentity {
 		internal_id,
 		declaration_name: name.to_owned(),

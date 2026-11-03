@@ -245,6 +245,7 @@ fn new_worker_state<'a>(
 		// The parallel loop runs only without a caller's runtime, so every worker has the default one.
 		macro_runtime: default_flamework_macro_runtime(),
 		plans: shared.plans.to_vec(),
+		plan_index: std::cell::OnceCell::new(),
 		diagnostics: Vec::new(),
 		generated_names: HashMap::new(),
 		guard_library: String::new(),

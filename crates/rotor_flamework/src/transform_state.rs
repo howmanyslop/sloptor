@@ -169,6 +169,9 @@ pub struct TransformState<'a> {
 	pub(crate) emit_context: P<EmitContext>,
 	pub(crate) macro_runtime: MacroRuntime,
 	pub(crate) plans: Vec<FilePlan>,
+	/// `plans` by normalized file ID, built on the first `plan_for_file`; reset whenever
+	/// `plans` is replaced.
+	pub(crate) plan_index: std::cell::OnceCell<HashMap<String, Vec<usize>>>,
 	pub(crate) diagnostics: Vec<Diagnostic>,
 	pub(crate) generated_names: HashMap<String, HashMap<String, usize>>,
 	pub(crate) guard_library: String,
@@ -224,6 +227,7 @@ pub(crate) fn new_transform_state_base<'a>(
 		emit_context,
 		macro_runtime: runtime,
 		plans: plans.to_vec(),
+		plan_index: std::cell::OnceCell::new(),
 		diagnostics: Vec::new(),
 		generated_names: HashMap::new(),
 		guard_library: String::new(),
@@ -293,17 +297,31 @@ impl TransformState<'_> {
 	}
 
 	/// `planForFile`: the plan whose file ID names `source_file`.
+	///
+	/// Go compares the file's name with every plan's cleaned file ID: equal, or ending in `/`
+	/// and the ID. The IDs are cleaned once into an index, and the name's suffixes after each
+	/// `/` are looked up in it, so a project's files do not each clean every plan's ID.
 	pub(crate) fn plan_for_file(&self, source_file: P<SourceFile>) -> Result<Option<FilePlan>, Error> {
 		let file_name = gopath::to_slash(&gopath::clean(source_file.file_name())).into_owned();
-		let mut matched = None;
+		let index = self.plan_index.get_or_init(|| {
+			let mut index: HashMap<String, Vec<usize>> = HashMap::with_capacity(self.plans.len());
+			for (position, plan) in self.plans.iter().enumerate() {
+				let file_id = gopath::to_slash(&gopath::clean(&gopath::from_slash(plan.file_id()))).into_owned();
+				index.entry(file_id).or_default().push(position);
+			}
+			index
+		});
+		let mut last: Option<usize> = None;
 		let mut match_count = 0;
-		for plan in &self.plans {
-			let file_id = gopath::to_slash(&gopath::clean(&gopath::from_slash(plan.file_id()))).into_owned();
-			if file_name == file_id || file_name.ends_with(&format!("/{file_id}")) {
-				matched = Some(plan);
-				match_count += 1;
+		let suffixes = std::iter::once(file_name.as_str())
+			.chain(file_name.match_indices('/').map(|(slash, _)| &file_name[slash + 1..]));
+		for suffix in suffixes {
+			if let Some(positions) = index.get(suffix) {
+				match_count += positions.len();
+				last = last.max(positions.last().copied());
 			}
 		}
+		let matched = last.map(|position| &self.plans[position]);
 		if match_count > 1 {
 			return Err(Error::kinded(
 				ErrorKind::AmbiguousFilePlan,
