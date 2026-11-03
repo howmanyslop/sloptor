@@ -12,6 +12,9 @@ path = "src/main.rs"
 
 [dependencies]
 mimalloc-safe.workspace = true
+rotor_compile.workspace = true
+rotor_support.workspace = true
+rotor_tsrs.workspace = true
 
 [lints]
 workspace = true

@@ -473,6 +473,9 @@ name = "rotor_cli"
 version = "0.0.0"
 dependencies = [
  "mimalloc-safe",
+ "rotor_compile",
+ "rotor_support",
+ "rotor_tsrs",
 ]
 
 [[package]]
