@@ -2,10 +2,20 @@
 //! `parameters.go`, `namedfunction.go`, `varargsoptimization.go`), `switch.go`, `forof.go` and
 //! `arrayappendoptimization.go`.
 //!
-//! The functions are stubs with the signatures that core code and the other slices call.
-//! [`VarArgsData`] is the Go shape. The array append plan types and `getArrayAppendTarget` are in
-//! core (`crate::state`), as in Go's `state.go`. The slice port replaces the bodies and may add
-//! submodules below this file. See `SLICES.md`.
+//! The functions here keep the signatures that core code and the other slices call and delegate
+//! to one submodule per Go file. [`VarArgsData`] is the Go shape. The array append plan types and
+//! `getArrayAppendTarget` are in core (`crate::state`), as in Go's `state.go`.
+
+mod arrayappendoptimization;
+mod forof;
+mod functions;
+mod namedfunction;
+mod parameters;
+mod switch;
+mod varargsoptimization;
+
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 
@@ -22,7 +32,7 @@ pub struct SliceState {}
 pub struct MultiSliceState {}
 
 /// `VarArgsData` (`varargsoptimization.go`).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct VarArgsData {
 	/// Go's `-1` is `None`.
 	pub(crate) parameter_index: Option<usize>,
@@ -54,49 +64,42 @@ pub fn analyze_array_append_statements(
 	state: &mut State<'_>,
 	statements: &[P<Node>],
 ) -> HashMap<P<Node>, ArrayAppendPlan> {
-	if state.optimized_array_appends
-		&& let Some(&first) = statements.first()
-	{
-		state.not_yet_ported(first, "optimizedArrayAppends");
-	}
-	HashMap::new()
+	arrayappendoptimization::analyze_array_append_statements(state, statements)
 }
 
 /// `transformFunctionExpression` (`functions.go`), for function expressions and arrows.
 pub fn transform_function_expression(state: &mut State<'_>, node: P<Node>) -> NodeId {
-	state.not_yet_ported(node, "function expressions");
-	state.ast.none()
+	functions::transform_function_expression(state, node)
 }
 
 /// `transformFunctionDeclaration` (`functions.go`).
 pub fn transform_function_declaration(state: &mut State<'_>, node: P<Node>) -> Statements {
-	state.not_yet_ported(node, "function declarations");
-	state.ast.new_list()
+	functions::transform_function_declaration(state, node)
 }
 
 /// `transformMethodDeclaration` (`functions.go`): an object literal method.
-pub fn transform_method_declaration(state: &mut State<'_>, node: P<Node>, _pointer: &mut MapPointer) -> Statements {
-	state.not_yet_ported(node, "object literal methods");
-	state.ast.new_list()
+#[expect(
+	clippy::needless_pass_by_ref_mut,
+	reason = "the cross-slice signature; Go's *MapPointer is shared and mutable"
+)]
+pub fn transform_method_declaration(state: &mut State<'_>, node: P<Node>, pointer: &mut MapPointer) -> Statements {
+	functions::transform_method_declaration_with_receiver(state, node, pointer, None)
 }
 
 /// `transformMatchingNamedFunctionConst` (`namedfunction.go`): `None` when the statement is not a
-/// `const f = function f() {}` pattern. The stub never matches, and the function expression it
-/// leaves reports itself.
-pub const fn transform_matching_named_function_const(_state: &mut State<'_>, _node: P<Node>) -> Option<Statements> {
-	None
+/// `const f = function f() {}` pattern.
+pub fn transform_matching_named_function_const(state: &mut State<'_>, node: P<Node>) -> Option<Statements> {
+	namedfunction::transform_matching_named_function_const(state, node)
 }
 
 /// `transformForOfStatement` (`forof.go`).
 pub fn transform_for_of_statement(state: &mut State<'_>, node: P<Node>) -> Statements {
-	state.not_yet_ported(node, "for-of statements");
-	state.ast.new_list()
+	forof::transform_for_of_statement(state, node)
 }
 
 /// `transformSwitchStatement` (`switch.go`).
 pub fn transform_switch_statement(state: &mut State<'_>, node: P<Node>) -> Statements {
-	state.not_yet_ported(node, "switch statements");
-	state.ast.new_list()
+	switch::transform_switch_statement(state, node)
 }
 
 /// `transformParameters` (`parameters.go`)'s results.
@@ -114,23 +117,20 @@ pub struct TransformedParameters {
 
 /// `transformParameters` (`parameters.go`), called by the class constructor port (slice iii).
 pub fn transform_parameters(state: &mut State<'_>, node: P<Node>) -> TransformedParameters {
-	state.not_yet_ported(node, "parameters");
-	TransformedParameters {
-		parameters: state.ast.new_list(),
-		statements: state.ast.new_list(),
-		has_dot_dot_dot: false,
-		var_args_data: None,
-	}
+	parameters::transform_parameters(state, node)
 }
 
 /// `transformMethodDeclarationWithReceiver` (`functions.go`), called by the class method port
 /// (slice iii). `receiver` is the Luau `self` type, if any.
+#[expect(
+	clippy::needless_pass_by_ref_mut,
+	reason = "the cross-slice signature; Go's *MapPointer is shared and mutable"
+)]
 pub fn transform_method_declaration_with_receiver(
 	state: &mut State<'_>,
 	node: P<Node>,
-	_pointer: &mut MapPointer,
-	_receiver: Option<NodeId>,
+	pointer: &mut MapPointer,
+	receiver: Option<NodeId>,
 ) -> Statements {
-	state.not_yet_ported(node, "methods");
-	state.ast.new_list()
+	functions::transform_method_declaration_with_receiver(state, node, pointer, receiver)
 }
