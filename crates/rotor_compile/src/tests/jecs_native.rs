@@ -120,3 +120,25 @@ fn native_jecs_stage_declines_an_unported_build() {
 		"ran natively against a transformer build the port does not match"
 	);
 }
+
+/// Go's `filepath.WalkDir` does not descend into a root that is a symlink, so a linked transformer
+/// directory hashes as no sources at all, never as its target's.
+#[cfg(unix)]
+#[test]
+fn hash_jecs_transformer_sources_does_not_follow_a_linked_root() {
+	let temp = Temp::new();
+	temp.write("real/index.js", "export default () => () => (file) => file;\n");
+	std::fs::create_dir_all(temp.join("empty")).expect("mkdir");
+	std::os::unix::fs::symlink(temp.join("real"), temp.join("linked")).expect("symlink");
+	let hash = |name: &str| {
+		hash_jecs_transformer_sources(&temp.join(name).to_string_lossy())
+			.unwrap_or_else(|error| panic!("{name}: {error}"))
+	};
+
+	assert_eq!(hash("linked"), hash("empty"), "a linked root was walked");
+	assert_ne!(
+		hash("real"),
+		hash("empty"),
+		"the real directory's sources were not hashed"
+	);
+}

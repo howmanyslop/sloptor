@@ -168,9 +168,15 @@ pub(crate) fn hash_jecs_transformer_sources(root: &str) -> std::io::Result<Strin
 		}
 		Ok(())
 	}
-	std::fs::metadata(root)?;
+	// `filepath.WalkDir` lstats the root and descends only into a real directory; a root that is
+	// a link is visited as itself.
+	let info = std::fs::symlink_metadata(root)?;
 	let mut files = Vec::new();
-	walk(root, root, &mut files)?;
+	if info.is_dir() {
+		walk(root, root, &mut files)?;
+	} else if has_js_extension(root) {
+		files.push(".".to_owned());
+	}
 	files.sort();
 	let mut hash = Sha256::new();
 	for file in &files {
