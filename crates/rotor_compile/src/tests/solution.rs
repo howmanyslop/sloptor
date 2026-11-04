@@ -200,6 +200,7 @@ fn solution_graph_for_roots_builds_canonical_union() {
 	assert_eq!(graph.projects[2].references, [shared_config], "tests references");
 }
 
+#[cfg(unix)]
 #[test]
 fn solution_graph_for_roots_deduplicates_symlink_alias() {
 	let temp = Temp::new();
@@ -207,10 +208,7 @@ fn solution_graph_for_roots_deduplicates_symlink_alias() {
 	let project_dir = join(&root, &["project"]);
 	let alias_dir = join(&root, &["project-alias"]);
 	write_solution_config(&project_dir, "tsconfig.json", &[], false);
-	#[cfg(unix)]
 	std::os::unix::fs::symlink(&project_dir, &alias_dir).expect("symlinks");
-	#[cfg(not(unix))]
-	return;
 	let graph = build_solution_graph_for_roots(
 		&[
 			join(&project_dir, &["tsconfig.json"]),

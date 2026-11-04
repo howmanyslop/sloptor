@@ -75,7 +75,7 @@ pub(super) fn with_origin_source<R: Send>(
 		r#"{"compilerOptions":{"target":"ESNext","strict":true,"types":[],"moduleDetection":"force"}}"#,
 	);
 	write_fixture(directory.path(), "input.ts", source);
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	with_state(&root, "input.ts", |state| {
 		let file = state.source_file;
 		let statements = transform_statement_list(state, Some(file.as_node()), file.statements().nodes(), None);

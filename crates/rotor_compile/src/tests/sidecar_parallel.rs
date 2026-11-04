@@ -226,15 +226,15 @@ fn parallel_resolution_rejects_source_aliases_and_node_modules() {
 		!parallel_resolution_scope(&root, &[join(&root, &["missing.ts"])]),
 		"accepted missing source"
 	);
-	let alias = join(&root, &["alias.ts"]);
 	#[cfg(unix)]
-	std::os::unix::fs::symlink(&source, &alias).expect("symlink");
-	#[cfg(not(unix))]
-	return;
-	assert!(
-		!parallel_resolution_scope(&root, &[source, alias]),
-		"accepted source alias"
-	);
+	{
+		let alias = join(&root, &["alias.ts"]);
+		std::os::unix::fs::symlink(&source, &alias).expect("symlink");
+		assert!(
+			!parallel_resolution_scope(&root, &[source, alias]),
+			"accepted source alias"
+		);
+	}
 }
 
 fn reviewed_profile() -> ParallelTransformersConfig {

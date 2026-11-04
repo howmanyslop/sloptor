@@ -70,6 +70,25 @@ fn temp_dir() -> (tempfile::TempDir, String) {
 	(dir, path)
 }
 
+/// `os.Symlink`: on Windows the link's kind comes from what it points at.
+fn symlink(original: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+	#[cfg(unix)]
+	{
+		std::os::unix::fs::symlink(original, link)
+	}
+	#[cfg(windows)]
+	{
+		let target = link
+			.parent()
+			.map_or_else(|| original.to_path_buf(), |parent| parent.join(original));
+		if target.is_dir() {
+			std::os::windows::fs::symlink_dir(original, link)
+		} else {
+			std::os::windows::fs::symlink_file(original, link)
+		}
+	}
+}
+
 /// Joins path segments the way Go's `filepath.Join` does.
 fn join(parts: &[&str]) -> String {
 	rotor_support::gopath::join(parts)

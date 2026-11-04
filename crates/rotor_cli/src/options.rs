@@ -312,7 +312,7 @@ mod tests {
 	#[test]
 	fn find_ts_config_path_prefers_files_then_searches_upward() {
 		let temp = tempfile::tempdir().expect("temp dir");
-		let root = temp.path().canonicalize().expect("canonical temp dir");
+		let root = rotor_support::fsutil::real_path(temp.path()).expect("canonical temp dir");
 		let config = root.join("tsconfig.json");
 		let custom = root.join("tsconfig.build.json");
 		let nested = root.join("src").join("deep");

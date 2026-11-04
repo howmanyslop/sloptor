@@ -465,7 +465,7 @@ fn task7_class_line_column_offset(source: &str, line: usize, column: usize) -> u
 
 /// `task7ClassLinkPinnedModules`
 fn task7_class_link_pinned_modules(root: &Path) {
-	let modules = std::fs::canonicalize(repo_root().join("testdata/transformers/project/node_modules"))
+	let modules = rotor_support::fsutil::real_path(repo_root().join("testdata/transformers/project/node_modules"))
 		.expect("resolve pinned modules");
 	let version = std::fs::read_to_string(modules.join("rbxts-transformer-flamework/package.json"));
 	assert!(
@@ -474,7 +474,7 @@ fn task7_class_link_pinned_modules(root: &Path) {
 			.is_ok_and(|version| version.contains(r#""version": "1.3.2""#)),
 		"pinned transformer unavailable or wrong version"
 	);
-	std::os::unix::fs::symlink(&modules, root.join("node_modules")).expect("link pinned modules");
+	super::symlink(&modules, &root.join("node_modules")).expect("link pinned modules");
 }
 
 /// `task7ClassCompileFiles`

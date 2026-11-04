@@ -1159,7 +1159,7 @@ const SIGNAL_NAMES: [&str; 32] = [
 ];
 
 /// Go's `syscall` signal names (`zerrors_linux_*.go`).
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const SIGNAL_NAMES: [&str; 32] = [
 	"",
 	"hangup",

@@ -36,13 +36,12 @@ use mimalloc_safe as _;
 use notify as _;
 use rotor_config as _;
 use rotor_lsp as _;
-use rotor_support as _;
 use terminal_size as _;
 
 /// The repository root.
 fn repo_root() -> PathBuf {
 	let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-	root.canonicalize().unwrap_or(root)
+	rotor_support::fsutil::real_path(&root).unwrap_or(root)
 }
 
 /// The `sloptor` the suites run: the file `ROTOR_BIN` names, else the test profile's binary.

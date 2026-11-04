@@ -26,7 +26,6 @@ const PNPM_TSCONFIG: &str = "{
 const DUMMY_PKG: &str = "node_modules/.pnpm/@rbxts+dummy@1.0.0/node_modules/@rbxts/dummy";
 const LINKED_PKG: &str = "node_modules/.pnpm/@rbxts+linked@1.0.0/node_modules/@rbxts/linked";
 
-#[cfg(unix)]
 fn symlink(target: &Path, link: &Path) {
 	if let Some(parent) = link.parent() {
 		std::fs::create_dir_all(parent).expect("the link's parent");
@@ -35,7 +34,6 @@ fn symlink(target: &Path, link: &Path) {
 }
 
 /// `writePnpmFixture`: a pnpm-shaped model project.
-#[cfg(unix)]
 pub fn write_pnpm_fixture() -> Temp {
 	let temp = Temp::new();
 	temp.write("package.json", r#"{"name":"pnpm-fixture"}"#);
@@ -91,7 +89,6 @@ const PNPM_MAIN: &str = "-- Compiled with sloptor v3.0.0-beta.2\n\
 	return nil\n";
 
 #[test]
-#[cfg(unix)]
 fn compile_project_pnpm_symlinks() {
 	let temp = write_pnpm_fixture();
 	let files = expect_compiled(large_stack(|| compile_project(&temp.dir())));
@@ -100,7 +97,6 @@ fn compile_project_pnpm_symlinks() {
 }
 
 #[test]
-#[cfg(unix)]
 fn compile_project_pnpm_symlinks_with_node_modules_rojo_path() {
 	let temp = write_pnpm_fixture();
 	temp.write(
@@ -117,7 +113,6 @@ fn compile_project_pnpm_symlinks_with_node_modules_rojo_path() {
 }
 
 #[test]
-#[cfg(unix)]
 fn compile_project_excludes_workspace_dependency_source() {
 	let workspace = Temp::new();
 	let game = "e2e/default";

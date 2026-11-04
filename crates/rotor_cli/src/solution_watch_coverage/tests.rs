@@ -14,7 +14,9 @@ use rotor_compile::solution_watch::SolutionWatchSet;
 
 use super::{SolutionWatches, canonical_path};
 use crate::fswatch::{Event, EventKind, WatchCallback, WatchError};
-use crate::solution_watch::{SolutionWatchEvents, WatchKey, WatchKind, solution_watched_file_count};
+#[cfg(unix)]
+use crate::solution_watch::solution_watched_file_count;
+use crate::solution_watch::{SolutionWatchEvents, WatchKey, WatchKind};
 use crate::test_fixtures::{FakeWatcher, s, temp_dir};
 
 type Recorded = Arc<Mutex<SolutionWatchEvents>>;
@@ -337,7 +339,7 @@ fn solution_watch_shared_coverage_recovery() {
 fn solution_watch_canonical_missing_path() {
 	let (_temp, root) = temp_dir();
 	let path = root.join("missing/nested/src");
-	let canonical = root.canonicalize().expect("canonical");
+	let canonical = rotor_support::fsutil::real_path(&root).expect("canonical");
 	assert_eq!(
 		canonical_path(&s(&path)),
 		s(canonical.join("missing").join("nested").join("src")),

@@ -101,7 +101,7 @@ pub struct Temp {
 
 pub fn temp() -> Temp {
 	let dir = tempfile::tempdir().expect("temp dir");
-	let path = dir.path().canonicalize().expect("canonical temp dir");
+	let path = rotor_support::fsutil::real_path(dir.path()).expect("canonical temp dir");
 	Temp { _dir: dir, path }
 }
 

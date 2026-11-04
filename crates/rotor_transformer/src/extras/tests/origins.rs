@@ -79,7 +79,7 @@ fn with_expression_origin_state<R: Send>(source: &str, maps: bool, test: impl Fn
 		),
 	);
 	write_fixture(directory.path(), "input.ts", source);
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	with_state(&root, "input.ts", test)
 }
 
@@ -87,7 +87,7 @@ fn with_project<R: Send>(tsconfig: &str, source: &str, test: impl FnOnce(&mut St
 	let directory = tempfile::tempdir().expect("a temporary directory");
 	write_fixture(directory.path(), "tsconfig.json", tsconfig);
 	write_fixture(directory.path(), "input.ts", source);
-	let root: &Path = &directory.path().canonicalize().expect("the directory resolves");
+	let root: &Path = &rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	with_state(root, "input.ts", test)
 }
 

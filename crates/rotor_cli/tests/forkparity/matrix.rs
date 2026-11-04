@@ -598,7 +598,7 @@ fn run_transformer_fixture(fixture: &TransformerFixture) -> Vec<Drift> {
 		.prefix("forkparity-matrix-")
 		.tempdir()
 		.expect("a temp dir");
-	let dir = temp.path().canonicalize().expect("a canonical temp dir");
+	let dir = rotor_support::fsutil::real_path(temp.path()).expect("a canonical temp dir");
 	let mut files = BTreeMap::from([
 		(
 			"package.json".to_owned(),
@@ -635,7 +635,7 @@ fn run_project_fixture(fixture: &ProjectFixture) -> Vec<Drift> {
 		.prefix("forkparity-matrix-")
 		.tempdir()
 		.expect("a temp dir");
-	let dir = temp.path().canonicalize().expect("a canonical temp dir");
+	let dir = rotor_support::fsutil::real_path(temp.path()).expect("a canonical temp dir");
 	stage(&dir, &fixture.files);
 	let dir_arg = dir.to_string_lossy().into_owned();
 	let mut args = vec!["build"];

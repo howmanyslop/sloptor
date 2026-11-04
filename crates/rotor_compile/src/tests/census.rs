@@ -159,16 +159,14 @@ fn compile_project_overlays_leave_disk_untouched() {
 
 /// Catches an editor overlay spelled through a symlinked project parent being ignored because
 /// the compiler records the source through its physical path.
+#[cfg(unix)]
 #[test]
 fn compile_project_overlays_follow_symlinked_parent() {
 	let temp = write_census_project(&[("main.ts", "export const fromDisk = 1;\n")]);
 	let dir = temp.dir();
 	let alias_temp = Temp::new();
 	let alias = alias_temp.join("project").to_string_lossy().into_owned();
-	#[cfg(unix)]
 	std::os::unix::fs::symlink(rotor_support::gopath::dir(&dir), &alias).expect("symlink");
-	#[cfg(not(unix))]
-	return;
 	let overlay_path = rotor_support::gopath::join(&[&alias, &rotor_support::gopath::base(&dir), "src", "main.ts"]);
 	let outputs = compile(
 		&dir,

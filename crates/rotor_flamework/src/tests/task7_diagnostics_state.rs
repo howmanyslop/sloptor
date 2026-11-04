@@ -89,7 +89,7 @@ fn task7_diagnostics_state_matches_upstream_132_diagnostic_tuples() {
 
 	for case in task7_state_cases() {
 		let (_dir, root) = temp_dir();
-		let root = std::fs::canonicalize(root).expect("resolve project path");
+		let root = rotor_support::fsutil::real_path(root).expect("resolve project path");
 		copy_task7_tree(&fixture, &root);
 		link_task7_modules(&install, &root);
 		if let Some(prepare) = case.prepare {
@@ -284,13 +284,14 @@ fn task7_state_prepare_dirty(root: &Path) {
 
 /// `task7StatePrepareInvalidGuardRuntime`
 fn task7_state_prepare_invalid_guard_runtime(root: &Path) {
-	let real_source = std::fs::canonicalize(root.join("node_modules/@rbxts/t")).expect("resolve guard runtime");
+	let real_source =
+		rotor_support::fsutil::real_path(root.join("node_modules/@rbxts/t")).expect("resolve guard runtime");
 	let external = root.join("external-t");
 	std::fs::create_dir_all(&external).expect("create external guard runtime");
 	copy_task7_tree(&real_source, &external);
 	let nested = root.join("node_modules/@flamework/core/node_modules/@rbxts");
 	std::fs::create_dir_all(&nested).expect("create nested guard directory");
-	std::os::unix::fs::symlink(&external, nested.join("t")).expect("link invalid guard runtime");
+	super::symlink(&external, &nested.join("t")).expect("link invalid guard runtime");
 }
 
 /// `task7StateReplace`
@@ -635,17 +636,17 @@ fn task7_state_parse_upstream(root: &Path, category: &str, output: &[u8]) -> Vec
 fn task7_state_normalize_path(root: &Path, value: &str) -> String {
 	let slash = |path: &Path| rotor_support::gopath::to_slash(&path.to_string_lossy()).into_owned();
 	let mut normalized = rotor_support::gopath::to_slash(value).into_owned();
-	if let Ok(real_root) = std::fs::canonicalize(root) {
+	if let Ok(real_root) = rotor_support::fsutil::real_path(root) {
 		normalized = normalized.replace(&slash(&real_root), "<project>");
 	}
 	normalized = normalized.replace(&slash(root), "<project>");
 	if let Ok(workspace) = std::env::current_dir() {
 		normalized = normalized.replace(&slash(&workspace), "<workspace>");
-		if let Ok(real_workspace) = std::fs::canonicalize(&workspace) {
+		if let Ok(real_workspace) = rotor_support::fsutil::real_path(&workspace) {
 			normalized = normalized.replace(&slash(&real_workspace), "<workspace>");
 		}
 	}
-	if let Ok(workspace_root) = std::fs::canonicalize(repo_root()) {
+	if let Ok(workspace_root) = rotor_support::fsutil::real_path(repo_root()) {
 		normalized = normalized.replace(&slash(&workspace_root), "<workspace>");
 	}
 	normalized

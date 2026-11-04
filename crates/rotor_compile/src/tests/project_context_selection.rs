@@ -4,24 +4,32 @@
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
+#[cfg(unix)]
 use std::time::{Duration, SystemTime};
 
 use rotor_support::{gopath, logservice};
 use rotor_transformer::ProjectType;
 use serde_json::json;
 
-use super::output::{enable_incremental_builds, set_mtime, try_build};
-use super::{Temp, large_stack, set_compiler_options, write_project};
+#[cfg(unix)]
+use super::large_stack;
+#[cfg(unix)]
+use super::output::set_mtime;
+use super::output::{enable_incremental_builds, try_build};
+use super::{Temp, set_compiler_options, write_project};
 use crate::compile::diagnostic_info_messages;
 use crate::output::build_failure_messages;
-use crate::project::{
-	Cancellation, new_project_context, new_project_context_with_import_context, new_project_program_with_options,
-};
+use crate::project::Cancellation;
+#[cfg(unix)]
+use crate::project::new_project_program_with_options;
+#[cfg(unix)]
+use crate::project::{new_project_context, new_project_context_with_import_context};
 use crate::timings::{BuildTimingCounts, BuildTimings};
 use crate::{BuildFailure, BuildResult, ProjectOptions};
 
 const PROJECT_CONTEXT_SELECTION_MODEL_ROJO: &str =
 	r#"{"name":"kind","tree":{"$path":"out","include":{"$path":"include"}}}"#;
+#[cfg(unix)]
 const PROJECT_CONTEXT_SELECTION_GAME_ROJO: &str = r#"{"name":"kind","tree":{"$className":"DataModel","ReplicatedStorage":{"out":{"$path":"out"},"include":{"$path":"include"},"node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"}}}}}"#;
 
 const KINDS: [ProjectType; 3] = [ProjectType::Package, ProjectType::Model, ProjectType::Game];

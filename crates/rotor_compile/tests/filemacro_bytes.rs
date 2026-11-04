@@ -2,6 +2,8 @@
 //! output, as in Go, and source map columns count each invalid byte as one UTF-16 unit. The
 //! expected bytes are the Go compiler's output for the same project.
 
+#![cfg_attr(not(unix), expect(dead_code, reason = "the tests need Unix symlinks"))]
+
 use std::fs;
 use std::path::Path;
 
@@ -16,6 +18,7 @@ use rotor_luau as _;
 use rotor_rojo as _;
 use rotor_support as _;
 use rotor_transformer as _;
+use rotor_tsrs as _;
 use serde_json as _;
 use sha2 as _;
 

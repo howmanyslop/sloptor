@@ -3,12 +3,15 @@
 use std::fs;
 use std::sync::Arc;
 
+#[cfg(unix)]
 use rotor_transformer::ProjectType;
 
 use super::output::{build, enable_incremental_builds};
 use super::{Temp, expect_compiled, large_stack, output, write_project};
 use crate::ProjectOptions;
-use crate::project::{compile_project, compile_project_with_options};
+use crate::project::compile_project;
+#[cfg(unix)]
+use crate::project::compile_project_with_options;
 use crate::timings::BuildTimings;
 
 /// `writePackageLayoutFixture`

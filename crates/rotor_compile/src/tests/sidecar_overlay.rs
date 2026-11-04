@@ -216,6 +216,7 @@ fn compile_file_keeps_overlays_on_files_the_sidecar_did_not_transform() {
 
 /// Catches a partial sidecar response dropping an imported helper overlay named through a
 /// symlinked parent.
+#[cfg(unix)]
 #[test]
 fn compile_file_keeps_symlinked_helper_overlay_after_partial_sidecar_transform() {
 	let (temp, _sessions) = write_overlay_plugin_project(
@@ -226,10 +227,7 @@ fn compile_file_keeps_symlinked_helper_overlay_after_partial_sidecar_transform()
 	temp.write("src/helper.ts", "export const label = 1;\n");
 	let alias_temp = Temp::new();
 	let alias = alias_temp.join("project").to_string_lossy().into_owned();
-	#[cfg(unix)]
 	std::os::unix::fs::symlink(rotor_support::gopath::dir(&dir), &alias).expect("symlink");
-	#[cfg(not(unix))]
-	return;
 	let overlay_path = rotor_support::gopath::join(&[&alias, &rotor_support::gopath::base(&dir), "src", "helper.ts"]);
 	let got = compile_main_with_helper_overlay(&dir, &overlay_path);
 	assert!(

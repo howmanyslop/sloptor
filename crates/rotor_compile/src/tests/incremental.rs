@@ -6,9 +6,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use super::output::{build, enable_incremental_builds, patch_out_dir, set_mtime};
-use super::{Temp, expect_compiled, large_stack, output, write_project};
+use super::{Temp, large_stack, write_project};
+#[cfg(unix)]
+use super::{expect_compiled, output};
 use crate::incremental_manifest::{normalize_source_file_path, read_incremental_manifest, write_incremental_manifest};
-use crate::project::{compile_project, new_project_program_with_options};
+#[cfg(unix)]
+use crate::project::compile_project;
+use crate::project::new_project_program_with_options;
 use crate::timings::{BuildTimingCounts, BuildTimings};
 use crate::{BuildResult, ProjectOptions};
 

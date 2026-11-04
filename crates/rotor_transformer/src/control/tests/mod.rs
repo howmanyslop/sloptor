@@ -67,7 +67,7 @@ fn with_var_args_state<R: Send>(source: &str, test: impl FnOnce(&mut State<'_>) 
 	)
 	.expect("the tsconfig writes");
 	std::fs::write(directory.path().join("input.ts"), source).expect("the source writes");
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	with_project_state(&root, "input.ts", test)
 }
 

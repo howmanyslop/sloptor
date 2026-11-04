@@ -52,6 +52,7 @@ mod package_layout;
 mod packageexports;
 mod packageexports_compile;
 mod parallelwrite;
+#[cfg(unix)]
 mod pnpm;
 mod project;
 mod project_context_selection;
@@ -137,7 +138,7 @@ pub struct Temp {
 impl Temp {
 	pub fn new() -> Self {
 		let guard = TempDir::new().expect("a temporary directory");
-		let path = fs::canonicalize(guard.path()).expect("the temporary directory's real path");
+		let path = rotor_support::fsutil::real_path(guard.path()).expect("the temporary directory's real path");
 		Self { _guard: guard, path }
 	}
 

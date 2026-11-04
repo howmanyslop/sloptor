@@ -175,7 +175,7 @@ impl Fixture<'_, '_> {
 /// Go's `luauTypesRojoContext`: just enough Rojo data for a relative import to resolve, a
 /// synthetic resolver over a never-written `out/` directory and the matching path translator.
 pub fn luau_types_rojo_context(project: &Path) -> &'static RojoContext {
-	let dir = project.canonicalize().expect("the project resolves");
+	let dir = rotor_support::fsutil::real_path(project).expect("the project resolves");
 	let dir = dir.to_string_lossy().replace('\\', "/");
 	let out_dir = format!("{dir}/out");
 	Box::leak(Box::new(RojoContext {

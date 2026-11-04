@@ -31,7 +31,7 @@ pub fn must_write(path: impl AsRef<Path>, content: &str) {
 /// `fsutil.EvalSymlinks(t.TempDir())`: a temp directory by its canonical path.
 pub fn temp_dir() -> (tempfile::TempDir, PathBuf) {
 	let dir = tempfile::tempdir().expect("temp dir");
-	let path = dir.path().canonicalize().expect("canonical temp dir");
+	let path = rotor_support::fsutil::real_path(dir.path()).expect("canonical temp dir");
 	(dir, path)
 }
 

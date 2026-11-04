@@ -96,7 +96,7 @@ const check = t.interface({ animationId: t.string })(value);
 "#,
 		),
 	]);
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	let kept = with_elision_state(&root, "src/main.ts", |state| {
 		let (import_clause, import_name) = find_named_import(state, "t").expect("the import exists");
 		is_referenced_alias_value(state, import_clause, import_name)
@@ -124,7 +124,7 @@ const check = t.interface({ animationId: t.string })(value);
 "#,
 		),
 	]);
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	let kept = with_elision_state(&root, "src/main.ts", |state| {
 		let (import_clause, import_name) = find_named_import(state, "t").expect("the import exists");
 		is_referenced_alias_value(state, import_clause, import_name)
@@ -230,7 +230,7 @@ export function f(body: N.T) { return N.v; }
 	];
 	for case in &cases {
 		let directory = elision_project(case.files);
-		let root = directory.path().canonicalize().expect("the directory resolves");
+		let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 		let importee = case.importee;
 		let got = with_elision_state(&root, "src/main.ts", move |state| {
 			let (_, import_name) =

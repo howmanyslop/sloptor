@@ -40,7 +40,7 @@ fn render_spread_fixture(rel_path: &str) -> (String, Vec<Diagnostic>) {
 fn render_source(source: &str) -> String {
 	let directory = tempfile::tempdir().expect("a temporary directory");
 	let type_roots = repo_root().join("testdata/diff/project/node_modules/@rbxts");
-	let type_roots = type_roots.canonicalize().expect("the type roots exist");
+	let type_roots = rotor_support::fsutil::real_path(&type_roots).expect("the type roots exist");
 	let type_roots = type_roots.to_string_lossy().replace('\\', "\\\\").replace('"', "\\\"");
 	let tsconfig = format!(
 		r#"{{
@@ -61,7 +61,7 @@ fn render_source(source: &str) -> String {
 	std::fs::write(directory.path().join("tsconfig.json"), tsconfig).expect("the tsconfig writes");
 	std::fs::create_dir(directory.path().join("src")).expect("the source directory");
 	std::fs::write(directory.path().join("src/test.ts"), source).expect("the source writes");
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	with_state(&root, "src/test.ts", render_file_statements)
 }
 

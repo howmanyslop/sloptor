@@ -67,10 +67,7 @@ fn lookup_luau_tool(name: &str) -> Option<PathBuf> {
 
 /// `luauStubPath`
 fn luau_stub_path() -> PathBuf {
-	transformer_testdata("luautypes")
-		.join(LUAU_STUB_NAME)
-		.canonicalize()
-		.expect("the stub exists")
+	rotor_support::fsutil::real_path(transformer_testdata("luautypes").join(LUAU_STUB_NAME)).expect("the stub exists")
 }
 
 /// `analyzeLuauStrict`: every type or syntax error the analyzer reports for `source` in

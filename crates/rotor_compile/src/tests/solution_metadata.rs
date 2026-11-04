@@ -175,6 +175,7 @@ fn solution_write_roots_leaves_invalid_config_empty() {
 	assert!(got.is_empty(), "invalid config write roots = {got:?}, want empty");
 }
 
+#[cfg(unix)]
 #[test]
 fn solution_write_roots_canonicalizes_symlink_alias() {
 	let temp = Temp::new();
@@ -182,10 +183,7 @@ fn solution_write_roots_canonicalizes_symlink_alias() {
 	let shared_out = join(&root, &["shared-out"]);
 	let alias_out = join(&root, &["shared-out-alias"]);
 	std::fs::create_dir_all(&shared_out).expect("the directory");
-	#[cfg(unix)]
 	std::os::unix::fs::symlink(&shared_out, &alias_out).expect("symlinks");
-	#[cfg(not(unix))]
-	return;
 	let first_dir = join(&root, &["first"]);
 	let second_dir = join(&root, &["second"]);
 	write_solution_config(&root, "tsconfig.json", &["./first", "./second"], true);

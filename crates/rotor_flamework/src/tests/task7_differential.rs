@@ -142,7 +142,7 @@ pub(super) fn link_task7_modules(install: &Path, root: &Path) {
 				link(&entry.path(), &target);
 			} else if file_type.is_symlink() {
 				let link = std::fs::read_link(entry.path()).expect("read link");
-				std::os::unix::fs::symlink(link, &target).expect("symlink");
+				super::symlink(&link, &target).expect("symlink");
 			} else {
 				std::fs::hard_link(entry.path(), &target).expect("hard link");
 			}

@@ -19,7 +19,7 @@ fn read(path: &Path) -> crate::rbxts_options::RbxtsOptions {
 }
 
 fn same_file(a: &str, b: &Path) -> bool {
-	fs::canonicalize(a).ok() == fs::canonicalize(b).ok()
+	rotor_support::fsutil::real_path(a).ok() == rotor_support::fsutil::real_path(b).ok()
 }
 
 #[test]
@@ -69,8 +69,12 @@ fn rbxts_options_cascade() {
 	let want_module_rojo = root.join("node_modules/@scope/base/base.project.json");
 	let got = module_opts.rojo.as_deref().unwrap_or_default();
 	assert_eq!(
-		Path::new(got).parent().and_then(|dir| fs::canonicalize(dir).ok()),
-		want_module_rojo.parent().and_then(|dir| fs::canonicalize(dir).ok()),
+		Path::new(got)
+			.parent()
+			.and_then(|dir| rotor_support::fsutil::real_path(dir).ok()),
+		want_module_rojo
+			.parent()
+			.and_then(|dir| rotor_support::fsutil::real_path(dir).ok()),
 		"module extends rojo = {got:?}, want base-relative path"
 	);
 	assert!(got.ends_with("base.project.json"), "module extends rojo = {got:?}");

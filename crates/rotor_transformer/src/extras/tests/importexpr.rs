@@ -32,7 +32,7 @@ fn write_nil_package(root: &std::path::Path, scope: &str) {
 #[test]
 fn find_relative_rbx_path_skips_nil_package_paths() {
 	let directory = tempfile::tempdir().expect("a temporary directory");
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	write_nil_package(&root, "@nil");
 	write_fixture(
 		&root,
@@ -64,7 +64,7 @@ fn find_relative_rbx_path_skips_nil_package_paths() {
 #[test]
 fn package_import_of_nil_rojo_path_reports_no_rojo_data() {
 	let directory = tempfile::tempdir().expect("a temporary directory");
-	let root = directory.path().canonicalize().expect("the directory resolves");
+	let root = rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
 	write_fixture(
 		&root,
 		"tsconfig.json",

@@ -1,15 +1,23 @@
 //! `artifacts_root_test.go`
 
+#[cfg(unix)]
 use std::path::Path;
 
+#[cfg(unix)]
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
 use super::artifacts::fail_nth_rename;
 use super::{join, temp_dir};
-use crate::artifacts::{Artifact, open_artifact_root, persist_artifacts, set_rename_hook};
+use crate::artifacts::{Artifact, persist_artifacts};
+#[cfg(unix)]
+use crate::artifacts::{open_artifact_root, set_rename_hook};
+#[cfg(unix)]
 use crate::artifacts_commit::commit_artifact;
+#[cfg(unix)]
 use crate::artifacts_stage::stage_artifact;
 
+#[cfg(unix)]
 /// `snapshotArtifactTree`: every entry under `root` with its kind and, for files, a digest.
 fn snapshot_artifact_tree(root: &str) -> Vec<String> {
 	fn walk(root: &Path, path: &Path, out: &mut Vec<String>) {

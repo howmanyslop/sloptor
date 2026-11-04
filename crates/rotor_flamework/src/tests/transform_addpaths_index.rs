@@ -139,7 +139,7 @@ fn add_paths_modules_matches_reference_for_every_caller_and_pattern() {
 		// Package resolution realpaths node_modules imports; look up the same canonical filename
 		// in the program.
 		let external_path =
-			std::fs::canonicalize(join(&[&directory, "node_modules/ext-lib/index.ts"])).expect("realpath");
+			rotor_support::fsutil::real_path(join(&[&directory, "node_modules/ext-lib/index.ts"])).expect("realpath");
 		let external = state
 			.program
 			.get_source_file(&rotor_support::gopath::to_slash(&external_path.to_string_lossy()));
