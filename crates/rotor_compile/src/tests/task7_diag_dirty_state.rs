@@ -114,7 +114,7 @@ fn task7_diag002_malformed_persisted_state_fails_closed() {
 fn task7_diag002_paths() -> (PathBuf, PathBuf) {
 	let repo = repo_root();
 	(
-		repo.join("internal/compile/testdata/flamework/task7-diag-dirty"),
+		repo.join("testdata/compile-unit/flamework/task7-diag-dirty"),
 		repo.join("testdata/transformers/project/node_modules"),
 	)
 }

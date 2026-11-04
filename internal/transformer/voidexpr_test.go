@@ -10,7 +10,7 @@ import (
 )
 
 func TestVoidExpressionPrereqsOperandAndYieldsNil(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/void.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/void.ts")
 	statements := s.SourceFile.Statements.Nodes
 
 	valueVoid := statements[3].AsVariableStatement().DeclarationList.AsVariableDeclarationList().Declarations.Nodes[0].AsVariableDeclaration().Initializer
@@ -30,7 +30,7 @@ func TestVoidExpressionPrereqsOperandAndYieldsNil(t *testing.T) {
 }
 
 func TestVoidStatementListAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/void.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/void.ts")
 	got := render.RenderAST(transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil))
 	want := "sideEffect()\nlocal _ = nil\nsideEffect()\nlocal value = nil\nlocal _1 = flag\nlocal dropped = nil\n"
 	if got != want {

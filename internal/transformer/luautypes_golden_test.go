@@ -24,7 +24,7 @@ var updateLuauTypesGoldens = flag.Bool("update", false, "rewrite testdata/luauty
 
 // luauTypesGoldenDir is the golden root; each fixture src/<path>.ts has its
 // rendered output at golden/<path>.luau.
-const luauTypesGoldenDir = "testdata/luautypes/golden"
+const luauTypesGoldenDir = "../../testdata/transformer-unit/luautypes/golden"
 
 // luauTypesGoldenUpdateHint names the command that refreshes the goldens.
 const luauTypesGoldenUpdateHint = "go test ./internal/transformer -run TestLuauTypesGolden -update"

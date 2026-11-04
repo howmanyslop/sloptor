@@ -18,7 +18,7 @@ import (
 
 func renderSwitchFile(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "switch"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "switch"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)

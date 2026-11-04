@@ -31,7 +31,7 @@ import (
 // trailing `return nil` stripped — those belong to TransformSourceFile, not
 // the statement list under test).
 func TestOperatorsAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/operators.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/operators.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 

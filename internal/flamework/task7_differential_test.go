@@ -48,7 +48,7 @@ var (
 
 func TestTask7Differential_matchesRealUpstreamFinalLuauDiagnosticsAndArtifacts(t *testing.T) {
 	// Given: a fresh real v1.3.2 npm installation and a controlled behavior/option matrix.
-	fixture := filepath.Join("testdata", "task7-differential", "project")
+	fixture := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
@@ -122,7 +122,7 @@ func TestTask7Differential_matchesRealUpstreamFinalLuauDiagnosticsAndArtifacts(t
 func TestTask7Diagnostic006_publicCompilerPreconditionsAreExecutable(t *testing.T) {
 	// Given: the pinned package has an intentionally mismatched private TypeScript,
 	// while roblox-ts and the native compiler each retain their public compiler ABI.
-	fixture := filepath.Join("testdata", "task7-differential", "project")
+	fixture := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	writeTransformFixture(t, install, "tsconfig.json", task7TSConfig("default", "src"))
@@ -203,7 +203,7 @@ func task7Manifest(t *testing.T, root string) []string {
 
 func TestTask7Differential_matchesRealUpstreamOrderedDiagnostics(t *testing.T) {
 	// Given: each malformed upstream branch in a fresh deterministic compilation.
-	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
+	fixture, install := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	plugin := `"salt":"task7-controlled-salt","hashPrefix":"task7","idGenerationMode":"full"`
@@ -257,7 +257,7 @@ func TestTask7Differential_matchesRealUpstreamOrderedDiagnostics(t *testing.T) {
 
 func TestTask7Differential_noSemanticDiagnosticsControlsTheSemanticGate(t *testing.T) {
 	// Given: a macro-bearing source with one stable TypeScript semantic error.
-	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
+	fixture, install := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	source := "invalid/semantic-error.ts"
@@ -307,7 +307,7 @@ func TestTask7Differential_noSemanticDiagnosticsControlsTheSemanticGate(t *testi
 
 func TestTask7Differential_scopedPackageDefaultsHashPrefixToPackageName(t *testing.T) {
 	// Given: the representative corpus published as a scoped package with hashPrefix omitted.
-	fixture, install := filepath.Join("testdata", "task7-differential", "project"), t.TempDir()
+	fixture, install := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project"), t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
 	oracleRoot, nativeRoot := t.TempDir(), t.TempDir()
@@ -342,9 +342,9 @@ func TestTask7Differential_scopedPackageDefaultsHashPrefixToPackageName(t *testi
 
 func TestTask7Differential_accountsForEveryPinnedUpstreamEntryAndCase(t *testing.T) {
 	// Given: the pinned upstream inventory and machine-consumed differential matrix.
-	inventory := readTask7TSV(t, filepath.Join("testdata", "task7-differential", "upstream-inventory.tsv"))
-	coverage := readTask7TSV(t, filepath.Join("testdata", "task7-differential", "coverage.tsv"))
-	loci := readTask7TSV(t, filepath.Join("testdata", "task7-differential", "diagnostic-loci.tsv"))
+	inventory := readTask7TSV(t, filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "upstream-inventory.tsv"))
+	coverage := readTask7TSV(t, filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "coverage.tsv"))
+	loci := readTask7TSV(t, filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "diagnostic-loci.tsv"))
 
 	// When: all source entries and declared behavior families are accounted.
 	paths, families := map[string]bool{}, map[string]bool{}

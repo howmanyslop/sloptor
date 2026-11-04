@@ -41,11 +41,11 @@ import (
 // testdata/diff/project oracle; header and trailing `return nil` stripped —
 // those belong to TransformSourceFile, not the statement list under test).
 func TestArrayMacrosAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "arraymacros"), "src/arraymacros.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "arraymacros"), "src/arraymacros.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
-	wantBytes, err := os.ReadFile(filepath.Join("testdata", "arraymacros", "expected.luau"))
+	wantBytes, err := os.ReadFile(filepath.Join("..", "..", "testdata", "transformer-unit", "arraymacros", "expected.luau"))
 	if err != nil {
 		t.Fatal(err)
 	}

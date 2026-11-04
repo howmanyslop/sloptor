@@ -121,7 +121,7 @@ func task7DIAG002Paths(t *testing.T) (string, string) {
 		t.Fatal("runtime.Caller failed")
 	}
 	repo := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	return filepath.Join(filepath.Dir(file), "testdata", "flamework", "task7-diag-dirty"), filepath.Join(repo, "testdata", "transformers", "project", "node_modules")
+	return filepath.Join(repo, "testdata", "compile-unit", "flamework", "task7-diag-dirty"), filepath.Join(repo, "testdata", "transformers", "project", "node_modules")
 }
 
 func task7DIAG002Project(t *testing.T, fixture, modules string, native bool) string {

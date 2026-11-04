@@ -11,7 +11,7 @@ import (
 
 func renderArrayAppendFixture(t *testing.T, name string, enabled bool, expectedDiagnostics ...string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "arrayappendoptimization"), "src/"+name+".ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "arrayappendoptimization"), "src/"+name+".ts")
 	s.OptimizedArrayAppends = enabled
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)

@@ -16,7 +16,7 @@ import (
 
 func renderTryFixture(t *testing.T, relPath string) (string, *transformer.State) {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "try"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "try"), relPath)
 	if symbol := s.Checker.GetSymbolAtLocation(s.SourceFile.AsNode()); symbol != nil {
 		s.SetModuleIDBySymbol(symbol, luau.GlobalID("exports"))
 	}

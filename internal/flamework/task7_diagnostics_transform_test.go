@@ -41,8 +41,8 @@ type task7UpstreamDiagnostic struct {
 
 func TestTask7DiagnosticsTransform_matchesPinnedUpstreamOrderedTuples(t *testing.T) {
 	// Given: the exact v1.3.2 transformer and canonical diagnostic branch fixtures.
-	base := filepath.Join("testdata", "task7-differential", "project")
-	fixtures := filepath.Join("testdata", "task7-diagnostics-transform")
+	base := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project")
+	fixtures := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-diagnostics-transform")
 	install := t.TempDir()
 	copyTask7Tree(t, base, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")

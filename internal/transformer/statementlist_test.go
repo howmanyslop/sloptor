@@ -10,7 +10,7 @@ import (
 )
 
 func TestBlockTrailingCommentsArePreserved(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "control"), "src/trailingcomment.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "control"), "src/trailingcomment.ts")
 
 	declaration := s.SourceFile.Statements.Nodes[0]
 	if !ast.IsFunctionDeclaration(declaration) {

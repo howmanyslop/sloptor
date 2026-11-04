@@ -16,7 +16,7 @@ import (
 
 func renderSpreadFixture(t *testing.T, relPath string) (string, *transformer.State) {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "spread"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "spread"), relPath)
 	if symbol := s.Checker.GetSymbolAtLocation(s.SourceFile.AsNode()); symbol != nil {
 		s.SetModuleIDBySymbol(symbol, luau.GlobalID("exports"))
 	}

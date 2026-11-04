@@ -19,7 +19,7 @@ import (
 
 func transformJsxFile(t *testing.T, relPath string) (string, *transformer.State) {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "jsx"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "jsx"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	return render.RenderAST(statements), s
 }

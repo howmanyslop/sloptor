@@ -9,7 +9,7 @@ import (
 )
 
 func TestTaggedTemplateAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/template.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/template.ts")
 	got := render.RenderAST(transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil))
 	want := "tag({ \"a\", \"b\", \"c\" }, 1, 2)\n"
 	if got != want {

@@ -18,7 +18,7 @@ import (
 // (noRangeMacroOutsideForOf) — the for-of transform intercepts the valid
 // position before the expression transform.
 func TestRangeMacroOutsideForOf(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/rangemisuse.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/rangemisuse.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); !hasDiagnostic(ds, "noRangeMacroOutsideForOf", "only valid as an expression of a for-of loop") {
 		t.Errorf("no noRangeMacroOutsideForOf diagnostic; got: %v", ds)
@@ -30,7 +30,7 @@ func TestRangeMacroOutsideForOf(t *testing.T) {
 // (noTupleMacroOutsideReturn) — transformReturnStatementInner intercepts the
 // valid position before the expression transform.
 func TestTupleMacroOutsideReturn(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/tuplemisuse.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/tuplemisuse.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); !hasDiagnostic(ds, "noTupleMacroOutsideReturn", "only valid as an expression of a return statement") {
 		t.Errorf("no noTupleMacroOutsideReturn diagnostic; got: %v", ds)
@@ -42,7 +42,7 @@ func TestTupleMacroOutsideReturn(t *testing.T) {
 // transformIdentifier's misuse guard raises noIndexWithoutCall (upstream
 // transformIdentifier.ts L152-159).
 func TestCallMacroIndexWithoutCall(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/indexwithoutcall.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/indexwithoutcall.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); !hasDiagnostic(ds, "noIndexWithoutCall", "Cannot index a method without calling it") {
 		t.Errorf("no noIndexWithoutCall diagnostic; got: %v", ds)

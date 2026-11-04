@@ -9,7 +9,7 @@ import (
 )
 
 func TestSharedTable(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "forof"), "src/sharedtable.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "forof"), "src/sharedtable.ts")
 	if s.AmbientSymbol("SharedTable") == nil {
 		t.Fatal("SharedTable symbol was not registered")
 	}

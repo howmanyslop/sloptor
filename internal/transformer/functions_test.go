@@ -17,7 +17,7 @@ import (
 
 func renderFunctionsFile(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "functions"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)
@@ -27,7 +27,7 @@ func renderFunctionsFile(t *testing.T, relPath string) string {
 
 func renderFunctionsSourceFile(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "functions"), relPath)
 	statements := transformer.TransformSourceFile(s)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)
@@ -105,7 +105,7 @@ print(obj:m(1), obj:f(2))
 
 func transformExpectingDiagnostics(t *testing.T, relPath string) []transformer.Diagnostic {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "functions"), relPath)
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	return s.Diags.Flush()
 }

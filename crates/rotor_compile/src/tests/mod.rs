@@ -114,10 +114,10 @@ pub fn repo_root() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// `internal/compile/testdata/<name>`, as a string.
+/// `testdata/compile-unit/<name>`, as a string.
 pub fn testdata(name: &str) -> String {
 	repo_root()
-		.join("internal/compile/testdata")
+		.join("testdata/compile-unit")
 		.join(name)
 		.to_string_lossy()
 		.into_owned()

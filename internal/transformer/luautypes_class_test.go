@@ -317,7 +317,7 @@ func TestLuauTypesEnums(t *testing.T) {
 // bare `local` before the `do` block, colon-form constructor and
 // `self:constructor(...)`.
 func TestLuauTypesClassesOffKeepRbxtscShape(t *testing.T) {
-	projDir := filepath.Join("testdata", "luautypes")
+	projDir := filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes")
 	for _, relPath := range []string{"src/classes.ts", "src/enums.ts"} {
 		s := buildState(t, projDir, relPath)
 		s.Rojo = luauTypesRojoContext(t, projDir)

@@ -147,7 +147,7 @@ func TestMacroRegistrationAudit(t *testing.T) {
 // nil. The existing imports/runtimelib project tests cover this implicitly;
 // this pins the gating explicitly.
 func TestMacroRegistrationAuditGating(t *testing.T) {
-	if _, diags, err := CompileFile(filepath.Join("testdata", "imports_model"), "src/_scratch_once.ts"); err != nil {
+	if _, diags, err := CompileFile(filepath.Join("..", "..", "testdata", "compile-unit", "imports_model"), "src/_scratch_once.ts"); err != nil {
 		t.Fatalf("checker-light project failed the audit gate: %v (diags: %v)", err, diags)
 	}
 }

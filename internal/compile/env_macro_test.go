@@ -52,7 +52,7 @@ func TestEnvMacroModel(t *testing.T) {
 // produce a clear rotor diagnostic — never a panic (which would surface as
 // an "internal compiler error").
 func TestEnvMacroNonLiteralArgDiagnostic(t *testing.T) {
-	text, diags, err := CompileFileDetailed(filepath.Join("testdata", "env_diag_model"), "src/main.ts")
+	text, diags, err := CompileFileDetailed(filepath.Join("..", "..", "testdata", "compile-unit", "env_diag_model"), "src/main.ts")
 	if err != nil {
 		t.Fatalf("CompileFileDetailed returned hard error (want diagnostic): %v", err)
 	}
@@ -79,7 +79,7 @@ func TestEnvMacroNonLiteralArgDiagnostic(t *testing.T) {
 func TestBuildWritesEnvTypesForEnvProjects(t *testing.T) {
 	t.Run("env project", func(t *testing.T) {
 		dir := t.TempDir()
-		copyDir(t, filepath.Join("testdata", "env_model"), dir)
+		copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "env_model"), dir)
 
 		result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
 		if err != nil {
@@ -112,7 +112,7 @@ func TestBuildWritesEnvTypesForEnvProjects(t *testing.T) {
 
 	t.Run("non-macro project", func(t *testing.T) {
 		dir := t.TempDir()
-		copyDir(t, filepath.Join("testdata", "env_model"), dir)
+		copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "env_model"), dir)
 		// Replace the only source file with one that never mentions a macro.
 		if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("print(1);\n"), 0o644); err != nil {
 			t.Fatal(err)
@@ -144,7 +144,7 @@ func TestEnvMacroCoexistsWithOnDiskDeclaration(t *testing.T) {
 	baseline := compileRuntimeLibProject(t, "env_model")
 
 	dir := t.TempDir()
-	copyDir(t, filepath.Join("testdata", "env_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "env_model"), dir)
 	if _, err := WriteRotorTypes(dir); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestEnvMacroCoexistsWithOnDiskDeclaration(t *testing.T) {
 // A bare `$env` outside call/property/element position (e.g. aliasing it)
 // has no runtime value to emit — also a diagnostic, not a panic.
 func TestEnvMacroBareUsageDiagnostic(t *testing.T) {
-	text, diags, err := CompileFileDetailed(filepath.Join("testdata", "env_diag_model"), "src/bare.ts")
+	text, diags, err := CompileFileDetailed(filepath.Join("..", "..", "testdata", "compile-unit", "env_diag_model"), "src/bare.ts")
 	if err != nil {
 		t.Fatalf("CompileFileDetailed returned hard error (want diagnostic): %v", err)
 	}

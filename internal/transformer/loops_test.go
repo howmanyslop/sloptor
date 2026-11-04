@@ -18,7 +18,7 @@ import (
 // it, failing on any diagnostics.
 func renderFileStatements(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "control"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "control"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)
@@ -92,7 +92,7 @@ end
 // Functions are not transformable yet, so the function BODY's statement list
 // is transformed directly (rbxtsc's body output is the comparison text).
 func TestBareReturnInNestedBlock(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "control"), "src/return.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "control"), "src/return.ts")
 
 	declaration := s.SourceFile.Statements.Nodes[0]
 	if !ast.IsFunctionDeclaration(declaration) {

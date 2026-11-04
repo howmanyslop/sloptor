@@ -14,7 +14,7 @@ import (
 
 func renderDestructuringFile(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "destructuring"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "destructuring"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)
@@ -24,7 +24,7 @@ func renderDestructuringFile(t *testing.T, relPath string) string {
 
 func destructuringDiagnostics(t *testing.T, relPath string) []transformer.Diagnostic {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "destructuring"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "destructuring"), relPath)
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	return s.Diags.Flush()
 }

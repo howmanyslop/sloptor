@@ -158,7 +158,7 @@ func TestCheckIdentifierHoistUseBeforeDeclaration(t *testing.T) {
 	// both symbols hoist onto the function statement. The references are
 	// transformed directly first — the same call the function transform makes
 	// while walking the body.
-	s := buildState(t, filepath.Join("testdata", "hoist"), "src/hoist.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "hoist"), "src/hoist.ts")
 
 	statements := s.SourceFile.Statements.Nodes
 	funcStmt := statements[0]
@@ -193,7 +193,7 @@ func TestCheckIdentifierHoistUseBeforeDeclaration(t *testing.T) {
 }
 
 func TestCheckIdentifierHoistSelfReferenceExemptions(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "hoist"), "src/selfref.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "hoist"), "src/selfref.ts")
 	root := s.SourceFile.AsNode()
 	statements := s.SourceFile.Statements.Nodes
 

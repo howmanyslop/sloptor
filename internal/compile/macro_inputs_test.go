@@ -10,7 +10,7 @@ import (
 
 func TestIncrementalMacroInputsRebuildWithoutSourceEdits(t *testing.T) {
 	dir := t.TempDir()
-	copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 	setPortabilityCompilerOptions(t, dir, map[string]any{"incremental": true, "tsBuildInfoFile": "cache/build.rbxtsc.tsbuildinfo"})
 	write := func(name, text string) {
 		t.Helper()
@@ -59,7 +59,7 @@ func TestRemovedMacrosAreOrdinaryUndeclaredIdentifiers(t *testing.T) {
 	for _, name := range []string{"$asset", "$git", "$buildTime"} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
-			copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+			copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 			if err := os.WriteFile(filepath.Join(dir, "src/main.ts"), []byte("print("+name+"('value'));\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +77,7 @@ func TestRemovedMacrosAreOrdinaryUndeclaredIdentifiers(t *testing.T) {
 func TestIncrementalMacroInputsFollowCustomConfigDirectory(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "project")
-	copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 	setPortabilityCompilerOptions(t, dir, map[string]any{"incremental": true, "tsBuildInfoFile": "cache/build.rbxtsc.tsbuildinfo", "typeRoots": []string{"../node_modules/@rbxts"}})
 	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"name":"macros-fixture"}`), 0o644); err != nil {
 		t.Fatal(err)

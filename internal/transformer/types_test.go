@@ -15,7 +15,7 @@ import (
 // of known types purely for predicate/truthiness tests.
 func probeState(t *testing.T) *transformer.State {
 	t.Helper()
-	return buildState(t, filepath.Join("testdata", "typeprobe"), "src/probe.ts")
+	return buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "typeprobe"), "src/probe.ts")
 }
 
 // probeType returns the checker type of the unique identifier named name

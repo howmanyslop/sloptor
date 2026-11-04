@@ -72,10 +72,11 @@ while IFS= read -r -d '' file; do
     replace_in "$file"
 done < <(find "$repo_root/crates" -type f -name '*.rs' -print0 2>/dev/null)
 
-# Golden Luau files under testdata and internal testdata (skip node_modules).
+# Golden Luau files under testdata (skip node_modules). The transformer, compile and spike unit
+# fixtures keep the headers their tests were written against, so they are left alone.
 while IFS= read -r -d '' file; do
     replace_in "$file"
-done < <(find "$repo_root/testdata" "$repo_root/internal/flamework/testdata" -type d \( -name node_modules -o -name .git \) -prune -o -type f -name '*.luau' -print0 2>/dev/null)
+done < <(find "$repo_root/testdata" \( -type d \( -name node_modules -o -name .git \) -o -path "$repo_root/testdata/compile-unit" -o -path "$repo_root/testdata/spike-unit" -o -path "$repo_root/testdata/transformer-unit" \) -prune -o -type f -name '*.luau' -print0 2>/dev/null)
 
 if [[ "$check_mode" == 1 && "$stale" == 1 ]]; then
     echo "bump-header: found stale headers; run without --check to fix" >&2

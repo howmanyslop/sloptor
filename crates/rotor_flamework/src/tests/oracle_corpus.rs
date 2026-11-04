@@ -19,9 +19,9 @@ pub(super) fn hex(bytes: &[u8]) -> String {
 	})
 }
 
-/// `internal/flamework/testdata/<parts>`
+/// `testdata/flamework-unit/<parts>`
 pub(super) fn flamework_testdata(parts: &str) -> PathBuf {
-	repo_root().join("internal/flamework/testdata").join(parts)
+	repo_root().join("testdata/flamework-unit").join(parts)
 }
 
 fn walk_files(root: &Path, directory: &Path, out: &mut Vec<String>) {

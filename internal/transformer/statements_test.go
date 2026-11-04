@@ -56,7 +56,7 @@ func buildInternalState(t *testing.T, projDir, relPath string) *State {
 // fixture's switch statement.
 func caseHoistFixture(t *testing.T) (*State, []*ast.Node) {
 	t.Helper()
-	s := buildInternalState(t, filepath.Join("testdata", "casehoist"), "src/case.ts")
+	s := buildInternalState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "casehoist"), "src/case.ts")
 
 	fn := s.SourceFile.Statements.Nodes[0]
 	if !ast.IsFunctionDeclaration(fn) {

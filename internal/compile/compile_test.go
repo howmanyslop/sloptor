@@ -206,7 +206,7 @@ func TestCompileFileMissingSource(t *testing.T) {
 // the argument node attached — a reliable case that always carries a source
 // location.
 func TestTransformerDiagnosticCarriesLocation(t *testing.T) {
-	_, infos, _ := CompileFileDetailed("testdata/env_diag_model", "src/main.ts")
+	_, infos, _ := CompileFileDetailed("../../testdata/compile-unit/env_diag_model", "src/main.ts")
 	if len(infos) == 0 {
 		t.Fatal("expected at least one diagnostic")
 	}
@@ -222,7 +222,7 @@ func TestTransformerDiagnosticCarriesLocation(t *testing.T) {
 }
 
 func TestCompileFileUsesFileAffinedCheckerForImports(t *testing.T) {
-	got, diags, err := CompileFile(filepath.Join("testdata", "imports_model"), filepath.Join("src", "_scratch_once.ts"))
+	got, diags, err := CompileFile(filepath.Join("..", "..", "testdata", "compile-unit", "imports_model"), filepath.Join("src", "_scratch_once.ts"))
 	if err != nil {
 		t.Fatalf("CompileFile: %v (diags: %v)", err, diags)
 	}

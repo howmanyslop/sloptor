@@ -572,7 +572,7 @@ func TestBuildProjectDeclarationOnlyEmitsDeclarations(t *testing.T) {
 }
 
 func TestBuildResultCarriesStructuredDiagnostics(t *testing.T) {
-	res, msgs, err := BuildProjectWithOptions("testdata/env_diag_model", ProjectOptions{})
+	res, msgs, err := BuildProjectWithOptions("../../testdata/compile-unit/env_diag_model", ProjectOptions{})
 	if err == nil {
 		t.Fatal("expected a diagnostic error")
 	}

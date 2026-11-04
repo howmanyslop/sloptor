@@ -25,7 +25,7 @@ import (
 // testdata/diff/project; header and trailing `return nil` stripped — those
 // belong to TransformSourceFile, not the statement list under test).
 func TestConditionalAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "conditional"), "src/conditional.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "conditional"), "src/conditional.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 

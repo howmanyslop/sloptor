@@ -39,7 +39,7 @@ import (
 //   - user interface with a construct signature (`declare const Thing:
 //     ThingConstructor`) -> `Thing.new(5)` (fallback)
 func TestNewExpressionAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "new"), "src/constructors.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "new"), "src/constructors.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
@@ -116,7 +116,7 @@ print(a, b, c, s1, s2, s3, s4, m1, m2, m3, m4, m5, wm, ws, rm, rs, part, t)
 // again, exactly as upstream (the guard keys off getFirstConstructSymbol of
 // the identifier's TYPE, not the specific name).
 func TestConstructorMacroIdentifierWithoutNew(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "new"), "src/macroident.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "new"), "src/macroident.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); !hasDiagnostic(ds, "noConstructorMacroWithoutNew", "without using the `new` operator") {
 		t.Errorf("no noConstructorMacroWithoutNew diagnostic for `Array` without new; got: %v", ds)
@@ -130,7 +130,7 @@ func TestConstructorMacroIdentifierWithoutNew(t *testing.T) {
 // state.TS(node, "Promise")) — so the emit is `TS.Promise.new(...)`, never a
 // bare `Promise.new(...)`.
 func TestNewPromise(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "new"), "src/promise.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "new"), "src/promise.ts")
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
 	got := render.RenderAST(statements)

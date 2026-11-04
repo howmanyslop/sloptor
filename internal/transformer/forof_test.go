@@ -16,7 +16,7 @@ import (
 
 func renderForOfFile(t *testing.T, relPath string) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "forof"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "forof"), relPath)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
 		t.Fatalf("unexpected diagnostics: %v", ds)
@@ -37,7 +37,7 @@ func renderForOfFile(t *testing.T, relPath string) string {
 // is strict; any regression of the overlay resurfaces here.
 func forOfDiagnostics(t *testing.T, relPath string) []transformer.Diagnostic {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "forof"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "forof"), relPath)
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	return s.Diags.Flush()
 }

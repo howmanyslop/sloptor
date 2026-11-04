@@ -41,7 +41,7 @@ import (
 
 func compileRuntimeLibProject(t *testing.T, name string) map[string]string {
 	t.Helper()
-	files, diags, err := CompileProject(filepath.Join("testdata", name))
+	files, diags, err := CompileProject(filepath.Join("..", "..", "testdata", "compile-unit", name))
 	if err != nil {
 		t.Fatalf("CompileProject: %v (diags: %v)", err, diags)
 	}
@@ -646,7 +646,7 @@ func TestCompileProjectTypeOverrideGameModelRequireRojo(t *testing.T) {
 // documented atop this file).
 func TestCompileProjectTypeOverridePackageEmission(t *testing.T) {
 	files, diags, err := CompileProjectWithOptions(
-		filepath.Join("testdata", "runtimelib_model"),
+		filepath.Join("..", "..", "testdata", "compile-unit", "runtimelib_model"),
 		ProjectOptions{Type: transformer.ProjectTypePackage},
 	)
 	if err != nil {

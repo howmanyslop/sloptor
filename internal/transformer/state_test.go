@@ -205,7 +205,7 @@ func TestValueToIdStr(t *testing.T) {
 }
 
 func TestGetTypeMemoization(t *testing.T) {
-	dir, err := filepath.Abs(filepath.Join("..", "spike", "testdata", "spike"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "testdata", "spike-unit", "spike"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -94,7 +94,7 @@ func TestSourceMapRuntimeHeaders(t *testing.T) {
 	for _, projectType := range []string{"game", "model", "package"} {
 		t.Run(projectType, func(t *testing.T) {
 			dir := t.TempDir()
-			copyDir(t, filepath.Join("testdata", "runtimelib_"+projectType), dir)
+			copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "runtimelib_"+projectType), dir)
 			// Exercise runtime import, mutable exports, immutable export fields,
 			// and return-nil/wrapper shapes in each project type.
 			for name, source := range map[string]string{

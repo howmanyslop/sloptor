@@ -17,7 +17,7 @@ import (
 func buildDeclarationPathsFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	copyDir(t, filepath.Join("testdata", "declpaths_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "declpaths_model"), dir)
 	if _, diags, err := BuildProjectWithOptions(dir, ProjectOptions{}); err != nil {
 		t.Fatalf("build: %v (diags: %v)", err, diags)
 	}
@@ -155,7 +155,7 @@ func TestDeclarationMapColumnsFollowTheRewrittenSpecifier(t *testing.T) {
 // import that exists only in a caller overlay still has to be rewritten.
 func TestDeclarationEmitRewritesOverlaidImports(t *testing.T) {
 	dir := t.TempDir()
-	copyDir(t, filepath.Join("testdata", "declpaths_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "declpaths_model"), dir)
 	overlaid := filepath.Join(dir, "src", "main.ts")
 	overlay := "import type { Shared } from \"@alias/shared/mod\";\n" +
 		"export type Overlaid = Shared;\n"

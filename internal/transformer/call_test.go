@@ -30,7 +30,7 @@ import (
 // testdata/diff/project; header and trailing `return nil` stripped — those
 // belong to TransformSourceFile, not the statement list under test).
 func TestCallsAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/calls.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/calls.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -72,7 +72,7 @@ print(obj, lookup, arr, prev, i, mutObj)
 // what this site detected via a rotorNotYetSupported diagnostic before the
 // Set/Map tables landed).
 func TestPropertyCallMacro(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/macro.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/macro.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -90,7 +90,7 @@ func TestPropertyCallMacro(t *testing.T) {
 // (`this: void`) and a method signature (`this: Mixed`) is upstream's
 // noMixedTypeCall error; the call still emits as a method (`mixed:fn(1)`).
 func TestNoMixedTypeCall(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/mixed.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/mixed.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -112,7 +112,7 @@ func TestNoMixedTypeCall(t *testing.T) {
 }
 
 func TestContextualMethodArrayCallbacksInjectSelf(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/contextual_method.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/contextual_method.ts")
 	got := render.RenderAST(transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil))
 	for _, want := range []string{"function(self)", "function(self, arg)"} {
 		if !strings.Contains(got, want) {

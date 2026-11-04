@@ -22,7 +22,7 @@ import (
 // fixture does not need.
 func buildLuauTypesState(t *testing.T, relPath string) *State {
 	t.Helper()
-	dir, err := filepath.Abs(filepath.Join("testdata", "luautypes"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes"))
 	if err != nil {
 		t.Fatal(err)
 	}

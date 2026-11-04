@@ -28,11 +28,11 @@ func TestTask4DirectTransform_preservesOracleIdentifierThroughFinalLuau(t *testi
 		`declare function inspect(value?: Generic<Payload, "id">): string;`,
 		`export const payloadId = inspect();`,
 	}, "\n"))
-	oracleTypeScript, err := os.ReadFile(filepath.Join("testdata", "task4", "expected", "transformed.ts"))
+	oracleTypeScript, err := os.ReadFile(filepath.Join("..", "..", "testdata", "flamework-unit", "task4", "expected", "transformed.ts"))
 	if err != nil {
 		t.Fatalf("read transformed TypeScript oracle: %v", err)
 	}
-	oracleLuau, err := os.ReadFile(filepath.Join("testdata", "task4", "expected", "luau", "shared", "macros.luau"))
+	oracleLuau, err := os.ReadFile(filepath.Join("..", "..", "testdata", "flamework-unit", "task4", "expected", "luau", "shared", "macros.luau"))
 	if err != nil {
 		t.Fatalf("read final Luau oracle: %v", err)
 	}

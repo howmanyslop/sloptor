@@ -1,5 +1,5 @@
 //! Unit tests ported from Go's `internal/transformer/*_test.go`, with the expected strings kept
-//! verbatim. Go builds real tsgo programs over `internal/transformer/testdata`; these build the
+//! verbatim. Go builds real tsgo programs over `testdata/transformer-unit`; these build the
 //! same programs through `rotor_tsrs`.
 
 use std::path::{Path, PathBuf};
@@ -40,9 +40,9 @@ pub fn repo_root() -> PathBuf {
 	Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// Go's `internal/transformer/testdata/<name>`.
+/// Go's `testdata/transformer-unit/<name>`.
 pub fn transformer_testdata(name: &str) -> PathBuf {
-	repo_root().join("internal/transformer/testdata").join(name)
+	repo_root().join("testdata/transformer-unit").join(name)
 }
 
 /// Go's `buildState`: a program over `project`, its semantic diagnostics required empty, and a

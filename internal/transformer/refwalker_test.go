@@ -13,7 +13,7 @@ import (
 // `counter`, and `lonely`.
 func refsFixtureState(t *testing.T) (s *transformer.State, outerDef, innerDef, lonelyDef *ast.Node) {
 	t.Helper()
-	s = buildState(t, filepath.Join("testdata", "typeprobe"), "src/refs.ts")
+	s = buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "typeprobe"), "src/refs.ts")
 
 	declName := func(statement *ast.Node) *ast.Node {
 		t.Helper()

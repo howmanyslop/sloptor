@@ -16,7 +16,7 @@ import (
 func TestCheckerSpike(t *testing.T) {
 	start := time.Now()
 
-	dir, err := filepath.Abs(filepath.Join("testdata", "spike"))
+	dir, err := filepath.Abs(filepath.Join("..", "..", "testdata", "spike-unit", "spike"))
 	if err != nil {
 		t.Fatal(err)
 	}

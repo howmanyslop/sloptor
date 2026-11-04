@@ -258,7 +258,7 @@ fn value_to_id_str_cases() {
 
 #[test]
 fn get_type_memoization() {
-	with_state(&repo_root().join("internal/spike/testdata/spike"), "src/main.ts", |s| {
+	with_state(&repo_root().join("testdata/spike-unit/spike"), "src/main.ts", |s| {
 		assert!(
 			!s.source_file_text.is_empty(),
 			"SourceFileText must be captured from the source file"

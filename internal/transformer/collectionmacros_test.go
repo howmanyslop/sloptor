@@ -29,7 +29,7 @@ import (
 // testdata/diff/project; header and trailing `return nil` stripped — those
 // belong to TransformSourceFile, not the statement list under test).
 func TestCollectionMacrosAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/collections.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/collections.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -98,7 +98,7 @@ print(chained2)
 // internal-compiler-error (compile-level coverage with the REAL
 // compiler-types package: internal/compile TestMacroOnlyClassAssert).
 func TestMacroOnlyClassAssertPanics(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "macroonly"), "src/main.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "macroonly"), "src/main.ts")
 
 	defer func() {
 		r := recover()

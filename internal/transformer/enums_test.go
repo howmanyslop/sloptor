@@ -17,7 +17,7 @@ import (
 
 func renderModuleFixture(t *testing.T, projDir, relPath string) (string, *transformer.State) {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", projDir), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", projDir), relPath)
 	// TransformSourceFile maps the file's module symbol to `exports` before
 	// transforming statements; reads of exported symbols consult it.
 	if symbol := s.Checker.GetSymbolAtLocation(s.SourceFile.AsNode()); symbol != nil {

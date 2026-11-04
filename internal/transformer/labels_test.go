@@ -34,7 +34,7 @@ func renderLabelFixture(t *testing.T, name, want string) {
 // failing on them (renderFileStatements fails on any diagnostic).
 func labelDiagnostics(t *testing.T, name string) []transformer.Diagnostic {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "control"), "src/"+name)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "control"), "src/"+name)
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 	render.RenderAST(statements) // exercise the renderer even on the error paths
 	return s.Diags.Flush()

@@ -101,7 +101,7 @@ func TestTask7DiagnosticsClass_orderedDiagnosticArtifactMatchesOracle(t *testing
 
 func TestTask7DiagnosticsClass_sameCompilerFiveFamilyTreeMatchesOracle(t *testing.T) {
 	// Given
-	fixture := filepath.Join("testdata", "task7-differential", "project")
+	fixture := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")
@@ -182,7 +182,7 @@ func TestTask7DiagnosticsClass_sameCompilerFiveFamilyTreeMatchesOracle(t *testin
 
 func task7ClassRunDiagnosticCase(t *testing.T, name string) ([]task7ClassDiagnosticTuple, []task7ClassDiagnosticTuple) {
 	t.Helper()
-	fixture := filepath.Join("testdata", "task7-differential", "project")
+	fixture := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-differential", "project")
 	oracleRoot, nativeRoot := t.TempDir(), t.TempDir()
 	fixtureNames := []string{name}
 	if name == "ordered" {
@@ -200,7 +200,7 @@ func task7ClassRunDiagnosticCase(t *testing.T, name string) ([]task7ClassDiagnos
 		copyTask7Tree(t, fixture, root)
 		task7ClassLinkPinnedModules(t, root)
 		for index, fixtureName := range fixtureNames {
-			source, err := os.ReadFile(filepath.Join("testdata", "task7-diagnostics-class", fixtureName+".ts"))
+			source, err := os.ReadFile(filepath.Join("..", "..", "testdata", "flamework-unit", "task7-diagnostics-class", fixtureName+".ts"))
 			if err != nil {
 				t.Fatalf("read %s fixture: %v", fixtureName, err)
 			}

@@ -131,7 +131,7 @@ func lookupLuauTool(name string) string {
 // luauStubPath is the absolute path of testdata/luautypes/sloptor.d.luau.
 func luauStubPath(t *testing.T) string {
 	t.Helper()
-	path, err := filepath.Abs(filepath.Join("testdata", "luautypes", luauStubName))
+	path, err := filepath.Abs(filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes", luauStubName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func luauErrorLines(t *testing.T, findings []string) []int {
 // export table are part of what the analyzer sees.
 func renderLuauTypes(t *testing.T, relPath string) string {
 	t.Helper()
-	projDir := filepath.Join("testdata", "luautypes")
+	projDir := filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes")
 	s := buildState(t, projDir, relPath)
 	s.LuauTypes = true
 	s.Rojo = luauTypesRojoContext(t, projDir)
@@ -290,7 +290,7 @@ func luauTypesRojoContext(t *testing.T, projDir string) *transformer.RojoContext
 // order.
 func luauTypesFixtures(t *testing.T) []string {
 	t.Helper()
-	root := filepath.Join("testdata", "luautypes")
+	root := filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes")
 	fixtures := []string{}
 	err := filepath.WalkDir(filepath.Join(root, "src"), func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -351,7 +351,7 @@ func TestLuauTypesClassIdiomProbes(t *testing.T) {
 		"type-function-param-annotated.luau": {},
 	}
 
-	probes, err := filepath.Glob(filepath.Join("testdata", "luautypes", "probes", "*.luau"))
+	probes, err := filepath.Glob(filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes", "probes", "*.luau"))
 	if err != nil {
 		t.Fatal(err)
 	}

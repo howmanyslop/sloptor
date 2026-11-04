@@ -139,7 +139,7 @@ func TestLuauTypesEmissionLocals(t *testing.T) {
 // the locals.
 func TestLuauTypesKeepsNativeSignatures(t *testing.T) {
 	renderWith := func(luauTypes bool) string {
-		s := buildState(t, filepath.Join("testdata", "functions"), "src/native.ts")
+		s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "functions"), "src/native.ts")
 		s.NativeTypes = true
 		s.LuauTypes = luauTypes
 		statements := transformer.TransformSourceFile(s)

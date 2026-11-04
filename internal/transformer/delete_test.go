@@ -10,7 +10,7 @@ import (
 )
 
 func TestDeleteExpressionEmitsNilAssignmentAndStatementValueSemantics(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/delete.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/delete.ts")
 	statements := s.SourceFile.Statements.Nodes
 
 	stmtDelete := statements[2].AsExpressionStatement().Expression
@@ -41,7 +41,7 @@ func TestDeleteExpressionEmitsNilAssignmentAndStatementValueSemantics(t *testing
 }
 
 func TestDeleteStatementListAgainstRbxtsc(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "operators"), "src/delete.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "operators"), "src/delete.ts")
 	got := render.RenderAST(transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil))
 	want := "obj[key] = nil\nobj.foo = nil\nlocal deleted = true\n"
 	if got != want {

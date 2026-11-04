@@ -71,7 +71,7 @@ var task7StateANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestTask7DiagnosticsState_matchesUpstream132DiagnosticTuples(t *testing.T) {
 	// Given: one pinned installation, then a fresh project copy for every state mutation.
-	fixture := filepath.Join("testdata", "task7-diagnostics-state")
+	fixture := filepath.Join("..", "..", "testdata", "flamework-unit", "task7-diagnostics-state")
 	install := t.TempDir()
 	copyTask7Tree(t, fixture, install)
 	runTask7Command(t, install, 5*time.Minute, "npm", "install", "--ignore-scripts", "--package-lock=false", "--no-audit", "--no-fund", "--prefer-offline")

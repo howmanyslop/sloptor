@@ -19,7 +19,7 @@ import (
 // recorded, by name.
 func renderLuauTypesLosses(t *testing.T, relPath string) (string, []string) {
 	t.Helper()
-	projDir := filepath.Join("testdata", "luautypes")
+	projDir := filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes")
 	s := buildState(t, projDir, relPath)
 	s.LuauTypes = true
 	s.Rojo = luauTypesRojoContext(t, projDir)
@@ -208,7 +208,7 @@ func TestLuauTypesAliasesExportedFromSibling(t *testing.T) {
 // Native output is untouched: with luauTypes off, a file without the
 // `//!native` directive emits no alias at all.
 func TestLuauTypesAliasesOffEmitNothing(t *testing.T) {
-	projDir := filepath.Join("testdata", "luautypes")
+	projDir := filepath.Join("..", "..", "testdata", "transformer-unit", "luautypes")
 	s := buildState(t, projDir, "src/aliases.ts")
 	s.Rojo = luauTypesRojoContext(t, projDir)
 	got := render.RenderAST(transformer.TransformSourceFile(s))

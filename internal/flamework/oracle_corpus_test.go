@@ -13,7 +13,7 @@ import (
 
 func TestTask4OracleInventory_accountsForPinnedUpstreamSource(t *testing.T) {
 	// Given: the pinned source tree and its independently recorded inventory.
-	corpusRoot := filepath.Join("testdata", "task4")
+	corpusRoot := filepath.Join("..", "..", "testdata", "flamework-unit", "task4")
 	referenceRoot := filepath.Join("..", "..", "reference", "rbxts-transformer-flamework")
 	inventoryFile, err := os.Open(filepath.Join(corpusRoot, "inventory.tsv"))
 	if err != nil {
@@ -102,7 +102,7 @@ func TestTask4OracleInventory_accountsForPinnedUpstreamSource(t *testing.T) {
 
 func TestTask4OracleCorpus_containsDurableBehaviorArtifacts(t *testing.T) {
 	// Given: the controlled upstream inputs and the committed expected surfaces.
-	root := filepath.Join("testdata", "task4")
+	root := filepath.Join("..", "..", "testdata", "flamework-unit", "task4")
 	required := []string{
 		"oracle/deterministic-random.cjs",
 		"oracle/flamework.build",

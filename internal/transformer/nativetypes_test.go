@@ -23,7 +23,7 @@ func renderNativeSourceFile(t *testing.T, relPath string) string {
 // renderSourceFileWithNativeTypes renders a fixture with the option on or off.
 func renderSourceFileWithNativeTypes(t *testing.T, relPath string, nativeTypes bool) string {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "functions"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "functions"), relPath)
 	s.NativeTypes = nativeTypes
 	statements := transformer.TransformSourceFile(s)
 	if ds := s.Diags.Flush(); len(ds) != 0 {
@@ -500,11 +500,11 @@ func TestNativeFixturePairsDifferOnlyInDirective(t *testing.T) {
 		{"src/native.ts", "src/nonative.ts"},
 		{"src/lru.ts", "src/lru_nonative.ts"},
 	} {
-		native, err := os.ReadFile(filepath.Join("testdata", "functions", pair[0]))
+		native, err := os.ReadFile(filepath.Join("..", "..", "testdata", "transformer-unit", "functions", pair[0]))
 		if err != nil {
 			t.Fatal(err)
 		}
-		plain, err := os.ReadFile(filepath.Join("testdata", "functions", pair[1]))
+		plain, err := os.ReadFile(filepath.Join("..", "..", "testdata", "transformer-unit", "functions", pair[1]))
 		if err != nil {
 			t.Fatal(err)
 		}

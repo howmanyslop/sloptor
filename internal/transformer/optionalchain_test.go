@@ -27,7 +27,7 @@ import (
 //   - arr?.pop()         property-call macro runs normally inside the
 //     nil-check block (optional access, non-optional call)
 func TestOptionalChainShapes(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/optchain.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/optchain.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -90,7 +90,7 @@ print(r1, r2, r3, r4, r5)
 // middle of a chain whose result feeds a VariableDeclaration (temp named
 // `_n`).
 func TestOptionalChainAccess(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/optional.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/optional.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -115,7 +115,7 @@ print(n)
 // silent emit. (`nums?.map(...)` — optional ACCESS — is fine and covered by
 // TestOptionalChainShapes' arr?.pop().)
 func TestNoOptionalMacroCall(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/optmacro.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/optmacro.ts")
 
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
@@ -135,7 +135,7 @@ func TestNoOptionalMacroCall(t *testing.T) {
 // chain (`tbl.get(k)?.x`) and a macro inside an optional link (`s?.add(1)`)
 // both work — the macro emits inside the nil-check block.
 func TestOptionalChainMacroInterplay(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "calls"), "src/optmacrobase.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "calls"), "src/optmacrobase.ts")
 
 	statements := transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 

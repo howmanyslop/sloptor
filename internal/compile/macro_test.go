@@ -56,7 +56,7 @@ func TestMacrosModel(t *testing.T) {
 // no output and a diagnostic with the given code (never a hard error).
 func assertMacroDiag(t *testing.T, relPath, wantCode string) {
 	t.Helper()
-	text, diags, err := CompileFileDetailed(filepath.Join("testdata", "macros_diag_model"), relPath)
+	text, diags, err := CompileFileDetailed(filepath.Join("..", "..", "testdata", "compile-unit", "macros_diag_model"), relPath)
 	if err != nil {
 		t.Fatalf("CompileFileDetailed returned hard error (want diagnostic): %v", err)
 	}
@@ -102,7 +102,7 @@ func TestFileMacroInvalidJSONDiagnostic(t *testing.T) {
 func TestBuildWritesMacroTypesForMacroProjects(t *testing.T) {
 	t.Run("macro project", func(t *testing.T) {
 		dir := t.TempDir()
-		copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+		copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 
 		result, diags, err := BuildProjectWithOptions(dir, ProjectOptions{})
 		if err != nil {
@@ -135,7 +135,7 @@ func TestBuildWritesMacroTypesForMacroProjects(t *testing.T) {
 
 	t.Run("non-macro project", func(t *testing.T) {
 		dir := t.TempDir()
-		copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+		copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 		if err := os.WriteFile(filepath.Join(dir, "src", "main.ts"), []byte("print(1);\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -162,7 +162,7 @@ func TestMacrosCoexistWithOnDiskDeclaration(t *testing.T) {
 	baseline := compileRuntimeLibProject(t, "macros_model")
 
 	dir := t.TempDir()
-	copyDir(t, filepath.Join("testdata", "macros_model"), dir)
+	copyDir(t, filepath.Join("..", "..", "testdata", "compile-unit", "macros_model"), dir)
 	if _, err := WriteRotorTypes(dir); err != nil {
 		t.Fatal(err)
 	}

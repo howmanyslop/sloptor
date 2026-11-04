@@ -17,7 +17,7 @@ import (
 
 func renderClassFixture(t *testing.T, relPath string) (string, *transformer.State) {
 	t.Helper()
-	s := buildState(t, filepath.Join("testdata", "classes"), relPath)
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "classes"), relPath)
 	// TransformSourceFile maps the file's module symbol to `exports` before
 	// transforming statements; reads of exported symbols consult it.
 	if symbol := s.Checker.GetSymbolAtLocation(s.SourceFile.AsNode()); symbol != nil {
@@ -402,7 +402,7 @@ print(makeInstance())
 // transformPropertyInitializers passes the class node — quirk ported
 // verbatim); a `#name` METHOD raises it on the name node instead.
 func TestClassPrivateIdentifierDiagnostics(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "classes"), "src/diagprivate.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "classes"), "src/diagprivate.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
 	ds := s.Diags.Flush()
@@ -429,7 +429,7 @@ func TestClassPrivateIdentifierDiagnostics(t *testing.T) {
 // (get AND set accessors each), noInstanceMethodCollisions /
 // noStaticMethodCollisions (`m` declared both ways).
 func TestClassMemberDiagnostics(t *testing.T) {
-	s := buildState(t, filepath.Join("testdata", "classes"), "src/diagmembers.ts")
+	s := buildState(t, filepath.Join("..", "..", "testdata", "transformer-unit", "classes"), "src/diagmembers.ts")
 	transformer.TransformStatementList(s, s.SourceFile.AsNode(), s.SourceFile.Statements.Nodes, nil)
 
 	var codes []string
