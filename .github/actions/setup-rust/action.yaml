@@ -1,0 +1,66 @@
+name: Set up Rust toolchain
+description: >-
+  Install the Rust toolchain pinned in mise.toml (plus any extra mise tools),
+  and optionally restore the cargo build cache and the fixture node_modules the
+  Rust test suite needs. Adapted from the Rust setup action in whisper-hoe.
+
+inputs:
+  cache-key:
+    default: ""
+    description: >-
+      Names this job's cargo build cache. Empty skips the cache, which is what a
+      release build wants: release assets never restore a cache.
+    required: false
+  fixtures:
+    description: >-
+      "true" installs the fixture node_modules (bun install) the Rust tests read.
+      The tools input must then include bun and node. There is deliberately no
+      node_modules cache here: release.yaml also calls this action, and a cache
+      restore must never reach a tag build.
+    required: false
+    default: "false"
+  mise-cache:
+    default: "true"
+    description: >-
+      "false" skips the mise tool cache. Release builds pass it so no cache
+      restore can reach a published asset, even on a manual run.
+    required: false
+  tools:
+    description: >-
+      Extra mise tools to install beside rust and mr-boxington, space separated
+      (for example "cargo-deny node bun").
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Mise toolchain
+      uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      with:
+        # Tag-triggered: never restore a cache into release artifacts.
+        cache: ${{ inputs.mise-cache == 'true' && github.ref_type != 'tag' }}
+        experimental: true
+        # mise.toml enables mr_boxington on rust, which needs mbx installed.
+        # Callers set MBX_DISABLE=1: mbx's local cache starts empty on a runner.
+        install_args: rust mr-boxington ${{ inputs.tools }}
+
+    # Pull requests read main's cache but never write their own, so they cannot
+    # evict it. Tags build from scratch.
+    - if: inputs.cache-key != '' && github.ref_type != 'tag'
+      name: Restore cargo build cache
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+        shared-key: ${{ inputs.cache-key }}
+
+    - if: inputs.fixtures == 'true'
+      name: Install fixture dependencies (bun)
+      run: |
+        set -euo pipefail
+        for dir in tools/sidecar testdata/diff/project testdata/conformance/project testdata/transformers/project; do
+          echo "::group::bun install ($dir)"
+          (cd "$dir" && bun install --no-save)
+          echo "::endgroup::"
+        done
+      shell: bash

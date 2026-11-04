@@ -8,6 +8,17 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: "0"
+  # Debug info is the largest part of a test build and nothing in CI reads it.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+  # mise.toml routes cargo through mbx, whose local cache starts empty on every
+  # runner. Swatinem/rust-cache restores target/ instead.
+  MBX_DISABLE: "1"
+  RUST_BACKTRACE: short
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -22,6 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
       # Pushes are diffed with git; pull requests ask the API instead.
       - name: Check out repository
@@ -30,7 +42,7 @@ jobs:
           persist-credentials: false
 
       - id: filter
-        name: Detect Go-relevant changes
+        name: Detect Go- and Rust-relevant changes
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           predicate-quantifier: some-with-excludes
@@ -51,6 +63,25 @@ jobs:
               - "!docs/**"
               - "!documentation/**"
               - "!media/**"
+            # Fails open the same way: the Rust crates read testdata/,
+            # include/, and tools/sidecar, and internal/forkparity drives the
+            # Rust binary. Only the Go-only paths and the docs are listed as
+            # Rust-free. This file and the setup-rust action are not among
+            # them, so a CI edit always proves itself.
+            rust:
+              - "**"
+              - "!.github/workflows/ci-documentation.yaml"
+              - "!.github/workflows/docs.yaml"
+              - "!.github/workflows/release.yaml"
+              - "!CHANGELOG.md"
+              - "!CONTRIBUTING.md"
+              - "!README.md"
+              - "!docs/**"
+              - "!documentation/**"
+              - "!go.mod"
+              - "!go.sum"
+              - "!media/**"
+              - "!tsgo/**"
 
     timeout-minutes: 5
 
@@ -128,9 +159,127 @@ jobs:
 
     timeout-minutes: 20
 
+  # internal/forkparity compares the sloptor release binary with the pinned
+  # roblox-ts fork. It is a Go test harness, so the lane needs both toolchains:
+  # `mise run rust:forkparity` builds the release binary and hands it to the
+  # suite through ROTOR_BIN.
+  rust-forkparity:
+    if: needs.changes.outputs.rust == 'true'
+    name: rust-forkparity (${{ matrix.name }})
+    needs: changes
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up rotor toolchain
+        uses: ./.github/actions/setup
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: forkparity-${{ matrix.name }}
+
+      - name: Cache go modules
+        run: go mod download
+        shell: bash
+
+      - name: Fork parity
+        run: mise run rust:forkparity
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-24.04
+          - name: windows
+            runner: windows-2025
+
+    timeout-minutes: 45
+
+  # Mirrors `mise run rust:lint`: rustfmt, clippy (-D warnings), cargo-deny, and
+  # cargo-machete. rust-test repeats clippy per OS for the cfg(target_os) code.
+  rust-lint:
+    if: needs.changes.outputs.rust == 'true'
+    needs: changes
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: lint
+          tools: cargo-deny github:bnjbvr/cargo-machete
+
+      - name: Lint
+        run: mise run rust:lint
+
+    timeout-minutes: 20
+
+  # Mirrors `mise run rust:test` (nextest over the whole workspace) on every OS
+  # sloptor ships on. That includes crates/rotor_compile/tests/conformance.rs,
+  # the Rust twin of internal/conformance TestConformance. The fixture
+  # node_modules come from bun, as in the Go lanes.
+  rust-test:
+    if: needs.changes.outputs.rust == 'true'
+    name: rust-test (${{ matrix.name }})
+    needs: changes
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # Hosted Windows runners real-time-scan every file the toolchain and the
+      # build touch.
+      # Pure optimization: never fail a job over it.
+      - continue-on-error: true
+        if: runner.os == 'Windows'
+        name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test-${{ matrix.name }}
+          fixtures: "true"
+          tools: bun node cargo:cargo-nextest
+
+      - name: Clippy
+        # The same command as rust:lint, run per OS because the macOS and
+        # Windows code paths only compile there.
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        shell: bash
+
+      - name: Test
+        run: mise run rust:test
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-24.04
+          - name: macos
+            runner: macos-15
+          - name: windows
+            runner: windows-2025
+
+    timeout-minutes: 45
+
   # Linux lanes. Everything except the four heaviest packages (flamework,
-  # conformance, forkparity, compile) runs here alongside gofmt and vet; the
-  # heavy four get their own runner in test-heavy. New packages land here by
+  # conformance, forkparity, compile) runs here alongside gofmt and vet; flamework,
+  # conformance, and compile get their own runner in test-heavy. forkparity drives
+  # the Rust binary, so it runs in rust-forkparity. New packages land here by
   # default; move one to test-heavy only if it belongs with the big ones.
   test:
     needs: changes
@@ -174,7 +323,7 @@ jobs:
 
     timeout-minutes: 15
 
-  # The four heavy packages on a dedicated runner; they overlap through the
+  # The three heavy Go packages on a dedicated runner; they overlap through the
   # default -p (one lane each on 4 vCPUs) instead of queueing behind vet.
   test-heavy:
     if: needs.changes.outputs.go == 'true'
@@ -195,15 +344,15 @@ jobs:
           # never skip.
           ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
         name: Test
-        run: go test -count=1 ./internal/flamework ./internal/conformance ./internal/forkparity ./internal/compile
+        run: go test -count=1 ./internal/flamework ./internal/conformance ./internal/compile
 
     timeout-minutes: 15
 
   # Node suites on their own runner. The API integration suite builds the
-  # rotor binary itself (go build in test.before), so it needs the toolchain
-  # and module cache too.
+  # sloptor release binary itself (cargo build in test.before), so it needs the
+  # Rust toolchain; the cargo cache keeps that build warm.
   test-node:
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.rust == 'true'
     needs: changes
     runs-on: ubuntu-24.04
     steps:
@@ -212,8 +361,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: node
+          fixtures: "true"
+          tools: bun node
 
       - name: API integration tests
         run: node --test test/api.integration.test.js test/api.lifecycle.test.js
@@ -227,7 +380,7 @@ jobs:
           mise install node@24
           mise exec node@24 -- node --test tools/sidecar/test/package-map.test.js
 
-    timeout-minutes: 15
+    timeout-minutes: 30
 
   vuln:
     needs: changes
@@ -288,8 +441,8 @@ jobs:
         name: Test
         run: |
           set -euo pipefail
-          # flamework, conformance, and forkparity run in their own lanes;
-          # compile and everything else run here. -p above GOMAXPROCS
+          # flamework and conformance run in their own lanes, forkparity in
+          # rust-forkparity; compile and everything else run here. -p above GOMAXPROCS
           # overlaps I/O waits across the smaller packages.
           # shellcheck disable=SC2046 # word splitting is the point
           go test -count=1 -p 8 \
@@ -316,7 +469,7 @@ jobs:
         shell: bash
 
       - name: Test
-        run: go test -count=1 -p 2 ./internal/conformance ./internal/forkparity
+        run: go test -count=1 -p 2 ./internal/conformance
         shell: bash
 
     timeout-minutes: 20
@@ -404,7 +557,7 @@ jobs:
     timeout-minutes: 20
 
   windows-node:
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.rust == 'true'
     needs: changes
     runs-on: windows-2025
     steps:
@@ -413,14 +566,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      # Pure optimization: never fail a job over it.
+      - continue-on-error: true
+        name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
 
-      # The API integration suite builds the rotor binary in test.before.
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: windows-node
+          fixtures: "true"
+          tools: bun node
 
+      # The API integration suite builds the sloptor release binary in
+      # test.before.
       - name: API integration tests
         run: node --test test/api.integration.test.js test/api.lifecycle.test.js
         shell: bash
@@ -430,7 +590,7 @@ jobs:
         shell: bash
         working-directory: tools/sidecar
 
-    timeout-minutes: 20
+    timeout-minutes: 40
 
   # Not gated on the Go filter: release.yaml, docs.yaml, and
   # ci-documentation.yaml count as Go-free there, and they need linting most.
@@ -450,6 +610,6 @@ jobs:
 
       - name: jactionlint
         # Same profile (.github/jactionlint.yaml) and exit policy as the hook.
-        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup/action.yaml
+        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup/action.yaml .github/actions/setup-rust/action.yaml
 
     timeout-minutes: 5
