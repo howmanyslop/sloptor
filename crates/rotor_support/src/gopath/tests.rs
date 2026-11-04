@@ -352,3 +352,12 @@ fn slash_conversion() {
 	assert_eq!(Unix.from_slash("a/b\\c"), "a/b\\c");
 	assert_eq!(Unix.to_slash("a/b\\c"), "a/b\\c");
 }
+
+#[cfg(windows)]
+#[test]
+fn abs_drops_the_verbatim_prefix() {
+	assert_eq!(
+		super::abs(r"\\?\C:\project\tsconfig.json").unwrap(),
+		r"C:\project\tsconfig.json"
+	);
+}

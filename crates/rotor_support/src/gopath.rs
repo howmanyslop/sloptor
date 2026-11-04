@@ -637,7 +637,8 @@ pub fn abs(path: &str) -> io::Result<String> {
 		// syscall.FullPath is GetFullPathNameW, which is also what the
 		// standard library's `absolute` calls. An empty path means ".".
 		let full = std::path::absolute(if path.is_empty() { "." } else { path })?;
-		Ok(clean(&full.to_string_lossy()))
+		// A `\\?\` path would reach the compiler as `//?/`, which it cannot read.
+		Ok(clean(&dunce::simplified(&full).to_string_lossy()))
 	}
 	#[cfg(not(windows))]
 	{

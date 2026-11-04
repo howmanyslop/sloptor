@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::gostr;
 
@@ -101,6 +101,16 @@ pub fn chmod(file: &fs::File, mode: u32) -> io::Result<()> {
 		let _ = (file, mode);
 		Ok(())
 	}
+}
+
+/// The real path of `path`. Unlike [`fs::canonicalize`], it never adds Windows's `\\?\\` prefix
+/// when the path can be spelled without one, because the compiler cannot read a prefixed path.
+///
+/// # Errors
+///
+/// Returns the I/O error from looking the path up.
+pub fn real_path(path: impl AsRef<Path>) -> io::Result<PathBuf> {
+	dunce::canonicalize(path)
 }
 
 /// `filepath.EvalSymlinks`, which also resolves junctions on Windows.

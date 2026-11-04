@@ -17,6 +17,7 @@ publish = false
 clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
 clap_complete = "4.6.11"
 ctrlc = { version = "3.5.2", features = ["termination"] }
+dunce = "1.0.5"
 getrandom = "0.4"
 icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 jiff = "0.2.24"
