@@ -407,9 +407,13 @@ pub(crate) fn preparse_overlays(
 	let next = std::sync::atomic::AtomicUsize::new(0);
 	std::thread::scope(|scope| {
 		for _ in 0..workers {
+			// In a long-lived session the parses go to a region the build's program scope frees.
+			let region = rotor_tsrs::project::scope_thread_region();
+			let (next, slots) = (&next, &slots);
 			let spawned = std::thread::Builder::new()
 				.stack_size(PARSE_STACK_BYTES)
-				.spawn_scoped(scope, || {
+				.spawn_scoped(scope, move || {
+					let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
 					loop {
 						let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 						let Some(slot) = slots.get(index) else {

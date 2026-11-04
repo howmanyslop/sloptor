@@ -59,7 +59,7 @@ into `rotor_jecs` (`forof`, `query`, `transform`) and the compile-side glue list
 | `sidecar.go` | 5b | `sidecar` | The embedded worker is `include_bytes!` of `tools/sidecar` (`sidecar_install`) |
 | `sidecar_install.go`, `sidecar_parallel.go`, `sidecar_roots.go`, `sidecar_shards.go` | 5b | `sidecar_install`, `sidecar_parallel`, `sidecar_roots`, `sidecar_shards` | |
 | `solution.go` | 5b | `solution` | |
-| `solution_cache.go`, `solution_drain.go`, `solution_satisfied.go`, `solution_scheduler.go`, `solution_watch.go` | 5b | `solution_cache`, `solution_drain`, `solution_satisfied`, `solution_scheduler`, `solution_watch` | `solution_watch` is the coordinator's half; the watch loop is Stage 7 |
+| `solution_cache.go`, `solution_drain.go`, `solution_satisfied.go`, `solution_scheduler.go`, `solution_watch.go` | 5b | `solution_cache`, `solution_drain`, `solution_satisfied`, `solution_scheduler`, `solution_watch` | `solution_watch` is the coordinator's half; the watch loop is `rotor_cli::solution_watch` |
 | `source_trace.go` | 5a | `source_trace` | |
 | `source_trace_sourcemap.go` | 5a | `source_trace_sourcemap` | |
 | `timings.go` | 5a | `timings` | Go runtime metadata fields are left out |
@@ -99,7 +99,6 @@ Outside the Go file map:
     context (`transformer_host::with_transformer_callback`). It gets
     `Cancellation::with_timeout`, Go's `context.WithTimeout` (`Cancellation::err` gives
     `context deadline exceeded`).
-  - The CLI has no admission or runtime policy yet (Stage 7), so the build share stays 1.
   - Go's owned-stderr spawn mode is not distinguished (`sidecar::spawn_sidecar_session_mode`);
     a worker's stderr is always a pipe whose tail outlives `close`.
   - The embedded worker's file list is written out (`sidecar_install::EMBEDDED_SIDECAR`) where
@@ -231,5 +230,31 @@ Stage 5b ports `census`, `census_solution`, `project_reference_import`, `sidecar
 `transformers_integration`, and turns on the 5a tests that were waiting for it. Scripted
 sidecar sessions (`sidecar_parallel`) are small Node workers instead of Go's in-memory pipes.
 
-`performance_parity` (it runs the CLI binary) waits for Stage 7. `incremental_portability` is
-not ported yet.
+`performance_parity` (it runs the CLI binary) and `incremental_portability` are not ported
+yet.
+
+## Long-lived sessions (Stage 7b)
+
+Watch mode, the language server and the build API call
+`rotor_tsrs::project::set_long_lived(true)`. Then:
+
+- A `ProgramScope` frees everything its programs allocated: their checker regions, the file
+  loader's regions (`ProgramOptions::regions`) and, with the last program sharing it, the
+  processed-file data (`SharedProgramData::free`). Lazily filled data of an object outside every
+  region goes to its owner's region (`arena::route_by_owner`).
+- A solution drain's parse cache (`SolutionCompileCache`) owns one set of loader regions shared
+  by its projects (`SourceFileCache::loader_regions`), dropped with the cache.
+- The Flamework preparse threads (`flamework_program_update`) and the declaration prefetch
+  thread (`declaration_prefetch`) allocate in regions the scope frees
+  (`project::scope_thread_region`).
+- In long-lived mode the scope also enters a scratch region of its own on its thread, so what
+  the pass allocates there goes back with it.
+
+What still accumulates: on macOS a 50-rebuild soak of `build --watch` grows by about 0.25 MB of
+footprint per rebuild, and the language server by about 1 MB per census. Most of it is tsrs
+arena memory ("Untagged" in `footprint`), the rest mimalloc's heap. Lazily filled data of a
+source file in a loader region is one source: tsrs keeps the loader regions unregistered, so
+`arena::enter_owner` sends that data to the filling thread's arena, which is never freed.
+Routing it to a registered region per program (tried as a tsrs patch, with `adopt_owner`) and
+giving the compile work-group threads scope regions did not reduce the growth, so the rest is
+not explained yet; slab sharing between regions on one thread is the next suspect.

@@ -349,7 +349,17 @@ pub fn load_check_program(project_dir: &str, config_path: &str, checkers: Option
 	let file_names = parsed.file_names().to_vec();
 	let host = new_cached_fs_compiler_host(project_dir, fs, &bundled::default_lib_path(), None, None, None);
 	tsrs_core::compat::set_rotor_fork(true);
-	let program = new_program(ProgramOptions::new(P::new(parsed), host));
+	let mut program_options = ProgramOptions::new(P::new(parsed), host);
+	// Inside a `ProgramScope` (`check --watch`), the scope frees the program and its checkers.
+	let tracked = tracking_programs();
+	program_options.checker_regions = tracked;
+	track_loader_regions(&mut program_options, None);
+	let program = new_program(program_options);
+	if tracked {
+		track_program(program, true);
+		// Bound before any checker runs, so no file's symbols live in a checker's region.
+		program.bind_source_files();
+	}
 	CheckProgram {
 		program: Some(program),
 		config_diagnostics,
@@ -371,10 +381,100 @@ pub fn load_project(tsconfig: &StdPath, options: &ProjectOptions) -> Result<Proj
 }
 
 thread_local! {
-	/// The open [`ProgramScope`]s of this thread, innermost last, each with the programs created
-	/// on this thread while it was the innermost.
-	static PROGRAM_SCOPES: std::cell::RefCell<Vec<Vec<&'static Program>>> =
-		const { std::cell::RefCell::new(Vec::new()) };
+	/// The open [`ProgramScope`]s of this thread, innermost last.
+	static PROGRAM_SCOPES: std::cell::RefCell<Vec<ScopeEntries>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// What one [`ProgramScope`] frees.
+#[derive(Default)]
+struct ScopeEntries {
+	/// The programs created on this thread while the scope was the innermost, oldest first, each
+	/// with whether it owns its processed-file data (a program built in full) rather than sharing
+	/// its base's (a reused update).
+	programs: Vec<(&'static Program, bool)>,
+	/// The file-loader regions of a long-lived session's programs, dropped after the programs.
+	regions: Vec<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+/// Whether the process is a long-lived session ([`set_long_lived`]).
+static LONG_LIVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Marks the process as a long-lived session (watch mode, the language server, the build API).
+///
+/// There a [`ProgramScope`] must give back everything its programs allocated, not only their
+/// checkers: the file loader's parses and resolutions go to regions of their own, and the
+/// processed-file data is freed with the last program that shares it. A one-shot build, which
+/// frees nothing it does not have to, leaves this off.
+pub fn set_long_lived(on: bool) {
+	LONG_LIVED.store(on, std::sync::atomic::Ordering::Relaxed);
+	if on {
+		// The session frees its programs' regions, so lazily filled data of an object outside
+		// every region (a command line, a shared declaration) must go to its owner's region or
+		// the thread arena, never to whichever region the filling thread had entered (tsrs's
+		// `bind_in_file_regions` does the same for its watch sessions).
+		tsrs_core::arena::route_by_owner();
+	}
+}
+
+/// Whether the process is a long-lived session ([`set_long_lived`]).
+#[must_use]
+pub fn long_lived() -> bool {
+	LONG_LIVED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// File-loader regions several programs share.
+///
+/// These serve the projects of one solution drain, whose shared parse cache hands one project's
+/// parses to the next. They are freed when the last handle goes,
+/// which a [`ProgramScope`] holds until its programs are freed.
+#[derive(Clone)]
+pub struct LoaderRegions {
+	apply: Arc<dyn Fn(&mut ProgramOptions) + Send + Sync>,
+	keep: Arc<dyn std::any::Any + Send + Sync>,
+}
+
+impl LoaderRegions {
+	/// Fresh regions.
+	#[must_use]
+	pub fn new() -> Self {
+		let regions = Arc::default();
+		let keep: Arc<dyn std::any::Any + Send + Sync> = Arc::clone(&regions) as _;
+		Self {
+			apply: Arc::new(move |options: &mut ProgramOptions| options.regions = Some(Arc::clone(&regions))),
+			keep,
+		}
+	}
+}
+
+impl Default for LoaderRegions {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
+impl fmt::Debug for LoaderRegions {
+	fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+		formatter.write_str("LoaderRegions")
+	}
+}
+
+/// A fresh region that this thread's innermost [`ProgramScope`] frees after its programs.
+///
+/// It is for a thread the scope's work spawns in a long-lived session: that thread enters it, so what it
+/// allocates goes back with the scope instead of staying in its arena. `None` outside a
+/// long-lived session or a scope.
+#[must_use]
+pub fn scope_thread_region() -> Option<tsrs_core::arena::Region> {
+	if !long_lived() {
+		return None;
+	}
+	PROGRAM_SCOPES.with(|scopes| {
+		let mut scopes = scopes.borrow_mut();
+		let scope = scopes.last_mut()?;
+		let region = tsrs_core::arena::Region::new_scratch(1 << 20);
+		scope.regions.push(Arc::new(region.clone()));
+		Some(region)
+	})
 }
 
 /// Whether a [`ProgramScope`] is open on this thread.
@@ -382,11 +482,28 @@ fn tracking_programs() -> bool {
 	PROGRAM_SCOPES.with(|scopes| !scopes.borrow().is_empty())
 }
 
-/// Records `program` in this thread's innermost [`ProgramScope`], if any.
-fn track_program(program: &'static Program) {
+/// Records `program` in this thread's innermost [`ProgramScope`], if any. `owns_shared` is false
+/// for a reused update, which shares its base's processed-file data.
+fn track_program(program: &'static Program, owns_shared: bool) {
 	PROGRAM_SCOPES.with(|scopes| {
 		if let Some(scope) = scopes.borrow_mut().last_mut() {
-			scope.push(program);
+			scope.programs.push((program, owns_shared));
+		}
+	});
+}
+
+/// In a long-lived session, gives `options` file-loader regions that this thread's innermost
+/// [`ProgramScope`] keeps until after its programs are freed: `shared` when given, or regions of
+/// the program's own.
+fn track_loader_regions(options: &mut ProgramOptions, shared: Option<LoaderRegions>) {
+	if !long_lived() || !tracking_programs() {
+		return;
+	}
+	let regions = shared.unwrap_or_default();
+	(regions.apply)(options);
+	PROGRAM_SCOPES.with(|scopes| {
+		if let Some(scope) = scopes.borrow_mut().last_mut() {
+			scope.regions.push(regions.keep);
 		}
 	});
 }
@@ -402,6 +519,9 @@ fn track_program(program: &'static Program) {
 /// derived from. A program created on another thread is not tracked and stays allocated.
 #[must_use = "dropping the scope frees its programs"]
 pub struct ProgramScope {
+	/// In a long-lived session, the scratch region the scope's thread allocates in while the scope
+	/// is open; exited first when the scope drops, and freed after its programs.
+	region: Option<tsrs_core::arena::RegionScope>,
 	_not_send: std::marker::PhantomData<*const ()>,
 }
 
@@ -413,14 +533,24 @@ impl ProgramScope {
 	/// Nothing from a program created on this thread while the scope is open may be used after
 	/// the scope is dropped: not the program, a checker of its pool, nor a type, symbol,
 	/// diagnostic or other value a checker made. No thread may still be using one when it drops.
+	/// In a long-lived session ([`set_long_lived`]) the same holds for every `P` this thread
+	/// allocates while the scope is open and no inner region is entered.
 	#[must_use = "dropping the scope frees its programs"]
 	#[expect(
 		unsafe_code,
 		reason = "the caller promises the scope outlives every use of its programs"
 	)]
 	pub unsafe fn enter() -> Self {
-		PROGRAM_SCOPES.with(|scopes| scopes.borrow_mut().push(Vec::new()));
+		let mut entries = ScopeEntries::default();
+		let region = long_lived().then(|| {
+			let region = tsrs_core::arena::Region::new_scratch(1 << 20);
+			let entered = region.enter();
+			entries.regions.push(Arc::new(region));
+			entered
+		});
+		PROGRAM_SCOPES.with(|scopes| scopes.borrow_mut().push(entries));
 		Self {
+			region,
 			_not_send: std::marker::PhantomData,
 		}
 	}
@@ -432,15 +562,36 @@ impl Drop for ProgramScope {
 		reason = "frees the programs whose use `ProgramScope::enter`'s contract ends here"
 	)]
 	fn drop(&mut self) {
-		let programs = PROGRAM_SCOPES
+		// Back to the allocation target the scope was opened over before anything is freed.
+		drop(self.region.take());
+		let entries = PROGRAM_SCOPES
 			.with(|scopes| scopes.borrow_mut().pop())
 			.unwrap_or_default();
-		for program in programs.into_iter().rev() {
+		// The processed-file data each owner allocated, taken while its program is alive.
+		let shared: Vec<tsrs_compiler::SharedProgramData> = if long_lived() {
+			entries
+				.programs
+				.iter()
+				.filter(|(_, owns)| *owns)
+				.map(|(program, _)| tsrs_compiler::shared_program_data(program))
+				.collect()
+		} else {
+			Vec::new()
+		};
+		for (program, _) in entries.programs.into_iter().rev() {
 			// SAFETY: `program` came from `new_program` or `update_program` on this thread inside
 			// this scope, and `enter`'s contract says nothing uses it any more. Newest first, so no
 			// program derived from it is still alive.
 			unsafe { tsrs_compiler::free_program(program) };
 		}
+		for data in shared {
+			// SAFETY: every program of the scope is freed, so none shares this data any more: a
+			// reused update shares its base's data, and both were in this scope (an update is
+			// recorded in the scope its base is in). Nothing outside the scope refers to it.
+			unsafe { data.free() };
+		}
+		// The regions go last: the programs and their data pointed into them.
+		drop(entries.regions);
 	}
 }
 
@@ -455,6 +606,12 @@ pub trait SourceFileCache: Send + Sync {
 		opts: SourceFileParseOptions,
 		parse: &dyn Fn(SourceFileParseOptions) -> Option<P<SourceFile>>,
 	) -> Option<P<SourceFile>>;
+
+	/// The loader regions every program sharing the cache parses into, which must outlive the
+	/// cache's entries. `None` keeps the parses in the thread arenas.
+	fn loader_regions(&self) -> Option<LoaderRegions> {
+		None
+	}
 }
 
 /// `cachingCompilerHost`: a compiler host whose parses go through a [`SourceFileCache`].
@@ -548,6 +705,9 @@ pub fn load_project_in_cached(
 	let fs = project_fs(&config_path);
 	let parsed = parse_command_line(&directory, &config_path, &fs, options)?;
 	let mut host = new_cached_fs_compiler_host(&directory, fs, &bundled::default_lib_path(), None, None, None);
+	// A shared cache's parses must outlive this program, so they go to the cache's regions or
+	// stay in the thread arenas; a program of its own frees its loader's allocations with it.
+	let shared_regions = cache.as_ref().map(|cache| cache.loader_regions());
 	if let Some(cache) = cache {
 		host = Arc::new(CachingHost { inner: host, cache });
 	}
@@ -556,8 +716,13 @@ pub fn load_project_in_cached(
 	let mut program_options = ProgramOptions::new(P::new(parsed), host);
 	// A tracked program's checkers allocate in regions of their own, which its scope frees.
 	program_options.checker_regions = tracking_programs();
+	match shared_regions {
+		None => track_loader_regions(&mut program_options, None),
+		Some(Some(regions)) => track_loader_regions(&mut program_options, Some(regions)),
+		Some(None) => {}
+	}
 	let program = new_program(program_options);
-	track_program(program);
+	track_program(program, true);
 	program.bind_source_files();
 	Ok(Project { program })
 }
@@ -712,7 +877,7 @@ pub fn update_with_overlays_checkers(
 	for path in changed {
 		let (next, _, kept) = derived.update_program_with_checkers(&path, Arc::clone(&host), None, None, checkers);
 		if !std::ptr::eq(next, derived) {
-			track_program(next);
+			track_program(next, !kept);
 		}
 		derived = next;
 		reused &= kept;
@@ -747,7 +912,7 @@ pub fn update_program_files(
 ) -> (&'static Program, bool) {
 	let (derived, reused) = program.update_program_files_with_checkers(changed, host, None, checkers);
 	if !std::ptr::eq(derived, program) {
-		track_program(derived);
+		track_program(derived, !reused);
 		bind_outside_checkers(derived);
 	}
 	(derived, reused)

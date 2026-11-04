@@ -42,12 +42,18 @@ pub struct SolutionCompileCache {
 	inflight: Mutex<HashMap<SourceFileParseOptions, Arc<InFlight>>>,
 	hits: AtomicI64,
 	misses: AtomicI64,
+	/// In a long-lived session, the drain's programs parse into these, so the shared parses are
+	/// freed with the drain rather than kept in the thread arenas for good.
+	regions: Option<rotor_tsrs::project::LoaderRegions>,
 }
 
 impl SolutionCompileCache {
 	/// `newSolutionCompileCache`
 	pub(crate) fn new() -> Self {
-		Self::default()
+		Self {
+			regions: rotor_tsrs::project::long_lived().then(rotor_tsrs::project::LoaderRegions::new),
+			..Self::default()
+		}
 	}
 
 	/// The cache's hit count.
@@ -175,6 +181,10 @@ impl rotor_tsrs::project::SourceFileCache for ProjectParseCache {
 			return parse(opts);
 		}
 		self.cache.get_source_file(&opts, parse)
+	}
+
+	fn loader_regions(&self) -> Option<rotor_tsrs::project::LoaderRegions> {
+		self.cache.regions.clone()
 	}
 }
 

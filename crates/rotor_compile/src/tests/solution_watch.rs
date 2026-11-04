@@ -1,5 +1,5 @@
 //! `solution_watch_test.go` and `solution_watch_config_paths_test.go`: the coordinator's watch
-//! entry points. The watch loop itself is Stage 7.
+//! entry points. The watch loop itself is `rotor_cli::solution_watch`.
 
 use std::path::Path;
 use std::sync::Arc;

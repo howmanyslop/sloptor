@@ -1,5 +1,5 @@
 //! `solution_watch.go`: what a solution watch subscribes to, and the coordinator operations the
-//! watch loop (Stage 7) drives: watch sets, asset drains and reloads.
+//! watch loop (`rotor_cli::solution_watch`) drives: watch sets, asset drains and reloads.
 
 use std::collections::{BTreeMap, HashMap};
 
