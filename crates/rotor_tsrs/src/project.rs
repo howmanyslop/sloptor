@@ -158,6 +158,12 @@ fn path_matches(case_sensitive: bool, left: &str, right: &str) -> bool {
 /// sanitized, compiler-types' iteration interfaces rewritten, and the two synthetic declarations
 /// served from memory (`solutionCacheFS`, `injectEnvDeclFS`, `injectMacroDeclFS`).
 fn project_fs(config_path: &str) -> Arc<dyn FS> {
+	sanitized_fs(config_path, true)
+}
+
+/// [`project_fs`], with the synthetic declarations only when `synthetic` (`rotor check` reads the
+/// project without them: `SanitizeFSWithConfigPath` alone).
+fn sanitized_fs(config_path: &str, synthetic: bool) -> Arc<dyn FS> {
 	let bundled_fs: &'static dyn FS = Box::leak(Box::new(bundled::wrap_fs(osvfs::fs())));
 	let case_sensitive = bundled_fs.use_case_sensitive_file_names();
 	let directory = tspath::get_directory_path(config_path);
@@ -170,6 +176,9 @@ fn project_fs(config_path: &str) -> Arc<dyn FS> {
 	let config_path = config_path.to_owned();
 
 	let synthetic = move |path: &str| -> Option<String> {
+		if !synthetic {
+			return None;
+		}
 		if path_matches(case_sensitive, path, &env_decl) {
 			return Some(format!("{ENV_DECL_HEADER}{ENV_DECL_BODY}"));
 		}
@@ -295,6 +304,57 @@ pub fn parse_project_config(tsconfig: &StdPath, options: &ProjectOptions) -> Res
 	let directory = tspath::get_directory_path(&config_path);
 	let fs = project_fs(&config_path);
 	parse_command_line(&directory, &config_path, &fs, options)
+}
+
+/// What [`load_check_program`] built.
+pub struct CheckProgram {
+	/// The program; `None` when the tsconfig could not be read at all.
+	pub program: Option<&'static Program>,
+	/// Why the tsconfig could not be read, when [`CheckProgram::program`] is `None`.
+	pub config_diagnostics: Vec<P<tsrs_ast::Diagnostic>>,
+	/// The tsconfig's root file names.
+	pub file_names: Vec<String>,
+}
+
+/// The program `rotor check` type-checks (`newCheckProgram` in `cmd/rotor/check.go`).
+///
+/// Unlike [`load_project`]: the tsconfig is parsed with the compiler host as its host, the synthetic
+/// `$env` and macro declarations stay out, rbxtsc's validation is not applied, and the tsconfig's
+/// own diagnostics are left in the program for the check to report. `ApplyAutomaticTypes` and the
+/// `--checkers` override still apply. `project_dir` is absolute and slash-separated, and
+/// `config_path` is the tsconfig inside it. Must run on a large stack ([`crate::with_large_stack`]).
+#[must_use]
+pub fn load_check_program(project_dir: &str, config_path: &str, checkers: Option<i64>) -> CheckProgram {
+	let fs = sanitized_fs(config_path, false);
+	let parse_host = ConfigHost {
+		fs: Arc::clone(&fs),
+		cwd: project_dir.to_owned(),
+	};
+	let (parsed, config_diagnostics) =
+		get_parsed_command_line_of_config_file(config_path, None, None, &parse_host, None);
+	let Some(mut parsed) = parsed else {
+		return CheckProgram {
+			program: None,
+			config_diagnostics,
+			file_names: Vec::new(),
+		};
+	};
+	if let Some(options) = parsed.compiler_options() {
+		let overrides = ProjectOptions {
+			checkers,
+			..ProjectOptions::default()
+		};
+		parsed.parsed_config.compiler_options = Some(P::new(apply_overrides(&options, &overrides)));
+	}
+	let file_names = parsed.file_names().to_vec();
+	let host = new_cached_fs_compiler_host(project_dir, fs, &bundled::default_lib_path(), None, None, None);
+	tsrs_core::compat::set_rotor_fork(true);
+	let program = new_program(ProgramOptions::new(P::new(parsed), host));
+	CheckProgram {
+		program: Some(program),
+		config_diagnostics,
+		file_names,
+	}
 }
 
 /// Loads `tsconfig` into a bound program the way rotor's build does.
