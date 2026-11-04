@@ -992,18 +992,24 @@ mod tests {
 		}
 		let dir = tempfile::tempdir().expect("temp dir");
 		let target = dir.path().join("target.prof");
-		let dangling = dir.path().join("dangling.prof");
-		#[cfg(unix)]
-		std::os::unix::fs::symlink(&target, &dangling).expect("symlink");
 		let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
-		assert!(
-			validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&dangling))]).is_err()
-		);
-		assert!(!target.exists());
-		std::fs::write(&target, "sentinel").expect("write");
-		let hard = dir.path().join("hard.prof");
-		std::fs::hard_link(&target, &hard).expect("hard link");
-		assert!(validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&hard))]).is_err());
+		// `same_file` only knows inodes, so links are only caught on Unix.
+		#[cfg(unix)]
+		{
+			let dangling = dir.path().join("dangling.prof");
+			std::os::unix::fs::symlink(&target, &dangling).expect("symlink");
+			assert!(
+				validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&dangling))])
+					.is_err()
+			);
+			assert!(!target.exists());
+			std::fs::write(&target, "sentinel").expect("write");
+			let hard = dir.path().join("hard.prof");
+			std::fs::hard_link(&target, &hard).expect("hard link");
+			assert!(
+				validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&hard))]).is_err()
+			);
+		}
 		let other = dir.path().join("other.prof");
 		assert!(validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&other))]).is_ok());
 	}
