@@ -224,6 +224,40 @@ static IDLE_CHECKER_THREADS: Mutex<Vec<IdleCheckerThread>> = Mutex::new(Vec::new
 /// region slabs.
 const CHECKER_THREAD_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
+// rotor: a long-lived session keeps its idle checker threads for the next cycle (`set_keep_threads`): a thread that
+// ended left its allocator pages behind, and rotor's watch mode, language server and build API run cycles for hours.
+// The session collects their heaps between cycles instead (`for_each_idle_checker_thread`).
+static KEEP_THREADS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// rotor: idle checker threads, and the loader's drop helper, stay alive for the next program instead of ending
+/// (`CHECKER_THREAD_IDLE_TIMEOUT`).
+pub fn set_keep_threads(on: bool) {
+    KEEP_THREADS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// rotor: whether `set_keep_threads` is on.
+pub fn keep_threads() -> bool {
+    KEEP_THREADS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// rotor: runs `f` on every idle checker thread and waits for them, as a job of its own (each thread does what a job's
+/// end does afterwards and is idle again).
+pub fn for_each_idle_checker_thread(f: impl Fn() + Send + Sync + 'static) {
+    let idle = std::mem::take(&mut *IDLE_CHECKER_THREADS.lock().unwrap());
+    let f = std::sync::Arc::new(f);
+    let mut waiting = Vec::new();
+    for thread in idle {
+        let (done, finished) = std::sync::mpsc::channel();
+        let f = std::sync::Arc::clone(&f);
+        if thread.jobs.send(CheckerJob { run: Box::new(move || f()), done }).is_ok() {
+            waiting.push(finished);
+        }
+    }
+    for finished in waiting {
+        let _ = finished.recv();
+    }
+}
+
 /// Runs `job` on an idle checker thread, or on a new one when none is idle, so that every job of a group has a
 /// thread of its own, as with a thread per job.
 fn run_checker_job(mut job: CheckerJob) -> std::io::Result<()> {
@@ -272,6 +306,13 @@ fn checker_thread(
         let _ = done.send(result);
         if !reusable {
             return;
+        }
+        if keep_threads() {
+            let Ok(next) = next_jobs.recv() else {
+                return;
+            };
+            job = next;
+            continue;
         }
         if let Ok(next) = next_jobs.recv_timeout(CHECKER_THREAD_IDLE_TIMEOUT) {
             job = next;

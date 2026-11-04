@@ -357,7 +357,12 @@ pub(crate) fn process_all_program_files(
     // freed on a helper thread while the program is set up, not on this thread (vscode: 3-4 ms of frees).
     if !single_threaded {
         let FileLoader { tasks, files_parser, resolver, .. } = loader;
-        std::thread::spawn(move || drop((tasks, files_parser, resolver)));
+        // rotor: on the worker pool in a long-lived session, which keeps its threads (`set_keep_threads`).
+        if crate::checkerpool::keep_threads() {
+            crate::program::worker_pool().spawn(move || drop((tasks, files_parser, resolver)));
+        } else {
+            std::thread::spawn(move || drop((tasks, files_parser, resolver)));
+        }
     }
     (processed, resolution_data, module_resolution_error)
 }
