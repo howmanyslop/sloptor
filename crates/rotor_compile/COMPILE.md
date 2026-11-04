@@ -170,6 +170,28 @@ Outside the Go file map:
     (`TSRS_ARENA_POISON=1`, `arena::enable_poison_mode`) a freed region's pages are made
     inaccessible.
 
+## Declaration emit (TypeScript 7.1), approved differences
+
+rotor-rs writes `.d.ts` files with tsrs's TypeScript 7.1 declaration emitter; Go uses its
+typescript-go fork (7.0). The two print some declarations differently while declaring the same
+types. The user reviewed these on 2026-11-03 and accepted them, because consumers see identical
+types: on the benchmark solution every package type-checks against the other packages' 7.1
+declarations and all Luau output stays byte-identical. Every other output byte must match Go.
+
+- 7.1 adds type-only `import { X } from "..."` lines where the fork writes `import("...").X`
+  inline. Most come from enum-keyed properties (`[Rarity.Epic]: T`, where the fork prints the
+  member's value) and from `typeof fn` printback (where the fork spells out the signature).
+- `export const { a } = ...` declares `declare const { a }: { a: T };` where the fork writes
+  `declare const a: T;`.
+- A default-exported function value declares `declare function _default(...)` where the fork
+  writes `declare const _default: (...) => R;`.
+- `.d.ts.map` mappings differ where the printed text differs, and for `export = X;`, which 7.1
+  maps as one segment.
+- `.tsbuildinfo` records the hashes of those files.
+
+Patches that would restore the fork's printing were started and parked, not applied (rotor_fork
+gates for binding patterns, `export =` maps, enum property names and `typeof` printback).
+
 ## Go tests
 
 The Go tests are ported in `src/tests/` and in `src/source_trace.rs`'s test module. Each Go test
