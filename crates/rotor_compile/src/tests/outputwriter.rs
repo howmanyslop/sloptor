@@ -41,6 +41,32 @@ fn output_hash_match_uses_validated_contents() {
 	);
 }
 
+/// Another process rewrites an output after validation confirmed its hash. This build still skips
+/// the write (as Go does), but the stamp it keeps is the one validation saw, so the next build
+/// hashes the file again and restores it. Recording the rewritten file's stamp would keep the
+/// stale hash trusted from then on.
+#[test]
+fn output_rewritten_mid_build_is_restored_by_the_next_build() {
+	let temp = Temp::new();
+	let contents = b"output";
+	temp.write("out/main.luau", contents);
+	let hash = hex_sha256(contents);
+	let path = temp.join("out/main.luau").to_string_lossy().into_owned();
+	let writer = confined(&temp, &[("out/main.luau", &hash)]);
+
+	fs::write(&path, b"rewritten by another process").expect("rewrite");
+	let wrote = writer.write(&path, contents).unwrap_or_else(|error| panic!("{error}"));
+	assert!(!wrote, "wrote = true, want this build's hash skip");
+	writer.persist_stamps();
+
+	let next = confined(&temp, &[("out/main.luau", &hash)]);
+	let wrote = next.write(&path, contents).unwrap_or_else(|error| panic!("{error}"));
+	assert!(
+		wrote && fs::read(&path).expect("the output reads") == contents,
+		"the next build trusted the rewritten output (wrote = {wrote})"
+	);
+}
+
 #[test]
 fn output_hash_mismatch_does_not_skip_write() {
 	let temp = Temp::new();

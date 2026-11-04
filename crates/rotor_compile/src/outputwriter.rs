@@ -113,12 +113,12 @@ impl OutputWriter {
 	pub(crate) fn write(&self, path: &str, contents: &[u8]) -> Result<bool, Error> {
 		let hash = hex_sha256(contents);
 		let key = self.output_key(path);
+		// The stamp validation saw stays with the hash it confirmed: a file another process
+		// rewrote since then has a newer stamp, so the next build hashes it again.
 		if self.previous.get(&key) == Some(&hash)
 			&& let Ok(metadata) = self.lstat(path)
 			&& metadata.file_type().is_file()
 		{
-			self.stamps
-				.observe(&key, crate::output_stamps::FileStamp::of(&metadata), &hash);
 			if let Some(current) = &self.current {
 				lock(current).insert(key, hash);
 			}
