@@ -58,9 +58,13 @@ fn help_exits_zero_and_failures_exit_one() {
 		assert!(got.stdout.contains("Usage: sloptor"), "{args:?}:\n{}", got.stdout);
 		assert!(got.stderr.is_empty(), "{args:?}: {}", got.stderr);
 	}
+	// A bare `sloptor` prints the help on stderr and exits 1, as Go's "no command given" does.
+	let got = run(&dir.path, &[]);
+	assert_eq!(got.code, 1);
+	assert!(got.stderr.contains("Usage: sloptor"), "{}", got.stderr);
+	assert!(got.stdout.is_empty(), "wrote to stdout: {}", got.stdout);
 	for args in [
-		&[][..],
-		&["frobnicate"],
+		&["frobnicate"][..],
 		&["build", "--bogus"],
 		&["check", "--bogus"],
 		&["clean", "--bogus"],

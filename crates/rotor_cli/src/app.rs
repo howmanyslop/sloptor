@@ -43,8 +43,20 @@ pub fn not_ported(what: &str) -> Failure {
 
 /// Runs the CLI over `args` (without the program name) and returns the exit code.
 pub fn execute(args: Vec<OsString>, streams: &mut Streams) -> u8 {
+	// A bare `sloptor` shows the root help on stderr and fails, keeping Go's exit code 1 for
+	// "no command given".
+	if args.is_empty() {
+		let help = cli::display_command().render_help();
+		let _ = streams
+			.err
+			.write_all(render_styled(&help, streams.err_color).as_bytes());
+		return 1;
+	}
 	let root = cli::command();
-	let args = argv::normalize_negations(&root, argv::normalize_compiler_invocation(args));
+	let args = argv::normalize_negations(
+		&root,
+		argv::normalize_compiler_invocation(argv::normalize_help_command(args)),
+	);
 	let subcommand = argv::resolve_subcommand(&root, &args);
 	let long_help = wants_long_help(&args);
 	let parsed = match cli::parse(args) {

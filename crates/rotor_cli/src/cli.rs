@@ -174,7 +174,6 @@ pub fn non_negative_int(text: &str) -> Result<usize, String> {
 	bin_name = "sloptor",
 	about = "A native TypeScript-to-Luau compiler for Roblox",
 	disable_version_flag = true,
-	disable_help_subcommand = true,
 	args_override_self = true,
 	subcommand_value_name = "COMMAND",
 	styles = STYLES,
@@ -189,6 +188,7 @@ pub struct Cli {
 	/// Print sloptor's version.
 	#[arg(
 		short = 'v',
+		short_alias = 'V',
 		long,
 		action = ArgAction::Set,
 		num_args = 0..=1,

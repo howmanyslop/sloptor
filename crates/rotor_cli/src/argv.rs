@@ -22,6 +22,18 @@ pub fn normalize_compiler_invocation(mut args: Vec<OsString>) -> Vec<OsString> {
 	args
 }
 
+/// `sloptor help [COMMAND]`: the same as `sloptor [COMMAND] --help`, so the help renders through
+/// the styled path that `--help` takes. `help` counts only as the first token.
+#[must_use]
+pub fn normalize_help_command(mut args: Vec<OsString>) -> Vec<OsString> {
+	if args.first().is_some_and(|first| first == "help") {
+		args.remove(0);
+		args.truncate(1);
+		args.push(OsString::from("--help"));
+	}
+	args
+}
+
 /// The subcommand `args` name: the first token that is not a flag (or the value of the root's
 /// `--color`). Tokens after `--` are never commands.
 #[must_use]
@@ -125,7 +137,7 @@ fn invert_bool(value: &str) -> String {
 mod tests {
 	use std::ffi::OsString;
 
-	use super::{normalize_compiler_invocation, normalize_negations, resolve_subcommand};
+	use super::{normalize_compiler_invocation, normalize_help_command, normalize_negations, resolve_subcommand};
 	use crate::cli;
 
 	fn args(list: &[&str]) -> Vec<OsString> {
@@ -202,6 +214,23 @@ mod tests {
 		assert_eq!(
 			strings(normalize_negations(&root, args(&["check", "--no-json"]))),
 			["check", "--json=false"]
+		);
+	}
+
+	#[test]
+	fn help_command_becomes_a_help_flag() {
+		assert_eq!(strings(normalize_help_command(args(&["help"]))), ["--help"]);
+		assert_eq!(
+			strings(normalize_help_command(args(&["help", "build"]))),
+			["build", "--help"]
+		);
+		assert_eq!(
+			strings(normalize_help_command(args(&["help", "build", "x"]))),
+			["build", "--help"]
+		);
+		assert_eq!(
+			strings(normalize_help_command(args(&["build", "help"]))),
+			["build", "help"]
 		);
 	}
 }
