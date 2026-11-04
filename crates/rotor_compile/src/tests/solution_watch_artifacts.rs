@@ -234,7 +234,7 @@ fn watch_sets_rechecks_cached_symlink_ownership() {
 		std::slice::from_ref(&external),
 		"artifact alias was not excluded"
 	);
-	std::fs::remove_file(&alias).expect("remove");
+	super::remove_directory_link(std::path::Path::new(&alias)).expect("remove");
 	symlink(&external, &alias);
 	let sets = coordinator.watch_sets();
 	assert_eq!(

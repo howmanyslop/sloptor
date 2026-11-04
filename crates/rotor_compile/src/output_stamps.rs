@@ -159,7 +159,8 @@ impl OutputStamps {
 	}
 }
 
-#[cfg(test)]
+// `FileStamp::of` is `None` off Unix, so nothing is loaded or trusted there.
+#[cfg(all(test, unix))]
 mod tests {
 	use std::collections::BTreeMap;
 	use std::time::{Duration, SystemTime};

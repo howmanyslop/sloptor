@@ -23,7 +23,7 @@ fn task7_runtime_fixture_matches_pinned_flamework_upstream_oracle() {
 		.unwrap_or_default();
 	assert_eq!(version, "1.3.2", "rbxts-transformer-flamework version");
 
-	let oracle_dir = Temp::new();
+	let oracle_dir = task7_project_dir(&repo, &modules);
 	copy_dir(&fixture, &oracle_dir.join(""));
 	symlink(&modules, &oracle_dir.join("node_modules"));
 
@@ -46,7 +46,7 @@ fn task7_runtime_fixture_matches_pinned_flamework_upstream_oracle() {
 		std::fs::read_to_string(oracle_dir.join("flamework.build")).expect("oracle flamework.build");
 	assert_eq!(oracle_build_info.len(), 579, "upstream flamework.build size");
 
-	let native_dir = Temp::new();
+	let native_dir = task7_project_dir(&repo, &modules);
 	copy_dir(&fixture, &native_dir.join(""));
 	symlink(&modules, &native_dir.join("node_modules"));
 	let tsconfig = std::fs::read_to_string(native_dir.join("tsconfig.json")).expect("tsconfig");
@@ -104,6 +104,18 @@ fn task7_runtime_fixture_matches_pinned_flamework_upstream_oracle() {
 		oracle_build_info, native_build_info,
 		"flamework.build mismatch (oracle, native)"
 	);
+}
+
+/// `task7ProjectDir`: a temporary project on the volume of `modules`. Upstream Flamework treats a
+/// `node_modules` real path on another volume as project source.
+fn task7_project_dir(repo: &Path, modules: &Path) -> Temp {
+	let volume = |path: &Path| rotor_support::gopath::volume_name(&path.to_string_lossy());
+	if volume(&std::env::temp_dir()).eq_ignore_ascii_case(&volume(modules)) {
+		return Temp::new();
+	}
+	let parent = repo.join("tmp");
+	std::fs::create_dir_all(&parent).expect("the repository's temporary directory");
+	Temp::new_in(&parent)
 }
 
 fn symlink(target: &Path, link: &Path) {

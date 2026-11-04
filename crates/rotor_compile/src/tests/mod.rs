@@ -137,7 +137,15 @@ pub struct Temp {
 
 impl Temp {
 	pub fn new() -> Self {
-		let guard = TempDir::new().expect("a temporary directory");
+		Self::from_guard(TempDir::new().expect("a temporary directory"))
+	}
+
+	/// A temporary directory under `parent`.
+	pub fn new_in(parent: &Path) -> Self {
+		Self::from_guard(TempDir::new_in(parent).expect("a temporary directory"))
+	}
+
+	fn from_guard(guard: TempDir) -> Self {
 		let path = rotor_support::fsutil::real_path(guard.path()).expect("the temporary directory's real path");
 		Self { _guard: guard, path }
 	}
@@ -146,8 +154,10 @@ impl Temp {
 		self.path.to_string_lossy().into_owned()
 	}
 
+	/// `rel`, slash-separated, under this directory: `filepath.Join`'s native separators, so the
+	/// result compares equal to the paths the compiler reports.
 	pub fn join(&self, rel: &str) -> PathBuf {
-		self.path.join(rel)
+		self.path.join(rotor_support::gopath::from_slash(rel).as_ref())
 	}
 
 	/// Writes `text` at `rel`, creating its parents.
@@ -157,6 +167,36 @@ impl Temp {
 			fs::create_dir_all(parent).expect("the parent directory");
 		}
 		fs::write(path, text).expect("the file writes");
+	}
+}
+
+/// `os.Chtimes`' modification time on a directory. Windows only opens a directory with backup
+/// semantics, and setting a time takes more than the read access `File::open` asks for.
+pub fn set_directory_modified(path: &Path, time: std::time::SystemTime) -> std::io::Result<()> {
+	let mut options = fs::OpenOptions::new();
+	#[cfg(windows)]
+	{
+		use std::os::windows::fs::OpenOptionsExt as _;
+		const FILE_WRITE_ATTRIBUTES: u32 = 0x0100;
+		const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+		options
+			.access_mode(FILE_WRITE_ATTRIBUTES)
+			.custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+	}
+	#[cfg(not(windows))]
+	options.read(true);
+	options.open(path)?.set_modified(time)
+}
+
+/// `os.Remove` of a symlink to a directory, which Windows removes as a directory.
+pub fn remove_directory_link(path: &Path) -> std::io::Result<()> {
+	#[cfg(windows)]
+	{
+		fs::remove_dir(path)
+	}
+	#[cfg(not(windows))]
+	{
+		fs::remove_file(path)
 	}
 }
 

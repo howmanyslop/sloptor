@@ -47,32 +47,23 @@ pub fn worker_threads(cpus: usize, share: usize) -> usize {
 #[cfg(any(target_os = "linux", test))]
 #[must_use]
 pub fn cgroup_memory_limit_paths(cgroups: &str) -> Vec<String> {
+	// Linux paths, whichever host runs the test.
+	use rotor_support::gopath::Flavor;
+
 	let mut paths = Vec::new();
 	for line in cgroups.lines() {
 		let fields: Vec<&str> = line.trim().splitn(3, ':').collect();
 		let [hierarchy, controllers, path] = fields[..] else {
 			continue;
 		};
-		let relative = rotor_support::gopath::clean(path).trim_start_matches('/').to_owned();
+		let relative = Flavor::Unix.clean(path).trim_start_matches('/').to_owned();
 		if hierarchy == "0" && controllers.is_empty() {
-			paths.push(rotor_support::gopath::join(&[
-				"/sys/fs/cgroup",
-				&relative,
-				"memory.max",
-			]));
+			paths.push(Flavor::Unix.join(&["/sys/fs/cgroup", &relative, "memory.max"]));
 			continue;
 		}
 		if controllers.split(',').any(|controller| controller == "memory") {
-			paths.push(rotor_support::gopath::join(&[
-				"/sys/fs/cgroup/memory",
-				&relative,
-				"memory.limit_in_bytes",
-			]));
-			paths.push(rotor_support::gopath::join(&[
-				"/sys/fs/cgroup",
-				&relative,
-				"memory.limit_in_bytes",
-			]));
+			paths.push(Flavor::Unix.join(&["/sys/fs/cgroup/memory", &relative, "memory.limit_in_bytes"]));
+			paths.push(Flavor::Unix.join(&["/sys/fs/cgroup", &relative, "memory.limit_in_bytes"]));
 		}
 	}
 	paths

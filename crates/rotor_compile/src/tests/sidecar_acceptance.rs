@@ -69,9 +69,7 @@ fn stage_performance_output_fixture() -> Temp {
 		&fixture.join("node_modules/@rbxts/globals"),
 	);
 	let stamp = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_hours(262_968);
-	std::fs::File::open(fixture.join("src"))
-		.and_then(|dir| dir.set_modified(stamp))
-		.expect("chtimes");
+	super::set_directory_modified(&fixture.join("src"), stamp).expect("chtimes");
 	fixture
 }
 

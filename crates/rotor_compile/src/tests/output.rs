@@ -164,9 +164,7 @@ fn source_map_emission_enabled() {
 		.and_then(|meta| meta.modified())
 		.expect("src mtime");
 	fs::remove_file(src_dir.join("main.ts")).expect("main.ts removes");
-	fs::File::open(&src_dir)
-		.and_then(|dir| dir.set_modified(src_mtime))
-		.expect("src mtime restores");
+	super::set_directory_modified(&src_dir, src_mtime).expect("src mtime restores");
 	build(&temp.dir(), &ProjectOptions::default());
 	assert!(!map_path.exists(), "orphaned source map exists, want not-exist");
 }

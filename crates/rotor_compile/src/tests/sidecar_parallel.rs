@@ -464,12 +464,27 @@ process.stdin.on("end", () => process.exit(0));
 	/// Go's `input.closed`: the worker process is gone.
 	fn closed(&self) -> bool {
 		let pid = std::fs::read_to_string(std::path::Path::new(&self.sidecar_dir).join("pid")).unwrap_or_default();
-		!std::process::Command::new("kill")
-			.args(["-0", pid.trim()])
-			.stderr(std::process::Stdio::null())
-			.status()
-			.is_ok_and(|status| status.success())
+		!process_exists(pid.trim())
 	}
+}
+
+#[cfg(unix)]
+fn process_exists(pid: &str) -> bool {
+	std::process::Command::new("kill")
+		.args(["-0", pid])
+		.stderr(std::process::Stdio::null())
+		.status()
+		.is_ok_and(|status| status.success())
+}
+
+/// A match is a CSV row with the pid quoted. No match prints a message in the system's language,
+/// without one.
+#[cfg(windows)]
+fn process_exists(pid: &str) -> bool {
+	std::process::Command::new("tasklist")
+		.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+		.output()
+		.is_ok_and(|output| String::from_utf8_lossy(&output.stdout).contains(&format!("\"{pid}\"")))
 }
 
 /// The fields of a recorded request the tests read.

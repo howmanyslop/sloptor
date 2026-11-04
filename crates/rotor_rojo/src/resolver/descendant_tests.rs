@@ -35,7 +35,8 @@ fn is_path_descendant_of_edge_cases() {
 		("file with trailing separator", "/a/b/c/", "/a/b", true),
 		("same dir with trailing separator", "/a/b", "/a/b/", true),
 		("same file with trailing separator", "/a/b/", "/a/b", true),
-		("root with doubled separator", "/a", "//", true),
+		// `//` is an empty UNC volume on Windows, which `/a` is not on.
+		("root with doubled separator", "/a", "//", cfg!(not(windows))),
 		("dotdot-named child", "/a/b/..foo/bar", "/a/b", false),
 		("bare dotdot-named child", "/a/b/..foo", "/a/b", false),
 		("triple-dot child", "/a/b/...", "/a/b", false),
@@ -87,8 +88,10 @@ fn is_path_descendant_of_edge_cases() {
 }
 
 /// splitmix64: any seed will do, and the sequence only has to be reproducible.
+#[cfg(unix)]
 struct Random(u64);
 
+#[cfg(unix)]
 impl Random {
 	fn next(&mut self) -> u64 {
 		self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -105,6 +108,10 @@ impl Random {
 
 /// Catches any spelling of a path, not just the ones listed above, deciding
 /// partition membership differently from the `filepath.Rel` definition.
+///
+/// Unix only: Windows compiles the fast path out, so there `is_path_descendant_of` is this oracle
+/// and the millions of pairs would compare it with itself.
+#[cfg(unix)]
 #[test]
 fn is_path_descendant_of_matches_rel() {
 	let segments = [

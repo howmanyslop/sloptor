@@ -905,8 +905,9 @@ mod tests {
 		std::fs::write(path, content).expect("write");
 	}
 
+	/// `path` as the watcher spells it: `root.join("src/main.ts")` is mixed-separator on Windows.
 	fn text(path: &Path) -> String {
-		path.to_string_lossy().into_owned()
+		rotor_support::gopath::clean(&path.to_string_lossy())
 	}
 
 	fn stamp(size: u64) -> FileStamp {

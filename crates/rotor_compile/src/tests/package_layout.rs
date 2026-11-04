@@ -247,7 +247,7 @@ fn package_watch_explicit_junction_retarget() {
 			"{suffix}: junction parent is not watched: {:?}",
 			set.package_inputs
 		);
-		fs::remove_file(&alias).expect("remove");
+		super::remove_directory_link(&alias).expect("remove");
 		link("Two");
 		assert!(
 			coordinator.refresh_package_watch_inputs(&set.project_path),

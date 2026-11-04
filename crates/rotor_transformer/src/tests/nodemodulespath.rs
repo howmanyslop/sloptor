@@ -8,11 +8,11 @@ use crate::nodemodulespath::{NodeModulesPathMapping, NodeModulesPathPattern};
 
 const PKG_DIR: &str = "/repo/node_modules/@scope/pkg";
 
+/// `filepath.Join(filepath.FromSlash(pkgDir), parts...)`
 fn join(parts: &[&str]) -> String {
-	std::iter::once(PKG_DIR)
-		.chain(parts.iter().copied())
-		.collect::<Vec<_>>()
-		.join("/")
+	let package = rotor_support::gopath::from_slash(PKG_DIR);
+	let all: Vec<&str> = std::iter::once(package.as_ref()).chain(parts.iter().copied()).collect();
+	rotor_support::gopath::join(&all)
 }
 
 fn pattern(types: &str, runtime: &str, case_sensitive: bool) -> NodeModulesPathPattern {

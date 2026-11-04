@@ -641,8 +641,10 @@ mod tests {
 		std::fs::write(directory.path().join("base.json"), "{}").expect("write base");
 		assert!(resolve_extends_path(root, "./base").is_ok_and(|path| path.ends_with("base.json")));
 		assert!(resolve_extends_path(root, "./missing").is_err_and(|error| error.contains("missing.json")));
-		// A file used as a directory fails with ENOTDIR, not "not found".
-		assert!(resolve_extends_path(root, "./base.json/inner").is_err_and(|error| error.contains("directory")));
+		// A file used as a directory fails with ENOTDIR, not "not found". Windows has no such error:
+		// the path is not found, and the error names the `.json` it tried last.
+		let want = if cfg!(windows) { "inner.json" } else { "directory" };
+		assert!(resolve_extends_path(root, "./base.json/inner").is_err_and(|error| error.contains(want)));
 		assert!(resolve_extends_path(root, "").is_err());
 	}
 

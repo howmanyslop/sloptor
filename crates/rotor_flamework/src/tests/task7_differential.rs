@@ -85,7 +85,13 @@ pub(super) fn run_combined(mut command: Command, timeout: Duration) -> (bool, St
 
 /// `runTask7Command`: the trimmed combined output of a command that must succeed.
 pub(super) fn run_task7_command(directory: &Path, timeout: Duration, name: &str, args: &[&str]) -> String {
-	let mut command = Command::new(name);
+	// `exec.Command` searches `PATHEXT`; `Command` only finds a `.exe` by its bare name.
+	let program = if cfg!(windows) && name == "npm" {
+		"npm.cmd"
+	} else {
+		name
+	};
+	let mut command = Command::new(program);
 	command.args(args).current_dir(directory);
 	let (success, output, timed_out) = run_combined(command, timeout);
 	assert!(
@@ -202,7 +208,9 @@ pub(super) fn task7_root_dir(files: &[P<SourceFile>]) -> &'static str {
 
 /// `runTask7Oracle`: the real `rbxtsc`, which must succeed or fail as `success` says.
 pub(super) fn run_task7_oracle(root: &Path, project: &str, success: bool) -> String {
-	let mut command = Command::new(root.join("node_modules/.bin/rbxtsc"));
+	// `npm install` leaves a `.cmd` launcher on Windows, which `exec.Command` finds by `PATHEXT`.
+	let launcher = if cfg!(windows) { "rbxtsc.cmd" } else { "rbxtsc" };
+	let mut command = Command::new(root.join("node_modules").join(".bin").join(launcher));
 	command
 		.args(["--project", project])
 		.current_dir(root)
@@ -724,7 +732,7 @@ fn task7_diagnostic006_public_compiler_preconditions_are_executable() {
 	copy_task7_tree(&fixture, &install);
 	write(&install, "tsconfig.json", &task7_ts_config("default", "src"));
 	run_task7_command(&install, Duration::from_secs(300), "npm", &NPM_INSTALL);
-	let transformer_root = install.join("node_modules/rbxts-transformer-flamework");
+	let transformer_root = install.join("node_modules").join("rbxts-transformer-flamework");
 	let transformer_root = root_str(&transformer_root).to_owned();
 	run_task7_command(
 		&install,

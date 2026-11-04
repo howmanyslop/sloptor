@@ -318,7 +318,7 @@ fn task7_state_upstream(root: &Path, case: &Case) -> (i32, Vec<Tuple>) {
 		"operation": "transform",
 		"tsConfigPath": root.join(project),
 		"projectDir": root,
-		"compileFileNames": [root.join("src/index.ts")],
+		"compileFileNames": [root.join("src").join("index.ts")],
 		"changedFiles": [],
 	});
 	let mut request = serde_json::to_vec(&request).expect("marshal sidecar request");

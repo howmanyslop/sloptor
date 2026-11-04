@@ -247,10 +247,15 @@ fn persist_artifacts_names_the_root_operation_that_failed() {
 	let error = persist_artifacts(&root, &[artifact("include/flamework/config.json", Some(b"{}"))])
 		.unwrap_err()
 		.to_string();
-	assert_eq!(
-		error,
-		r#"flamework: stat artifact "include/flamework/config.json": statat include/flamework/config.json: not a directory"#
-	);
+	if cfg!(windows) {
+		// Windows reports a file used as a directory as not found, so the next step fails.
+		assert!(error.starts_with("flamework: create artifact directory: "), "{error}");
+	} else {
+		assert_eq!(
+			error,
+			r#"flamework: stat artifact "include/flamework/config.json": statat include/flamework/config.json: not a directory"#
+		);
+	}
 }
 
 #[cfg(unix)]
