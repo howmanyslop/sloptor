@@ -7,7 +7,6 @@ export const baseIgnores = [
 	"include/**",
 	"reference/**",
 	"test/fixtures/**",
-	"tsgo/**",
 	"rbxts-tsconfig.schema.json",
 	"rotor.schema.json",
 ] satisfies ReadonlyArray<string>;

@@ -4,7 +4,6 @@ extend-exclude = [
 	"node_modules",
 	"dist",
 	"bin",
-	"tsgo",
 	"third_party",
 	"reference",
 	"include",

@@ -32,9 +32,7 @@ function stageReleaseMetadata() {
 		fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
 		fs.copyFileSync(path.join(repoRoot, file), path.join(root, file));
 	}
-	for (const directory of [path.join("internal", "version"), path.join("internal", "buildapi"), "packages"]) {
-		fs.cpSync(path.join(repoRoot, directory), path.join(root, directory), { recursive: true });
-	}
+	fs.cpSync(path.join(repoRoot, "packages"), path.join(root, "packages"), { recursive: true });
 	return root;
 }
 

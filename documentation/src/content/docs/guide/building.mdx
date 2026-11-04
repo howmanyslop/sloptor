@@ -36,7 +36,7 @@ Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; me
     {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.7.1","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
     ```
 
-- **One-shot diagnostics** — `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, and `--timings` can be combined on one build. sloptor finalizes requested profiles even when the build fails, which keeps failed-build traces usable. `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence, excluding profile serialization); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. Go CPU/block/mutex/heap profiles cover the parent process only — they do not include Node transformer-sidecar CPU or heap. Profile flush can add CLI wall time after the timing JSON is closed; `--verbose` prints a `finalize profiles` stage for that tail.
+- **One-shot diagnostics** — `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile` and `--heapprofile` are Go profiler flags kept for compatibility: they fail with a clear error before building, so use a sampling profiler on the process instead. `--verbose` prints per-phase timings.
 
 ## Native code generation annotations
 
@@ -369,10 +369,8 @@ The write-worker controls are:
 
 - `RBXTSC_WRITE_CONCURRENCY` directly overrides output-write workers and takes precedence over sloptor's setting; values are capped at 256.
 - `ROTOR_WRITE_WORKERS` is sloptor's own output-write override.
-- Without either override, sloptor uses 8 Go output-write workers. Positive fractional overrides are rounded down; invalid values fall through to the next setting or this default.
+- Without either override, sloptor uses 8 output-write workers. Positive fractional overrides are rounded down; invalid values fall through to the next setting or this default.
 
-`UV_THREADPOOL_SIZE` may still affect the Node sidecar's libuv thread pool, but it does not select sloptor's Go output-write worker count.
+`UV_THREADPOOL_SIZE` may still affect the Node sidecar's libuv thread pool, but it does not select sloptor's output-write worker count.
 
-When `GOGC` is unset, one-shot CLI commands use `GOGC=400`; `build --watch` (including solution builds), `check --watch` use `GOGC=100` before the initial compilation. The lower watch target collects temporary compiler allocations sooner, with a possible throughput cost. When `GOMEMLIMIT` is unset, sloptor uses 75% of effective memory, clamped from 512 MiB to 16 GiB for one-shot commands and to 6 GiB for watch commands. Linux accounts for finite cgroup v1/v2 limits, while macOS and Windows use the host memory reported by the OS. API watch sessions keep the API process's runtime policy.
-
-Explicit `GOGC` and `GOMEMLIMIT` environment values always take precedence, so they can tune the memory/throughput tradeoff for a particular project. `GOMEMLIMIT` is a soft Go runtime budget, not a hard process-memory cap: it can be exceeded, and it excludes Node transformer children and some OS allocations. Lower checker/builder counts can reduce the live compiler state when a tighter budget causes frequent collection. Watch mode does not force periodic garbage collections or OS memory release.
+Rust has no garbage collector, so there is no `GOGC` or `GOMEMLIMIT`. Each build instead takes one of a few machine-wide build slots (one per 6 GiB of memory, at most one per two CPUs), so concurrent builds such as an `nx` run or a CI matrix split the machine. `ROTOR_MAX_BUILDS` changes the slot count, and `0` turns the queue off. The build's share sizes the checker worker pool and the Node sidecar's shard count; `RAYON_NUM_THREADS` overrides the pool size. Lower `--checkers` and `--builders` counts reduce live compiler state when memory is tight.

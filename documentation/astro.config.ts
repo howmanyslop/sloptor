@@ -84,7 +84,7 @@ export default defineConfig({
 					"@fontsource/ibm-plex-mono/500.css",
 					"./src/styles/custom.css",
 				],
-				description: "A native roblox-ts compiler, written in Go",
+				description: "A native roblox-ts compiler, written in Rust",
 				editLink: {
 					baseUrl: "https://github.com/howmanyslop/sloptor/edit/main/documentation/",
 				},

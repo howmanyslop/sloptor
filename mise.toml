@@ -14,19 +14,10 @@ cargo.binstall_native = true
 "github:bnjbvr/cargo-machete" = "latest"
 "github:lune-org/lune" = "0.10.1"
 "github:rojo-rbx/rojo" = "7.6.1"
-"go:github.com/uudashr/gocognit/cmd/gocognit" = "latest"
-"go:go.uber.org/nilaway/cmd/nilaway" = "latest"
-"go:golang.org/x/tools/cmd/deadcode" = "latest"
-"go:golang.org/x/tools/cmd/goimports" = "latest"
-"go:golang.org/x/vuln/cmd/govulncheck" = "latest"
 betterleaks = "latest"
 bun = "latest"
 cargo-deny = "latest"
 communique = "latest"
-go = "1.26.10"
-gofumpt = "0.12.0"
-golangci-lint = "2.15.0"
-goreleaser = "latest"
 hk = { version = "2.9.0", workflow = "release.yml" }
 hyperfine = "1.20.0"
 jactionlint = "latest"
@@ -274,7 +265,7 @@ git commit --signoff --message "${usage_message?}" --no-verify
 
 [tasks."docs:generate"]
 description = "Write the CLI reference pages for the documentation site from the live command tree."
-run = "go run ./cmd/rotor gen-docs documentation/src/content/docs/commands"
+run = "cargo run --locked -p rotor_cli -- gen-docs documentation/src/content/docs/commands"
 
 [tasks."rust:build"]
 description = "Builds the Rust workspace."
@@ -286,7 +277,7 @@ depends = ["rust:lint"]
 run = "mise run rust:test"
 
 [tasks."rust:conformance"]
-description = "Runs the conformance gate (the Rust twin of internal/conformance TestConformance): every golden compiled and compared byte for byte."
+description = "Runs the conformance gate: every golden compiled and compared byte for byte."
 run = "cargo nextest run --locked -p rotor_compile --test conformance"
 
 [tasks."rust:fmt"]
@@ -335,27 +326,12 @@ description = "Runs the Rust workspace tests with nextest."
 run = "cargo nextest run --locked --workspace --no-tests=pass"
 
 [tasks."tools:test"]
-description = "Runs the unit tests for tools/tsrs-mirror and tools/parity."
-run = "vitest run tools/parity tools/tsrs-mirror"
+description = "Runs the unit tests for tools/tsrs-mirror."
+run = "vitest run tools/tsrs-mirror"
 
 [tasks."tsrs:mirror"]
 description = "Re-vendors the pinned tsrs release into third_party/tsrs (needs network). Pass --source <checkout> to use a local checkout at the pinned commit."
 run = "node tools/tsrs-mirror/main.ts"
-
-[tasks."tsrs:oracle-bench"]
-description = "Runs the rotor_tsrs differential on the project at ROTOR_BENCH_PROJECT (a tsconfig path): writes the Go dump, then compares the Rust one with it."
-shell = "sh -o errexit -c"
-run = """
-: "${ROTOR_BENCH_PROJECT:?set ROTOR_BENCH_PROJECT to a tsconfig path}"
-oracle="$(mktemp)"
-trap 'rm -f "$oracle"' EXIT
-go run ./tools/tsrs-oracle -project "$ROTOR_BENCH_PROJECT" -out "$oracle"
-ROTOR_BENCH_ORACLE="$oracle" cargo nextest run --locked --cargo-profile fastrel -p rotor_tsrs --test oracle --run-ignored only --no-capture
-"""
-
-[tasks."tsrs:oracle"]
-description = "Regenerates the Go side of the rotor_tsrs differential for the conformance project (testdata/tsrs-oracle/conformance.tsv)."
-run = "go run ./tools/tsrs-oracle -project testdata/conformance/project/tsconfig.json -out testdata/tsrs-oracle/conformance.tsv"
 
 [tasks.amend]
 description = "Amends the staged changes, reusing the previous commit message."

@@ -12,12 +12,5 @@
 		"types": ["bun", "node"],
 		"sourceMap": false
 	},
-	"include": [
-		"api.d.ts",
-		"*.config.ts",
-		"scripts/**/*.ts",
-		"tools/lsp-params/**/*.ts",
-		"tools/parity/**/*.ts",
-		"tools/tsrs-mirror/**/*.ts"
-	]
+	"include": ["api.d.ts", "*.config.ts", "scripts/**/*.ts", "tools/tsrs-mirror/**/*.ts"]
 }

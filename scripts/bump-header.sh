@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Keeps emitted `-- Compiled with sloptor v...` header lines in golden files
-# and Go and Rust test expectations in sync with
+# and Rust test expectations in sync with
 # crates/rotor_support/src/version.rs.
 #
 # Usage:
@@ -60,11 +60,6 @@ replace_in() {
     mv "$tmp" "$file"
     echo "bump-header: updated $file"
 }
-
-# Go test files.
-while IFS= read -r -d '' file; do
-    replace_in "$file"
-done < <(find "$repo_root/internal" "$repo_root/cmd/rotor" -type f -name '*_test.go' -print0 2>/dev/null)
 
 # Rust test files (the crates read their current version from version.rs, so
 # only the literal headers of expected output need rewriting).

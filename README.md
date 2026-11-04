@@ -8,7 +8,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
-sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Go. It ports [roblox-ts](https://roblox-ts.com) onto [typescript-go](https://github.com/microsoft/typescript-go), with upstream-parity output and verified fork behavior.
+sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Rust. It ports [roblox-ts](https://roblox-ts.com) onto [tsrs](https://github.com/oxc-project/tsrs), a Rust port of [typescript-go](https://github.com/microsoft/typescript-go), with upstream-parity output and verified fork behavior.
 
 📖 **[Documentation](https://docs.howmanysmall.com/sloptor/)** · 🤝 [Contributing](CONTRIBUTING.md) · 🗺️ [Roadmap](https://docs.howmanysmall.com/sloptor/roadmap/) · 📝 [Changelog](CHANGELOG.md)
 

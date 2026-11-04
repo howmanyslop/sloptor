@@ -1,7 +1,8 @@
 //! Which request params `tsgo/lsp/lsproto` fails to decode (`unmarshalParams`), so a request
 //! for a known method with such params is answered with `CodeInvalidParams`, as Go's server does.
 //!
-//! Generated from `tsgo/lsp/lsproto/lsp_generated.go`. Only the params' top level is checked:
+//! Maintained by hand, from the table `tsgo/lsp/lsproto/lsp_generated.go` had in the retired Go
+//! implementation (no generator remains). Only the params' top level is checked:
 //! an object, its required properties present and no property null that Go rejects as null.
 //! A params object malformed deeper than that is answered as an unknown method.
 

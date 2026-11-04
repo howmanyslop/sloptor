@@ -19,6 +19,10 @@ on:
 
 permissions: {}
 
+env:
+  # mbx's local cache starts empty on a runner.
+  MBX_DISABLE: "1"
+
 concurrency:
   group: deploy-documentation
   cancel-in-progress: false
@@ -41,11 +45,11 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref }}
 
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
         with:
-          install_args: go node pnpm
-          experimental: true
+          cache-key: docs
+          tools: node pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

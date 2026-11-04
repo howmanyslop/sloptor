@@ -1,9 +1,6 @@
-//! The Go-vs-Rust differential: `rotor_tsrs::dump` against `tools/tsrs-oracle`.
-//!
-//! The conformance test compares with the committed Go dump in `testdata/tsrs-oracle`, so it needs
-//! no Go; regenerate that with `mise run tsrs:oracle`. The ignored test compares the project at
-//! `ROTOR_BENCH_PROJECT` (a tsconfig) with the Go dump at `ROTOR_BENCH_ORACLE`; `mise run
-//! tsrs:oracle-bench` writes the dump and runs it.
+//! The Go-vs-Rust differential: `rotor_tsrs::dump` against the frozen dump of the retired Go
+//! checker in `testdata/tsrs-oracle`. The Go tool that wrote the dump is gone, so the file is not
+//! regenerated.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -95,15 +92,4 @@ fn conformance_project_matches_the_go_oracle() {
 		"{}",
 		describe(&comparison)
 	);
-}
-
-#[test]
-#[ignore = "needs ROTOR_BENCH_PROJECT (a tsconfig) and ROTOR_BENCH_ORACLE (its Go dump)"]
-fn benchmark_project_matches_the_go_oracle() {
-	let tsconfig = std::env::var_os("ROTOR_BENCH_PROJECT").expect("set ROTOR_BENCH_PROJECT to a tsconfig path");
-	let go_dump = std::env::var_os("ROTOR_BENCH_ORACLE").expect("set ROTOR_BENCH_ORACLE to the Go dump");
-	let comparison =
-		compare_project(Path::new(&tsconfig), Path::new(&go_dump)).expect("the benchmark project compares");
-	println!("{}", describe(&comparison));
-	assert!(comparison.mismatches.is_empty(), "{}", describe(&comparison));
 }

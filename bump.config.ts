@@ -34,7 +34,6 @@ if (strayTags.length > 0) {
 	);
 }
 
-const VERSION_GO = "internal/version/version.go";
 const VERSION_RS = "crates/rotor_support/src/version.rs";
 
 const configuration = defineConfig({
@@ -43,12 +42,6 @@ const configuration = defineConfig({
 	async execute({ state }): Promise<void> {
 		const { readFile } = await import("node:fs/promises");
 		const { newVersion } = state;
-
-		const versionGoText = await readFile(VERSION_GO, "utf8");
-
-		if (!versionGoText.includes(`const Version = "${newVersion}"`)) {
-			throw new Error(`${VERSION_GO} was not bumped to ${newVersion}`);
-		}
 
 		const versionRsText = await readFile(VERSION_RS, "utf8");
 
@@ -60,7 +53,7 @@ const configuration = defineConfig({
 		await exec("bash", ["scripts/bump-header.sh"], { throwOnError: true });
 		await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
 	},
-	files: ["package.json", VERSION_GO, VERSION_RS],
+	files: ["package.json", VERSION_RS],
 	noGitCheck: false,
 	printCommits: true,
 	push: true,

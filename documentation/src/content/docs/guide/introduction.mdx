@@ -3,7 +3,7 @@ title: "Introduction"
 description: "What sloptor is, why it exists, and how it stays byte-for-byte compatible with rbxtsc."
 ---
 
-sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Go. It ports the roblox-ts emit layer onto the native TypeScript compiler.
+sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Rust. It ports the roblox-ts emit layer onto the native TypeScript compiler.
 
 sloptor targets `rbxtsc` compatibility: upstream-parity Luau output on unaffected surfaces, the same `@rbxts/*` npm ecosystem, and the same CLI shape, at roughly **10x the speed** on the native TypeScript compiler. For fork-changed surfaces, the verified `@isentinel/roblox-ts@4.0.11` archive in `roblox-ts.zip` is the authority.
 
@@ -13,14 +13,14 @@ roblox-ts is a brilliant compiler with one structural problem: it runs on the Ja
 
 You can't fix that with a syntax transpiler (SWC/esbuild-style), because roblox-ts's emit is **type-directed**: `for...of` compiles differently for an `Array` vs a `Map` vs a string, `+` becomes `+` or `..` by operand type, truthiness guards depend on whether a type can be `0` or `""`, and the entire macro system resolves through the type checker. No types, no correct Luau.
 
-The unlock is [**typescript-go**](https://github.com/microsoft/typescript-go) — Microsoft's official native port of the full TypeScript compiler (shipping as TypeScript 7), ~10x faster with parallel checking and configurable concurrency controls. It's the only native implementation of the _real_ checker in existence. sloptor ports roblox-ts's emit layer to Go on top of it.
+The unlock is [**typescript-go**](https://github.com/microsoft/typescript-go) — Microsoft's official native port of the full TypeScript compiler (shipping as TypeScript 7), ~10x faster with parallel checking and configurable concurrency controls. It's the only native implementation of the _real_ checker in existence. sloptor ports roblox-ts's emit layer to Rust on top of tsrs, a Rust port of it.
 
 ## How sloptor stays 1:1
 
 Compatibility isn't a hope — it's enforced by construction:
 
 - **Differential testing**: unaffected compiler surfaces remain byte-compared against `rbxtsc` 3.0.0 output. Fork-changed surfaces are compared against the verified `@isentinel/roblox-ts@4.0.11` archive, including solution builds, watch, source maps, copy-file gating, resolver caches, and the fork's optimized emit paths.
-- **Behavioral conformance**: roblox-ts's vendored runtime suite, compiled by sloptor and executed under [Lune](https://github.com/lune-org/lune). The in-repo corpus and harnesses (`testdata/conformance`, `internal/conformance`) cover both the upstream reference and the verified fork fixtures; fork-divergent goldens are kept fork-authoritative rather than presented as upstream matches.
+- **Behavioral conformance**: roblox-ts's vendored runtime suite, compiled by sloptor and executed under [Lune](https://github.com/lune-org/lune). The in-repo corpus and harnesses (`testdata/conformance`, `crates/rotor_compile/tests/conformance.rs`) cover both the upstream reference and the verified fork fixtures; fork-divergent goldens are kept fork-authoritative rather than presented as upstream matches.
 - **Faithful porting**: the reference sources are vendored in-repo (`reference/`), and ports are reviewed line-by-line against them — down to quirks like ECMAScript `Number::toString` formatting and temp-identifier collision naming.
 - **Same runtime**: `RuntimeLib.lua` and `Promise.lua` match the targeted roblox-ts compiler runtime.
 

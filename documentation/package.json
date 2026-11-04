@@ -8,7 +8,7 @@
 		"build": "node --run generate && astro build",
 		"check": "node --run generate && astro check",
 		"dev": "node --run generate && astro dev",
-		"generate": "echo 'Generating command pages (compiles sloptor; the first run can take a minute)...' && go run ../cmd/rotor gen-docs src/content/docs/commands",
+		"generate": "echo 'Generating command pages (compiles sloptor; the first run can take a minute)...' && cargo run --locked --manifest-path ../Cargo.toml -p rotor_cli -- gen-docs src/content/docs/commands",
 		"postinstall": "astro sync",
 		"og": "node scripts/generate-og-image.ts",
 		"preview": "astro preview",
