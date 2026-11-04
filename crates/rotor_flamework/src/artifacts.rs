@@ -3,8 +3,8 @@
 //! Go confines every file operation to the project root with `os.Root`. [`ArtifactRoot`] is its
 //! counterpart: on Unix it holds the root directory's descriptor and resolves each path from it
 //! as `os.Root` does, one `openat(O_NOFOLLOW)` at a time, following symlinks that stay inside the
-//! root and rejecting the rest, with `os.Root`'s error text. Elsewhere it joins paths onto the
-//! root.
+//! root and rejecting the rest, with `os.Root`'s error text. On Windows it joins paths onto the
+//! root, so it does not confine symlinks, and identifies files as `os.SameFile` does.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -533,11 +533,13 @@ mod root {
 	}
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
 mod root {
 	use std::fs::File;
+	use std::io::Read as _;
+	use std::path::Path;
 
-	use rotor_support::gopath;
+	use rotor_support::{fsutil, gopath};
 
 	use super::{ArtifactInfo, FileKind};
 
@@ -547,7 +549,11 @@ mod root {
 		directory: String,
 	}
 
-	fn info(metadata: &std::fs::Metadata) -> ArtifactInfo {
+	/// What `os.Lstat` and `File.Stat` report for an open file. The identity is the volume and
+	/// file index: a file's size and times change as it is written, and a directory's as its
+	/// entries do, so neither can tell whether the same file is still there.
+	fn info(file: &File) -> std::io::Result<ArtifactInfo> {
+		let metadata = file.metadata()?;
 		let kind = if metadata.file_type().is_symlink() {
 			FileKind::Symlink
 		} else if metadata.is_file() {
@@ -557,22 +563,17 @@ mod root {
 		} else {
 			FileKind::Other
 		};
-		// Without a stable file index, identity is the size and modification time.
-		let modified = metadata
-			.modified()
-			.ok()
-			.and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-			.map_or(0, |duration| i128::try_from(duration.as_nanos()).unwrap_or(0));
-		ArtifactInfo {
+		let (volume, index) = fsutil::file_identity(file)?;
+		Ok(ArtifactInfo {
 			kind,
-			device: i128::from(metadata.len()),
-			inode: modified,
+			device: i128::from(volume),
+			inode: i128::from(index),
 			permissions: if metadata.permissions().readonly() {
 				0o444
 			} else {
 				0o666
 			},
-		}
+		})
 	}
 
 	impl ArtifactRoot {
@@ -590,17 +591,24 @@ mod root {
 		}
 
 		pub fn lstat(&self, path: &str) -> std::io::Result<ArtifactInfo> {
-			Ok(info(&std::fs::symlink_metadata(self.join(path))?))
+			// `.` is the root itself, a directory even when a link led here.
+			let follow_symlinks = gopath::clean_cow(path) == ".";
+			info(&fsutil::open_for_metadata(
+				Path::new(&self.join(path)),
+				follow_symlinks,
+			)?)
 		}
 
 		pub fn stat(&self, path: &str) -> std::io::Result<ArtifactInfo> {
-			Ok(info(&std::fs::metadata(self.join(path))?))
+			info(&fsutil::open_for_metadata(Path::new(&self.join(path)), true)?)
 		}
 
 		pub fn read_with_info(&self, path: &str) -> std::io::Result<(Vec<u8>, ArtifactInfo)> {
-			let full = self.join(path);
-			let opened = info(&std::fs::symlink_metadata(&full)?);
-			Ok((std::fs::read(&full)?, opened))
+			let mut file = File::open(self.join(path))?;
+			let opened = info(&file)?;
+			let mut contents = Vec::new();
+			file.read_to_end(&mut contents)?;
+			Ok((contents, opened))
 		}
 
 		pub fn remove(&self, path: &str) -> std::io::Result<()> {
@@ -625,7 +633,7 @@ mod root {
 		}
 
 		pub fn file_info(file: &File) -> std::io::Result<ArtifactInfo> {
-			Ok(info(&file.metadata()?))
+			info(file)
 		}
 
 		pub fn chmod(file: &File, mode: u32) -> std::io::Result<()> {
@@ -800,38 +808,13 @@ fn artifact_holds(root: &ArtifactRoot, artifact: &Artifact) -> bool {
 /// `localArtifactPath`: `path` cleaned, when it is local to the project root.
 pub(crate) fn local_artifact_path(path: &str) -> Result<String, Error> {
 	let cleaned = gopath::clean(path);
-	if path.is_empty() || cleaned == "." || !is_local(path) || gopath::is_abs(path) {
+	if path.is_empty() || cleaned == "." || !gopath::is_local(path) || gopath::is_abs(path) {
 		return Err(Error::msg(format!(
 			"flamework: artifact path must be local to the project root: {}",
 			quote(path)
 		)));
 	}
 	Ok(cleaned)
-}
-
-/// Go's `filepath.IsLocal`.
-fn is_local(path: &str) -> bool {
-	if gopath::is_abs(path) || path.is_empty() {
-		return false;
-	}
-	if cfg!(windows) && !gopath::volume_name(path).is_empty() {
-		return false;
-	}
-	let mut has_dots = false;
-	for part in path.split(|c| c == '/' || (cfg!(windows) && c == '\\')) {
-		if part == "." || part == ".." {
-			has_dots = true;
-			break;
-		}
-	}
-	if has_dots {
-		let cleaned = gopath::clean(path);
-		let sep = std::path::MAIN_SEPARATOR;
-		if cleaned == ".." || cleaned.starts_with(&format!("..{sep}")) {
-			return false;
-		}
-	}
-	true
 }
 
 /// Opens the artifact root, for tests that stage and commit by hand.

@@ -6,7 +6,7 @@ use std::sync::Mutex;
 
 use rotor_support::gopath;
 
-use crate::outputwriter::{OutputWriter, is_local};
+use crate::outputwriter::OutputWriter;
 use crate::package_layout::hex_sha256;
 use crate::parallelwrite::{Job, parallelize, write_workers};
 use crate::project::lock;
@@ -122,7 +122,7 @@ pub(crate) struct OutputPresenceIndex {
 /// system is case-insensitive.
 pub(crate) fn normalize_output_presence_key(output_path: &str, case_sensitive: bool) -> Option<String> {
 	let key = gopath::to_slash(&gopath::clean(&gopath::from_slash(output_path))).into_owned();
-	if !is_local(&key) {
+	if !gopath::is_local(&key) {
 		return None;
 	}
 	Some(if case_sensitive { key } else { key.to_lowercase() })

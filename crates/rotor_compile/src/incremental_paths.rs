@@ -11,7 +11,6 @@ use rotor_support::{fsutil, gopath};
 use rotor_tsrs::compiler::Program;
 
 use crate::incremental_manifest::normalize_source_file_path;
-use crate::outputwriter::is_local;
 
 /// `incrementalProjectPathPrefix`
 pub(crate) const INCREMENTAL_PROJECT_PATH_PREFIX: &str = "project://";
@@ -164,7 +163,7 @@ pub(crate) fn incremental_path_encoder<'a>(dir: &str, program: Option<&'a Progra
 		}
 		let mut best = encode_relative(name);
 		let relative_to_project = encode_project_relative(name);
-		let is_project_local = is_local(&gopath::from_slash(&relative_to_project));
+		let is_project_local = gopath::is_local(&gopath::from_slash(&relative_to_project));
 		let in_node_modules = path_after_segments(&relative_to_project, &["node_modules"]).is_some();
 		let in_virtual_store = path_after_segments(&relative_to_project, &["node_modules", ".pnpm"]).is_some();
 		if is_project_local && !in_node_modules {

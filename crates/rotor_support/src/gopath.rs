@@ -385,6 +385,11 @@ impl Flavor {
 			if !self.same_word(&targ[t0..ti], &base[b0..bi]) {
 				break;
 			}
+			if bi == bl && ti == tl {
+				// Both ran out still equal: `\\host\share` against `\\host\share\`, the one pair that
+				// differs before the volume is cut off and not after. Go's loop never ends here.
+				return Ok(".".to_owned());
+			}
 			if bi < bl {
 				bi += 1;
 			}
@@ -413,6 +418,22 @@ impl Flavor {
 			return Ok(self.clean(&buf));
 		}
 		Ok(targ[t0..].to_owned())
+	}
+
+	/// `filepath.IsLocal`.
+	#[must_use]
+	pub fn is_local(self, path: &str) -> bool {
+		if path.is_empty() || self.is_sep(path.as_bytes()[0]) {
+			return false;
+		}
+		// A colon only marks a drive (`C:foo`) or a stream on Windows, so Go rejects any.
+		if self == Self::Windows && (path.contains(':') || path.split(['\\', '/']).any(is_reserved_name)) {
+			return false;
+		}
+		let cleaned = self.clean_cow(path);
+		cleaned
+			.strip_prefix("..")
+			.is_none_or(|rest| rest.as_bytes().first().is_some_and(|&c| c != self.separator_byte()))
 	}
 
 	/// Go's `sameWord`: byte equality on Unix, `strings.EqualFold` on
@@ -445,6 +466,30 @@ fn equal_fold(a: &str, b: &str) -> bool {
 			_ => return false,
 		}
 	}
+}
+
+/// Go's `isReservedName`: whether a path element names a Windows device. Go asks
+/// `RtlIsDosDeviceName_U` about a device name with an extension, because Windows 11 stopped
+/// reserving `CON.txt`; this keeps to string logic and takes the Windows 11 answer.
+fn is_reserved_name(name: &str) -> bool {
+	let base = name.split('.').next().unwrap_or(name).trim_end_matches(' ');
+	is_reserved_base_name(base) && name[base.len()..].bytes().all(|c| matches!(c, b'.' | b' '))
+}
+
+/// Go's `isReservedBaseName`.
+fn is_reserved_base_name(name: &str) -> bool {
+	let is = |word: &str| name.eq_ignore_ascii_case(word);
+	if is("CON") || is("PRN") || is("AUX") || is("NUL") || is("CONIN$") || is("CONOUT$") {
+		return true;
+	}
+	let Some((prefix, number)) = name.split_at_checked(3) else {
+		return false;
+	};
+	(prefix.eq_ignore_ascii_case("COM") || prefix.eq_ignore_ascii_case("LPT"))
+		&& matches!(
+			number,
+			"1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"
+		)
 }
 
 fn replace_byte(s: &str, old: char, new: char) -> Cow<'_, str> {
@@ -566,6 +611,12 @@ pub fn to_slash(path: &str) -> Cow<'_, str> {
 #[must_use]
 pub fn is_abs(path: &str) -> bool {
 	NATIVE.is_abs(path)
+}
+
+/// `filepath.IsLocal` for the native platform.
+#[must_use]
+pub fn is_local(path: &str) -> bool {
+	NATIVE.is_local(path)
 }
 
 /// `filepath.Clean` for the native platform.

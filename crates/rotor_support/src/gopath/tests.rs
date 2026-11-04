@@ -312,6 +312,8 @@ fn rel_windows() {
 		(r"C:\Projects", r"c:\projects", "."),
 		(r"C:\Projects\a\..", r"c:\projects", "."),
 		(r"\\host\share", r"\\host\share\file.txt", "file.txt"),
+		(r"\\host\share", r"\\host\share\", "."),
+		("//host/share", "//host/share/", "."),
 	];
 	for (base, target, want) in cases {
 		assert_eq!(
@@ -322,6 +324,69 @@ fn rel_windows() {
 	}
 	for (base, target) in [(r"C:\", r"D:\"), ("C:", "D:")] {
 		assert!(Windows.rel(base, target).is_err(), "rel({base:?}, {target:?})");
+	}
+}
+
+#[test]
+fn is_local() {
+	for (path, want) in [
+		("", false),
+		(".", true),
+		("..", false),
+		("../a", false),
+		("/", false),
+		("/a", false),
+		("/a/../..", false),
+		("a", true),
+		("a/../a", true),
+		("a/", true),
+		("a/.", true),
+		("a/./b/./c", true),
+		("a/../b:/../../c", false),
+		("a/../..", false),
+		("..a", true),
+		("weird..name", true),
+	] {
+		assert_eq!(Unix.is_local(path), want, "Unix is_local({path:?})");
+		assert_eq!(Windows.is_local(path), want, "Windows is_local({path:?})");
+	}
+	assert!(Unix.is_local(r"..\a"), "a backslash is a file name character on Unix");
+	assert!(Unix.is_local("C:"), "a colon is a file name character on Unix");
+	assert!(Unix.is_local("nul"), "device names are Windows's");
+	for (path, want) in [
+		("NUL", false),
+		("nul", false),
+		("nul ", false),
+		("nul.", false),
+		("a/nul:", false),
+		("a/nul : a", false),
+		("com0", true),
+		("com1", false),
+		("com9", false),
+		("com\u{b9}", false),
+		("com\u{b2}", false),
+		("com\u{b3}", false),
+		("com\u{b9} : a", false),
+		("cOm1", false),
+		("lpt1", false),
+		("LPT1", false),
+		("lpt\u{b3}", false),
+		("./nul", false),
+		(r"\", false),
+		(r"\a", false),
+		("C:", false),
+		(r"C:\a", false),
+		(r"..\a", false),
+		("a/../c:", false),
+		("CONIN$", false),
+		("conin$", false),
+		("CONOUT$", false),
+		("conout$", false),
+		("dollar$", true),
+		("con.luau", true),
+		("console", true),
+	] {
+		assert_eq!(Windows.is_local(path), want, "Windows is_local({path:?})");
 	}
 }
 

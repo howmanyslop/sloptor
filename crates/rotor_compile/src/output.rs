@@ -33,7 +33,7 @@ use crate::incremental_manifest::{
 use crate::incremental_salt::{incremental_salt_with_flamework, output_manifest_path};
 use crate::incremental_signature::{narrow_selection_by_declaration_signature, recovered_input_paths};
 use crate::macrodecl::source_uses_macros;
-use crate::outputwriter::{OutputWriter, is_local};
+use crate::outputwriter::OutputWriter;
 use crate::package_layout::prepare_package_layout;
 use crate::parallelwrite::{Job, parallelize, write_workers};
 use crate::project::{
@@ -1105,7 +1105,7 @@ pub(crate) fn type_reference_edits(text: &str) -> Vec<TextEdit> {
 
 /// `assertLocalOutputPath`: rejects absolute or escaping project-relative output paths.
 pub(crate) fn assert_local_output_path(rel_out: &str) -> Result<(), Error> {
-	if !is_local(&gopath::from_slash(rel_out)) {
+	if !gopath::is_local(&gopath::from_slash(rel_out)) {
 		return Err(Error::message(format!(
 			"compile: refusing to write output outside the project directory: {}",
 			gostr::quote(rel_out)

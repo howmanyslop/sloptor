@@ -63,6 +63,29 @@ fn eval_symlinks_fails_on_missing_path() {
 	);
 }
 
+/// `os.SameFile`'s contract: a file stays itself while it is written and renamed, and a directory
+/// while its entries change. Size and times cannot say that.
+#[cfg(windows)]
+#[test]
+fn file_identity_follows_the_file() {
+	use super::{file_identity, open_for_metadata};
+
+	let identity =
+		|path: &std::path::Path| file_identity(&open_for_metadata(path, false).expect("open")).expect("identity");
+	let dir = tempfile::tempdir().expect("temp dir");
+	let path = dir.path().join("a.txt");
+	fs::write(&path, "a").expect("write");
+	let (file, directory) = (identity(&path), identity(dir.path()));
+	fs::write(&path, "longer contents").expect("rewrite");
+	assert_eq!(identity(&path), file, "after a write");
+	let renamed = dir.path().join("b.txt");
+	fs::rename(&path, &renamed).expect("rename");
+	assert_eq!(identity(&renamed), file, "after a rename");
+	assert_eq!(identity(dir.path()), directory, "after its entries changed");
+	fs::write(&path, "a").expect("write");
+	assert_ne!(identity(&path), file, "another file");
+}
+
 #[test]
 fn write_file_if_changed_keeps_identical_file() {
 	let dir = tempfile::tempdir().expect("temp dir");

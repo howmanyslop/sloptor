@@ -6,6 +6,57 @@ use std::path::{Path, PathBuf};
 
 use crate::gostr;
 
+/// Opens `path` to read its metadata and nothing else, as `fs::metadata` and `fs::symlink_metadata`
+/// do: it works on directories and holds no access that could conflict with another open.
+///
+/// # Errors
+///
+/// Returns the I/O error from opening the path.
+#[cfg(windows)]
+pub fn open_for_metadata(path: &Path, follow_symlinks: bool) -> io::Result<fs::File> {
+	use std::os::windows::fs::OpenOptionsExt as _;
+
+	use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT};
+
+	let link_flag = if follow_symlinks {
+		0
+	} else {
+		FILE_FLAG_OPEN_REPARSE_POINT
+	};
+	fs::OpenOptions::new()
+		.access_mode(0)
+		.custom_flags(FILE_FLAG_BACKUP_SEMANTICS | link_flag)
+		.open(path)
+}
+
+/// The volume serial number and file index of an open file, which is what `os.SameFile` compares
+/// on Windows. Neither changes when the file is written or renamed.
+///
+/// # Errors
+///
+/// Returns the I/O error from querying the handle.
+#[cfg(windows)]
+#[expect(
+	unsafe_code,
+	reason = "GetFileInformationByHandle takes a handle the borrow keeps open"
+)]
+pub fn file_identity(file: &fs::File) -> io::Result<(u32, u64)> {
+	use std::os::windows::io::AsRawHandle as _;
+
+	use windows_sys::Win32::Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle};
+
+	let mut information = BY_HANDLE_FILE_INFORMATION::default();
+	// SAFETY: the handle is open for the duration of the borrow and `information` is a valid out
+	// pointer.
+	if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &raw mut information) } == 0 {
+		return Err(io::Error::last_os_error());
+	}
+	Ok((
+		information.dwVolumeSerialNumber,
+		u64::from(information.nFileIndexHigh) << 32 | u64::from(information.nFileIndexLow),
+	))
+}
+
 /// Whether `path` is a regular file (not a symlink to one) holding exactly
 /// `data`. It compares sizes before reading, so a changed file usually costs
 /// one stat.

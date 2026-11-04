@@ -47,16 +47,6 @@ fn io_error(error: &io::Error) -> Error {
 	Error::message(rotor_support::gostr::io_error_text(error))
 }
 
-/// `filepath.IsLocal`
-pub(crate) fn is_local(path: &str) -> bool {
-	if path.is_empty() || gopath::is_abs(path) {
-		return false;
-	}
-	let cleaned = gopath::clean(path);
-	let separator = gopath::NATIVE.separator();
-	cleaned != ".." && !cleaned.starts_with(&format!("..{separator}")) && !(cfg!(windows) && cleaned.contains(':'))
-}
-
 impl OutputWriter {
 	/// `newOutputWriter`
 	#[must_use]
@@ -152,7 +142,7 @@ impl OutputWriter {
 	/// `lstat`: refuses paths outside the project directory.
 	pub(crate) fn lstat(&self, path: &str) -> Result<fs::Metadata, Error> {
 		let key = self.output_key(path);
-		if !is_local(&gopath::from_slash(&key)) {
+		if !gopath::is_local(&gopath::from_slash(&key)) {
 			return Err(Error::message(format!(
 				"compile: refusing to inspect output outside the project directory: {}",
 				gostr::quote(path)
@@ -280,7 +270,8 @@ impl OutputWriter {
 	/// `prepareParent`: creates the parent of `path` once per directory.
 	fn prepare_parent(&self, path: &str) -> Result<(), Error> {
 		if !self.project_dir.is_empty() {
-			let local = gopath::rel(&self.project_dir, &gopath::clean(path)).is_ok_and(|relative| is_local(&relative));
+			let local =
+				gopath::rel(&self.project_dir, &gopath::clean(path)).is_ok_and(|relative| gopath::is_local(&relative));
 			if !local {
 				return Err(Error::message(format!(
 					"compile: refusing to prepare output outside the project directory: {}",
