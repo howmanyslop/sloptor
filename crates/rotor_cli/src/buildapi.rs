@@ -19,7 +19,7 @@ use rotor_compile::project::Cancellation;
 use rotor_compile::solution::{SolutionProjectResult, SolutionProjectSelection, SolutionProjectStatus};
 use rotor_compile::timings::{BuildTimingCounts, BuildTimingStages, BuildTimings};
 use rotor_compile::transformer_host::{
-	TransformerCallback, TransformerRequest, TransformerResponse, TransformerTransportMetrics,
+	TransformerCallback, TransformerCallbackHost, TransformerRequest, TransformerResponse, TransformerTransportMetrics,
 };
 use rotor_support::gopath;
 use serde_json::value::RawValue;
@@ -303,7 +303,17 @@ pub struct BuildContext {
 	pub cancel: Cancellation,
 	cause: Arc<Mutex<Option<String>>>,
 	/// `TransformerCallbackFromContext`
+	#[cfg_attr(
+		not(test),
+		expect(
+			dead_code,
+			reason = "builds go through `transformer_host`; the server tests call it directly"
+		)
+	)]
 	pub transformer_callback: Option<TransformerCallback>,
+	/// The session's transformer host around `transformer_callback`, made once at `initialize`
+	/// as Go's `buildBase` is, so its trackers outlive a build.
+	pub transformer_host: Option<TransformerCallbackHost>,
 }
 
 impl BuildContext {
@@ -356,7 +366,9 @@ pub struct Server {
 	active: Mutex<Option<Active>>,
 	builds: (Mutex<usize>, Condvar),
 	initialized: AtomicBool,
-	callbacks_enabled: AtomicBool,
+	/// The transformer callback and its host, set by `initialize` when the client asks for
+	/// callbacks.
+	transformer: Mutex<Option<(TransformerCallback, TransformerCallbackHost)>>,
 	next_callback: AtomicU64,
 	callbacks: Mutex<HashMap<String, Sender<CallbackResult>>>,
 }
@@ -375,7 +387,7 @@ impl Server {
 			active: Mutex::new(None),
 			builds: (Mutex::new(0), Condvar::new()),
 			initialized: AtomicBool::new(false),
-			callbacks_enabled: AtomicBool::new(false),
+			transformer: Mutex::new(None),
 			next_callback: AtomicU64::new(0),
 			callbacks: Mutex::new(HashMap::new()),
 		})
@@ -464,7 +476,7 @@ impl Server {
 		Ok(())
 	}
 
-	fn initialize(&self, id: i64, params: Option<&serde_json::Value>) {
+	fn initialize(self: &Arc<Self>, id: i64, params: Option<&serde_json::Value>) {
 		if self.initialized.load(Ordering::SeqCst) {
 			self.respond_error(id, "ALREADY_INITIALIZED", "the session is already initialized");
 			return;
@@ -508,7 +520,18 @@ impl Server {
 			return;
 		}
 		self.initialized.store(true, Ordering::SeqCst);
-		self.callbacks_enabled.store(callbacks, Ordering::SeqCst);
+		if callbacks {
+			// Weak, so the session's host does not keep the server alive.
+			let server = Arc::downgrade(self);
+			let callback: TransformerCallback = Arc::new(move |cancel, request| {
+				server.upgrade().map_or_else(
+					|| Err(rotor_compile::Error::message("build API: the session ended")),
+					|server| server.call_transformer(cancel, &request),
+				)
+			});
+			let host = TransformerCallbackHost::new(Arc::clone(&callback));
+			*lock(&self.transformer) = Some((callback, host));
+		}
 		let result = gojson::Object::new()
 			.int("protocolVersion", PROTOCOL_VERSION)
 			.string("serverVersion", &self.version)
@@ -599,15 +622,15 @@ impl Server {
 				cause: Arc::clone(&cause),
 			});
 		}
+		let (transformer_callback, transformer_host) = lock(&self.transformer)
+			.as_ref()
+			.map(|(callback, host)| (Arc::clone(callback), host.clone()))
+			.unzip();
 		let context = BuildContext {
 			cancel,
 			cause,
-			transformer_callback: self.callbacks_enabled.load(Ordering::SeqCst).then(|| {
-				let server = Arc::clone(self);
-				let callback: TransformerCallback =
-					Arc::new(move |cancel, request| server.call_transformer(cancel, &request));
-				callback
-			}),
+			transformer_callback,
+			transformer_host,
 		};
 		*lock(&self.builds.0) += 1;
 		let server = Arc::clone(self);

@@ -588,6 +588,30 @@ pub fn with_transformer_callback(opts: &mut crate::project::ProjectOptions, call
 	)));
 }
 
+/// `WithTransformerCallback`'s host, made once per API session as Go's is.
+///
+/// The build API makes it at `initialize`. Each project's tracker keeps the stamps the client's
+/// worker has seen, so a later build sends the files changed since. A host made per build would
+/// start every build fresh and send none, and the client would transform the text it kept from
+/// before the edit.
+#[derive(Clone)]
+pub struct TransformerCallbackHost(Arc<crate::transformer_host_sidecar::CallbackTransformerHost>);
+
+impl TransformerCallbackHost {
+	/// `newCallbackTransformerHost`
+	#[must_use]
+	pub fn new(callback: TransformerCallback) -> Self {
+		Self(Arc::new(crate::transformer_host_sidecar::CallbackTransformerHost::new(
+			callback,
+		)))
+	}
+}
+
+/// Runs this build's transformer requests through the session's `host`.
+pub fn with_transformer_host(opts: &mut crate::project::ProjectOptions, host: &TransformerCallbackHost) {
+	opts.transformer_callback = Some(Arc::clone(&host.0));
+}
+
 /// `TransformerCallbackFromContext`: whether this build runs transformers through a callback.
 #[must_use]
 pub const fn has_transformer_callback(opts: &crate::project::ProjectOptions) -> bool {

@@ -96,7 +96,10 @@ Outside the Go file map:
   - Cancellation is a flag (`project::Cancellation`) checked where Go checks `ctx.Err()`; there
     is no deadline context. Tests build Go's countdown context with `Cancellation::countdown`.
   - The API transformer callback rides on `ProjectOptions::transformer_callback` instead of the
-    context (`transformer_host::with_transformer_callback`). It gets
+    context. The build API makes its host once per session at `initialize`
+    (`TransformerCallbackHost`, `with_transformer_host`), as Go's `buildBase` is, so each
+    project's tracker outlives a build and a later build sends the files edited since; a host
+    made per build (`with_transformer_callback`) starts fresh and sends none. The callback gets
     `Cancellation::with_timeout`, Go's `context.WithTimeout` (`Cancellation::err` gives
     `context deadline exceeded`).
   - Go's owned-stderr spawn mode is not distinguished (`sidecar::spawn_sidecar_session_mode`);
