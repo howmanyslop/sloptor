@@ -685,6 +685,30 @@ fn poison_mode() -> bool {
     }
 }
 
+/// rotor: turns poison mode on for the rest of the process, as `TSRS_ARENA_POISON=1` does (tests, which may not set
+/// the environment). Call it before the first region is freed.
+pub fn enable_poison_mode() {
+    MODE.store(2, Ordering::Relaxed);
+}
+
+/// rotor: in poison mode, makes the whole pages of a freed region's used range inaccessible (`PROT_NONE`), so a read
+/// through a stale pointer faults where the fill alone could be read as data. The range is never reused in poison
+/// mode, and a page wholly inside it holds nothing else.
+#[cfg(unix)]
+fn protect_freed(start: usize, len: usize) {
+    // SAFETY: sysconf has no preconditions.
+    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) }).unwrap_or(4096);
+    let first = start.next_multiple_of(page);
+    let end = (start + len) / page * page;
+    if end > first {
+        // SAFETY: whole pages inside a used range of a freed region, which nothing may use any more.
+        let rc = unsafe {
+            libc::mprotect(std::ptr::with_exposed_provenance_mut::<libc::c_void>(first), end - first, libc::PROT_NONE)
+        };
+        debug_assert_eq!(rc, 0, "mprotect of a freed region");
+    }
+}
+
 /// The free-list class of a block of `size` bytes and alignment `align` at address `addr`, or 0 when such blocks
 /// are not recycled.
 #[inline]
@@ -1391,6 +1415,8 @@ impl Drop for RegionInner {
                         len,
                     );
                 };
+                #[cfg(unix)]
+                protect_freed(start, len);
             }
             return;
         }

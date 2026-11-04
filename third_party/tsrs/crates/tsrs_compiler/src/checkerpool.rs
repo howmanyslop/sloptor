@@ -39,16 +39,25 @@ pub struct CheckerHandle {
 enum CheckerHandleKind {
     // The built-in pool's checkers live behind a mutex per checker (Go `locks[i]`).
     // The scope makes the checker's region (`SlotChecker::region`) the allocation target while the handle is held.
-    Locked { guard: MutexGuard<'static, SlotChecker>, _scope: Option<CheckerScope> },
+    // rotor: `live` counts the pool's handles (`PoolState::live_handles`).
+    Locked {
+        guard: MutexGuard<'static, SlotChecker>,
+        _scope: Option<CheckerScope>,
+        live: &'static std::sync::atomic::AtomicUsize,
+    },
     // A checker owned by an external pool, which tracks exclusivity itself (Go project pool's `heldBy`).
     External { checker: NonNull<Checker>, release: Option<Box<dyn FnOnce()>> },
 }
 
 impl CheckerHandle {
-    fn locked(guard: MutexGuard<'static, SlotChecker>) -> CheckerHandle {
+    fn locked(
+        guard: MutexGuard<'static, SlotChecker>,
+        live: &'static std::sync::atomic::AtomicUsize,
+    ) -> CheckerHandle {
+        live.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let scope = guard.enter();
         crate::sharedgraph::enter_checker(&guard);
-        CheckerHandle { kind: CheckerHandleKind::Locked { guard, _scope: scope } }
+        CheckerHandle { kind: CheckerHandleKind::Locked { guard, _scope: scope, live } }
     }
 
     /// Hands out a checker owned by a pool outside this crate; `release` runs when the handle is dropped.
@@ -72,7 +81,7 @@ impl std::ops::Deref for CheckerHandle {
     type Target = Checker;
     fn deref(&self) -> &Checker {
         match &self.kind {
-            CheckerHandleKind::Locked { guard, .. } => &guard.checker,
+            CheckerHandleKind::Locked { guard, .. } => guard.checker(),
             // SAFETY: `from_raw`'s contract: the checker is alive and exclusively ours until release.
             CheckerHandleKind::External { checker, .. } => unsafe { checker.as_ref() },
         }
@@ -82,7 +91,7 @@ impl std::ops::Deref for CheckerHandle {
 impl std::ops::DerefMut for CheckerHandle {
     fn deref_mut(&mut self) -> &mut Checker {
         match &mut self.kind {
-            CheckerHandleKind::Locked { guard, .. } => &mut guard.checker,
+            CheckerHandleKind::Locked { guard, .. } => guard.checker_mut(),
             // SAFETY: `from_raw`'s contract: the checker is alive and exclusively ours until release.
             CheckerHandleKind::External { checker, .. } => unsafe { checker.as_mut() },
         }
@@ -91,10 +100,15 @@ impl std::ops::DerefMut for CheckerHandle {
 
 impl Drop for CheckerHandle {
     fn drop(&mut self) {
-        if let CheckerHandleKind::External { release, .. } = &mut self.kind
-            && let Some(release) = release.take()
-        {
-            release();
+        match &mut self.kind {
+            CheckerHandleKind::Locked { live, .. } => {
+                live.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+            }
+            CheckerHandleKind::External { release, .. } => {
+                if let Some(release) = release.take() {
+                    release();
+                }
+            }
         }
     }
 }
@@ -290,8 +304,9 @@ struct CheckerSlot(Mutex<SlotChecker>, std::sync::atomic::AtomicU32);
 // With `ProgramOptions::checker_diagnostic_regions` (watch mode), the diagnostics the checker makes go to a second region of the slot
 // (`arena::Region::route_diagnostics`), freed with the program like the checker's: the snapshot that keeps some of
 // them copies those (tsrs_incremental `Program::copy_diagnostics`).
+// rotor: `checker` is `None` once `release_checkers` dropped it.
 pub struct SlotChecker {
-    checker: Box<Checker>,
+    checker: Option<Box<Checker>>,
     region: Option<tsrs_core::arena::Region>,
     diagnostics: Option<tsrs_core::arena::Region>,
 }
@@ -306,7 +321,7 @@ pub struct CheckerScope {
 impl SlotChecker {
     fn new(program: &'static Program, in_region: bool) -> SlotChecker {
         if !in_region {
-            return SlotChecker { checker: new_checker(program), region: None, diagnostics: None };
+            return SlotChecker { checker: Some(new_checker(program)), region: None, diagnostics: None };
         }
         let region = tsrs_core::arena::Region::new_scratch(1 << 20);
         let diagnostics = program
@@ -318,7 +333,7 @@ impl SlotChecker {
             let _route = diagnostics.as_ref().map(tsrs_core::arena::Region::route_diagnostics);
             new_checker(program)
         };
-        SlotChecker { checker, region: Some(region), diagnostics }
+        SlotChecker { checker: Some(checker), region: Some(region), diagnostics }
     }
 
     // A replacement for a retired checker: a fork of the frozen shared-graph seed when there is one (it starts with the
@@ -335,7 +350,7 @@ impl SlotChecker {
             let fork = crate::sharedgraph::fresh_fork();
             fork.unwrap_or_else(|| new_checker(program))
         };
-        SlotChecker { checker, region: Some(region), diagnostics }
+        SlotChecker { checker: Some(checker), region: Some(region), diagnostics }
     }
 
     // Makes the checker's region the allocation target (and the thread's scratch region, so that lazily filled
@@ -349,6 +364,27 @@ impl SlotChecker {
         })
     }
 
+    fn checker(&self) -> &Checker {
+        self.checker.as_deref().expect("rotor: a released checker was used (`release_checkers`)")
+    }
+
+    fn checker_mut(&mut self) -> &mut Checker {
+        self.checker.as_deref_mut().expect("rotor: a released checker was used (`release_checkers`)")
+    }
+
+    // rotor: drops the checker, then its region, as `CheckerPoolImpl::retire_checker` does. The diagnostics region
+    // stays: the pool's results may refer to it.
+    fn release(&mut self) {
+        {
+            let _scope = self.enter();
+            if let Some(checker) = &self.checker {
+                crate::sharedgraph::enter_checker(checker);
+            }
+            drop(self.checker.take());
+        }
+        drop(self.region.take());
+    }
+
     // Bytes of arena the checker holds (its region's chunks), 0 without a region.
     fn region_bytes(&self) -> usize {
         self.region.as_ref().map_or(0, tsrs_core::arena::Region::allocated_bytes)
@@ -358,13 +394,13 @@ impl SlotChecker {
 impl std::ops::Deref for SlotChecker {
     type Target = Checker;
     fn deref(&self) -> &Checker {
-        &self.checker
+        self.checker()
     }
 }
 
 impl std::ops::DerefMut for SlotChecker {
     fn deref_mut(&mut self) -> &mut Checker {
-        &mut self.checker
+        self.checker_mut()
     }
 }
 
@@ -476,6 +512,13 @@ impl Drop for PoolState {
         unsafe {
             drop(Box::from_raw(std::ptr::from_ref::<[CheckerSlot]>(self.checkers).cast_mut()));
         };
+        // SAFETY: `live_handles` came from `Box::leak` in `create_checkers`, and every handle that counted on it is
+        // gone with the checkers.
+        unsafe {
+            drop(Box::from_raw(
+                std::ptr::from_ref::<std::sync::atomic::AtomicUsize>(self.live_handles).cast_mut(),
+            ));
+        };
     }
 }
 
@@ -484,6 +527,8 @@ pub struct PoolState {
     shared_graph: bool,
     // Leaked like the program that owns the pool, so a handle can hold a checker's lock without borrowing the pool.
     checkers: &'static [CheckerSlot],
+    // rotor: the checker handles alive, leaked like `checkers` (`release_checkers` checks it is zero).
+    live_handles: &'static std::sync::atomic::AtomicUsize,
     // Program file index of each file.
     file_indices: FxHashMap<P<SourceFile>, usize>,
     // The checker that runs each program file: the static assignment until stealing moves a file to the checker that
@@ -580,6 +625,8 @@ pub struct CheckerPoolImpl {
     state: OnceLock<PoolState>,
     // tsrs-only: the file assignment of the pool of the program this one reuses (`inherited_associations`).
     pub inherited_associations: Option<Vec<usize>>,
+    // rotor: `release_checkers` ran; any later request for a checker panics.
+    released: std::sync::atomic::AtomicBool,
 }
 
 /*
@@ -823,6 +870,7 @@ impl CheckerPoolImpl {
             single_threaded: program.single_threaded() || checker_count == 1,
             state: OnceLock::new(),
             inherited_associations,
+            released: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -834,7 +882,7 @@ impl CheckerPoolImpl {
             return self.get_checker_for_file_exclusive(file);
         }
         let state = self.create_checkers();
-        CheckerHandle::locked(state.checkers[0].0.lock().unwrap())
+        CheckerHandle::locked(state.checkers[0].0.lock().unwrap(), state.live_handles)
     }
 
     // checkerpool.go:346
@@ -850,19 +898,23 @@ impl CheckerPoolImpl {
     pub(crate) fn get_checker_for_file_exclusive(&self, file: P<SourceFile>) -> CheckerHandle {
         let state = self.create_checkers();
         let idx = state.owner_of(file).expect("a file of the program");
-        CheckerHandle::locked(state.checkers[idx].0.lock().unwrap())
+        CheckerHandle::locked(state.checkers[idx].0.lock().unwrap(), state.live_handles)
     }
 
     // checkerpool.go:362
     // getCheckerNonExclusive returns the first checker without locking (locks in Rust, see above).
     pub(crate) fn get_checker_non_exclusive(&self) -> CheckerHandle {
         let state = self.create_checkers();
-        CheckerHandle::locked(state.checkers[0].0.lock().unwrap())
+        CheckerHandle::locked(state.checkers[0].0.lock().unwrap(), state.live_handles)
     }
 
     // checkerpool.go:367
     fn create_checkers(&self) -> &PoolState {
         let program = self.program;
+        assert!(
+            !self.released.load(std::sync::atomic::Ordering::Acquire),
+            "rotor: a checker was requested from a program whose checkers were released (`release_checkers`)"
+        );
         self.state.get_or_init(|| {
             if tsrs_core::ptr::shared_check::enabled() {
                 // Debug aid: bind up front so every parser/binder allocation is recorded as shared.
@@ -891,9 +943,9 @@ impl CheckerPoolImpl {
                 run_work_group(self.single_threaded, self.checker_count, |i| {
                     let c = SlotChecker::new(program, recycle || program.checker_regions);
                     if shared && i == 0 {
-                        crate::sharedgraph::note_fresh_checker(&c.checker);
+                        crate::sharedgraph::note_fresh_checker(c.checker());
                     }
-                    let id = std::sync::atomic::AtomicU32::new(c.checker.id);
+                    let id = std::sync::atomic::AtomicU32::new(c.checker().id);
                     *slots[i].lock().unwrap() = Some(CheckerSlot(Mutex::new(c), id));
                 });
                 let checkers: &'static [CheckerSlot] = Box::leak(
@@ -940,6 +992,7 @@ impl CheckerPoolImpl {
             PoolState {
                 shared_graph: shared,
                 checkers,
+                live_handles: Box::leak(Box::new(std::sync::atomic::AtomicUsize::new(0))),
                 file_indices,
                 owners,
                 associations: associations_for_reuse,
@@ -956,13 +1009,25 @@ impl CheckerPoolImpl {
         self.create_checkers()
     }
 
-    // rotor: drops the pool's checkers, if it created them; the next request creates them again. See
-    // `program::release_checkers`.
-    pub(crate) unsafe fn release_checkers(&self) {
-        let pool = std::ptr::from_ref::<CheckerPoolImpl>(self).cast_mut();
-        // SAFETY: no handle borrows a checker, and nothing a checker made is used afterwards (the caller's contract),
-        // so nothing refers to the state, which owns the checkers and their regions.
-        drop(unsafe { (*pool).state.take() });
+    // rotor: drops the pool's checkers and their regions, if it created them; any later request for a checker
+    // panics. See `program::release_checkers`. Panics if a checker is still held.
+    pub(crate) fn release_checkers(&self) {
+        self.released.store(true, std::sync::atomic::Ordering::Release);
+        let Some(state) = self.state.get() else {
+            return;
+        };
+        let live = state.live_handles.load(std::sync::atomic::Ordering::Acquire);
+        assert_eq!(live, 0, "rotor: release_checkers with {live} checker handles alive");
+        for slot in state.checkers {
+            let mut guard = match slot.0.try_lock() {
+                Ok(guard) => guard,
+                Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    panic!("rotor: release_checkers while a checker is in use")
+                }
+            };
+            guard.release();
+        }
     }
 
     // checkerpool.go:451
@@ -1172,7 +1237,7 @@ impl CheckerPoolImpl {
             // file boundary after the freeze (`switch_to_fork` below), so that the pool does not wait for the seed.
             if allow_steal && state.shared_graph && !state.recycle {
                 let _region = guard.enter();
-                crate::sharedgraph::fork_into(&mut guard.checker);
+                crate::sharedgraph::fork_into(guard.checker.as_mut().expect("a live checker"));
             }
             let mut scope = guard.enter();
             crate::sharedgraph::enter_checker(&guard);
@@ -1244,7 +1309,7 @@ impl CheckerPoolImpl {
                 }
                 let switch_to_fork = recycle
                     && state.shared_graph
-                    && !guard.checker.is_fork
+                    && !guard.checker().is_fork
                     && crate::sharedgraph::try_base().is_some();
                 if switch_to_fork
                     || recycle
@@ -1256,7 +1321,7 @@ impl CheckerPoolImpl {
                 {
                     drop(scope);
                     self.retire_checker(state, &mut guard);
-                    state.checkers[checker_idx].1.store(guard.checker.id, std::sync::atomic::Ordering::Relaxed);
+                    state.checkers[checker_idx].1.store(guard.checker().id, std::sync::atomic::Ordering::Relaxed);
                     scope = guard.enter();
                     crate::sharedgraph::enter_checker(&guard);
                 }
@@ -1307,15 +1372,15 @@ impl CheckerPoolImpl {
         {
             let _scope = old.enter();
             // Making the replacement left the thread's overlay (sharedgraph.rs): the old checker reads its own again.
-            crate::sharedgraph::enter_checker(&old.checker);
-            let globals = old.checker.get_global_diagnostics();
+            crate::sharedgraph::enter_checker(old.checker());
+            let globals = old.checker_mut().get_global_diagnostics();
             let mut retired = state.retired.lock().unwrap();
             retired.count += 1;
             retired.global_diagnostics.extend(globals);
-            retired.symbol_count += u64::from(old.checker.symbol_count);
-            retired.type_count += u64::from(old.checker.type_count);
-            retired.instantiation_count += u64::from(old.checker.total_instantiation_count);
-            retired.lazy_member_stats.add(&old.checker.lazy_member_stats);
+            retired.symbol_count += u64::from(old.checker().symbol_count);
+            retired.type_count += u64::from(old.checker().type_count);
+            retired.instantiation_count += u64::from(old.checker().total_instantiation_count);
+            retired.lazy_member_stats.add(&old.checker().lazy_member_stats);
             drop(retired);
             if crate::sharedgraph::debug_regions()
                 && let Some(region) = &old.region
@@ -1326,12 +1391,12 @@ impl CheckerPoolImpl {
                 eprintln!(
                     "dbg-retire thread={} fork={} types={} chunks={}",
                     std::thread::current().name().unwrap_or("?"),
-                    old.checker.is_fork,
-                    old.checker.type_count,
+                    old.checker().is_fork,
+                    old.checker().type_count,
                     chunks.join(",")
                 );
             }
-            drop(old.checker);
+            drop(old.checker.take());
         }
         drop(old.region);
     }
@@ -1820,6 +1885,10 @@ fn inherited_associations(
     checker_count: usize,
     previous: &CheckerPoolImpl,
 ) -> Option<Vec<usize>> {
+    assert!(
+        !previous.released.load(std::sync::atomic::Ordering::Acquire),
+        "rotor: a program was derived from one whose checkers were released (`release_checkers`)"
+    );
     let state = previous.state.get()?;
     let reusable = matches!(checker_assignment(), CheckerAssignment::Locality)
         && previous.checker_count == checker_count

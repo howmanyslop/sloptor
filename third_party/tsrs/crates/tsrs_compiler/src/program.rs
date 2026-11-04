@@ -624,17 +624,19 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
     p
 }
 
-/// rotor: frees the checkers of `program`'s built-in pool and the regions they allocate in, keeping the program;
-/// a later checker request creates the pool's checkers again. A build drops the checkers of a program a transform
-/// replaced, while it still uses the program's files. Does nothing for an external pool.
+/// rotor: frees the checkers of `program`'s built-in pool and the regions they allocate in, keeping the program.
+/// A build drops the checkers of a program a transform replaced, while it still uses the program's files. Any later
+/// request for one of its checkers, or a program derived from it, panics. Does nothing for an external pool.
+///
+/// # Panics
+/// A checker of `program` is held or in use.
 ///
 /// # Safety
-/// No checker handle of `program` is held or taken meanwhile, and nothing a checker of it made (a type, symbol,
-/// signature, or diagnostic in its region) is used afterwards.
+/// Nothing a checker of `program` made (a type, symbol, signature, or diagnostic in its region) is used afterwards,
+/// and the program's files were bound outside its checkers (`bind_source_files`).
 pub unsafe fn release_checkers(program: &'static Program) {
     if let Some(pool) = program.compiler_checker_pool() {
-        // SAFETY: this function's contract.
-        unsafe { pool.release_checkers() };
+        pool.release_checkers();
     }
 }
 
