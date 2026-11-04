@@ -48,7 +48,7 @@ function npmCommand(arguments_, options) {
 test("release validation accepts the checked-in package set", () => {
 	const result = validate();
 	assert.equal(result.status, 0, result.stderr);
-	assert.ok(result.stdout.includes(`validated @rotor-rbx/rotor@${packageVersion} with 6 platform packages`), result.stdout);
+	assert.ok(result.stdout.includes(`validated @rotor-rbx/rotor@${packageVersion} with 4 platform packages`), result.stdout);
 });
 
 test("release validation rejects platform-package version drift", () => {
@@ -84,7 +84,7 @@ test("release validation rejects client/server protocol drift and a mismatched t
 	}
 });
 
-test("release staging produces the main package and all six executable packages", () => {
+test("release staging produces the main package and all four executable packages", () => {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-npm-release-"));
 	const dist = path.join(root, "dist");
 	const output = path.join(root, "npm");
@@ -107,7 +107,7 @@ test("release staging produces the main package and all six executable packages"
 		assert.equal(result.status, 0, result.stderr);
 		const release = JSON.parse(fs.readFileSync(path.join(output, "npm-release.json"), "utf8"));
 		assert.equal(release.version, packageVersion);
-		assert.equal(release.packages.length, 7);
+		assert.equal(release.packages.length, 5);
 		assert.deepEqual(
 			release.packages.map((entry) => entry.name).sort(),
 			["@rotor-rbx/rotor", ...Object.values(PLATFORM_TARGETS).map((target) => target.packageName)].sort(),
@@ -163,7 +163,7 @@ test("the release version helper updates the main and every platform manifest", 
 		assert.equal(main.version, "3.1.4");
 		assert.deepEqual(new Set(Object.values(main.optionalDependencies)), new Set(["3.1.4"]));
 		const lockfile = fs.readFileSync(path.join(root, "pnpm-lock.yaml"), "utf8");
-		assert.equal((lockfile.match(/specifier: 3\.1\.4/g) ?? []).length, 6);
+		assert.equal((lockfile.match(/specifier: 3\.1\.4/g) ?? []).length, 4);
 		for (const directory of fs.readdirSync(path.join(root, "packages"))) {
 			const manifest = JSON.parse(fs.readFileSync(path.join(root, "packages", directory, "package.json"), "utf8"));
 			assert.equal(manifest.version, "3.1.4");

@@ -99,10 +99,8 @@
 	},
 	"optionalDependencies": {
 		"@rotor-rbx/rotor-darwin-arm64": "3.0.0-beta.2",
-		"@rotor-rbx/rotor-darwin-x64": "3.0.0-beta.2",
 		"@rotor-rbx/rotor-linux-arm64": "3.0.0-beta.2",
 		"@rotor-rbx/rotor-linux-x64": "3.0.0-beta.2",
-		"@rotor-rbx/rotor-win32-arm64": "3.0.0-beta.2",
 		"@rotor-rbx/rotor-win32-x64": "3.0.0-beta.2"
 	},
 	"packageManager": "pnpm@12.16.1",

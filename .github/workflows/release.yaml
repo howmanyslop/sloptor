@@ -68,14 +68,12 @@ jobs:
             fi
           }
 
-          package_target darwin amd64 ""
           package_target darwin arm64 ""
           package_target linux amd64 ""
           package_target linux arm64 ""
           package_target windows amd64 ".exe"
-          package_target windows arm64 ".exe"
 
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 8
 
           (
             cd dist
@@ -88,7 +86,7 @@ jobs:
             sha256sum --check "sloptor-v$VERSION-checksums.txt"
           )
 
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 9
 
           for archive in "dist/sloptor-v$VERSION-"*.tar.gz; do
             test "$(tar -tzf "$archive" | sort | paste -sd ' ' -)" = "LICENSE README.md sloptor"
@@ -97,12 +95,10 @@ jobs:
             test "$(unzip -Z1 "$archive" | sort | paste -sd ' ' -)" = "LICENSE README.md sloptor.exe"
           done
 
-          file "dist/sloptor-v$VERSION-darwin-amd64-bin" | grep -q "Mach-O.*x86_64"
           file "dist/sloptor-v$VERSION-darwin-arm64-bin" | grep -q "Mach-O.*arm64"
           file "dist/sloptor-v$VERSION-linux-amd64-bin" | grep -q "ELF 64-bit.*x86-64"
           file "dist/sloptor-v$VERSION-linux-arm64-bin" | grep -q "ELF 64-bit.*ARM aarch64"
           file "dist/sloptor-v$VERSION-windows-amd64-bin.exe" | grep -q "PE32+.*x86-64"
-          file "dist/sloptor-v$VERSION-windows-arm64-bin.exe" | grep -q "PE32+.*Aarch64"
         env:
           VERSION: ${{ needs.validate.outputs.version }}
 
@@ -110,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/stage-npm-release.cjs --dist dist --output dist/npm
-          test "$(find dist/npm -maxdepth 1 -name '*.tgz' -type f | wc -l)" -eq 7
+          test "$(find dist/npm -maxdepth 1 -name '*.tgz' -type f | wc -l)" -eq 5
 
       - name: Upload release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -174,7 +170,7 @@ jobs:
 
   # One native runner per target, so every binary runs its own --version check
   # and none is cross-compiled. Each job uploads its bare executable; the
-  # `build` job downloads all six and packages them.
+  # `build` job downloads all four and packages them.
   compile:
     name: Compile (${{ matrix.target }})
     needs: validate
@@ -250,12 +246,6 @@ jobs:
             suffix: ""
             target: darwin-arm64
             triple: aarch64-apple-darwin
-          - goarch: amd64
-            goos: darwin
-            runner: macos-15-intel
-            suffix: ""
-            target: darwin-x64
-            triple: x86_64-apple-darwin
           - goarch: arm64
             goos: linux
             runner: ubuntu-24.04-arm
@@ -268,12 +258,6 @@ jobs:
             suffix: ""
             target: linux-x64
             triple: x86_64-unknown-linux-gnu
-          - goarch: arm64
-            goos: windows
-            runner: windows-11-arm
-            suffix: .exe
-            target: win32-arm64
-            triple: aarch64-pc-windows-msvc
           - goarch: amd64
             goos: windows
             runner: windows-2025
@@ -430,14 +414,10 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
           - runner: macos-15
             target: darwin-arm64
           - runner: windows-2025
             target: win32-x64
-          - runner: windows-11-arm
-            target: win32-arm64
 
     timeout-minutes: 10
 

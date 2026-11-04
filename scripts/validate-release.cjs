@@ -49,7 +49,7 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 
 	const platformModule = require(path.join(root, "platform.js"));
 	const targets = Object.values(platformModule.PLATFORM_TARGETS);
-	if (targets.length !== 6) throw new Error(`expected 6 supported platform targets, found ${targets.length}`);
+	if (targets.length !== 4) throw new Error(`expected 4 supported platform targets, found ${targets.length}`);
 	const expectedDependencies = targets.map((target) => target.packageName).sort();
 	// biome-ignore lint/suspicious/useArraySortCompare: no.
 	const actualDependencies = Object.keys(packageJson.optionalDependencies ?? {}).sort();
