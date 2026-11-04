@@ -13,6 +13,7 @@
 
 pub mod jsonrpc;
 pub mod lsconv;
+mod params;
 pub mod protocol;
 mod publish;
 mod scheduler;

@@ -18,6 +18,7 @@ use rotor_compile::census::{FileDiagnostics, FileOutcome, ProjectDiagnostics};
 use rotor_compile::compile::{DiagnosticInfo, InternalCompilerError};
 use rotor_lsp::{Cancel, Census, FindTsConfig, Options};
 use rotor_support as _;
+use rotor_tsrs as _;
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(10);
@@ -749,6 +750,30 @@ fn unknown_messages() {
 		1,
 		"only the request is answered with an error"
 	);
+}
+
+/// A known request whose params do not decode is `InvalidParams`, as Go's `lsproto` decode
+/// failure is; well-formed params for a method the server does not serve stay `MethodNotFound`.
+#[test]
+fn malformed_params_are_invalid_params() {
+	let project = new_project(&["a.ts"]);
+	let client = start_server(serve_config(project.no_any_census(), project.find(), Duration::ZERO));
+	client.handshake(None, None);
+	client.request(
+		8,
+		"textDocument/hover",
+		json!({"position": {"line": 0, "character": 0}}),
+	);
+	client.request(9, "textDocument/hover", json!("not an object"));
+	client.request(10, "workspace/workspaceFolders", json!({}));
+	client.request(11, "sloptor/custom", json!(42));
+	for (id, code) in [(8, -32602), (9, -32602), (10, -32602), (11, -32601)] {
+		assert_eq!(
+			client.response_to(id).error.map(|error| error.0),
+			Some(code),
+			"request {id}"
+		);
+	}
 }
 
 /// The editor can stop the server: shutdown answers a null result (not none) and exit ends it.

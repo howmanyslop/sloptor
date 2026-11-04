@@ -217,6 +217,24 @@ impl Session<'_> {
 			);
 			return false;
 		}
+		// Params Go's `lsproto` fails to decode: initialize and shutdown proceed without them, any
+		// other request is refused with `CodeInvalidParams`, and a notification is dropped.
+		if raw
+			.params
+			.as_ref()
+			.is_some_and(|params| crate::params::rejects(&raw.method, params))
+			&& raw.method != "initialize"
+			&& raw.method != "shutdown"
+		{
+			if raw.is_request() {
+				self.server.respond_error(
+					raw.id.as_ref(),
+					protocol::INVALID_PARAMS,
+					&format!("invalid params for {}", raw.method),
+				);
+			}
+			return raw.method == "exit";
+		}
 		if raw.is_notification() {
 			return self.handle_notification(&raw);
 		}
