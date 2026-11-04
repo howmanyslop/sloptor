@@ -34,10 +34,10 @@ pub(crate) fn is_protected_output_filename(name: &str) -> bool {
 }
 
 /// The compiler version the copy-files manifest and the Rojo resolver cache record. Go records
-/// tsgo's `core.Version()`; rotor-rs records `rotor-rs <version>`, so a cache Go wrote is never
-/// taken as current and the first rotor-rs build after a Go build copies and resolves in full.
+/// tsgo's `core.Version()`; sloptor records `sloptor <version>`, so a cache Go wrote is never
+/// taken as current and the first sloptor build after a Go build copies and resolves in full.
 pub(crate) fn compiler_version() -> String {
-	format!("rotor-rs {}", rotor_support::version::VERSION)
+	format!("sloptor {}", rotor_support::version::VERSION)
 }
 
 /// `CopyFilesFileEntry`: written as `[src, dest, srcMtimeMs, destMtimeMs]`.

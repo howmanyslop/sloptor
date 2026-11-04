@@ -1,4 +1,4 @@
-//! End-to-end tests of the `rotor-rs` binary: exit codes, the flag surface, `--json`, `check`,
+//! End-to-end tests of the `sloptor` binary: exit codes, the flag surface, `--json`, `check`,
 //! `clean`, `schema` and completions (the behavioural half of `cmd/rotor/*_test.go`).
 
 #![cfg(test)]

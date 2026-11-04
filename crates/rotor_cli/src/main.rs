@@ -1,4 +1,4 @@
-//! The `rotor-rs` binary, the Rust port of the rotor CLI (`cmd/rotor`).
+//! The `sloptor` binary, the Rust port of the rotor CLI (`cmd/rotor`).
 //!
 //! `CLI.md` maps every Go file to its module here, lists the kebab-case flag names and their Go
 //! camelCase aliases, and records every intentional difference from Go.

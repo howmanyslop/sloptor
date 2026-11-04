@@ -80,11 +80,11 @@ Outside the Go file map:
 - The incremental salt is a hash over the same inputs as Go's (`incremental_salt.rs`), with the
   path options made project-relative as `portableIncrementalOptions` does. The compiler options
   are encoded by tsrs's Go-JSON writer, so the salt is not byte-identical to Go's, and a Go-built
-  manifest never matches a rotor-rs build.
+  manifest never matches a sloptor build.
 - The copy-files manifest (`copyfilesgate.rs`, `compiler_version`) and the Rojo resolver cache
-  key (`output.rs`, `load_rojo_caches_pre_build`) record `rotor-rs <version>`, where Go records
-  tsgo's `core.Version()`. The TypeScript versions differ, so rotor-rs keeps its caches apart
-  from Go's on purpose. The first rotor-rs build after a Go build in the same checkout therefore
+  key (`output.rs`, `load_rojo_caches_pre_build`) record `sloptor <version>`, where Go records
+  tsgo's `core.Version()`. The TypeScript versions differ, so sloptor keeps its caches apart
+  from Go's on purpose. The first sloptor build after a Go build in the same checkout therefore
   copies non-compiled files, resolves Rojo data and compiles every file in full.
 - `OutputWriter` confines writes without `os.Root`. Each output's parent directory is resolved
   once and cached (`dir_roots`, Go's `dirRoot`), and only a final symlink is resolved per write.
@@ -171,7 +171,7 @@ Outside the Go file map:
 
 ## Declaration emit (TypeScript 7.1), approved differences
 
-rotor-rs writes `.d.ts` files with tsrs's TypeScript 7.1 declaration emitter; Go uses its
+sloptor writes `.d.ts` files with tsrs's TypeScript 7.1 declaration emitter; Go uses its
 typescript-go fork (7.0). The two print some declarations differently while declaring the same
 types. The user reviewed these on 2026-11-03 and accepted them, because consumers see identical
 types: on the benchmark solution every package type-checks against the other packages' 7.1

@@ -1,6 +1,6 @@
 # rotor_cli
 
-The `rotor-rs` binary: the Rust port of `cmd/rotor`, on clap. The command tree, flags, exit
+The `sloptor` binary: the Rust port of `cmd/rotor`, on clap. The command tree, flags, exit
 codes and every `--json` byte match Go; help, errors, completions and human output are
 redesigned. Stage 7a wires `build`, `check`, `clean`, `diagnostics`, `schema`, `completion`,
 `gen-docs` and `version`, and the runtime policy. Stage 7b adds `build --watch`,

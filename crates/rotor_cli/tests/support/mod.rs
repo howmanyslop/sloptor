@@ -22,7 +22,7 @@ pub struct Run {
 
 /// The binary under test.
 pub fn rust_binary() -> PathBuf {
-	PathBuf::from(env!("CARGO_BIN_EXE_rotor-rs"))
+	PathBuf::from(env!("CARGO_BIN_EXE_sloptor"))
 }
 
 /// Runs `binary` in `dir` with a plain environment (no forced colour).
