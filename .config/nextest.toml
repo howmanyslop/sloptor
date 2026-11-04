@@ -1,0 +1,4 @@
+# CI reports every failure in one run: a Windows round trip takes far too long to
+# find them one at a time.
+[profile.ci]
+fail-fast = false

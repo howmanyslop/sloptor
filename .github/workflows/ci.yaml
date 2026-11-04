@@ -17,6 +17,7 @@ env:
   # mise.toml routes cargo through mbx, whose local cache starts empty on every
   # runner. Swatinem/rust-cache restores target/ instead.
   MBX_DISABLE: "1"
+  NEXTEST_PROFILE: ci
   RUST_BACKTRACE: short
 
 concurrency:
