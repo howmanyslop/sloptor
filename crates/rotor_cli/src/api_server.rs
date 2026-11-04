@@ -205,7 +205,10 @@ mod tests {
 
 	impl Client {
 		fn send(&mut self, message: &Value) {
-			writeln!(self.to_server, "{message}").expect("send");
+			// One write: a split newline can reach a server that `shutdown` just made close its input.
+			self.to_server
+				.write_all(format!("{message}\n").as_bytes())
+				.expect("send");
 		}
 
 		fn next(&mut self) -> Value {
