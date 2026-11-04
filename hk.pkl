@@ -253,7 +253,11 @@ local fileChecks = new Mapping<String, Step> {
       effect = "write"
     }
   }
-  ["rumdl"] = Builtins.rumdl_format
+  // CHANGELOG.md and the release notes are regenerated from GitHub releases
+  // (scripts/sync-release-notes.ts), so their bullet style is GitHub's.
+  ["rumdl"] = (Builtins.rumdl_format) {
+    exclude = List("CHANGELOG.md", "documentation/src/content/releases/**")
+  }
   ["pkl-format"] = Builtins.pkl_format
 }
 
