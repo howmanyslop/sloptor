@@ -3222,7 +3222,10 @@ impl Checker {
             return;
         };
         self.check_collision_with_require_exports_in_generated_code(node, Some(name));
-        self.check_collision_with_global_object_in_generated_code(node, Some(name));
+        // rotor: its typescript-go fork drops the `Object` check; Luau output has no CommonJS preamble to protect.
+        if !tsrs_core::compat::rotor_fork() {
+            self.check_collision_with_global_object_in_generated_code(node, Some(name));
+        }
         self.check_collision_with_global_promise_in_generated_code(node, Some(name));
         self.record_potential_collision_with_weak_map_set_in_generated_code(node, name);
         self.record_potential_collision_with_reflect_in_generated_code(node, Some(name));
