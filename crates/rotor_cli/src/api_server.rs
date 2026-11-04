@@ -1,5 +1,7 @@
 //! `sloptor api-server` (`cmd/rotor/api_server.go`): the hidden build API over stdio. Each
-//! request is a one-shot solution build, admitted like `sloptor build`.
+//! request is a solution build, admitted like `sloptor build`. The session is long-lived
+//! (`rotor_tsrs::project::set_long_lived`): each build frees its programs and parse cache, and
+//! `memory::trim` runs after it.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -24,6 +26,8 @@ use crate::options::{
 ///
 /// A transport or protocol failure.
 pub fn run() -> Result<(), Failure> {
+	// A session serves build after build, so each frees what it allocated, as watch mode does.
+	rotor_tsrs::project::set_long_lived(true);
 	// stdout carries the protocol, so the log goes to stderr.
 	let previous = logservice::set_output_stderr(true);
 	let server = buildapi::Server::new(
@@ -32,7 +36,9 @@ pub fn run() -> Result<(), Failure> {
 			let _lease = crate::runtime::admit(&mut |message| {
 				let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("{message}\n").as_bytes());
 			});
-			run_api_build(context, &request)
+			let built = run_api_build(context, &request);
+			crate::memory::trim();
+			built
 		}),
 	);
 	let outcome = server.run(std::io::stdin(), std::io::stdout());

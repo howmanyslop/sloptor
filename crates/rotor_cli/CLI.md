@@ -142,9 +142,14 @@ The pieces (`ui::header`, `ui::verb_line`, `frames::render_all`, `live::project_
   pages and keeps rising; the footprint is the figure that plateaus. See
   `rotor_compile/COMPILE.md` for the numbers.
 - **`lsp`** runs its censuses one at a time on one long-lived large-stack thread, each in its
-  own program scope.
+  own program scope. A census that panics answers with that panic as its error, as Go's
+  `census` recovers it, and the thread serves the next one. A known request whose params Go's
+  `lsproto` would fail to decode is answered `InvalidParams` (-32602); the check is the params'
+  top level only (`rotor_lsp/src/params.rs`, generated from `lsp_generated.go`).
 - **`api-server`** decodes requests as a stream (no size limit) and keeps a transformer
   callback's result bytes exact (serde_json `RawValue`), so the transport metrics match Go's.
+  A build that panics ends the process with status 2, as Go's unrecovered panic does, so the
+  client sees EOF instead of a build that never answers.
 
 ## Runtime policy
 

@@ -165,31 +165,32 @@ impl Shared {
 		state.loops += 1;
 		let shared = Arc::clone(shared);
 		let owned = config.to_owned();
-		let spawned = std::thread::Builder::new()
-			.name("rotor-lsp-census".to_owned())
-			.spawn(move || {
-				let config = owned;
-				loop {
-					{
-						let mut state = lock(&shared.state);
-						let closed = state.closed;
-						let entry = state.configs.entry(config.clone()).or_default();
-						if closed || !entry.dirty {
-							entry.running = false;
-							state.loops -= 1;
-							drop(state);
-							shared.signal.notify_all();
-							return;
-						}
-						entry.dirty = false;
+		// A session thread, not a new one per loop: a long-lived server reuses it, so the pages
+		// each loop allocates (the buffers it clones, the JSON it publishes) are not abandoned
+		// with an ended thread, and the trim between censuses reaches it.
+		let spawned = rotor_tsrs::threads::spawn(move || {
+			let config = owned;
+			loop {
+				{
+					let mut state = lock(&shared.state);
+					let closed = state.closed;
+					let entry = state.configs.entry(config.clone()).or_default();
+					if closed || !entry.dirty {
+						entry.running = false;
+						state.loops -= 1;
 						drop(state);
+						shared.signal.notify_all();
+						return;
 					}
-					// A run that panics must not leave the config running for good, or `close`
-					// would wait on it forever.
-					let run = std::panic::AssertUnwindSafe(|| (shared.run)(&config));
-					let _ = std::panic::catch_unwind(run);
+					entry.dirty = false;
+					drop(state);
 				}
-			});
+				// A run that panics must not leave the config running for good, or `close`
+				// would wait on it forever.
+				let run = std::panic::AssertUnwindSafe(|| (shared.run)(&config));
+				let _ = std::panic::catch_unwind(run);
+			}
+		});
 		if spawned.is_err() {
 			if let Some(entry) = state.configs.get_mut(config) {
 				entry.running = false;

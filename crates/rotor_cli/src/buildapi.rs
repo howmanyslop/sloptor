@@ -27,6 +27,9 @@ use serde_json::value::RawValue;
 /// `ProtocolVersion`
 pub const PROTOCOL_VERSION: i64 = 1;
 
+/// The exit status of a Go program ended by an unrecovered panic.
+const PANIC_EXIT_CODE: i32 = 2;
+
 const CAPABILITIES: [&str; 5] = [
 	"build",
 	"project-selection",
@@ -609,28 +612,31 @@ impl Server {
 		*lock(&self.builds.0) += 1;
 		let server = Arc::clone(self);
 		let request = BuildRequest { roots, selection };
-		let spawned = std::thread::Builder::new()
-			.name("rotor-build-api".to_owned())
-			.spawn(move || {
-				let built = (server.build)(&context, request);
-				{
-					let mut active = lock(&server.active);
-					if active.as_ref().is_some_and(|active| active.id == id) {
-						*active = None;
-					}
+		// A session thread, reused from build to build in a long-lived session.
+		let spawned = rotor_tsrs::threads::spawn(move || {
+			// Go's build goroutine has no recover: a panic ends the process and the client
+			// sees EOF. Unwinding only this thread would leave the build active and counted,
+			// so every later build would be refused and shutdown would wait forever.
+			let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (server.build)(&context, request)))
+				.unwrap_or_else(|_| std::process::exit(PANIC_EXIT_CODE));
+			{
+				let mut active = lock(&server.active);
+				if active.as_ref().is_some_and(|active| active.id == id) {
+					*active = None;
 				}
-				match built {
-					Err(BuildError::Cancelled) => match context.cause() {
-						Some(cause) => server.respond_error(id, "BUILD_FAILED", &cause),
-						None => server.respond_error(id, "BUILD_CANCELLED", "the build was cancelled"),
-					},
-					Err(BuildError::Failed(error)) => server.respond_error(id, "BUILD_FAILED", &error),
-					Ok(result) => server.respond(id, Some(&result.to_json()), None),
-				}
-				let (count, done) = &server.builds;
-				*lock(count) -= 1;
-				done.notify_all();
-			});
+			}
+			match built {
+				Err(BuildError::Cancelled) => match context.cause() {
+					Some(cause) => server.respond_error(id, "BUILD_FAILED", &cause),
+					None => server.respond_error(id, "BUILD_CANCELLED", "the build was cancelled"),
+				},
+				Err(BuildError::Failed(error)) => server.respond_error(id, "BUILD_FAILED", &error),
+				Ok(result) => server.respond(id, Some(&result.to_json()), None),
+			}
+			let (count, done) = &server.builds;
+			*lock(count) -= 1;
+			done.notify_all();
+		});
 		if spawned.is_err() {
 			*lock(&self.active) = None;
 			*lock(&self.builds.0) -= 1;
@@ -1543,5 +1549,60 @@ mod tests {
 				"optional counts in Rust and TypeScript"
 			);
 		}
+	}
+
+	/// Set in the child process of [`a_build_panic_ends_the_process`].
+	const PANIC_CHILD: &str = "ROTOR_BUILD_API_PANIC_CHILD";
+
+	/// A build that panics ends the process with Go's panic status, and the client sees EOF.
+	/// Unwinding only the build's thread left the build active: every later build was refused and
+	/// the response never came, and EOF or shutdown waited for the build forever.
+	#[test]
+	fn a_build_panic_ends_the_process() {
+		if std::env::var_os(PANIC_CHILD).is_some() {
+			let server = server(|_, _| panic!("the build panicked"));
+			let _ = server.run(io::stdin(), io::stdout());
+			return;
+		}
+		let mut child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+			.args([
+				"buildapi::tests::a_build_panic_ends_the_process",
+				"--exact",
+				"--nocapture",
+			])
+			.env(PANIC_CHILD, "1")
+			.stdin(std::process::Stdio::piped())
+			.stdout(std::process::Stdio::piped())
+			.stderr(std::process::Stdio::null())
+			.spawn()
+			.expect("child");
+		let mut stdin = child.stdin.take().expect("stdin");
+		writeln!(
+			stdin,
+			"{}\n{}",
+			json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1, "clientVersion": "2.7.1"}}),
+			json!({"jsonrpc": "2.0", "id": 2, "method": "build", "params": {"roots": ["fixture"]}}),
+		)
+		.expect("requests");
+		let mut stdout = child.stdout.take().expect("stdout");
+		let (done, output) = mpsc::channel();
+		std::thread::spawn(move || {
+			let mut text = String::new();
+			let _ = stdout.read_to_string(&mut text);
+			let _ = done.send(text);
+		});
+		// stdin stays open: the process must end on its own, not because its input closed.
+		let output = output.recv_timeout(SERVER_TEST_TIMEOUT).unwrap_or_else(|_| {
+			let _ = child.kill();
+			panic!("the server hung after the build panicked")
+		});
+		let status = child.wait().expect("status");
+		drop(stdin);
+		assert_eq!(status.code(), Some(2), "{status}");
+		assert!(output.contains("\"id\":1"), "initialize was answered: {output}");
+		assert!(
+			!output.contains("\"id\":2"),
+			"the panicked build has no response: {output}"
+		);
 	}
 }

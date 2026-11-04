@@ -961,6 +961,7 @@ version = "0.0.0"
 dependencies = [
  "rotor_compile",
  "rotor_support",
+ "rotor_tsrs",
  "serde_json",
  "tempfile",
 ]

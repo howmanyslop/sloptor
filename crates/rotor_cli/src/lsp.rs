@@ -36,17 +36,7 @@ pub fn run(_command: LspCommand, _streams: &mut Streams) -> Result<(), Failure> 
 	rotor_tsrs::project::set_long_lived(true);
 	// stdout carries the protocol, so everything else goes to stderr.
 	let previous = logservice::set_output_stderr(true);
-	let (jobs, receiver) = mpsc::channel::<Job>();
-	let worker = std::thread::Builder::new()
-		.name("rotor-lsp-census".to_owned())
-		.stack_size(512 << 20)
-		.spawn(move || {
-			while let Ok((config, overlays, reply)) = receiver.recv() {
-				let answer = census(&config, overlays);
-				crate::memory::trim();
-				let _ = reply.send(answer);
-			}
-		})
+	let (jobs, worker) = start_census_thread(census)
 		.map_err(|error| Failure::Runtime(format!("lsp: start the census thread: {error}")))?;
 	let jobs = Mutex::new(jobs);
 	let options = rotor_lsp::Options {
@@ -82,6 +72,33 @@ pub fn run(_command: LspCommand, _streams: &mut Streams) -> Result<(), Failure> 
 	// The census thread ends with the server's last sender; it is not waited for.
 	drop(worker);
 	served.map_err(Failure::Runtime)
+}
+
+/// The census thread: censuses one at a time, each followed by the session's trim. A panic is
+/// that census's error, as Go's `census` recovers it, and the thread lives on for the next one.
+fn start_census_thread(
+	run: impl Fn(&str, BTreeMap<String, String>) -> (Option<ProjectDiagnostics>, Option<String>) + Send + 'static,
+) -> std::io::Result<(Sender<Job>, std::thread::JoinHandle<()>)> {
+	let (jobs, receiver) = mpsc::channel::<Job>();
+	let worker = std::thread::Builder::new()
+		.name("rotor-lsp-census".to_owned())
+		.stack_size(512 << 20)
+		.spawn(move || {
+			while let Ok((config, overlays, reply)) = receiver.recv() {
+				let census = std::panic::AssertUnwindSafe(|| run(&config, overlays));
+				let answer = std::panic::catch_unwind(census).unwrap_or_else(|payload| {
+					let value = payload
+						.downcast_ref::<&str>()
+						.map(|text| (*text).to_owned())
+						.or_else(|| payload.downcast_ref::<String>().cloned())
+						.unwrap_or_default();
+					(None, Some(format!("sloptor: census panicked: {value}")))
+				});
+				crate::memory::trim();
+				let _ = reply.send(answer);
+			}
+		})?;
+	Ok((jobs, worker))
 }
 
 /// One census, admitted like `sloptor build`, in its own program scope.
@@ -127,7 +144,30 @@ pub fn has_rbxts_types(dir: &str) -> bool {
 mod tests {
 	//! `lsp_test.go`
 
-	use super::has_rbxts_types;
+	use std::collections::BTreeMap;
+	use std::sync::mpsc;
+
+	use super::{has_rbxts_types, start_census_thread};
+
+	/// A census that panics must not stop the diagnostics for good: it answers with its error and
+	/// the next census still runs.
+	#[test]
+	fn a_census_panic_is_that_census_error() {
+		let (jobs, _worker) = start_census_thread(|config, _| {
+			assert!(config != "panics", "boom");
+			(None, None)
+		})
+		.expect("census thread");
+		let ask = |config: &str| {
+			let (reply, answer) = mpsc::channel();
+			jobs.send((config.to_owned(), BTreeMap::new(), reply)).expect("send");
+			answer.recv().expect("answer")
+		};
+		let (result, error) = ask("panics");
+		assert!(result.is_none());
+		assert_eq!(error.as_deref(), Some("sloptor: census panicked: boom"));
+		assert_eq!(ask("fine"), (None, None), "the thread lives on");
+	}
 
 	/// A census of a plain TypeScript project would pop "rootDir must be defined" in the editor,
 	/// and a project with hoisted `node_modules` must still count.

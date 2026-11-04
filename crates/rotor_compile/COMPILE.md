@@ -271,7 +271,9 @@ Watch mode, the language server and the build API call
   helper runs on the worker pool (`checkerpool::set_keep_threads`, through the mirror patch
   `0012-rotor-keep-threads.patch`). The trim after each pass reaches the idle threads too
   (`threads::for_each_idle`, `checkerpool::for_each_idle_checker_thread`). A 40-rebuild
-  session creates 31 threads, all at startup (474 before). One-shot builds are unchanged.
+  session creates 31 threads, all at startup (474 before). One-shot builds are unchanged. The
+  language server's run loops (`rotor_lsp` scheduler) and the build API's builds also run on
+  session threads (`threads::spawn`), not on a new thread each.
 
 Measured over 120 `build --watch` rebuilds of the Flamework fixture on macOS (cycle 20 to 120):
 live Rust heap 1.72 to 1.84 MB, tsrs reservation resident 0.16 to 0.32 MB, thread arenas' used
@@ -281,9 +283,12 @@ thread arenas 0.3 to 1.7 MB. With thread reuse, mimalloc's dirty memory goes 11 
 (every 20 cycles: 16, 17, 18, 18, 18, 22, 18, 22, 18, 18 MB). ps RSS still rises, 72 to 94 MB,
 because it counts mimalloc's purged pages (`MADV_FREE_REUSABLE`, which the kernel can reclaim
 at any time; 43 to 63 MB of them); footprint excludes them and is the figure that plateaus.
-A 200-cycle `lsp` session plateaus less cleanly: footprint every 20 cycles is 17, 19, 22, 22, 24,
-20, 21, 22, 23, 24 MB (single cycles range 20 to 28 MB), so it still creeps about 0.04 MB per
-edit, and RSS rises 74 to 101 MB.
+A 200-cycle `lsp` session plateaus less cleanly: footprint every 20 cycles is 18, 19, 23, 22, 21,
+22, 25, 24, 21, 22 MB (single cycles range 20 to 28 MB), and RSS rises 75 to 100 MB. Reusing
+its run-loop thread halved the threads it creates but did not change the footprint. Fifty
+`api-server` builds with an edit before each: footprint 14, 15, 18, 20, 19, 19 MB every 10
+builds (RSS 38 to 82 MB); before the build API was long-lived, each build kept about 17 MB
+(footprint 915 MB after 50).
 An untested lead: `MIMALLOC_ARENA_EAGER_COMMIT=0` kept RSS flat in one 120-rebuild run; it is not
 set and was not benchmarked. The rest of the tsrs growth is lazily filled source-file data
 (JSDoc, line maps) of files in the unregistered loader regions, about 1.6 KB per rebuild.

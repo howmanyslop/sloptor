@@ -62,6 +62,16 @@ fn worker(mut job: Job, sender: &Sender<Job>, jobs: &Receiver<Job>) {
 	}
 }
 
+/// Runs `job` on a session thread without waiting for it ([`std::thread::spawn`] for a job that
+/// owns everything it uses).
+///
+/// # Errors
+///
+/// No thread could be started for it.
+pub fn spawn(job: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
+	run(Box::new(job))
+}
+
 /// Runs `f` on every idle session thread and waits for all of them (the session's trim between
 /// passes).
 pub fn for_each_idle(f: impl Fn() + Send + Sync + 'static) {
@@ -173,9 +183,21 @@ impl<'scope> Scope<'scope, '_> {
 		lock(&pending.state).0 += 1;
 		let job: Box<dyn FnOnce() + Send + 'scope> = Box::new(move || {
 			let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-			// The handle was dropped: an unjoined panic goes to `scope`, as with std's.
-			if let Err(mpsc::SendError(Err(payload))) = sender.send(outcome) {
-				pending.record(payload);
+			match sender.send(outcome) {
+				Ok(()) => {}
+				// The handle was dropped: an unjoined panic goes to `scope`, as with std's.
+				Err(mpsc::SendError(Err(payload))) => pending.record(payload),
+				// A result nobody joins is dropped here. If its drop panicked, the count below would
+				// never come down and `scope` would wait forever, so abort, as std does.
+				Err(mpsc::SendError(Ok(value))) => {
+					if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(value))).is_err() {
+						let _ = std::io::Write::write_all(
+							&mut std::io::stderr(),
+							b"fatal runtime error: thread result panicked on drop, aborting\n",
+						);
+						std::process::abort();
+					}
+				}
 			}
 			let mut state = lock(&pending.state);
 			state.0 -= 1;

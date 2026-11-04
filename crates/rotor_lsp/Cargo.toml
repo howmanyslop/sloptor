@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 rotor_compile.workspace = true
 rotor_support.workspace = true
+rotor_tsrs.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
