@@ -164,7 +164,10 @@ fn project_fs(config_path: &str) -> Arc<dyn FS> {
 /// [`project_fs`], with the synthetic declarations only when `synthetic` (`rotor check` reads the
 /// project without them: `SanitizeFSWithConfigPath` alone).
 fn sanitized_fs(config_path: &str, synthetic: bool) -> Arc<dyn FS> {
-	let bundled_fs: &'static dyn FS = Box::leak(Box::new(bundled::wrap_fs(osvfs::fs())));
+	// One bundled view for the process: every config parse made a new one and leaked it, a leak
+	// per rebuild in a watch session.
+	static BUNDLED: std::sync::OnceLock<Box<dyn FS>> = std::sync::OnceLock::new();
+	let bundled_fs: &'static dyn FS = &**BUNDLED.get_or_init(|| Box::new(bundled::wrap_fs(osvfs::fs())));
 	let case_sensitive = bundled_fs.use_case_sensitive_file_names();
 	let directory = tspath::get_directory_path(config_path);
 	let env_decl = format!("{directory}/{ENV_DECL_FILE_NAME}");
@@ -394,6 +397,10 @@ struct ScopeEntries {
 	programs: Vec<(&'static Program, bool)>,
 	/// The file-loader regions of a long-lived session's programs, dropped after the programs.
 	regions: Vec<Arc<dyn std::any::Any + Send + Sync>>,
+	/// In a long-lived session, the region that owns the processed-file data of the scope's
+	/// programs (`Region::adopt_owner`): what tsrs fills lazily for it (the symlink cache) goes
+	/// there instead of to the filling thread's arena. Dropped after the programs, before the data.
+	owner: Option<tsrs_core::arena::Region>,
 }
 
 /// Whether the process is a long-lived session ([`set_long_lived`]).
@@ -488,6 +495,13 @@ fn track_program(program: &'static Program, owns_shared: bool) {
 	PROGRAM_SCOPES.with(|scopes| {
 		if let Some(scope) = scopes.borrow_mut().last_mut() {
 			scope.programs.push((program, owns_shared));
+			if owns_shared && long_lived() {
+				let processed = tsrs_compiler::shared_program_data(program).processed_addr();
+				scope
+					.owner
+					.get_or_insert_with(|| tsrs_core::arena::Region::new(1 << 16))
+					.adopt_owner(processed);
+			}
 		}
 	});
 }
@@ -584,6 +598,9 @@ impl Drop for ProgramScope {
 			// program derived from it is still alive.
 			unsafe { tsrs_compiler::free_program(program) };
 		}
+		// No program is left to read what was filled lazily for its data, and the data goes next:
+		// its address must stop routing to the owner before another object can get it.
+		drop(entries.owner);
 		for data in shared {
 			// SAFETY: every program of the scope is freed, so none shares this data any more: a
 			// reused update shares its base's data, and both were in this scope (an update is
@@ -892,8 +909,20 @@ pub fn update_with_overlays_checkers(
 /// parsed again would otherwise be bound by its first checker, in that checker's region (tsrs's
 /// `checker_regions`) under `singleThreaded`, and a later program that keeps the file would read
 /// binder data the region's release freed.
+///
+/// In a long-lived session the files bind on this thread, in the scope's region with the files
+/// they belong to, rather than on the worker pool, whose threads' arenas are never freed.
 fn bind_outside_checkers(program: &'static Program) {
-	program.bind_source_files();
+	if !long_lived() {
+		program.bind_source_files();
+		return;
+	}
+	// The order of Go's single-threaded work group: last file first.
+	for &file in program.get_source_files().iter().rev() {
+		if !file.is_bound() {
+			tsrs_binder::bind_source_file(file);
+		}
+	}
 }
 
 /// Derives a program from `program` whose files at `changed` are asked of `host` again, in that

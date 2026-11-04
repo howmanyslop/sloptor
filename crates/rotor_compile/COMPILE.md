@@ -249,12 +249,25 @@ Watch mode, the language server and the build API call
   (`project::scope_thread_region`).
 - In long-lived mode the scope also enters a scratch region of its own on its thread, so what
   the pass allocates there goes back with it.
+- A scope adopts its programs' processed-file data (`processed`, a heap object) into a
+  registered owner region (`Region::adopt_owner`, through the mirror patch
+  `0011-rotor-long-lived-memory.patch`), so the symlink cache tsrs fills lazily for it
+  (`Program::get_symlink_cache`, with heap maps inside) is freed with the scope instead of going
+  to the filling thread's arena.
+- A derived program's files bind on the scope's thread (`bind_outside_checkers`), not on the
+  worker pool, whose arenas are never freed. `macro_inputs::macro_watch_files` parses in a
+  region of its own, and the bundled file system behind config parsing is made once per process
+  (each parse leaked one).
+- After each pass, every thread that compiled hands its tsrs slab on and the slab cache is
+  decommitted (`arena::release_thread_slabs`, `arena::release_slab_cache`, patch 0011): the
+  pool's threads never exit, so each kept a 1 MiB slab of freed regions resident, and up to 64
+  released slabs stayed committed.
 
-What still accumulates: on macOS a 50-rebuild soak of `build --watch` grows by about 0.25 MB of
-footprint per rebuild, and the language server by about 1 MB per census. Most of it is tsrs
-arena memory ("Untagged" in `footprint`), the rest mimalloc's heap. Lazily filled data of a
-source file in a loader region is one source: tsrs keeps the loader regions unregistered, so
-`arena::enter_owner` sends that data to the filling thread's arena, which is never freed.
-Routing it to a registered region per program (tried as a tsrs patch, with `adopt_owner`) and
-giving the compile work-group threads scope regions did not reduce the growth, so the rest is
-not explained yet; slab sharing between regions on one thread is the next suspect.
+Measured over 120 `build --watch` rebuilds of the Flamework fixture on macOS (cycle 20 to 120):
+live Rust heap 1.72 to 1.84 MB, tsrs reservation resident 0.16 to 0.32 MB, thread arenas' used
+bytes 32 to 196 KB. Before these changes: heap 1.6 to 5.7 MB, reservation resident 13 to 27 MB,
+thread arenas 0.3 to 1.7 MB. What still grows is mimalloc's: its dirty memory rises about
+0.07 MB per rebuild while its live blocks stay near 1 MB. It follows thread churn (about eight
+threads start and end per rebuild); a `--single-threaded` session is flat (footprint 9.1 to
+9.4 MB over 100 rebuilds). The rest of the tsrs growth is lazily filled source-file data
+(JSDoc, line maps) of files in the unregistered loader regions, about 1.6 KB per rebuild.

@@ -1016,6 +1016,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tsrs_ast",
+ "tsrs_binder",
  "tsrs_checker",
  "tsrs_compiler",
  "tsrs_contentmapper",

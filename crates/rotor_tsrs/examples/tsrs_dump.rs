@@ -16,6 +16,7 @@ use rotor_support as _;
 use serde_json as _;
 use tempfile as _;
 use tsrs_ast as _;
+use tsrs_binder as _;
 use tsrs_checker as _;
 use tsrs_compiler as _;
 use tsrs_contentmapper as _;

@@ -123,6 +123,10 @@ pub(crate) fn macro_input_values(dir: &str, program: &Program) -> BTreeMap<Strin
 /// `MacroWatchFiles`: the files the macros of `config_path`'s sources read.
 #[must_use]
 pub fn macro_watch_files(config_path: &str) -> Vec<String> {
+	// The config and the sources are read only for the paths; in a long-lived session they go to
+	// a region freed on return, not to the thread's arena, which keeps them for good.
+	let region = rotor_tsrs::project::long_lived().then(|| rotor_tsrs::tscore::arena::Region::new_scratch(1 << 16));
+	let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
 	let Ok(config) = crate::project_config::parse_project_config(config_path) else {
 		return Vec::new();
 	};
