@@ -17,7 +17,6 @@ use mimalloc_safe as _;
 use notify as _;
 use rotor_compile as _;
 use rotor_lsp as _;
-use rotor_support as _;
 use rotor_tsrs as _;
 use serde_json::Value;
 use sha2 as _;
@@ -27,7 +26,7 @@ use support::{
 };
 use terminal_size as _;
 
-const VERSION: &str = "3.0.0-beta.2";
+const VERSION: &str = rotor_support::version::VERSION;
 
 fn json(text: &str) -> Value {
 	serde_json::from_str(text.trim()).unwrap_or_else(|error| panic!("not one JSON object ({error}):\n{text}"))
@@ -46,7 +45,7 @@ fn version_surfaces_print_the_bare_version() {
 		let got = run(&dir.path, args);
 		assert_eq!(
 			(got.code, got.stdout.as_str(), got.stderr.as_str()),
-			(0, "3.0.0-beta.2\n", ""),
+			(0, format!("{VERSION}\n").as_str(), ""),
 			"{args:?}"
 		);
 	}
@@ -208,8 +207,9 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 	assert!(project < watch && watch < max_errors);
 	assert!(!short.stdout.contains("Examples:"));
 	let root = run(&dir.path, &["--help"]);
+	let banner = format!("sloptor v{VERSION}");
 	for want in [
-		"sloptor v3.0.0-beta.2",
+		banner.as_str(),
 		"build",
 		"check",
 		"completion",
@@ -338,8 +338,9 @@ fn styled_build_failure_renders_code_frames_on_stderr() {
 	let clean = buildable_project(&dir.path.join("clean"), "");
 	let got = run(&dir.path, &["build", &arg(&clean)]);
 	assert_eq!(got.code, 0, "{}", got.stderr);
+	let banner = format!("sloptor v{VERSION}  ·  build  ·  clean");
 	for want in [
-		"sloptor v3.0.0-beta.2  ·  build  ·  clean",
+		banner.as_str(),
 		"    Compiled clean (tsconfig.json)",
 		"    Finished 1 file in ",
 	] {

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Keeps emitted `-- Compiled with sloptor v...` header lines in golden files
-# and Go test expectations in sync with internal/version/version.go.
+# and Go and Rust test expectations in sync with
+# crates/rotor_support/src/version.rs.
 #
 # Usage:
 #   ./scripts/bump-header.sh             # update all files
@@ -18,8 +19,8 @@ if [[ "${1:-}" == "--check" ]]; then
     check_mode=1
 fi
 
-version_file="$repo_root/internal/version/version.go"
-version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' "$version_file")
+version_file="$repo_root/crates/rotor_support/src/version.rs"
+version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";$/\1/p' "$version_file")
 if [[ -z "$version" ]]; then
     echo "bump-header: could not read Version from $version_file" >&2
     exit 1
@@ -64,6 +65,12 @@ replace_in() {
 while IFS= read -r -d '' file; do
     replace_in "$file"
 done < <(find "$repo_root/internal" "$repo_root/cmd/rotor" -type f -name '*_test.go' -print0 2>/dev/null)
+
+# Rust test files (the crates read their current version from version.rs, so
+# only the literal headers of expected output need rewriting).
+while IFS= read -r -d '' file; do
+    replace_in "$file"
+done < <(find "$repo_root/crates" -type f -name '*.rs' -print0 2>/dev/null)
 
 # Golden Luau files under testdata and internal testdata (skip node_modules).
 while IFS= read -r -d '' file; do
