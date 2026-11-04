@@ -1,31 +1,31 @@
 //! `sloptor check` (`cmd/rotor/check.go`): a full-strictness typecheck of one project, styled or
 //! as one `--json` result object.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rotor_compile::progress::{BuildProgress, Phase};
 use rotor_support::{gopath, logservice};
-use rotor_tsrs::compiler::diagnosticwriter::{
-	FormattingOptions, format_diagnostic_with_color_and_context, write_format_diagnostic,
-};
+use rotor_tsrs::compiler::diagnosticwriter::write_flattened_diagnostic_message;
 use rotor_tsrs::compiler::{get_diagnostics_of_any_program, sort_and_deduplicate_diagnostics};
 use rotor_tsrs::diagnostics::Category;
 use rotor_tsrs::{Context, P, tspath};
 
 use crate::app::{Failure, not_ported};
 use crate::cli::CheckCommand;
+use crate::frames::{self, Frame, Location, Related, Severity};
 use crate::json::{JsonDiagnostic, JsonResult};
 use crate::term::Streams;
-use crate::{VERSION, ui};
+use crate::ui::{self, Tone};
+use crate::{VERSION, live};
 
 /// How the diagnostics are rendered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Render {
 	/// `--json` entries.
 	Json,
-	/// tsc's plain `file(line,col): error TS####: message` lines.
-	Plain,
-	/// tsc's coloured frames.
-	Color,
+	/// Frames for the styled output.
+	Frames,
 }
 
 /// One check pass (`checkCore`), already rendered.
@@ -33,8 +33,8 @@ pub enum Render {
 pub struct CheckPass {
 	/// The `--json` entries (only for [`Render::Json`]).
 	pub json: Vec<JsonDiagnostic>,
-	/// The formatted diagnostics (only for the styled renders).
-	pub text: Vec<u8>,
+	/// The frames (only for [`Render::Frames`]).
+	pub frames: Vec<Frame>,
 	/// Diagnostics, of any category.
 	pub diagnostics: usize,
 	/// Error diagnostics.
@@ -49,10 +49,16 @@ pub struct CheckPass {
 /// (config, syntactic, options, global, then semantic diagnostics of the project's own files),
 /// sorted and deduplicated, then refreshes `rotor.d.ts` when a source uses a macro.
 #[must_use]
-pub fn check_pass(dir: &str, checkers: Option<i64>, render: Render, warnings: &mut dyn std::io::Write) -> CheckPass {
+pub fn check_pass(
+	dir: &str,
+	checkers: Option<i64>,
+	render: Render,
+	progress: Option<&BuildProgress>,
+	warnings: &mut dyn std::io::Write,
+) -> CheckPass {
 	let started = Instant::now();
 	let slash_dir = gopath::to_slash(dir).into_owned();
-	let mut pass = rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render));
+	let mut pass = rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render, progress));
 	if let Some(error) = pass.1 {
 		let _ = writeln!(
 			warnings,
@@ -64,7 +70,15 @@ pub fn check_pass(dir: &str, checkers: Option<i64>, render: Render, warnings: &m
 	pass.0
 }
 
-fn check_on_large_stack(slash_dir: &str, checkers: Option<i64>, render: Render) -> (CheckPass, Option<String>) {
+fn check_on_large_stack(
+	slash_dir: &str,
+	checkers: Option<i64>,
+	render: Render,
+	progress: Option<&BuildProgress>,
+) -> (CheckPass, Option<String>) {
+	if let Some(progress) = progress {
+		progress.set_phase(Phase::Loading);
+	}
 	let compare_paths_options = tspath::ComparePathsOptions {
 		use_case_sensitive_file_names: rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names(),
 		current_directory: slash_dir.to_owned(),
@@ -77,12 +91,21 @@ fn check_on_large_stack(slash_dir: &str, checkers: Option<i64>, render: Render) 
 	};
 	let context = Context::default();
 	let file_names = loaded.file_names;
+	if let Some(progress) = progress {
+		progress.add_files(file_names.len());
+	}
 	let mut bind = |context: &Context, file| program.get_bind_diagnostics(context, file);
 	let mut semantic = |context: &Context, _| {
+		if let Some(progress) = progress {
+			progress.set_phase(Phase::Checking);
+		}
 		let mut out = Vec::new();
 		for name in &file_names {
 			if let Some(file) = program.get_source_file(name) {
 				out.extend(program.get_semantic_diagnostics(context, Some(file)));
+			}
+			if let Some(progress) = progress {
+				progress.file_checked();
 			}
 		}
 		out
@@ -115,10 +138,6 @@ fn render_pass(
 		files,
 		..CheckPass::default()
 	};
-	let format = FormattingOptions {
-		compare_paths_options: compare_paths_options.clone(),
-		new_line: "\n".to_owned(),
-	};
 	match render {
 		Render::Json => {
 			pass.json = diagnostics
@@ -126,24 +145,55 @@ fn render_pass(
 				.map(|&diagnostic| json_diagnostic(diagnostic, compare_paths_options))
 				.collect();
 		}
-		Render::Plain => {
-			for &diagnostic in diagnostics {
-				write_format_diagnostic(&mut pass.text, diagnostic, &format);
-			}
-		}
-		Render::Color => {
-			for (index, &diagnostic) in diagnostics.iter().enumerate() {
-				if index > 0 {
-					pass.text.push(b'\n');
-				}
-				format_diagnostic_with_color_and_context(&mut pass.text, diagnostic, &format);
-			}
-			if !diagnostics.is_empty() {
-				pass.text.push(b'\n');
-			}
-		}
+		Render::Frames => pass.frames = diagnostics.iter().map(|&diagnostic| frame(diagnostic)).collect(),
 	}
 	pass
+}
+
+/// tsc's message with its elaboration chain, one entry per line.
+fn flattened(diagnostic: P<rotor_tsrs::ast::Diagnostic>) -> Vec<String> {
+	let mut text = Vec::new();
+	write_flattened_diagnostic_message(&mut text, diagnostic, "\n");
+	String::from_utf8_lossy(&text)
+		.lines()
+		.map(|line| line.trim().to_owned())
+		.filter(|line| !line.is_empty())
+		.collect()
+}
+
+fn location(diagnostic: P<rotor_tsrs::ast::Diagnostic>) -> Option<Location> {
+	let file = diagnostic.file()?;
+	Location::new(
+		ui::rel_for_display(&gopath::from_slash(file.file_name())),
+		file.text(),
+		diagnostic.pos().unwrap_or(0) as usize,
+		diagnostic.len().unwrap_or(0) as usize,
+	)
+}
+
+/// A checker diagnostic as a frame.
+fn frame(diagnostic: P<rotor_tsrs::ast::Diagnostic>) -> Frame {
+	let mut lines = flattened(diagnostic).into_iter();
+	Frame {
+		severity: if diagnostic.category() == Category::Error {
+			Severity::Error
+		} else {
+			Severity::Warning
+		},
+		code: rotor_compile::compile::diagnostic_code(&diagnostic),
+		message: lines.next().unwrap_or_default(),
+		notes: lines.collect(),
+		help: Vec::new(),
+		location: location(diagnostic),
+		related: diagnostic
+			.related_information()
+			.iter()
+			.map(|&related| Related {
+				message: flattened(related).join(" "),
+				location: location(related),
+			})
+			.collect(),
+	}
 }
 
 /// `jsonDiagnostics`: one diagnostic in the `--json` shape, with tsc's location math (1-based line,
@@ -213,24 +263,23 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 	if command.watch == Some(true) {
 		return Err(not_ported("check --watch"));
 	}
-	if std::fs::metadata(gopath::join(&[&dir, "package.json"])).is_ok()
-		&& std::fs::metadata(gopath::join(&[&dir, "node_modules"])).is_err()
-	{
-		let err = streams.err_styler();
-		ui::warn(
-			streams.err,
-			err,
-			&format!(
-				"{dir} has a package.json but no node_modules — type packages (e.g. @rbxts/*) cannot be resolved; \
-				 install dependencies first"
-			),
-		);
-	}
+	let _lease = crate::build::admit(streams);
+	let missing_modules = std::fs::metadata(gopath::join(&[&dir, "package.json"])).is_ok()
+		&& std::fs::metadata(gopath::join(&[&dir, "node_modules"])).is_err();
+	let modules_warning = format!(
+		"{} has a package.json but no node_modules, so type packages (@rbxts/*) cannot resolve; install \
+		 dependencies first",
+		ui::rel_for_display(&dir)
+	);
 
 	if command.json == Some(true) {
 		// stdout carries exactly one JSON object, so compiler warnings move to stderr.
+		if missing_modules {
+			let err = streams.err_paint();
+			ui::warn(streams.err, err, &modules_warning);
+		}
 		let previous = logservice::set_output_stderr(true);
-		let pass = check_pass(&dir, command.checkers, Render::Json, streams.err);
+		let pass = check_pass(&dir, command.checkers, Render::Json, None, streams.err);
 		logservice::set_output_stderr(previous);
 		let result = JsonResult {
 			version: VERSION.to_owned(),
@@ -243,19 +292,48 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		return if result.ok { Ok(()) } else { Err(Failure::Reported) };
 	}
 
-	let out = streams.out_styler();
-	ui::banner(streams.out, out, &gopath::base(&dir));
-	let render = if streams.out_color {
-		Render::Color
-	} else {
-		Render::Plain
-	};
-	let pass = check_pass(&dir, command.checkers, render, streams.err);
-	if pass.diagnostics > 0 {
-		let _ = streams.out.write_all(&pass.text);
-		let _ = streams.out.write_all(b"\n");
+	let out = streams.out_paint();
+	let name = ui::project_name(&gopath::join(&[&dir, "tsconfig.json"]));
+	ui::header(streams.out, out, &["check", &name]);
+	if missing_modules {
+		ui::warn(streams.out, out, &modules_warning);
 	}
-	ui::check_summary(streams.out, out, pass.files, pass.errors, pass.elapsed);
+	let progress = Arc::new(BuildProgress::new(false));
+	let view = live::View {
+		progress_line: live::progress_line_allowed(streams),
+		project_lines: false,
+		solution: false,
+		out,
+	};
+	let checkers = command.checkers;
+	let mut warnings = Vec::new();
+	let pass = live::run(streams, &progress, view, || {
+		check_pass(&dir, checkers, Render::Frames, Some(&progress), &mut warnings)
+	});
+	let _ = streams.err.write_all(&warnings);
+	let mut text = String::new();
+	frames::render_all(&mut text, out, &pass.frames, 0);
+	let _ = streams.out.write_all(text.as_bytes());
+	let (errors, warned) = frames::tally(&pass.frames);
+	let mut parts = vec![
+		out.bold(&name),
+		format!(
+			"{} in {}",
+			out.bold(&ui::plural(pass.files, "file")),
+			out.bold(&ui::duration(pass.elapsed))
+		),
+	];
+	let counts = ui::counts(out, errors, warned);
+	if counts.is_empty() {
+		parts.push(out.muted("no errors"));
+	}
+	parts.extend(counts);
+	let (tone, word) = if pass.errors > 0 {
+		(Tone::Failure, "Failed")
+	} else {
+		(Tone::Success, "Checked")
+	};
+	ui::verb_line(streams.out, out, tone, word, &ui::summary_parts(out, &parts));
 	if pass.errors > 0 {
 		return Err(Failure::Reported);
 	}

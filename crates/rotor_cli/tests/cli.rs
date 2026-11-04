@@ -7,14 +7,18 @@ mod support;
 
 use clap as _;
 use clap_complete as _;
+#[cfg(target_os = "macos")]
+use libc as _;
 use mimalloc_safe as _;
 use rotor_compile as _;
 use rotor_support as _;
 use rotor_tsrs as _;
 use serde_json::Value;
 use support::{
-	arg, buildable_project, checkable_project, reference_only_solution, run, run_binary, rust_binary, temp, write,
+	arg, buildable_project, checkable_project, diagnostics_project, reference_only_solution, run, run_binary,
+	run_with_stdin, rust_binary, temp, write,
 };
+use terminal_size as _;
 
 const VERSION: &str = "3.0.0-beta.2";
 
@@ -313,14 +317,33 @@ fn styled_build_failure_renders_code_frames_on_stderr() {
 	let failing = buildable_project(&dir.path.join("failing"), "export const s: string = 5;\n");
 	let got = run(&dir.path, &["build", &arg(&failing)]);
 	assert_eq!(got.code, 1);
-	for want in ["-->", "^", "error"] {
+	for want in [
+		"error[TS2322]: Type 'number' is not assignable to type 'string'.",
+		"╭▸ failing/src/main.ts:1:14",
+		"1 │ export const s: string = 5;",
+		"━",
+		"      Failed failing in ",
+		"1 error",
+	] {
 		assert!(got.stderr.contains(want), "stderr lacks {want}:\n{}", got.stderr);
 	}
+	assert!(!got.stderr.contains("\x1b["), "a pipe is plain");
 	let clean = buildable_project(&dir.path.join("clean"), "");
 	let got = run(&dir.path, &["build", &arg(&clean)]);
 	assert_eq!(got.code, 0, "{}", got.stderr);
-	assert!(got.stdout.contains("compiled 1 file"), "{}", got.stdout);
+	for want in [
+		"sloptor v3.0.0-beta.2  ·  build  ·  clean",
+		"    Compiled clean (tsconfig.json)",
+		"    Finished 1 file in ",
+	] {
+		assert!(got.stdout.contains(want), "stdout lacks {want}:\n{}", got.stdout);
+	}
 	assert!(!got.stdout.contains("\x1b["));
+	assert!(
+		!got.stderr.contains("\x1b["),
+		"no progress line on a pipe: {:?}",
+		got.stderr
+	);
 }
 
 #[test]
@@ -465,7 +488,8 @@ fn check_honours_checkers_and_rejects_build_only_flags() {
 	}
 	let styled = run(&dir.path, &["check", "--checkers", "3", &arg(&project)]);
 	assert_eq!(styled.code, 0, "{}", styled.stderr);
-	assert!(styled.stdout.contains("checked"), "{}", styled.stdout);
+	assert!(styled.stdout.contains("     Checked "), "{}", styled.stdout);
+	assert!(styled.stdout.contains("no errors"), "{}", styled.stdout);
 	let result = json(&run(&dir.path, &["check", "--json", "--checkers=3", &arg(&project)]).stdout);
 	assert_eq!(result["ok"], true);
 	for (args, want) in [
@@ -485,7 +509,6 @@ const COMMONJS: &str = r#","module": "commonjs","moduleResolution": "Node""#;
 /// `TestCmdCheckAllowsTopLevelObjectBindingInCommonJSModule`: rotor's tsgo drops the `Object`
 /// collision check (it protects only the `CommonJS` JavaScript preamble, which Luau never has).
 #[test]
-#[ignore = "tsrs still has the Object collision check rotor's tsgo removed (12f44893); a tsrs mirror fix"]
 fn check_allows_a_top_level_object_binding_in_commonjs() {
 	let dir = temp();
 	let object = checkable_project(
@@ -558,7 +581,7 @@ fn clean_dry_run_and_custom_out_dir() {
 	for flag in ["--dry-run", "-n"] {
 		let got = run(&dir.path, &["clean", &arg(&dir.path), flag, "--types"]);
 		assert_eq!(got.code, 0);
-		assert!(got.stdout.contains("would remove"), "{}", got.stdout);
+		assert!(got.stdout.contains("Would remove out/"), "{}", got.stdout);
 		for path in [
 			"out/main.luau",
 			"include/RuntimeLib.luau",
@@ -622,9 +645,7 @@ fn stage_7b_commands_parse_their_flags_then_fail_clearly() {
 	let project = checkable_project(&dir.path, "", "");
 	for args in [
 		&["lsp", "--stdio"][..],
-		&["diagnostics", "--json", "--build", "--checkers", "2"],
 		&["api-server"],
-		&["gen-docs", "docs"],
 		&["build", "--watch", &arg(&project)],
 		&["build", "-w", "--json", &arg(&project)],
 		&["check", "--watch", &arg(&project)],
@@ -637,9 +658,176 @@ fn stage_7b_commands_parse_their_flags_then_fail_clearly() {
 			got.stderr
 		);
 	}
-	for args in [&["lsp", "--bogus"][..], &["diagnostics", "--bogus"], &["gen-docs"]] {
+	for args in [
+		&["lsp", "--bogus"][..],
+		&["diagnostics", "--bogus"],
+		&["gen-docs"],
+		&["diagnostics", "--builders", "2"],
+	] {
 		let got = run(&dir.path, args);
 		assert_eq!(got.code, 1, "{args:?}");
 		assert!(!got.stderr.contains("not ported"), "{args:?} is a usage error");
 	}
+}
+
+#[test]
+fn build_allows_a_top_level_object_binding_in_commonjs() {
+	let dir = temp();
+	let project = buildable_project(
+		&dir.path,
+		"import Object from \"./lib/objutils\";\n\nexport const k = Object.keys({});\n",
+	);
+	write(
+		&project.join("src/lib/objutils.d.ts"),
+		"declare const ObjectUtils: { keys(o: object): string[] };\nexport default ObjectUtils;\n",
+	);
+	let got = run(&dir.path, &["build", "--json", &arg(&project)]);
+	assert!(!got.stdout.contains("TS2441"), "{}", got.stdout);
+	assert_eq!(got.code, 0, "{}", got.stdout);
+}
+
+fn census_project(root: &std::path::Path) -> std::path::PathBuf {
+	diagnostics_project(
+		root,
+		&[
+			("clean.ts", "export const clean = 1;\n"),
+			("typebad.ts", "export const s: string = 5;\n"),
+			(
+				"noany.ts",
+				"declare const loose: any;\nexport const taken = loose.field;\n",
+			),
+		],
+	)
+}
+
+fn outcomes(result: &Value) -> Vec<(String, String)> {
+	let mut outcomes: Vec<(String, String)> = result["fileDiagnostics"]
+		.as_array()
+		.expect("fileDiagnostics")
+		.iter()
+		.map(|file| {
+			let name = file["file"].as_str().unwrap_or_default();
+			let name = name.rsplit('/').next().unwrap_or(name).to_owned();
+			(name, file["outcome"].as_str().unwrap_or_default().to_owned())
+		})
+		.collect();
+	outcomes.sort();
+	outcomes
+}
+
+#[test]
+fn diagnostics_json_classifies_every_file_and_exits_zero() {
+	let dir = temp();
+	let project = census_project(&dir.path.join("p"));
+	let got = run(&dir.path, &["diagnostics", "--project", &arg(&project), "--json"]);
+	assert_eq!(got.code, 0, "{}{}", got.stdout, got.stderr);
+	let result = json(&got.stdout);
+	assert_eq!(result["ok"], false);
+	assert_eq!(result["files"], 3);
+	assert_eq!(result["transformed"], 3);
+	assert_eq!(
+		outcomes(&result),
+		[
+			("clean.ts".to_owned(), "ok".to_owned()),
+			("noany.ts".to_owned(), "transformerDiagnostic".to_owned()),
+			("typebad.ts".to_owned(), "typeError".to_owned()),
+		]
+	);
+	assert!(
+		result.get("projects").is_none(),
+		"a single-project census has no projects key"
+	);
+	assert!(!project.join("out").exists(), "diagnostics writes nothing");
+
+	let clean = diagnostics_project(&dir.path.join("clean"), &[("a.ts", "export const a = 1;\n")]);
+	let result = json(&run(&dir.path, &["diagnostics", "--json", &arg(&clean)]).stdout);
+	assert_eq!(result["ok"], true);
+}
+
+#[test]
+fn diagnostics_overlays_come_from_stdin() {
+	let dir = temp();
+	let project = census_project(&dir.path.join("p"));
+	let typebad = arg(&project.join("src/typebad.ts"));
+	let request =
+		serde_json::json!({ "overlays": { typebad.clone(): "export const s: string = \"fixed\";\n" } }).to_string();
+	let got = run_with_stdin(
+		&rust_binary(),
+		&dir.path,
+		&["diagnostics", "--json", &arg(&project)],
+		&request,
+	);
+	assert_eq!(got.code, 0, "{}", got.stderr);
+	let result = json(&got.stdout);
+	assert_eq!(result["overlayMatches"], 1);
+	assert!(outcomes(&result).contains(&("typebad.ts".to_owned(), "ok".to_owned())));
+	assert_eq!(
+		std::fs::read_to_string(&typebad).expect("read"),
+		"export const s: string = 5;\n"
+	);
+
+	let missing = serde_json::json!({ "overlays": { arg(&project.join("src/nope.ts")): "x" } }).to_string();
+	let got = run_with_stdin(
+		&rust_binary(),
+		&dir.path,
+		&["diagnostics", "--json", &arg(&project)],
+		&missing,
+	);
+	assert_eq!(got.code, 1, "an overlay that matches nothing fails the run");
+	assert_eq!(json(&got.stdout)["ok"], false);
+
+	for bad in [r#"{"overlay":{}}"#, "{", "[1]"] {
+		let got = run_with_stdin(
+			&rust_binary(),
+			&dir.path,
+			&["diagnostics", "--json", &arg(&project)],
+			bad,
+		);
+		assert_eq!(got.code, 1, "{bad}");
+		assert!(
+			got.stderr.contains("parse overlay request from stdin"),
+			"{bad}: {}",
+			got.stderr
+		);
+	}
+}
+
+#[test]
+fn diagnostics_text_and_setup_failures() {
+	let dir = temp();
+	let project = census_project(&dir.path.join("p"));
+	let got = run(&dir.path, &["diagnostics", &arg(&project)]);
+	assert_eq!(got.code, 0, "{}", got.stderr);
+	for want in [
+		"  Type error p/src/typebad.ts",
+		" Transformer p/src/noany.ts",
+		"error[TS2322]",
+		"error[noAny]",
+		"    Censused 3 files in ",
+		"ok 1  ·  typeError 1  ·  transformerDiagnostic 1  ·  internalCompilerError 0",
+	] {
+		assert!(got.stdout.contains(want), "stdout lacks {want}:\n{}", got.stdout);
+	}
+	let got = run(&dir.path, &["diagnostics", "--json", "/"]);
+	assert_eq!(got.code, 1);
+	assert!(got.stderr.contains("Unable to find tsconfig.json!"), "{}", got.stderr);
+	let got = run(&dir.path, &["diagnostics", "--builders", "2"]);
+	assert_eq!(got.code, 1);
+	assert!(got.stderr.contains("--builders requires --build"), "{}", got.stderr);
+}
+
+#[test]
+fn gen_docs_writes_a_page_per_visible_command() {
+	let dir = temp();
+	let docs = dir.path.join("docs/cli");
+	let got = run(&dir.path, &["gen-docs", &arg(&docs)]);
+	assert_eq!(got.code, 0, "{}", got.stderr);
+	let index = std::fs::read_to_string(docs.join("index.mdx")).expect("index.mdx");
+	assert!(index.contains("[`build`](./build/)"), "{index}");
+	assert!(!index.contains("api-server") && !index.contains("gen-docs"));
+	let check = std::fs::read_to_string(docs.join("check.mdx")).expect("check.mdx");
+	assert!(
+		check.contains("title: check") && check.contains("`--checkers <N>`"),
+		"{check}"
+	);
 }

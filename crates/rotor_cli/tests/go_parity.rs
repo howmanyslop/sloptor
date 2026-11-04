@@ -15,15 +15,18 @@ use std::path::Path;
 
 use clap as _;
 use clap_complete as _;
+#[cfg(target_os = "macos")]
+use libc as _;
 use mimalloc_safe as _;
 use rotor_compile as _;
 use rotor_config as _;
 use rotor_support as _;
 use rotor_tsrs as _;
-use serde_json as _;
 use support::{
-	Run, arg, buildable_project, checkable_project, reference_only_solution, run, run_binary, rust_binary, temp, write,
+	Run, arg, buildable_project, checkable_project, diagnostics_project, reference_only_solution, run, run_binary,
+	run_with_stdin, rust_binary, temp, write,
 };
+use terminal_size as _;
 
 /// `"durationMs":<n>` becomes `"durationMs":0`: the one field that differs between any two runs.
 fn normalize(text: &str) -> String {
@@ -60,6 +63,18 @@ fn fixtures(root: &Path) {
 		"",
 	);
 	reference_only_solution(&root.join("solution"));
+	diagnostics_project(
+		&root.join("census"),
+		&[
+			("clean.ts", "export const clean = 1;\n"),
+			("typebad.ts", "export const s: string = 5;\n"),
+			(
+				"noany.ts",
+				"declare const loose: any;\nexport const taken = loose.field;\n",
+			),
+			("comment.ts", "// @ts-ignore\nexport const n: number = \"x\";\n"),
+		],
+	);
 }
 
 fn compare(go: &Run, rust: &Run, args: &[&str]) {
@@ -115,6 +130,24 @@ fn json_output_matches_go_byte_for_byte() {
 		"--json".into(),
 		"missing-dir-without-config/x".into(),
 	]);
+	for project in ["census", "clean", "type-error", "missing-dir-without-config/x"] {
+		cases.push(vec!["diagnostics".into(), "--json".into(), project.into()]);
+	}
+	cases.push(vec![
+		"diagnostics".into(),
+		"--json".into(),
+		"-b".into(),
+		"solution/tsconfig.json".into(),
+	]);
+	cases.push(vec![
+		"diagnostics".into(),
+		"--json".into(),
+		"--build".into(),
+		"--project".into(),
+		"solution".into(),
+		"--builders".into(),
+		"1".into(),
+	]);
 	cases.push(vec!["schema".into()]);
 	cases.push(vec!["schema".into(), "--rbxts".into()]);
 	cases.push(vec!["version".into()]);
@@ -124,6 +157,19 @@ fn json_output_matches_go_byte_for_byte() {
 		let args: Vec<&str> = case.iter().map(String::as_str).collect();
 		let go = run_binary(go_binary, &go_root.path, &args, &[]);
 		let rust = run_binary(&rust_binary(), &rust_root.path, &args, &[]);
+		compare(&go, &rust, &args);
+	}
+	// Overlays on stdin, keyed by each root's absolute paths.
+	let request = |root: &Path, text: &str| {
+		serde_json::json!({ "overlays": { arg(&root.join("census/src/typebad.ts")): text } }).to_string()
+	};
+	for text in [
+		"export const s: string = \"fixed\";\n",
+		"export const s: number = \"still\";\n",
+	] {
+		let args = ["diagnostics", "--json", "census"];
+		let go = run_with_stdin(go_binary, &go_root.path, &args, &request(&go_root.path, text));
+		let rust = run_with_stdin(&rust_binary(), &rust_root.path, &args, &request(&rust_root.path, text));
 		compare(&go, &rust, &args);
 	}
 }

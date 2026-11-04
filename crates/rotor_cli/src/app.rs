@@ -8,8 +8,8 @@ use std::fmt::Display;
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 
 use crate::cli::{self, Cli, Command, Shell};
-use crate::term::{Streams, styler};
-use crate::{VERSION, argv, build, check, clean};
+use crate::term::Streams;
+use crate::{VERSION, argv, build, check, clean, diagnostics, gen_docs};
 
 /// A failure that ends the command with exit code 1.
 #[derive(Debug)]
@@ -95,10 +95,10 @@ fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
 		Command::Build(command) => build::run(*command, streams),
 		Command::Check(command) => check::run(command, streams),
 		Command::Clean(command) => clean::run(command, streams),
-		Command::Diagnostics(_) => Err(not_ported("diagnostics")),
+		Command::Diagnostics(command) => diagnostics::run(command, streams),
 		Command::Lsp(_) => Err(not_ported("lsp")),
 		Command::ApiServer => Err(not_ported("api-server")),
-		Command::GenDocs(_) => Err(not_ported("gen-docs")),
+		Command::GenDocs(command) => gen_docs::write(&command.dir).map_err(Failure::Runtime),
 		Command::Schema(command) => {
 			let schema = if command.rbxts == Some(true) {
 				rotor_compile::rbxts_schema::RBXTS_TS_CONFIG_SCHEMA
@@ -136,8 +136,8 @@ fn report(failure: Failure, streams: &mut Streams) {
 			let _ = streams.err.write_all(text.as_bytes());
 		}
 		Failure::Runtime(message) => {
-			let err = styler(streams.err_color);
-			let _ = writeln!(streams.err, "{} {message}", err.error_bold("error:"));
+			let err = streams.err_paint();
+			let _ = writeln!(streams.err, "{} {message}", err.red("error:"));
 		}
 		Failure::Reported => {}
 	}
@@ -159,10 +159,11 @@ fn clap_error(mut error: clap::Error, subcommand: Option<&str>, long_help: bool,
 		.unwrap_or(display);
 	match error.kind() {
 		ErrorKind::DisplayHelp => {
-			let help = if long_help {
-				target.render_long_help()
-			} else {
-				target.render_help()
+			// `--help` keeps `-h`'s compact layout and adds the examples, environment and exit
+			// codes; clap's long layout puts every description on its own line.
+			let help = match target.get_after_long_help().filter(|_| long_help).cloned() {
+				Some(after) => target.after_help(after).render_help(),
+				None => target.render_help(),
 			};
 			let _ = streams
 				.out

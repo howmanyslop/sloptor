@@ -9,8 +9,14 @@ mod build;
 mod check;
 mod clean;
 mod cli;
+mod diagnostics;
+mod frames;
+mod gen_docs;
 mod json;
+mod live;
 mod options;
+mod report;
+mod runtime;
 mod term;
 mod ui;
 

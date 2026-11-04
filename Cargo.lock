@@ -598,6 +598,7 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "libc",
  "mimalloc-safe",
  "rotor_compile",
  "rotor_config",
@@ -605,6 +606,7 @@ dependencies = [
  "rotor_tsrs",
  "serde_json",
  "tempfile",
+ "terminal_size",
 ]
 
 [[package]]

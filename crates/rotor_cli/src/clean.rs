@@ -10,7 +10,7 @@ use crate::app::Failure;
 use crate::cli::CleanCommand;
 use crate::options::{MergedOptions, find_ts_config_path, include_dir, merge_project_options, read_rbxts_layer};
 use crate::term::Streams;
-use crate::ui::{self, Event, EventStatus};
+use crate::ui::{self, Tone};
 
 /// The generated editor companions `--types` removes, when present.
 const TYPE_FILES: [&str; 3] = [
@@ -19,15 +19,37 @@ const TYPE_FILES: [&str; 3] = [
 	rotor_compile::macrodecl::MACRO_DECL_COMPANION_FILE_NAME,
 ];
 
+/// What happened to one target.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+	/// Removed: its file count.
+	Removed(usize),
+	/// A dry run's would-be removal: its file count.
+	Planned(usize),
+	/// It could not be removed.
+	Failed(String),
+}
+
+/// One target that existed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Event {
+	/// The target relative to the project, `/` after a directory.
+	pub target: String,
+	/// What happened.
+	pub outcome: Outcome,
+}
+
 /// What one clean found and did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CleanReport {
 	/// The project directory.
 	pub dir: String,
-	/// One row per target that existed or failed, then the finished row.
+	/// One row per target that existed.
 	pub events: Vec<Event>,
 	/// Whether a target could not be removed.
 	pub failed: bool,
+	/// Wall time.
+	pub elapsed: Duration,
 }
 
 /// `resolveOutDir`: the tsconfig `outDir` (default `out`), resolved against the tsconfig's
@@ -117,51 +139,25 @@ pub fn clean(path: &str, types: bool, dry_run: bool) -> Result<CleanReport, Stri
 	let mut events = Vec::new();
 	let mut failed = false;
 	for target in &targets {
-		let outcome = clean_target(target, dry_run);
-		// After the removal, as Go renders it: a removed directory loses its trailing slash.
 		let shown = display(&dir, target);
-		match outcome {
+		let outcome = clean_target(target, dry_run);
+		let outcome = match outcome {
 			Err(error) => {
-				events.push(Event {
-					status: EventStatus::Failed,
-					target: shown,
-					detail: format!("cannot remove: {}", rotor_support::gostr::io_error_text(&error)),
-					elapsed: Duration::ZERO,
-				});
 				failed = true;
+				Outcome::Failed(rotor_support::gostr::io_error_text(&error))
 			}
-			Ok(None) => {}
-			Ok(Some(count)) => events.push(Event {
-				status: if dry_run {
-					EventStatus::Planned
-				} else {
-					EventStatus::Removed
-				},
-				target: shown,
-				detail: format!(
-					"{} {}",
-					ui::plural(count, "file"),
-					if dry_run { "would remove" } else { "removed" }
-				),
-				elapsed: Duration::ZERO,
-			}),
-		}
+			Ok(None) => continue,
+			Ok(Some(count)) if dry_run => Outcome::Planned(count),
+			Ok(Some(count)) => Outcome::Removed(count),
+		};
+		events.push(Event { target: shown, outcome });
 	}
-	if events.is_empty() {
-		events.push(Event {
-			status: EventStatus::Unchanged,
-			target: "nothing to clean".to_owned(),
-			detail: String::new(),
-			elapsed: Duration::ZERO,
-		});
-	}
-	events.push(Event {
-		status: EventStatus::Finished,
-		target: String::new(),
-		detail: String::new(),
-		elapsed: started.elapsed().max(Duration::from_nanos(1)),
-	});
-	Ok(CleanReport { dir, events, failed })
+	Ok(CleanReport {
+		dir,
+		events,
+		failed,
+		elapsed: started.elapsed(),
+	})
 }
 
 /// `sloptor clean`
@@ -173,11 +169,74 @@ pub fn run(command: CleanCommand, streams: &mut Streams) -> Result<(), Failure> 
 	let path = command.path.unwrap_or_else(|| ".".to_owned());
 	// The header names the project, so the tsconfig is found first.
 	let dir = gopath::dir(&find_ts_config_path(&path).map_err(Failure::Runtime)?);
-	let out = streams.out_styler();
-	ui::banner(streams.out, out, &format!("clean  {}", gopath::base(&dir)));
-	let report = clean(&path, command.types == Some(true), command.dry_run == Some(true)).map_err(Failure::Runtime)?;
-	ui::events(streams.out, out, &report.events);
-	let _ = writeln!(streams.out);
+	let out = streams.out_paint();
+	let dry_run = command.dry_run == Some(true);
+	ui::header(
+		streams.out,
+		out,
+		&[
+			if dry_run { "clean --dry-run" } else { "clean" },
+			&ui::project_name(&gopath::join(&[&dir, "tsconfig.json"])),
+		],
+	);
+	let report = clean(&path, command.types == Some(true), dry_run).map_err(Failure::Runtime)?;
+	let width = report
+		.events
+		.iter()
+		.map(|event| event.target.chars().count())
+		.max()
+		.unwrap_or(0);
+	let mut removed = 0;
+	for event in &report.events {
+		let target = ui::pad(&out.bold(&event.target), width);
+		match &event.outcome {
+			Outcome::Removed(count) => {
+				removed += count;
+				ui::verb_line(
+					streams.out,
+					out,
+					Tone::Success,
+					"Removed",
+					&format!("{target}  {}", out.muted(&ui::plural(*count, "file"))),
+				);
+			}
+			Outcome::Planned(count) => {
+				removed += count;
+				ui::verb_line(
+					streams.out,
+					out,
+					Tone::Info,
+					"Would remove",
+					&format!("{target}  {}", out.muted(&ui::plural(*count, "file"))),
+				);
+			}
+			Outcome::Failed(error) => {
+				ui::verb_line(
+					streams.out,
+					out,
+					Tone::Failure,
+					"Failed",
+					&format!("{target}  {}", out.red_plain(&format!("cannot remove: {error}"))),
+				);
+			}
+		}
+	}
+	if report.events.is_empty() {
+		ui::verb_line(streams.out, out, Tone::Quiet, "Clean", &out.muted("nothing to clean"));
+	} else {
+		let what = if dry_run { "to remove" } else { "removed" };
+		ui::verb_line(
+			streams.out,
+			out,
+			if report.failed { Tone::Failure } else { Tone::Success },
+			"Finished",
+			&format!(
+				"{} {what} in {}",
+				out.bold(&ui::plural(removed, "file")),
+				out.bold(&ui::duration(report.elapsed))
+			),
+		);
+	}
 	if report.failed {
 		return Err(Failure::Reported);
 	}

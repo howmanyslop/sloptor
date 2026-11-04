@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use rotor_compile::compile::DiagnosticInfo;
 use rotor_compile::output::{BuildFailure, BuildResult};
+use rotor_compile::progress::BuildProgress;
 use rotor_compile::timings::BuildTimings;
 use rotor_compile::{ProjectOptions, build_project_with_options, build_solution_with_options};
 use rotor_support::{gopath, logservice};
@@ -18,7 +19,7 @@ use crate::options::{
 	read_rbxts_layer,
 };
 use crate::term::Streams;
-use crate::{VERSION, ui};
+use crate::{VERSION, live, report, ui};
 
 /// `buildArgs`: the project path, the argv layer (exactly the flags passed), and the rest of the
 /// build surface.
@@ -195,9 +196,6 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 	}
 
 	logservice::set_verbose(opts.verbose);
-	if opts.verbose {
-		log_concurrency(args, &opts);
-	}
 	let dir = gopath::dir(&ts_config_path);
 	let mut options = project_compile_options(&ts_config_path, &opts);
 	let timings = (!args.timings.is_empty()).then(|| {
@@ -208,6 +206,11 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 	options.timings.clone_from(&timings);
 
 	if args.json {
+		// Go logs the concurrency and slot lines before moving the channel to stderr.
+		if opts.verbose {
+			log_concurrency(args, &opts);
+		}
+		let _lease = admit(streams);
 		// stdout carries exactly one JSON object, so compiler warnings move to stderr.
 		let previous = logservice::set_output_stderr(true);
 		let outcome = run_build(&dir, &ts_config_path, &options, args.build);
@@ -225,14 +228,39 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 		};
 	}
 
-	let out = streams.out_styler();
-	ui::banner(streams.out, out, &gopath::base(&dir));
+	let out = streams.out_paint();
+	let header_target = if args.build {
+		ui::rel_for_display(&ts_config_path)
+	} else {
+		ui::project_name(&ts_config_path)
+	};
+	let builders = args.build.then(|| {
+		let mut entry = ProjectOptions::default();
+		entry.builders = opts.builders;
+		entry.single_threaded = opts.single_threaded;
+		ui::plural(
+			usize::try_from(rotor_compile::effective_solution_builders(&entry)).unwrap_or(1),
+			"builder",
+		)
+	});
+	ui::header(
+		streams.out,
+		out,
+		&[
+			if args.build { "build -b" } else { "build" },
+			&header_target,
+			builders.as_deref().unwrap_or_default(),
+		],
+	);
+	if opts.verbose {
+		log_concurrency(args, &opts);
+	}
+	let _lease = admit(streams);
 	if opts.write_transformed_files {
 		ui::warn(
 			streams.out,
 			out,
-			"--write-transformed-files is not supported by sloptor yet (rbxtsc transformer-plugin debug output; \
-			 out of v1 scope) — ignoring",
+			"--write-transformed-files is not supported by sloptor (rbxtsc transformer-plugin debug output); ignoring it",
 		);
 	}
 	if std::fs::metadata(gopath::join(&[&dir, "package.json"])).is_ok()
@@ -242,39 +270,53 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 			streams.out,
 			out,
 			&format!(
-				"{} has a package.json but no node_modules — type packages (e.g. @rbxts/*) cannot be resolved; \
-				 install dependencies first",
+				"{} has a package.json but no node_modules, so type packages (@rbxts/*) cannot resolve; install \
+				 dependencies first",
 				gopath::base(&dir)
 			),
 		);
 	}
-	let outcome = run_build(&dir, &ts_config_path, &options, args.build);
+
+	let progress = Arc::new(BuildProgress::new(opts.verbose));
+	options.progress = Some(Arc::clone(&progress));
+	// --verbose reports the phases, so it keeps a timing report even without --timings.
+	let report_timings = timings
+		.clone()
+		.or_else(|| opts.verbose.then(|| Arc::new(BuildTimings::new())));
+	options.timings.clone_from(&report_timings);
+	let view = live::View {
+		progress_line: !opts.verbose && live::progress_line_allowed(streams),
+		project_lines: args.build,
+		solution: args.build,
+		out,
+	};
+	let outcome = live::run(streams, &progress, view, || {
+		run_build(&dir, &ts_config_path, &options, args.build)
+	});
 	finish_timings(timings.as_deref(), &args.timings, outcome.error.is_none())
 		.map_err(|error| Failure::Runtime(format!("write timings: {error}")))?;
-	if let Some(error) = &outcome.error {
-		let err = streams.err_styler();
-		ui::build_failure(streams.err, err, error, &outcome.diagnostics, args.max_errors);
-		return Err(Failure::Reported);
+	let shown = report::Shown {
+		config_path: &ts_config_path,
+		solution: args.build,
+		max_errors: args.max_errors,
+	};
+	if opts.verbose {
+		// The verbose log lines end here; the result block starts after a gap.
+		let _ = writeln!(streams.out);
 	}
-	let result = outcome.result.unwrap_or_default();
-	if result.wrote_rotor_types {
-		ui::note_line(
-			streams.out,
-			out,
-			"rotor.d.ts  (generated — editor types for sloptor macros)",
-		);
+	let failed = report::build(streams, &shown, &outcome, &progress);
+	if opts.verbose {
+		report::verbose(streams.out, out, report_timings.as_deref(), &progress, args.build);
 	}
-	let total = result.outputs.len();
-	let written = result.emitted_files.len();
-	ui::build_success(
-		streams.out,
-		out,
-		total,
-		written,
-		total.saturating_sub(written),
-		outcome.elapsed,
-	);
-	Ok(())
+	if failed { Err(Failure::Reported) } else { Ok(()) }
+}
+
+/// Takes a build slot and sizes the worker pool (`admitBuild`); the wait notice goes to stderr.
+pub fn admit(streams: &mut Streams) -> Option<crate::runtime::Lease> {
+	let err = &mut *streams.err;
+	crate::runtime::admit(&mut |message| {
+		let _ = writeln!(err, "{message}");
+	})
 }
 
 /// The verbose `concurrency:` line.

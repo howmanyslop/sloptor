@@ -42,6 +42,8 @@ Examples:
 
 Environment:
   NO_COLOR, CLICOLOR, CLICOLOR_FORCE  colour policy under --color auto (FORCE_COLOR also forces)
+  ROTOR_MAX_BUILDS                    concurrent builds per machine (0 turns admission off)
+  RAYON_NUM_THREADS, GOMAXPROCS       checker worker threads (default: CPUs per concurrent build)
   RBXTSC_WRITE_CONCURRENCY            output-write worker override (max 256)
   ROTOR_WRITE_WORKERS                 rotor-specific output-write worker override
   UV_THREADPOOL_SIZE                  Node sidecar libuv pool size (not the output writers)
@@ -85,38 +87,38 @@ Examples:
 /// `--color`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, ValueEnum)]
 pub enum ColorChoice {
-	/// Colour on a terminal, honouring `NO_COLOR`, `CLICOLOR` and `CLICOLOR_FORCE`.
+	// Colour on a terminal, honouring `NO_COLOR`, `CLICOLOR` and `CLICOLOR_FORCE`.
 	#[default]
 	Auto,
-	/// Always colour.
+	// Always colour.
 	Always,
-	/// Never colour.
+	// Never colour.
 	Never,
 }
 
 /// The shells `completion` generates for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum Shell {
-	/// Bash
+	// Bash
 	Bash,
-	/// Zsh
+	// Zsh
 	Zsh,
-	/// Fish
+	// Fish
 	Fish,
-	/// Elvish
+	// Elvish
 	Elvish,
-	/// PowerShell
+	// PowerShell
 	Powershell,
 }
 
 /// `--type`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ProjectKind {
-	/// A place.
+	// A place.
 	Game,
-	/// A model.
+	// A model.
 	Model,
-	/// A package.
+	// A package.
 	Package,
 }
 
@@ -564,9 +566,20 @@ pub fn display_command() -> clap::Command {
 		"{BRAND}sloptor{BRAND:#} {MUTED}v{version}{MUTED:#}  {MUTED}·{MUTED:#}  A native TypeScript-to-Luau compiler for Roblox\n",
 		version = crate::VERSION
 	);
-	let mut command = plain_booleans(command())
-		.before_help(header)
-		.help_template("{before-help}{usage-heading} {usage}\n\n{all-args}{after-help}");
+	let template = "{before-help}{usage-heading} {usage}\n\n{all-args}{after-help}";
+	let mut command = plain_booleans(command()).before_help(header).help_template(template);
+	let names: Vec<String> = command
+		.get_subcommands()
+		.map(|subcommand| subcommand.get_name().to_owned())
+		.collect();
+	for name in names {
+		command = command.mut_subcommand(&name, |subcommand| {
+			let about = subcommand.get_about().map(ToString::to_string).unwrap_or_default();
+			subcommand
+				.before_help(format!("{BRAND}sloptor {name}{BRAND:#}  {MUTED}·{MUTED:#}  {about}\n"))
+				.help_template(template)
+		});
+	}
 	command.build();
 	general_last(command)
 }

@@ -34,7 +34,8 @@ pub fn run_binary(binary: &Path, dir: &Path, args: &[&str], env: &[(&str, &str)]
 		.env_remove("NO_COLOR")
 		.env_remove("FORCE_COLOR")
 		.env_remove("CLICOLOR")
-		.env_remove("CLICOLOR_FORCE");
+		.env_remove("CLICOLOR_FORCE")
+		.env("ROTOR_MAX_BUILDS", "0");
 	for (name, value) in env {
 		command.env(name, value);
 	}
@@ -44,6 +45,46 @@ pub fn run_binary(binary: &Path, dir: &Path, args: &[&str], env: &[(&str, &str)]
 		stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
 		stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
 	}
+}
+
+/// Runs `binary` in `dir` with `input` on stdin.
+pub fn run_with_stdin(binary: &Path, dir: &Path, args: &[&str], input: &str) -> Run {
+	use std::io::Write as _;
+	let mut child = Command::new(binary)
+		.args(args)
+		.current_dir(dir)
+		.env_remove("NO_COLOR")
+		.env_remove("FORCE_COLOR")
+		.env_remove("CLICOLOR")
+		.env_remove("CLICOLOR_FORCE")
+		.env("ROTOR_MAX_BUILDS", "0")
+		.stdin(std::process::Stdio::piped())
+		.stdout(std::process::Stdio::piped())
+		.stderr(std::process::Stdio::piped())
+		.spawn()
+		.expect("spawn the binary");
+	child
+		.stdin
+		.take()
+		.expect("stdin")
+		.write_all(input.as_bytes())
+		.expect("write stdin");
+	let output = child.wait_with_output().expect("wait for the binary");
+	Run {
+		code: output.status.code().unwrap_or(-1),
+		stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+		stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+	}
+}
+
+/// `writeDiagnosticsProject`: a package project with one `src/` file per entry.
+pub fn diagnostics_project(root: &Path, files: &[(&str, &str)]) -> PathBuf {
+	buildable_project(root, "");
+	std::fs::remove_file(root.join("src/main.ts")).expect("remove main.ts");
+	for (name, text) in files {
+		write(&root.join("src").join(name), text);
+	}
+	root.to_path_buf()
 }
 
 /// Runs the Rust CLI in `dir`.

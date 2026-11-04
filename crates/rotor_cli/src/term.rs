@@ -6,16 +6,15 @@
 use std::ffi::OsString;
 use std::io::{self, IsTerminal, Write};
 
-use rotor_support::term::{ForceColorWriter, PlainWriter, Styler};
-
 use crate::cli::ColorChoice;
+use crate::ui::Paint;
 
 /// The streams a command writes to, and whether each is coloured.
 pub struct Streams<'a> {
 	/// Standard output.
-	pub out: &'a mut dyn Write,
+	pub out: &'a mut (dyn Write + Send),
 	/// Standard error.
-	pub err: &'a mut dyn Write,
+	pub err: &'a mut (dyn Write + Send),
 	/// Whether stdout gets colour.
 	pub out_color: bool,
 	/// Whether stderr gets colour.
@@ -23,26 +22,16 @@ pub struct Streams<'a> {
 }
 
 impl Streams<'_> {
-	/// The styler for stdout.
+	/// The paint for stdout.
 	#[must_use]
-	pub fn out_styler(&self) -> Styler {
-		styler(self.out_color)
+	pub const fn out_paint(&self) -> Paint {
+		Paint { color: self.out_color }
 	}
 
-	/// The styler for stderr.
+	/// The paint for stderr.
 	#[must_use]
-	pub fn err_styler(&self) -> Styler {
-		styler(self.err_color)
-	}
-}
-
-/// A styler that colours exactly when `color`.
-#[must_use]
-pub fn styler(color: bool) -> Styler {
-	if color {
-		Styler::for_writer(&ForceColorWriter)
-	} else {
-		Styler::for_writer(&PlainWriter)
+	pub const fn err_paint(&self) -> Paint {
+		Paint { color: self.err_color }
 	}
 }
 
@@ -79,6 +68,18 @@ impl Write for Stderr {
 	fn flush(&mut self) -> io::Result<()> {
 		io::stderr().flush()
 	}
+}
+
+/// The `logservice` hook that clears a drawn progress line before a log line is written, so the
+/// two never share a line. `drawn` is the live view's on-screen flag.
+pub fn clear_line_hook(drawn: std::sync::Arc<std::sync::Mutex<bool>>) -> Box<dyn Fn() + Send> {
+	Box::new(move || {
+		let mut on_screen = drawn.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+		if *on_screen {
+			let _ = io::stderr().write_all(b"\r\x1b[2K");
+			*on_screen = false;
+		}
+	})
 }
 
 /// Whether the process's stdout and stderr are terminals.
