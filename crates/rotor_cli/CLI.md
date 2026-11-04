@@ -135,9 +135,12 @@ The pieces (`ui::header`, `ui::verb_line`, `frames::render_all`, `live::project_
   long-lived (`rotor_tsrs::project::set_long_lived`): each build, check or census runs in a
   `ProgramScope` that frees its programs, their checker regions, the file loader's regions and
   the processed-file data, and the Flamework preparse and declaration prefetch threads allocate
-  in regions the scope frees.
-  After each pass `memory.rs` returns mimalloc's freed pages (`mi_collect`) and tsrs's
-  released slabs. See `rotor_compile/COMPILE.md` for what still accumulates.
+  in regions the scope frees. Its threads are kept for the session and reused
+  (`rotor_tsrs::threads`, patch 0012 for tsrs's checker threads) instead of started and ended
+  per pass. After each pass `memory.rs` returns mimalloc's freed pages (`mi_collect`) on every
+  thread, idle ones included, and tsrs's released slabs. ps RSS includes mimalloc's reclaimable
+  pages and keeps rising; the footprint is the figure that plateaus. See
+  `rotor_compile/COMPILE.md` for the numbers.
 - **`lsp`** runs its censuses one at a time on one long-lived large-stack thread, each in its
   own program scope.
 - **`api-server`** decodes requests as a stream (no size limit) and keeps a transformer

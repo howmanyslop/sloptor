@@ -19,6 +19,7 @@ pub mod checker;
 pub mod dump;
 pub mod project;
 pub mod replay;
+pub mod threads;
 pub mod tsconfig;
 pub mod types;
 

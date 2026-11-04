@@ -414,6 +414,9 @@ static LONG_LIVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool
 /// frees nothing it does not have to, leaves this off.
 pub fn set_long_lived(on: bool) {
 	LONG_LIVED.store(on, std::sync::atomic::Ordering::Relaxed);
+	// Threads that end leave allocator pages behind; the session keeps tsrs's checker threads
+	// and rotor's own (`crate::threads`) for the next pass.
+	tsrs_compiler::checkerpool::set_keep_threads(on);
 	if on {
 		// The session frees its programs' regions, so lazily filled data of an object outside
 		// every region (a command line, a shared declaration) must go to its owner's region or

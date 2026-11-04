@@ -75,7 +75,7 @@ pub(crate) fn parallelize(workers: usize, jobs: Vec<Job<'_>>) -> Result<(), Erro
 	let queue: Vec<Mutex<Option<Job<'_>>>> = jobs.into_iter().map(|job| Mutex::new(Some(job))).collect();
 	let next = AtomicUsize::new(0);
 	let first: Mutex<Option<Error>> = Mutex::new(None);
-	std::thread::scope(|scope| {
+	rotor_tsrs::threads::scope(|scope| {
 		for _ in 0..workers {
 			scope.spawn(|| {
 				loop {

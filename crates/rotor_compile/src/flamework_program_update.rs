@@ -359,9 +359,6 @@ pub(crate) struct PreparsedOverlays {
 	pub(crate) files: Mutex<Option<HashMap<SourceFileParseOptions, OverlayParse>>>,
 }
 
-/// The stack each parse worker gets; the parser recurses as deeply as the source nests.
-const PARSE_STACK_BYTES: usize = 256 << 20;
-
 /// `preparseOverlays`: parses the changed overlay files the update can request: the changed
 /// paths, in order, with the parse options of the program file at each path. It stops at the
 /// first path where the update rebuilds the whole program before it asks for the file (a path the
@@ -405,23 +402,21 @@ pub(crate) fn preparse_overlays(
 		.min(jobs.len());
 	let slots: Vec<Mutex<&mut OverlayParse>> = jobs.iter_mut().map(Mutex::new).collect();
 	let next = std::sync::atomic::AtomicUsize::new(0);
-	std::thread::scope(|scope| {
+	rotor_tsrs::threads::scope(|scope| {
 		for _ in 0..workers {
 			// In a long-lived session the parses go to a region the build's program scope frees.
 			let region = rotor_tsrs::project::scope_thread_region();
 			let (next, slots) = (&next, &slots);
-			let spawned = std::thread::Builder::new()
-				.stack_size(PARSE_STACK_BYTES)
-				.spawn_scoped(scope, move || {
-					let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
-					loop {
-						let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-						let Some(slot) = slots.get(index) else {
-							break;
-						};
-						lock(slot).parse();
-					}
-				});
+			let spawned = scope.try_spawn(move || {
+				let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
+				loop {
+					let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+					let Some(slot) = slots.get(index) else {
+						break;
+					};
+					lock(slot).parse();
+				}
+			});
 			if let Err(error) = spawned {
 				resume_unwind(Box::new(error));
 			}
@@ -486,7 +481,7 @@ pub(crate) fn parallel_overlay_aliases(
 		.map_or(1, std::num::NonZero::get)
 		.min(entries.len());
 	let slots: Vec<Mutex<&mut OverlayAliasEntry>> = entries.iter_mut().map(Mutex::new).collect();
-	std::thread::scope(|scope| {
+	rotor_tsrs::threads::scope(|scope| {
 		for worker in 0..workers {
 			let slots = &slots;
 			scope.spawn(move || {
@@ -578,7 +573,7 @@ pub(crate) fn compose_native_overlay_traces(
 			.map_or(1, std::num::NonZero::get)
 			.min(overlays.len());
 		let chunk = overlays.len().div_ceil(workers);
-		std::thread::scope(|scope| {
+		rotor_tsrs::threads::scope(|scope| {
 			// Every worker starts before the first join.
 			#[expect(clippy::needless_collect, reason = "the workers must all spawn before any joins")]
 			let handles: Vec<_> = (0..workers)

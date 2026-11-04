@@ -262,12 +262,28 @@ Watch mode, the language server and the build API call
   decommitted (`arena::release_thread_slabs`, `arena::release_slab_cache`, patch 0011): the
   pool's threads never exit, so each kept a 1 MiB slab of freed regions resident, and up to 64
   released slabs stayed committed.
+- Threads are reused instead of started and ended per pass. Rotor's work groups, solution
+  workers, Flamework preparse, declaration prefetch, copy, declaration-write and parallel-write
+  threads run in `rotor_tsrs::threads::scope`, a drop-in for `std::thread::scope`: in a one-shot
+  build each job still gets a thread that ends with it; in a long-lived session a finished thread
+  stops its tsrs id blocks, leaves the shared-graph overlay, hands its arena on and waits for the
+  next job. tsrs's checker threads wait without their 1 s idle timeout and the file loader's drop
+  helper runs on the worker pool (`checkerpool::set_keep_threads`, through the mirror patch
+  `0012-rotor-keep-threads.patch`). The trim after each pass reaches the idle threads too
+  (`threads::for_each_idle`, `checkerpool::for_each_idle_checker_thread`). A 40-rebuild
+  session creates 31 threads, all at startup (474 before). One-shot builds are unchanged.
 
 Measured over 120 `build --watch` rebuilds of the Flamework fixture on macOS (cycle 20 to 120):
 live Rust heap 1.72 to 1.84 MB, tsrs reservation resident 0.16 to 0.32 MB, thread arenas' used
 bytes 32 to 196 KB. Before these changes: heap 1.6 to 5.7 MB, reservation resident 13 to 27 MB,
-thread arenas 0.3 to 1.7 MB. What still grows is mimalloc's: its dirty memory rises about
-0.07 MB per rebuild while its live blocks stay near 1 MB. It follows thread churn (about eight
-threads start and end per rebuild); a `--single-threaded` session is flat (footprint 9.1 to
-9.4 MB over 100 rebuilds). The rest of the tsrs growth is lazily filled source-file data
+thread arenas 0.3 to 1.7 MB. With thread reuse, mimalloc's dirty memory goes 11 to 13 MB from cycle 20 to 200 of a 200-rebuild
+`build --watch` session, and the process footprint sits near 18 MB with spikes to 22 MB
+(every 20 cycles: 16, 17, 18, 18, 18, 22, 18, 22, 18, 18 MB). ps RSS still rises, 72 to 94 MB,
+because it counts mimalloc's purged pages (`MADV_FREE_REUSABLE`, which the kernel can reclaim
+at any time; 43 to 63 MB of them); footprint excludes them and is the figure that plateaus.
+A 200-cycle `lsp` session plateaus less cleanly: footprint every 20 cycles is 17, 19, 22, 22, 24,
+20, 21, 22, 23, 24 MB (single cycles range 20 to 28 MB), so it still creeps about 0.04 MB per
+edit, and RSS rises 74 to 101 MB.
+An untested lead: `MIMALLOC_ARENA_EAGER_COMMIT=0` kept RSS flat in one 120-rebuild run; it is not
+set and was not benchmarked. The rest of the tsrs growth is lazily filled source-file data
 (JSDoc, line maps) of files in the unregistered loader regions, about 1.6 KB per rebuild.

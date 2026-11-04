@@ -2,7 +2,7 @@
 
 use std::sync::{Condvar, Mutex};
 
-use crate::project::{CHECKER_STACK_BYTES, lock};
+use crate::project::lock;
 
 /// `solutionTask`: one project, by graph index, and the graph indexes it waits for.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -106,15 +106,8 @@ pub fn run_solution_tasks<E: Send>(
 			changed.notify_all();
 		}
 	};
-	std::thread::scope(|scope| {
-		let handles: Vec<_> = (0..workers)
-			.filter_map(|_| {
-				std::thread::Builder::new()
-					.stack_size(CHECKER_STACK_BYTES)
-					.spawn_scoped(scope, worker)
-					.ok()
-			})
-			.collect();
+	rotor_tsrs::threads::scope(|scope| {
+		let handles: Vec<_> = (0..workers).filter_map(|_| scope.try_spawn(worker).ok()).collect();
 		if handles.is_empty() && workers > 0 {
 			worker();
 		}

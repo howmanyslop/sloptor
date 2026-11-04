@@ -320,7 +320,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 
 	// Copying the non-compiled files is disk work no compile stage reads, so it runs beside them;
 	// every return waits for it.
-	std::thread::scope(|scope| {
+	rotor_tsrs::threads::scope(|scope| {
 		let copy = scope.spawn(|| {
 			let stop = start_stage(timings, Stage::NonCompiledCopy);
 			let result = if copy_files_gate.skip_copy_files {
@@ -507,7 +507,7 @@ fn build_after_copy(
 	}
 	// Declarations and compiled outputs are disjoint files, so they write together; a compiled
 	// output failure still reports first.
-	let (write_result, declaration_result) = std::thread::scope(|scope| {
+	let (write_result, declaration_result) = rotor_tsrs::threads::scope(|scope| {
 		let declarations_written = scope.spawn(|| {
 			let stop = start_stage(timings, Stage::DeclarationEmitWrites);
 			let files = emit_declarations(

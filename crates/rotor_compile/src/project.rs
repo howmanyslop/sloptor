@@ -40,9 +40,6 @@ use crate::solution::canonical_explicit_path;
 use crate::source_trace::DiagnosticTraces;
 use crate::timings::{BuildTimings, Stage};
 
-/// The checker recurses deeply; tsrs runs it on 512 MiB stacks.
-pub(crate) const CHECKER_STACK_BYTES: usize = 512 << 20;
-
 /// `packageNameRegex` (`createProjectData.ts` `PACKAGE_REGEX`, `^@[a-z0-9-]*/`): a scoped package
 /// name compiles as `ProjectType.Package`.
 fn is_scoped_package_name(name: &str) -> bool {
@@ -917,18 +914,12 @@ pub(crate) fn run_work_group<T: Send>(single_threaded: bool, count: usize, work:
 	if single_threaded || count <= 1 {
 		return (0..count).map(&work).collect();
 	}
-	std::thread::scope(|scope| {
+	// Session threads: a long-lived session reuses them across rebuilds.
+	rotor_tsrs::threads::scope(|scope| {
 		let work = &work;
 		// Every thread is spawned before the first join, so the groups run concurrently.
 		#[expect(clippy::needless_collect, reason = "the threads must all start before any is joined")]
-		let handles: Vec<_> = (0..count)
-			.map(|index| {
-				std::thread::Builder::new()
-					.name("rotor-compile".to_owned())
-					.stack_size(CHECKER_STACK_BYTES)
-					.spawn_scoped(scope, move || work(index))
-			})
-			.collect();
+		let handles: Vec<_> = (0..count).map(|index| scope.try_spawn(move || work(index))).collect();
 		handles
 			.into_iter()
 			.enumerate()

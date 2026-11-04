@@ -110,13 +110,11 @@ impl crate::transformer_host::TransformerHost for PrefetchingTransformerHost<'_>
 		let abandon = AtomicBool::new(false);
 		// In a long-lived session the emit goes to a region the build's program scope frees.
 		let region = rotor_tsrs::project::scope_thread_region();
-		std::thread::scope(|scope| {
-			let prefetch = std::thread::Builder::new()
-				.stack_size(crate::project::CHECKER_STACK_BYTES)
-				.spawn_scoped(scope, || {
-					let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
-					self.prefetch.run(&abandon);
-				});
+		rotor_tsrs::threads::scope(|scope| {
+			let prefetch = scope.try_spawn(|| {
+				let _region = region.as_ref().map(rotor_tsrs::tscore::arena::Region::enter);
+				self.prefetch.run(&abandon);
+			});
 			let result = self.inner.transform(cancel, call);
 			if result.is_err() {
 				abandon.store(true, Ordering::Relaxed);
