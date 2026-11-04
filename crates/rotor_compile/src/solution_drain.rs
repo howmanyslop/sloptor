@@ -220,6 +220,58 @@ struct DrainOutcome {
 	persists: Vec<PendingPersist>,
 }
 
+/// The progress event of one drained project.
+fn project_event(
+	config_path: &str,
+	outcome: &DrainOutcome,
+	elapsed: std::time::Duration,
+) -> crate::progress::ProjectEvent {
+	use crate::progress::{ProjectEvent, ProjectStatus};
+	let diagnostics = outcome
+		.result
+		.as_ref()
+		.map_or(&[][..], |result| &result.diagnostics[..]);
+	let warnings = diagnostics.iter().filter(|diagnostic| diagnostic.warning).count();
+	let mut errors = diagnostics.len() - warnings;
+	let status = if !outcome.blockers.is_empty() {
+		ProjectStatus::Blocked
+	} else if outcome.err.is_some() {
+		if errors == 0 {
+			errors = outcome.messages.len().max(1);
+		}
+		ProjectStatus::Failed
+	} else if outcome.skip
+		|| outcome
+			.result
+			.as_ref()
+			.is_none_or(|result| result.emitted_files.is_empty())
+	{
+		ProjectStatus::Fresh
+	} else {
+		ProjectStatus::Built
+	};
+	ProjectEvent {
+		config_path: config_path.to_owned(),
+		status,
+		files: outcome.result.as_ref().map_or(0, |result| result.outputs.len()),
+		written: outcome.result.as_ref().map_or(0, |result| {
+			result
+				.emitted_files
+				.iter()
+				.filter(|path| {
+					std::path::Path::new(path)
+						.extension()
+						.is_some_and(|extension| extension == "luau" || extension == "lua")
+				})
+				.count()
+		}),
+		errors: if status == ProjectStatus::Blocked { 0 } else { errors },
+		warnings,
+		elapsed,
+		blocked_by: outcome.blockers.first().cloned().unwrap_or_default(),
+	}
+}
+
 /// `solutionSelectionError`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SolutionSelectionError {
@@ -339,9 +391,22 @@ impl SolutionCoordinator {
 		let outcomes: Vec<Mutex<DrainOutcome>> = (0..self.graph.projects.len())
 			.map(|_| Mutex::new(DrainOutcome::default()))
 			.collect();
+		let progress = self
+			.graph
+			.projects
+			.first()
+			.and_then(|project| project.options.progress.clone());
+		if let Some(progress) = &progress {
+			progress.set_projects(tasks.len());
+		}
 		{
 			let coordinator: &Self = self;
 			run_solution_tasks(&tasks, coordinator.builders, |index| -> Result<(), ()> {
+				let config_path = &coordinator.graph.projects[index].config_path;
+				let started = std::time::Instant::now();
+				if let Some(progress) = &progress {
+					progress.project_started(config_path);
+				}
 				let outcome = coordinator.drain_task(
 					index,
 					&resolution,
@@ -352,6 +417,9 @@ impl SolutionCoordinator {
 					timings,
 				);
 				let failed = outcome.err.is_some();
+				if let Some(progress) = &progress {
+					progress.project_finished(project_event(config_path, &outcome, started.elapsed()));
+				}
 				*lock(&outcomes[index]) = outcome;
 				if failed { Err(()) } else { Ok(()) }
 			});

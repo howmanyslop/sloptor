@@ -45,6 +45,7 @@ pub mod package_layout_watch;
 pub mod packageexports;
 pub mod packageexports_parse;
 pub mod parallelwrite;
+pub mod progress;
 pub mod project;
 pub mod project_config;
 pub mod project_references;

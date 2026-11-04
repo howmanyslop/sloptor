@@ -44,6 +44,22 @@ pub struct DiagnosticInfo {
 	pub line: usize,
 	/// The 1-based column of `offset`.
 	pub col: usize,
+	/// tsc's related information ("'x' is declared here"), for the human renderer only; no
+	/// `--json` shape carries it.
+	pub related: Vec<RelatedInfo>,
+}
+
+/// One related-information entry of a [`DiagnosticInfo`].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RelatedInfo {
+	/// The message.
+	pub message: String,
+	/// The file the span is in; empty without a location.
+	pub file_name: String,
+	/// The byte offset of the span.
+	pub offset: usize,
+	/// The span length in bytes.
+	pub len: usize,
 }
 
 /// `InternalCompilerError`.
@@ -414,6 +430,22 @@ pub fn info_from_ts_diag(diagnostic: P<ast::Diagnostic>, traces: &DiagnosticTrac
 		(info.line, info.col) = line_col_in(file.text(), info.offset);
 		info = traces.remap(info, file.text());
 	}
+	info.related = diagnostic
+		.related_information()
+		.iter()
+		.map(|related| {
+			let mut entry = RelatedInfo {
+				message: related.localize(),
+				..RelatedInfo::default()
+			};
+			if let Some(file) = related.file() {
+				file.file_name().clone_into(&mut entry.file_name);
+				entry.offset = related.pos().unwrap_or(0) as usize;
+				entry.len = related.len().unwrap_or(0) as usize;
+			}
+			entry
+		})
+		.collect();
 	info
 }
 

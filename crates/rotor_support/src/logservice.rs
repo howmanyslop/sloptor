@@ -39,8 +39,24 @@ pub fn set_verbose(on: bool) {
 	VERBOSE.store(on, Ordering::Relaxed);
 }
 
+/// A callback that runs before each write to the real stream (not a capture).
+type BeforeWrite = Box<dyn Fn() + Send>;
+
+static BEFORE_WRITE: Mutex<Option<BeforeWrite>> = Mutex::new(None);
+
+/// Sets a callback that runs before every write to the process stream, such as a live progress
+/// line clearing itself so a log line never lands on it. `None` removes it.
+pub fn set_before_write(hook: Option<BeforeWrite>) {
+	*BEFORE_WRITE.lock().unwrap_or_else(PoisonError::into_inner) = hook;
+}
+
 fn write_locked(channel: &mut Channel, message: &str) {
 	channel.partial = !message.ends_with('\n');
+	if channel.sink.is_none()
+		&& let Some(hook) = &*BEFORE_WRITE.lock().unwrap_or_else(PoisonError::into_inner)
+	{
+		hook();
+	}
 	match &mut channel.sink {
 		Some(buffer) => buffer.extend_from_slice(message.as_bytes()),
 		None if channel.stderr => {

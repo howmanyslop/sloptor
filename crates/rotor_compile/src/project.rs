@@ -187,6 +187,8 @@ pub struct ProjectOptions {
 	pub timings: Option<Arc<BuildTimings>>,
 	/// Cancels build work; `None` is the CLI's process-owned lifecycle.
 	pub context: Option<Cancellation>,
+	/// Live progress for a UI; `None` records nothing.
+	pub progress: Option<Arc<crate::progress::BuildProgress>>,
 	pub(crate) project_reference_paths: Option<Arc<HashMap<String, String>>>,
 	pub(crate) project_reference_salt_paths: Option<Arc<HashMap<String, String>>>,
 	pub(crate) pending_solution_persists: Option<Arc<Mutex<Vec<PendingPersist>>>>,
@@ -963,6 +965,11 @@ pub(crate) fn compile_project_source_files(
 	}
 
 	let stop_diagnostics = crate::timings::start_stage(opts.timings(), Stage::SemanticDiagnostics);
+	let progress = opts.progress.as_deref();
+	if let Some(progress) = progress {
+		progress.set_phase(crate::progress::Phase::Checking);
+		progress.add_files(source_files.len());
+	}
 	// Gate 1 of 4: program-level option diagnostics.
 	let ts_diags = program.get_program_diagnostics();
 	if !ts_diags.is_empty() {
@@ -998,6 +1005,9 @@ pub(crate) fn compile_project_source_files(
 				break;
 			}
 			prechecks.push(precheck_project_source_file(&context, program, file, opts));
+			if let Some(progress) = progress {
+				progress.file_checked();
+			}
 		}
 		prechecks
 	});
@@ -1056,6 +1066,10 @@ pub(crate) fn compile_project_source_files(
 	stop_diagnostics.stop();
 
 	let stop_transform = crate::timings::start_stage(opts.timings(), Stage::NativeTransformRender);
+	if let Some(progress) = progress {
+		progress.set_phase(crate::progress::Phase::Transforming);
+	}
+	let file_times = progress.is_some_and(crate::progress::BuildProgress::collects_file_times);
 	if !source_files.is_empty()
 		&& let Some(timings) = opts.timings()
 	{
@@ -1069,16 +1083,34 @@ pub(crate) fn compile_project_source_files(
 			.iter()
 			.zip(&group.indices)
 			.map(|(&file, &index)| {
-				compile_project_source_file(dir, program, pctx, file, opts, &mut multi, &progress_labels[index])
+				let started = file_times.then(std::time::Instant::now);
+				let compiled =
+					compile_project_source_file(dir, program, pctx, file, opts, &mut multi, &progress_labels[index]);
+				if let Some(progress) = progress {
+					progress.file_transformed();
+				}
+				(compiled, started.map(|started| started.elapsed()))
 			})
 			.collect::<Vec<_>>()
 	});
 	let mut results: Vec<CompiledProjectSourceFile> = Vec::with_capacity(source_files.len());
 	results.resize_with(source_files.len(), CompiledProjectSourceFile::default);
+	let mut times = Vec::new();
 	for (group, group_results) in groups.iter().zip(group_results) {
-		for (&index, result) in group.indices.iter().zip(group_results) {
+		for (&index, (result, elapsed)) in group.indices.iter().zip(group_results) {
 			results[index] = result;
+			if let Some(elapsed) = elapsed {
+				times.push(crate::progress::FileTime {
+					file_name: source_files[index].file_name().to_owned(),
+					elapsed,
+				});
+			}
 		}
+	}
+	if let Some(progress) = progress
+		&& !times.is_empty()
+	{
+		progress.add_file_times(times);
 	}
 	stop_transform.stop();
 

@@ -145,6 +145,9 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	let timings = opts.timings.clone();
 	let timings = timings.as_deref();
 
+	if let Some(progress) = &opts.progress {
+		progress.set_phase(crate::progress::Phase::Loading);
+	}
 	let stop_initial_program = start_stage(timings, Stage::InitialProgram);
 	let program_result = new_project_program_with_options(project_dir, &opts.ts_config_path, &opts);
 	stop_initial_program.stop();
@@ -499,6 +502,9 @@ fn build_after_copy(
 		None => signature_declarations,
 	};
 
+	if let Some(progress) = &opts.progress {
+		progress.set_phase(crate::progress::Phase::Writing);
+	}
 	// Declarations and compiled outputs are disjoint files, so they write together; a compiled
 	// output failure still reports first.
 	let (write_result, declaration_result) = std::thread::scope(|scope| {
