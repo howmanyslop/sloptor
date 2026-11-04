@@ -89,6 +89,7 @@ pub fn mkdir_all(path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
 /// # Errors
 ///
 /// Returns the I/O error from changing the mode.
+#[allow(clippy::missing_const_for_fn)]
 pub fn chmod(file: &fs::File, mode: u32) -> io::Result<()> {
 	#[cfg(unix)]
 	{
