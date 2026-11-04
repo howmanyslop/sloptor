@@ -27,6 +27,9 @@ testdata/compile-unit/**/include/
 # ... except a fixture package's shipped `out`, which is INPUT to the test
 # (the rule above is meant for the trees a test build writes).
 !testdata/compile-unit/**/node_modules/**/out/
+# Throwaway projects the conformance test makes per golden; left behind only
+# when a run is killed.
+.phase5-fixture-*/
 
 # Per-project resolver/cache state written by rotor builds
 .rotor/
