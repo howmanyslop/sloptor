@@ -1,10 +1,10 @@
 ## Building
 
-Requires **Go 1.25+**:
+Requires the Rust toolchain pinned in `mise.toml` (`mise install rust`):
 
 ```powershell
 git clone https://github.com/howmanyslop/sloptor && cd sloptor
-go build ./cmd/rotor
+cargo build --locked --release -p rotor_cli   # target/release/sloptor
 ```
 
 ## Running the tests
@@ -54,14 +54,14 @@ node --run docs:dev
 
 ## Releasing a new version
 
-rotor's version is defined in code: [`internal/version/version.go`](https://github.com/howmanyslop/sloptor/blob/main/internal/version/version.go). Maintainer flow:
+rotor's version is defined in code: [`crates/rotor_support/src/version.rs`](https://github.com/howmanyslop/sloptor/blob/main/crates/rotor_support/src/version.rs), mirrored by `internal/version/version.go` while the Go implementation remains. Maintainer flow:
 
 1. From a clean working tree, run `pnpm release` ([bumpp](https://github.com/antfu-collective/bumpp), configured in [`bump.config.ts`](https://github.com/howmanyslop/sloptor/blob/main/bump.config.ts)). It lists the commits since the last tag and prompts for the next version.
-2. bumpp bumps the `Version` constant, main package, exact optional dependencies, all six platform manifests, and the emitted header comments in lockstep. It then commits, creates the `vX.Y.Z` tag, and pushes both.
+2. bumpp bumps the `VERSION` and `Version` constants, main package, exact optional dependencies, all six platform manifests, and the emitted header comments in lockstep. It then commits, creates the `vX.Y.Z` tag, and pushes both.
 
 Pass a version or release type to skip the prompt (`pnpm release patch`, `pnpm release 2.8.0`), or use `--no-push` to keep everything local. `pnpm release --help` lists every flag.
 
-The tag triggers the `release` GitHub Actions workflow, which verifies the tag, Go version, client protocol, main package, and all platform manifests before publishing. It cross-builds all six executables, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. It then publishes the archives and checksums as a GitHub Release; nothing is published to npm.
+The tag triggers the `release` GitHub Actions workflow, which verifies the tag, product version, client protocol, main package, and all platform manifests before publishing. It builds the six executables with cargo, each on a native runner, stages seven npm tarballs, and smoke-tests both the API and CLI on matching macOS, Linux, and Windows x64/ARM64 runners. It then publishes the archives and checksums as a GitHub Release; nothing is published to npm.
 
 ## Project docs
 

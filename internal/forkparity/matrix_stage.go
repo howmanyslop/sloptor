@@ -32,6 +32,17 @@ const matrixTSConfig = `{
 
 var matrixANSISequence = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
+// matrixCodeFrameHeader matches the "error[TS2322]:" header sloptor's code-frame
+// renderer prints where the fork printed "error TS2322:".
+var matrixCodeFrameHeader = regexp.MustCompile(`\b(error|warning)\[(TS\d+)\]:`)
+
+// matrixPlainOutput is a run's stdout and stderr as the diagnostic fixtures
+// expect to find it: no color, and the TypeScript code in the fork's
+// "error TS2322:" spelling. The code and message are still compared exactly.
+func matrixPlainOutput(output string) string {
+	return matrixCodeFrameHeader.ReplaceAllString(matrixANSISequence.ReplaceAllString(output, ""), "$1 $2:")
+}
+
 type matrixFixtureResult struct {
 	Artifacts map[string][]byte
 	Drifts    []MatrixDrift

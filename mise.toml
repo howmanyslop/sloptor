@@ -87,10 +87,9 @@ if [ "$c4" -gt 4 ]; then
 fi
 readonly c4
 
-bin="$(mktemp)"
-trap 'rm -f "$bin"' EXIT
-go build -trimpath -o "$bin" ./cmd/rotor
-export SLOPTOR_BIN="$bin"
+cargo build --locked --release -p rotor_cli
+SLOPTOR_BIN="${CARGO_TARGET_DIR:-target}/release/sloptor"
+export SLOPTOR_BIN
 
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
@@ -149,10 +148,9 @@ c4="$(cap 4)"
 c2="$(cap 2)"
 readonly c4 c2
 
-bin="$(mktemp)"
-trap 'rm -f "$bin"' EXIT
-go build -trimpath -o "$bin" ./cmd/rotor
-export SLOPTOR_BIN="$bin"
+cargo build --locked --release -p rotor_cli
+SLOPTOR_BIN="${CARGO_TARGET_DIR:-target}/release/sloptor"
+export SLOPTOR_BIN
 
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
@@ -211,10 +209,10 @@ reset_state() {
 }
 
 reset_state
-go run ./cmd/rotor build --project "$project/$tsconfig" --json --checkers 1
+cargo run --locked --release -p rotor_cli -- build --project "$project/$tsconfig" --json --checkers 1
 
 reset_state
-go run ./cmd/rotor build --project "$project/$tsconfig" --json --checkers "$cores"
+cargo run --locked --release -p rotor_cli -- build --project "$project/$tsconfig" --json --checkers "$cores"
 '''
 
 [tasks."build:solution"]
@@ -256,10 +254,10 @@ reset_state() {
 }
 
 reset_state
-go run ./cmd/rotor build --build "$project/$tsconfig" --builders 1 --checkers 1 --json
+cargo run --locked --release -p rotor_cli -- build --build "$project/$tsconfig" --builders 1 --checkers 1 --json
 
 reset_state
-go run ./cmd/rotor build --build "$project/$tsconfig" --builders "$cores" --checkers 1 --json
+cargo run --locked --release -p rotor_cli -- build --build "$project/$tsconfig" --builders "$cores" --checkers 1 --json
 '''
 
 [tasks."commit:no-verify"]
@@ -287,9 +285,33 @@ description = "Lints, then tests the Rust workspace."
 depends = ["rust:lint"]
 run = "mise run rust:test"
 
+[tasks."rust:conformance"]
+description = "Runs the conformance gate (the Rust twin of internal/conformance TestConformance): every golden compiled and compared byte for byte."
+run = "cargo nextest run --locked -p rotor_compile --test conformance"
+
 [tasks."rust:fmt"]
 description = "Formats the Rust workspace."
 run = "cargo fmt"
+
+[tasks."rust:forkparity"]
+description = "Runs internal/forkparity (sloptor against the pinned roblox-ts fork) on the sloptor release binary instead of a fresh cargo build."
+depends = ["rust:release"]
+shell = "sh -o errexit -c"
+run = '''
+exe=sloptor
+here="pwd"
+case "$(uname -s)" in
+# Go cannot read Git Bash's /c/... paths.
+MINGW* | MSYS* | CYGWIN*)
+	exe=sloptor.exe
+	here="pwd -W"
+	;;
+esac
+target="${CARGO_TARGET_DIR:-target}"
+ROTOR_BIN="$(cd "$target" && $here)/release/$exe"
+export ROTOR_BIN
+go test -count=1 ./internal/forkparity
+'''
 
 [tasks."rust:gc"]
 description = "Garbage-collects the mbx build cache."
@@ -305,7 +327,7 @@ run = [
 ]
 
 [tasks."rust:release"]
-description = "Builds the rotor-rs release binary."
+description = "Builds the sloptor release binary."
 run = "cargo build --locked --release -p rotor_cli"
 
 [tasks."rust:test"]

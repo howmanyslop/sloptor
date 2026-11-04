@@ -5,16 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 )
 
 type MatrixRunner struct {
 	RepoRoot     string
-	ReportDir    string
 	RotorBinPath string
 }
 
@@ -133,23 +130,7 @@ func (r MatrixRunner) rotorBinary() (string, error) {
 	if r.RotorBinPath != "" {
 		return r.RotorBinPath, nil
 	}
-	if r.ReportDir == "" {
-		return "", fmt.Errorf("matrix report directory is required when Rotor binary is not supplied")
-	}
-	if err := os.MkdirAll(r.ReportDir, 0o755); err != nil {
-		return "", fmt.Errorf("create matrix report directory: %w", err)
-	}
-	binPath := filepath.Join(r.ReportDir, "rotor")
-	if runtime.GOOS == "windows" {
-		binPath += ".exe"
-	}
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/rotor")
-	cmd.Dir = r.RepoRoot
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("build Rotor binary: %w\n%s", err, output)
-	}
-	return binPath, nil
+	return RotorBinary(r.RepoRoot)
 }
 
 func (r MatrixRunner) rotorNodeModules() (string, error) {

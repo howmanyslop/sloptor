@@ -76,7 +76,7 @@ function resolvePlatformBinary(options = {}) {
 	if (!target) {
 		throw new PlatformBinaryError(
 			"UNSUPPORTED_PLATFORM",
-			`Sloptor does not support ${platform}-${architecture}. Supported targets are macOS, Linux, and Windows on x64 or arm64. Build from source with "go build ./cmd/rotor".`,
+			`Sloptor does not support ${platform}-${architecture}. Supported targets are macOS, Linux, and Windows on x64 or arm64. Build from source with "cargo build --release -p rotor_cli".`,
 		);
 	}
 

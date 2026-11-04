@@ -58,12 +58,14 @@ Every [GitHub release](https://github.com/howmanyslop/sloptor/releases) has arch
 
 ## From source
 
-Building from source needs the Go version in `go.mod`:
+Building from source needs the Rust version pinned in `mise.toml` (`mise install rust` installs it):
 
 ```sh
 git clone https://github.com/howmanyslop/sloptor && cd sloptor
-go build ./cmd/rotor
+cargo build --locked --release -p rotor_cli
 ```
+
+The executable is `target/release/sloptor`.
 
 ## Check the project
 

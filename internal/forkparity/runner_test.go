@@ -3,9 +3,7 @@ package forkparity
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,14 +22,9 @@ func TestRunnerCapturesArtifacts(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	nodeModules := forkNodeModules(t, extractDir)
-	rotorBin := filepath.Join(t.TempDir(), "rotor")
-	if runtime.GOOS == "windows" {
-		rotorBin += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", rotorBin, "./cmd/rotor")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build rotor: %v\n%s", err, output)
+	rotorBin, err := RotorBinary(root)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	forkFixture := writeCompilerFixture(t, nodeModules)

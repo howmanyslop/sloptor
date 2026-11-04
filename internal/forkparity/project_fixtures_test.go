@@ -2,10 +2,7 @@ package forkparity
 
 import (
 	"context"
-	"os/exec"
 	"path"
-	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -168,14 +165,9 @@ func TestProjectOracleGoldens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotorBin := filepath.Join(t.TempDir(), "rotor")
-	if runtime.GOOS == "windows" {
-		rotorBin += ".exe"
-	}
-	build := exec.Command("go", "build", "-o", rotorBin, "./cmd/rotor")
-	build.Dir = root
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build rotor: %v\n%s", err, output)
+	rotorBin, err := RotorBinary(root)
+	if err != nil {
+		t.Fatal(err)
 	}
 	runner := MatrixRunner{RepoRoot: root}
 	nodeModules, err := runner.rotorNodeModules()

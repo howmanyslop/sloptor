@@ -8,10 +8,7 @@ import (
 
 func TestFullForkParity(t *testing.T) {
 	// Given
-	runner := MatrixRunner{
-		RepoRoot:  repoRoot(t),
-		ReportDir: t.ArtifactDir(),
-	}
+	runner := MatrixRunner{RepoRoot: repoRoot(t)}
 
 	// When
 	report, err := runner.Run(context.Background())

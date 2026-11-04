@@ -18,7 +18,7 @@ func transformerFixtureDrifts(fixture TransformerFixture, result *RunResult) []M
 				Detail:  "diagnostic fixture emitted output",
 			})
 		}
-		actual := matrixANSISequence.ReplaceAllString(result.Stdout+result.Stderr, "")
+		actual := matrixPlainOutput(result.Stdout + result.Stderr)
 		for _, expected := range fixture.Diagnostics {
 			if !strings.Contains(actual, expected) {
 				drift := matrixTextDrift(MatrixSurfaceDiagnostic, "diagnostics", expected, actual)
@@ -49,7 +49,7 @@ func transformerFixtureDrifts(fixture TransformerFixture, result *RunResult) []M
 	if result.ExitCode != 0 {
 		drifts = append(drifts, MatrixDrift{
 			Surface: MatrixSurfaceDiagnostic,
-			Detail:  matrixANSISequence.ReplaceAllString(result.Stdout+result.Stderr, ""),
+			Detail:  matrixPlainOutput(result.Stdout + result.Stderr),
 		})
 	}
 	return drifts
@@ -57,7 +57,7 @@ func transformerFixtureDrifts(fixture TransformerFixture, result *RunResult) []M
 
 func projectFixtureDrifts(fixture ProjectFixture, result *RunResult, artifacts map[string][]byte) []MatrixDrift {
 	drifts := []MatrixDrift{}
-	combined := matrixANSISequence.ReplaceAllString(result.Stdout+result.Stderr, "")
+	combined := matrixPlainOutput(result.Stdout + result.Stderr)
 	if result.ExitCode != fixture.ExpectedExitCode {
 		drifts = append(drifts, matrixExitDrift(fixture.ExpectedExitCode, result.ExitCode))
 		drifts = append(drifts, MatrixDrift{Surface: MatrixSurfaceDiagnostic, Detail: combined})
