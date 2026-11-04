@@ -685,6 +685,15 @@ pub struct SharedProgramData {
     mapper: usize,
 }
 
+// rotor: the address an owner region adopts (`Region::adopt_owner`) in a long-lived session, so the data filled
+// lazily for `processed` (`Program::get_symlink_cache`) goes to a region freed with it, not to the filling thread's
+// arena: `processed` is a heap object, outside every region.
+impl SharedProgramData {
+    pub fn processed_addr(&self) -> usize {
+        self.processed
+    }
+}
+
 /// See `SharedProgramData`.
 pub fn shared_program_data(program: &'static Program) -> SharedProgramData {
     SharedProgramData {

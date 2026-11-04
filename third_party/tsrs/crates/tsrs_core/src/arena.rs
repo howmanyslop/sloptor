@@ -539,6 +539,36 @@ impl Drop for CurrentSlab {
     }
 }
 
+/// rotor: hands the calling thread's current slabs on, as the thread's exit does (`CurrentSlab`'s drop): a slab
+/// whose chunks are all released goes back (to the slab cache or the system) instead of staying the thread's, its
+/// used part dead. For a long-lived session between passes, where the pool's threads never exit and each kept a
+/// slab of freed regions resident. The next region the thread makes starts a new slab.
+pub fn release_thread_slabs() {
+    for current in [&SLAB, &LARGE_SLAB] {
+        let _ = current.try_with(|s| {
+            let (slab, _) = s.get();
+            if !slab.is_null() {
+                s.set((std::ptr::null(), 0));
+                slab_release(slab);
+            }
+        });
+    }
+}
+
+/// rotor: decommits the released slabs kept for reuse (`SLAB_CACHE`), for a long-lived session between passes: a
+/// pass's freed regions refill the cache, whose pages stay resident until reused, up to `SLAB_CACHE_MAX` slabs.
+pub fn release_slab_cache() {
+    #[cfg(compressed_ptrs)]
+    {
+        let cached = std::mem::take(&mut *SLAB_CACHE.lock().unwrap());
+        for addr in cached {
+            // SAFETY: a cached slab is a whole `SLAB_SIZE` chunk from `os_chunk` that every chunk carved from it
+            // released (`slab_release_ex`), and nothing else refers to it once it is out of the cache.
+            unsafe { crate::reserve::release_chunk(std::ptr::with_exposed_provenance_mut::<u8>(addr), SLAB_SIZE) };
+        }
+    }
+}
+
 /// Released standard-size slabs kept for reuse instead of going back to the system (compressed pointers: a
 /// decommit and, at the next slab, a commit and fresh page faults). Short-lived regions (one per file during emit)
 /// release and take slabs at a high rate. Addresses, at most `SLAB_CACHE_MAX`.
