@@ -146,21 +146,29 @@ Outside the Go file map:
 - Build speed and memory (no output changes):
   - Output-hash validation (`validated_output_hashes`) trusts an output whose size, mtime,
     ctime, inode and device match the stamp recorded when its hash was last confirmed
-    (`output_stamps.rs`, `.rotor/cache/output-stamps`); Go reads and hashes every output. The
+    (`output_stamps.rs`, `.rotor/cache/output-stamps`); Go reads and hashes every output. A
+    skipped write keeps the stamp validation saw, and a stamp whose mtime or ctime is not older
+    than the stamps file is not trusted (Git's racily clean entries), so the next build hashes
+    that file again. The
     previous outputs' presence index comes from that validation, where Go lists their
     directories again (`validated_presence_index`).
   - The Rojo resolver cache loads before the native Flamework project opens, which reuses its
     resolver (`ProjectOptions::rojo_resolvers`), and trusts its in-memory entries for the build
-    (`RojoResolverCache::for_one_build`). A build that wrote outputs refreshes the entries those
+    (`RojoResolverCache::for_one_build`), checking them once after cleanup and the include copy
+    (`RojoResolverCache::revalidate`), where Go checks at each load. A build that wrote outputs refreshes the entries those
     writes invalidated before persisting (`RojoResolverCache::refresh`), and a disk entry is
-    checked against the paths its manifest recorded rather than a rebuilt manifest
-    (`state_matches_manifest`). Reference validation reads the same disk caches, read-only.
+    checked against the paths its manifest recorded, and every other partition path must still
+    exist, rather than against a rebuilt manifest (`state_matches_manifest`). Reference validation reads the same disk caches, read-only.
   - A build that selected no files does not collect the Flamework inputs and the salt a second
     time after the pipeline; nothing changed them.
   - A transform's input program and, once its declarations are emitted, the original program
     drop their checkers when the transform's output replaces them (tsrs patch 0009,
     `release_checkers`); `ProgramScope` would otherwise hold them to the end of the build.
-    Go's collector frees them once the programs are unreachable.
+    Go's collector frees them once the programs are unreachable. `rotor_tsrs` binds every
+    program it derives as it makes it, so no file's symbols live in a checker's region. A held
+    checker, or a later request for one, panics, and in tsrs's poison mode
+    (`TSRS_ARENA_POISON=1`, `arena::enable_poison_mode`) a freed region's pages are made
+    inaccessible.
 
 ## Go tests
 
