@@ -14,6 +14,8 @@ license = "MIT"
 publish = false
 
 [workspace.dependencies]
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+clap_complete = "4.6.11"
 getrandom = "0.4"
 icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 mimalloc-safe = { version = "0.1.67", features = ["no_thp", "v3"] }

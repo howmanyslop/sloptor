@@ -11,10 +11,15 @@ name = "rotor-rs"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+clap_complete.workspace = true
 mimalloc-safe.workspace = true
 rotor_compile.workspace = true
+rotor_config.workspace = true
 rotor_support.workspace = true
 rotor_tsrs.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
