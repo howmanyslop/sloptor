@@ -2,10 +2,11 @@
 //! must compile byte-identically to `testdata/diff/golden/<name>.luau`.
 //!
 //! The enabled fixtures are listed in `tests/fixtures/*.txt`, one list per stage or slice.
-//! `differential/<name>` rows of `testdata/forkparity/divergence-ledger.json` classified
-//! `upstream-corrected` are exempt from byte equality in Go (their runtime behavior is verified
-//! instead); none of Stage 4a's fixtures is such a row, and listing one here fails the gate until
-//! that verification is ported.
+//! The three `differential/<name>` rows of `testdata/forkparity/divergence-ledger.json` classified
+//! `upstream-corrected` (`26_stringmacros`, `29_iteration`, `31_mixed3b`) are not listed: sloptor
+//! emits upstream's corrected loops and iterator destructuring, not the frozen rbxtsc bytes, and
+//! this gate only compares bytes. Their behavior is held by the runtime tests the ledger names in
+//! `rotor_cli`'s `tests/forkparity.rs`. Listing one here fails the gate.
 
 mod harness;
 
@@ -83,7 +84,7 @@ fn differential_fixtures_match_the_goldens() {
 		for name in &enabled {
 			assert!(
 				!corrected.contains(name),
-				"{name} is an upstream-corrected ledger row; port diff_test.go's behavioral verification first"
+				"{name} is an upstream-corrected ledger row: it cannot match its frozen golden byte for byte"
 			);
 		}
 

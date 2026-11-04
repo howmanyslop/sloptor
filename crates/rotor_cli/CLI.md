@@ -265,3 +265,36 @@ These `cmd/rotor` tests were dropped or rewritten in Stage 7a:
 | `TestStderrWriter` | Go's `stderrWriter` type has no counterpart; the solution watch writes its errors to `std::io::stderr` |
 | `TestCmdBuildJSONDiagnosticPathIsProjectRelative` | covered by `build_json_reports_success_and_diagnostics` in `tests/cli.rs` |
 | `parallel_transformer_test.go`, `concurrency_system_test.go`, `build_solution_reuse_test.go` | compile-level behaviour that needs the Node sidecar or fixtures; not ported in Stage 7a |
+
+### Fork parity and the runtime suites
+
+`tests/forkparity.rs` ports `internal/forkparity` and the Lune half of `internal/conformance`. The
+tests that run sloptor over the corpus or build places are ignored by default.
+`mise run rust:forkparity` builds the release binary, names it in `ROTOR_BIN`, and runs them all;
+it takes about 20 seconds after the build, once the first run has installed the pinned roblox-ts into the user cache. Without `ROTOR_BIN` the suite runs the test profile's
+`sloptor`. The runtime suites need Node and npm, and Rojo and Lune from `mise.toml`. Without Rojo
+or Lune a runtime test prints `SKIPPED <test>: <why>` and passes (`ROTOR_ROJO_PATH` and
+`ROTOR_LUNE_PATH` name the tools when they are not on `PATH`); `full_fork_parity` fails instead,
+because a skipped run verifies nothing.
+
+| Go test | Rust test |
+| --- | --- |
+| `forkparity` `TestFullForkParity`, `TestProjectOracleGoldens` | `matrix::full_fork_parity`: the 10 transformer and 10 project fixtures, with zero drift. An `upstream-corrected` row's byte differences are accepted only after the runtime test it names passes |
+| `forkparity` `TestArchiveIdentity`, `TestTransformerFixtureProvenance`, `TestProjectFixtureManifest` | `matrix::archive_digest_and_provenance_match` |
+| `forkparity` `TestDivergenceLedgerCoversMatrixCases`, `TestDivergenceLedgerRejectsUnknownMatrixCase` | `matrix::ledger_covers_every_matrix_case`, `matrix::ledger_rejects_an_unknown_case_and_a_go_behavioral_test`. A corrected row must name a test of `runtime` |
+| `forkparity` `TestBehavioralVerificationRejectsUnexecutedTests` | none: `full_fork_parity` runs the named test in-process and fails when it cannot run, so there is no skipped run to reject |
+| `forkparity` `TestProjectFixtures*`, `TestPerformanceOutputFixture` | `matrix::project_fixtures_cover_the_fork_scenarios`, `matrix::performance_output_fixture_is_intact` |
+| `conformance` `TestBehavioralSuite` | `runtime::behavioral_suite` |
+| `conformance` `TestPinnedCompatibility/*` | `runtime::pinned_compatibility_{loops,calling_conventions,iterator_rest,switch}` |
+| `conformance` `TestPinnedPackageInterop`, `TestPinnedCompatibilityDiagnostics` | `runtime::pinned_package_interop`, `runtime::pinned_compatibility_diagnostics` |
+| `conformance` `TestRandomnessAcceptance` | `runtime::randomness_acceptance` (skips without `ROTOR_RANDOMNESS_PATH`) |
+| `conformance` `TestDiagnosticsCorpus`, `TestNoRobloxSymbolInstanceofFixture`, `TestRojoTopologyDiagnosticFixtures` | `runtime::diagnostics_corpus` (not ignored; it compiles in-process) |
+| `conformance` `TestFixtureManifestCoverage` | `rotor_compile`'s `tests/conformance.rs` `fixture_manifest_covers_every_golden` |
+
+Not ported: the tests that run the fork itself (`TestRunnerCapturesArtifacts`,
+`TestTransformerOracleGoldens`), because `roblox-ts.zip` ships without the fork's `node_modules`
+and Go skipped them too. The comparator and normalizer behind them (`TestNormalizerBoundaries`,
+`TestComparator*`) went with them. Also not ported: the zip extraction guards
+(`TestArchiveRejects*`), because sloptor's suite checks the archive's digest and never extracts
+it, and the report digests (`TestMatrixArtifact*`), because the Rust suite reports drift
+directly and writes no report file.

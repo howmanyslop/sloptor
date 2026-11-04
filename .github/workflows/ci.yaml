@@ -64,9 +64,8 @@ jobs:
               - "!documentation/**"
               - "!media/**"
             # Fails open the same way: the Rust crates read testdata/,
-            # include/, and tools/sidecar, and internal/forkparity drives the
-            # Rust binary. Only the Go-only paths and the docs are listed as
-            # Rust-free. This file and the setup-rust action are not among
+            # include/, reference/, and tools/sidecar. Only the Go-only paths
+            # and the docs are listed as Rust-free. This file and the setup-rust action are not among
             # them, so a CI edit always proves itself.
             rust:
               - "**"
@@ -159,10 +158,11 @@ jobs:
 
     timeout-minutes: 20
 
-  # internal/forkparity compares the sloptor release binary with the pinned
-  # roblox-ts fork. It is a Go test harness, so the lane needs both toolchains:
-  # `mise run rust:forkparity` builds the release binary and hands it to the
-  # suite through ROTOR_BIN.
+  # crates/rotor_cli/tests/forkparity.rs compares the sloptor release binary
+  # with the pinned roblox-ts fork and runs the Lune runtime suites behind the
+  # ledger's upstream-corrected rows. `mise run rust:forkparity` builds the
+  # release binary and hands it to the suite through ROTOR_BIN. The setup
+  # action installs Node, Rojo, Lune and the fixture node_modules it needs.
   rust-forkparity:
     if: needs.changes.outputs.rust == 'true'
     name: rust-forkparity (${{ matrix.name }})
@@ -181,10 +181,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache-key: forkparity-${{ matrix.name }}
-
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
+          tools: cargo:cargo-nextest
 
       - name: Fork parity
         run: mise run rust:forkparity
@@ -278,8 +275,8 @@ jobs:
 
   # Linux lanes. Everything except the four heaviest packages (flamework,
   # conformance, forkparity, compile) runs here alongside gofmt and vet; flamework,
-  # conformance, and compile get their own runner in test-heavy. forkparity drives
-  # the Rust binary, so it runs in rust-forkparity. New packages land here by
+  # conformance, and compile get their own runner in test-heavy. Go's forkparity
+  # is replaced by rust-forkparity and no longer runs. New packages land here by
   # default; move one to test-heavy only if it belongs with the big ones.
   test:
     needs: changes
@@ -441,8 +438,8 @@ jobs:
         name: Test
         run: |
           set -euo pipefail
-          # flamework and conformance run in their own lanes, forkparity in
-          # rust-forkparity; compile and everything else run here. -p above GOMAXPROCS
+          # flamework and conformance run in their own lanes, and forkparity's
+          # Rust port in rust-forkparity; compile and everything else run here. -p above GOMAXPROCS
           # overlaps I/O waits across the smaller packages.
           # shellcheck disable=SC2046 # word splitting is the point
           go test -count=1 -p 8 \

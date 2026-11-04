@@ -7,22 +7,22 @@
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "array rest emits the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/object-rest",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "object rest direct access and extraction emit the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/iterable-rest",
 			"classification": "upstream-corrected",
 			"surface": "runtime-result",
 			"contract": "Set, Map, and Generator destructuring preserves the iterator cursor and exhaustion across omissions and rest",
-			"verification": "TestFullForkParity retains the archive byte differences and requires the pinned upstream behavioral regression suite",
-			"behavioralTest": "TestPinnedCompatibility/iterator-rest",
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) retains the archive byte differences and requires the pinned upstream behavioral regression suite",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_iterator_rest",
 			"reason": "The archived emitter restarts exhausted iterators and constructs nil-keyed exclusion tables. Corrected output is verified against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e; the archive and its provenance remain unchanged."
 		},
 		{
@@ -30,91 +30,91 @@
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "safe and unsafe rest parameters emit the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/bitwise-flatten-and-compound",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "bitwise chains and compound assignments emit the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/shared-table-iteration",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "SharedTable iteration emits the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/range-literal-step",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "literal negative range steps emit the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/nullable-lua-tuple",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "nullable LuaTuple access emits the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "transformer/bigint-property-diagnostic",
 			"classification": "fork-authoritative",
 			"surface": "diagnostic",
 			"contract": "BigInt property names return the archived TypeScript diagnostic",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer diagnostic fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer diagnostic fixture"
 		},
 		{
 			"id": "transformer/runtime-import",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "runtime imports emit the archived fork Luau bytes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured transformer fixture"
 		},
 		{
 			"id": "project/build-basic",
 			"classification": "fork-authoritative",
 			"surface": "byte",
 			"contract": "single-project build emits a complete Luau artifact tree",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
 		},
 		{
 			"id": "project/build-declarations",
 			"classification": "fork-authoritative",
 			"surface": "declaration",
 			"contract": "build-mode declaration emission is present beside compiled output",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
 		},
 		{
 			"id": "project/build-no-change",
 			"classification": "fork-authoritative",
 			"surface": "write-trace",
 			"contract": "a repeated composite build preserves the fork build-state contract",
-			"verification": "TestFullForkParity compares two built-Rotor invocations with the FROZEN archive-captured project transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares two built-Rotor invocations with the FROZEN archive-captured project transcript"
 		},
 		{
 			"id": "project/cross-project-dts",
 			"classification": "fork-authoritative",
 			"surface": "declaration",
 			"contract": "cross-project generated and handwritten declarations resolve through their owning output",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
 		},
 		{
 			"id": "project/per-project-rojo",
 			"classification": "fork-authoritative",
 			"surface": "cache",
 			"contract": "per-project Rojo configuration writes resolver state without selecting the default configuration",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
 		},
 		{
 			"id": "project/transformer-declarations",
 			"classification": "fork-authoritative",
 			"surface": "declaration",
 			"contract": "a tsconfig afterDeclarations transformer is reported and skipped; declarations are still emitted and no marker reaches either the declaration or the Luau",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and the RE-FROZEN transcript",
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and the RE-FROZEN transcript",
 			"implementationDetail": "Rotor emits declarations from tsgo, which has no custom-transformer hook, so there is nowhere to run an afterDeclarations transformer; the build warns once per project instead of dropping it silently (internal/compile/afterdeclarations.go)",
 			"reason": "Re-frozen when declaration emit moved off the Node sidecar. The fork's contract was that the marker REACHES the .d.ts and not the .luau; the half that still holds (nothing leaks into Luau) is kept as a forbidden text, the half that cannot hold is inverted into a forbidden text on the .d.ts, and the warning is asserted on the diagnostic surface. The .d.ts is still required, so the row keeps proving that a project with an afterDeclarations plugin publishes declarations at all."
 		},
@@ -123,28 +123,28 @@
 			"classification": "fork-authoritative",
 			"surface": "plugin-trace",
 			"contract": "before transformers precede after transformers",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project transcript"
 		},
 		{
 			"id": "project/transformer-sourcemap",
 			"classification": "fork-authoritative",
 			"surface": "source-map",
 			"contract": "transformed source output has an adjacent source map with original source content",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project tree and transcript"
 		},
 		{
 			"id": "project/diagnostics",
 			"classification": "fork-authoritative",
 			"surface": "diagnostic",
 			"contract": "type errors exit nonzero with TS2322",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project transcript"
 		},
 		{
 			"id": "project/duplicate-output",
 			"classification": "fork-authoritative",
 			"surface": "diagnostic",
 			"contract": "duplicate outputs fail before output writes",
-			"verification": "TestFullForkParity compares the built Rotor binary with the FROZEN archive-captured project transcript"
+			"verification": "full_fork_parity (rotor_cli tests/forkparity.rs) compares the built Rotor binary with the FROZEN archive-captured project transcript"
 		},
 		{
 			"id": "oracle-execution/transformer-fixtures",
@@ -169,9 +169,9 @@
 			"classification": "upstream-corrected",
 			"surface": "runtime-result",
 			"contract": "The original conformance suite and Rotor extensions execute successfully through Rojo and Lune",
-			"verification": "TestFullForkParity requires a passing TestBehavioralSuite event; skipped execution is rejected",
+			"verification": "full_fork_parity runs the behavioral suite itself and fails without Rojo and Lune; a skipped run is rejected",
 			"reason": "Runtime execution is required for the upstream corrections; tool availability is no longer an exemption.",
-			"behavioralTest": "TestBehavioralSuite"
+			"behavioralTest": "rotor_cli::forkparity::runtime::behavioral_suite"
 		},
 		{
 			"id": "watch/chokidar-scheduling",
@@ -220,7 +220,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -229,7 +229,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the iterator-rest correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/iterator-rest",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_iterator_rest",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -238,7 +238,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the iterator-rest correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/iterator-rest",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_iterator_rest",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -247,7 +247,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -256,7 +256,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -265,7 +265,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the iterator-rest correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/iterator-rest",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_iterator_rest",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -274,7 +274,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -283,7 +283,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the switch correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/switch",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_switch",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -292,7 +292,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		},
 		{
@@ -301,7 +301,7 @@
 			"surface": "runtime-result",
 			"contract": "Preserve runtime semantics after the loops correction; retain the frozen output as historical evidence",
 			"verification": "The corpus compares frozen bytes and requires the named pinned-upstream behavioral test for this classified correction",
-			"behavioralTest": "TestPinnedCompatibility/loops",
+			"behavioralTest": "rotor_cli::forkparity::runtime::pinned_compatibility_loops",
 			"reason": "Corrected emission differs from the frozen compiler output. Runtime behavior is checked against upstream 3106b1492a2cf5b5b06f73354e94b03e3eb45b4e without regenerating historical goldens."
 		}
 	]

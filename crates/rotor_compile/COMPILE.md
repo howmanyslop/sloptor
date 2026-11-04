@@ -199,7 +199,22 @@ gates for binding patterns, `export =` maps, enum property names and `typeof` pr
 The Go tests are ported in `src/tests/` and in `src/source_trace.rs`'s test module. Each Go test
 file maps to one Rust module, and the expected strings are copied verbatim.
 `logservice_test.go` is ported into `rotor_support::logservice`. `tests/conformance.rs` is the
-conformance golden gate, and `tests/filemacro_bytes.rs` covers `$file` on Windows-1252 bytes.
+conformance golden gate (`internal/conformance` `TestConformance`) and holds the golden manifest
+(`TestFixtureManifestCoverage`), and `tests/filemacro_bytes.rs` covers `$file` on Windows-1252
+bytes. Its upstream-corrected rows are exempt from byte equality only because each names a runtime
+test in `rotor_cli`'s `tests/forkparity.rs` (see CLI.md), which also holds the Lune suites and the
+diagnostics corpus.
+
+| Go suite | Rust test |
+| --- | --- |
+| `internal/conformance` `TestConformance` | `tests/conformance.rs` `conformance_goldens_match` |
+| `internal/conformance` `TestFixtureManifestCoverage` | `tests/conformance.rs` `fixture_manifest_covers_every_golden` |
+| `internal/conformance` runtime, pinned and diagnostics suites | `rotor_cli` `tests/forkparity.rs`, module `runtime` |
+| `internal/diff` `TestDifferential` | `rotor_transformer` `tests/diff.rs`, all but the three upstream-corrected fixtures |
+| `internal/forkparity` | `rotor_cli` `tests/forkparity.rs`, module `matrix` |
+
+The unit fixtures Go kept under `internal/<package>/testdata` live in `testdata/compile-unit`,
+`testdata/transformer-unit`, `testdata/flamework-unit` and `testdata/spike-unit`.
 
 Ported: `array_append_optimization`, `audit`, `baseurl`, `comment_directives`, `compile`,
 `copyfilesgate`, `declaration_emit`, `declmap`, `declpaths`, `diagnostic_string_code`,

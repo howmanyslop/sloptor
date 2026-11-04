@@ -30,9 +30,30 @@ func (r MatrixRunner) verifyUpstreamCorrection(ctx context.Context, ledger Diver
 	return nil
 }
 
+// rustBehavioralTestPrefix starts the ledger's names for the runtime tests of
+// rotor_cli's forkparity suite, which now own the upstream-corrected rows.
+const rustBehavioralTestPrefix = "rotor_cli::forkparity::runtime::"
+
+// GoBehavioralTest maps a ledger behavioral test to its internal/conformance
+// twin, so the Go suites keep verifying the rows until they are deleted.
+func GoBehavioralTest(test string) string {
+	name, ok := strings.CutPrefix(test, rustBehavioralTestPrefix)
+	if !ok {
+		return test
+	}
+	if name == "behavioral_suite" {
+		return "TestBehavioralSuite"
+	}
+	if fixture, ok := strings.CutPrefix(name, "pinned_compatibility_"); ok {
+		return "TestPinnedCompatibility/" + strings.ReplaceAll(fixture, "_", "-")
+	}
+	return test
+}
+
 // VerifyBehavioralTest requires an actual passing test event. An exit-zero
 // invocation with a missing or skipped test does not verify compatibility.
 func VerifyBehavioralTest(ctx context.Context, repoRoot, test string) error {
+	test = GoBehavioralTest(test)
 	parts := strings.Split(test, "/")
 	for i, part := range parts {
 		parts[i] = "^" + regexp.QuoteMeta(part) + "$"

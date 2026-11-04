@@ -294,14 +294,14 @@ description = "Formats the Rust workspace."
 run = "cargo fmt"
 
 [tasks."rust:forkparity"]
-description = "Runs internal/forkparity (sloptor against the pinned roblox-ts fork) on the sloptor release binary instead of a fresh cargo build."
+description = "Runs rotor_cli's forkparity suite with its ignored tests: sloptor against the pinned roblox-ts fork's frozen output, the divergence ledger, and the Lune runtime suites. Builds the release binary and names it in ROTOR_BIN. Needs node, npm, rojo and lune; a suite without rojo or lune says SKIPPED in its output."
 depends = ["rust:release"]
 shell = "sh -o errexit -c"
 run = '''
 exe=sloptor
 here="pwd"
 case "$(uname -s)" in
-# Go cannot read Git Bash's /c/... paths.
+# Native Windows programs cannot read Git Bash's /c/... paths.
 MINGW* | MSYS* | CYGWIN*)
 	exe=sloptor.exe
 	here="pwd -W"
@@ -310,7 +310,7 @@ esac
 target="${CARGO_TARGET_DIR:-target}"
 ROTOR_BIN="$(cd "$target" && $here)/release/$exe"
 export ROTOR_BIN
-go test -count=1 ./internal/forkparity
+cargo nextest run --locked -p rotor_cli --test forkparity --run-ignored all --success-output final
 '''
 
 [tasks."rust:gc"]

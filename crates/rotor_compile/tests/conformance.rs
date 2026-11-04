@@ -3,11 +3,11 @@
 //! `testdata/conformance/project`, and must be byte-identical to the golden.
 //!
 //! Golden rows the divergence ledger classifies `upstream-corrected` are exempt from byte
-//! equality in Go too: their runtime behavior is verified with Lune instead, which needs the
-//! pinned upstream compiler, Rojo and Lune. They must still compile; the comparison is reported,
-//! not enforced.
+//! equality: each row names the runtime test that verifies it in Lune against the pinned upstream
+//! compiler (`rotor_cli`'s `tests/forkparity.rs`, run by `mise run rust:forkparity`, whose
+//! `full_fork_parity` fails unless every named test passes). They must still compile.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -54,9 +54,10 @@ fn golden_paths(golden_dir: &Path) -> Vec<String> {
 	out
 }
 
-/// The `conformance/<rel>` rows the ledger classifies upstream-corrected.
+/// The `conformance/<rel>` rows the ledger classifies upstream-corrected, with the runtime test
+/// each names.
 #[expect(clippy::expect_used, reason = "a test harness fails loudly")]
-fn upstream_corrected_rows(root: &Path) -> BTreeSet<String> {
+fn upstream_corrected_rows(root: &Path) -> BTreeMap<String, String> {
 	let ledger = fs::read_to_string(root.join("testdata/forkparity/divergence-ledger.json"))
 		.expect("the divergence ledger reads");
 	let ledger: serde_json::Value = serde_json::from_str(&ledger).expect("the divergence ledger parses");
@@ -67,9 +68,65 @@ fn upstream_corrected_rows(root: &Path) -> BTreeSet<String> {
 		.unwrap_or_default();
 	rows.iter()
 		.filter(|row| row.get("classification").and_then(serde_json::Value::as_str) == Some("upstream-corrected"))
-		.filter_map(|row| row.get("id")?.as_str()?.strip_prefix("conformance/").map(str::to_owned))
+		.filter_map(|row| {
+			let rel = row.get("id")?.as_str()?.strip_prefix("conformance/")?;
+			let test = row.get("behavioralTest")?.as_str()?;
+			Some((rel.to_owned(), test.to_owned()))
+		})
 		.collect()
 }
+
+/// The runtime tests a corrected row may name (`rotor_cli`'s `tests/forkparity/runtime.rs`).
+const RUNTIME_TEST_PREFIX: &str = "rotor_cli::forkparity::runtime::";
+
+/// `EnabledFixtures` (Go's `internal/conformance/manifest.go`): every golden the gate compiles.
+/// A golden added or removed without updating this list fails `fixture_manifest_covers_every_golden`.
+const ENABLED_FIXTURES: [&str; 44] = [
+	"helpers/rojo/isolated.luau",
+	"helpers/rojo/noRojo.luau",
+	"helpers/util/ClassWithInstanceFoo.luau",
+	"helpers/util/ClassWithStaticFoo.luau",
+	"helpers/util/nonModule.server.luau",
+	"main.server.luau",
+	"tests/assignment.spec.luau",
+	"tests/array.spec.luau",
+	"tests/binary.spec.luau",
+	"tests/bitwise.spec.luau",
+	"tests/class.spec.luau",
+	"tests/decorator.spec.luau",
+	"tests/delete.spec.luau",
+	"tests/destructure.spec.luau",
+	"tests/enum.spec.luau",
+	"tests/exportLet.spec.luau",
+	"tests/function.spec.luau",
+	"tests/generator.spec.luau",
+	"tests/hoist.spec.luau",
+	"tests/if.spec.luau",
+	"tests/instanceof.spec.luau",
+	"tests/literal.spec.luau",
+	"tests/loop.spec.luau",
+	"tests/macro_math.spec.luau",
+	"tests/map.spec.luau",
+	"tests/math.spec.luau",
+	"tests/namespace.spec.luau",
+	"tests/object.spec.luau",
+	"tests/optional.spec.luau",
+	"tests/promise.spec.luau",
+	"tests/roact.spec.luau",
+	"tests/roact_spread.spec.luau",
+	"tests/roblox.spec.luau",
+	"tests/robloxEnum.spec.luau",
+	"tests/set.spec.luau",
+	"tests/string.spec.luau",
+	"tests/switch.spec.luau",
+	"tests/template.spec.luau",
+	"tests/ternary.spec.luau",
+	"tests/truthiness.spec.luau",
+	"tests/try.spec.luau",
+	"tests/tuple.spec.luau",
+	"tests/type.spec.luau",
+	"tests/typeof.spec.luau",
+];
 
 /// `fixtureTSConfig`
 const FIXTURE_TS_CONFIG: &str = r#"{
@@ -235,7 +292,7 @@ fn conformance_goldens_match() {
 			if got == want {
 				continue;
 			}
-			if corrected.contains(rel) {
+			if corrected.contains_key(rel) {
 				waived.push(rel.clone());
 				continue;
 			}
@@ -246,10 +303,32 @@ fn conformance_goldens_match() {
 			);
 		}
 		assert!(failures.is_empty(), "conformance failures:\n{failures}");
-		// Upstream-corrected rows differ from the frozen rbxtsc golden by design; Go verifies them
-		// at runtime with Lune.
+		// Upstream-corrected rows differ from the frozen rbxtsc golden by design; the runtime test
+		// each row names is what holds them to upstream's behavior.
 		for rel in &waived {
-			assert!(corrected.contains(rel));
+			let test = &corrected[rel];
+			assert!(
+				test.starts_with(RUNTIME_TEST_PREFIX),
+				"{rel} differs from its golden, and its ledger row names {test:?}, not a runtime test of rotor_cli's forkparity suite"
+			);
 		}
 	});
+}
+
+/// `TestFixtureManifestCoverage`: the manifest and the goldens on disk agree, entry for entry.
+#[test]
+fn fixture_manifest_covers_every_golden() {
+	let golden_dir = repo_root().join("testdata/conformance/golden");
+	let mut manifest = BTreeSet::new();
+	for rel in ENABLED_FIXTURES {
+		assert!(manifest.insert(rel), "duplicate fixture entry for {rel:?}");
+		assert!(golden_dir.join(rel).is_file(), "manifest entry {rel:?} has no golden");
+	}
+	let goldens = golden_paths(&golden_dir);
+	let on_disk: BTreeSet<&str> = goldens.iter().map(String::as_str).collect();
+	let unlisted: Vec<_> = on_disk.difference(&manifest).collect();
+	assert!(
+		unlisted.is_empty(),
+		"goldens missing from ENABLED_FIXTURES: {unlisted:?}"
+	);
 }

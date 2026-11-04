@@ -121,7 +121,7 @@ func TestConformance(t *testing.T) {
 					verifiedRuntime = true
 				}
 				if !verifiedCorrections[behavioralTest] {
-					runPinnedCompatibilityFixture(t, strings.TrimPrefix(behavioralTest, "TestPinnedCompatibility/"))
+					runPinnedCompatibilityFixture(t, strings.TrimPrefix(forkparity.GoBehavioralTest(behavioralTest), "TestPinnedCompatibility/"))
 					verifiedCorrections[behavioralTest] = true
 				}
 				if got != string(want) {
