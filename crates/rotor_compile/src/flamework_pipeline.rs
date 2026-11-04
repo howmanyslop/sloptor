@@ -249,9 +249,11 @@ pub(crate) fn run_compile_pipeline_with_options(
 /// them to the end of the build, beside the checkers of the programs after it.
 #[expect(unsafe_code, reason = "frees the checkers of a program nothing checks any more")]
 pub(crate) fn release_transformed_checkers(program: &'static Program) {
-	// SAFETY: the transform dropped its checker handle, and what it kept from the checker is
-	// printed text, traces and owned diagnostics. Later stages check the replacing program, and
-	// the build reads `program` only for its files.
+	// SAFETY: what the transform kept from the checker is printed text, traces and owned
+	// diagnostics. Later stages check the replacing program, and the build reads `program` only
+	// for its files, which `rotor_tsrs::project` bound outside any checker when it made the
+	// program, so their symbols are not in the checkers' regions. A held checker or a later
+	// request for one panics in tsrs.
 	unsafe { rotor_tsrs::compiler::release_checkers(program) };
 }
 

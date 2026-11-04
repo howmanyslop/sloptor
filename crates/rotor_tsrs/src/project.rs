@@ -657,7 +657,18 @@ pub fn update_with_overlays_checkers(
 		derived = next;
 		reused &= kept;
 	}
+	if !std::ptr::eq(derived, program) {
+		bind_outside_checkers(derived);
+	}
 	Ok((derived, reused))
+}
+
+/// Binds `program`'s files now, as [`load_project_in_cached`] does. A file a derived program
+/// parsed again would otherwise be bound by its first checker, in that checker's region (tsrs's
+/// `checker_regions`) under `singleThreaded`, and a later program that keeps the file would read
+/// binder data the region's release freed.
+fn bind_outside_checkers(program: &'static Program) {
+	program.bind_source_files();
 }
 
 /// Derives a program from `program` whose files at `changed` are asked of `host` again, in that
@@ -677,6 +688,7 @@ pub fn update_program_files(
 	let (derived, reused) = program.update_program_files_with_checkers(changed, host, None, checkers);
 	if !std::ptr::eq(derived, program) {
 		track_program(derived);
+		bind_outside_checkers(derived);
 	}
 	(derived, reused)
 }

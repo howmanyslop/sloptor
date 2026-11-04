@@ -156,19 +156,17 @@ pub fn symlink_transformer_fixture_modules(temp: &Temp) {
 	std::os::windows::fs::symlink_dir(fixture, temp.join("node_modules")).expect("symlink");
 }
 
-#[test]
-fn flamework_pipeline_uses_configured_after_on_real_build_path() {
-	// Given: native Flamework is enabled and anchored after a real external transform.
-	let temp = write_project("flamework-pipeline-real-build", "");
+/// A project whose native Flamework stage runs after the sidecar plugins `plugins`, written with
+/// `rotor_toml` and [`FLAMEWORK_STAGE_PLUGIN`] as `plugins/prefix.js` and `plugins/suffix.js`.
+fn sidecar_flamework_project(name: &str, plugins: &str, rotor_toml: &str) -> Temp {
+	let temp = write_project(name, "");
 	let dir = temp.dir();
 	set_repo_sidecar_path();
-	let _sessions = SessionsGuard::new();
 	symlink_transformer_fixture_modules(&temp);
 	temp.write(
 		"default.project.json",
 		r#"{"name":"fixture","tree":{"$className":"DataModel","ReplicatedStorage":{"TS":{"$path":"out"},"rbxts_include":{"$path":"include","node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"},"@flamework":{"$path":"node_modules/@flamework"}}}}}}"#,
 	);
-	let plugins = r#"[{"transform":"./plugins/prefix.js","phase":"prefix"},{"transform":"./plugins/suffix.js","phase":"suffix"}]"#;
 	let config_text = sidecar_declaration_config(plugins).replacen(
 		r#""declaration": true,"#,
 		r#""declaration": true, "experimentalDecorators": true,"#,
@@ -180,10 +178,23 @@ fn flamework_pipeline_uses_configured_after_on_real_build_path() {
 		1,
 	);
 	write_sidecar_plugin_fixture(&dir, "", &config_text);
-	temp.write("rotor.toml", "[flamework]\nafter = \"./plugins/prefix.js\"\n");
+	temp.write("rotor.toml", rotor_toml);
 	for name in ["prefix.js", "suffix.js"] {
 		temp.write(&format!("plugins/{name}"), FLAMEWORK_STAGE_PLUGIN);
 	}
+	temp
+}
+
+#[test]
+fn flamework_pipeline_uses_configured_after_on_real_build_path() {
+	// Given: native Flamework is enabled and anchored after a real external transform.
+	let _sessions = SessionsGuard::new();
+	let temp = sidecar_flamework_project(
+		"flamework-pipeline-real-build",
+		r#"[{"transform":"./plugins/prefix.js","phase":"prefix"},{"transform":"./plugins/suffix.js","phase":"suffix"}]"#,
+		"[flamework]\nafter = \"./plugins/prefix.js\"\n",
+	);
+	let dir = temp.dir();
 	temp.write(
 		"src/main.ts",
 		"import { Service } from \"@flamework/core\";\n@Service()\nexport class TestService {}\n",
@@ -240,6 +251,46 @@ fn flamework_pipeline_uses_configured_after_on_real_build_path() {
 	assert!(
 		declaration.contains("export declare class TestService"),
 		"declaration does not describe the authored source:\n{declaration}"
+	);
+}
+
+/// The build frees the checkers of the program native Flamework transforms once its output
+/// replaces it, and with `skipUnchangedFiles` that output keeps the prefix stage's parse of each
+/// file Flamework leaves alone. Under `singleThreaded` the prefix program bound those files in its
+/// first checker's region, so the freed binder data was read again; poison mode makes the freed
+/// pages fault.
+#[test]
+fn flamework_skip_unchanged_files_survive_released_prefix_checkers() {
+	rotor_tsrs::tscore::arena::enable_poison_mode();
+	let _sessions = SessionsGuard::new();
+	let temp = sidecar_flamework_project(
+		"@scope/flamework-released-prefix",
+		r#"[{"transform":"./plugins/prefix.js","phase":"prefix"}]"#,
+		"[flamework]\nafter = \"./plugins/prefix.js\"\nskipUnchangedFiles = true\n",
+	);
+	temp.write("src/helper.ts", "export function helper(): number {\n\treturn 1;\n}\n");
+	temp.write(
+		"src/main.ts",
+		"import { Service } from \"@flamework/core\";\nimport { helper } from \"./helper\";\n@Service()\nexport class TestService {\n\tvalue = helper();\n}\n",
+	);
+
+	let opts = ProjectOptions {
+		single_threaded: Some(true),
+		..ProjectOptions::default()
+	};
+	let (result, diags, error) = build(&temp.dir(), &opts);
+
+	assert!(error.is_none(), "BuildProjectWithOptions: {error:?} (diags: {diags:?})");
+	let result = result.expect("a result");
+	let helper = super::sidecar::output_text(&result, "out/helper.luau");
+	assert!(
+		helper.contains("prefix-stage") && !helper.contains("defineMetadata"),
+		"helper.luau is not the prefix stage's text left alone by Flamework:\n{helper}"
+	);
+	let main = super::sidecar::output_text(&result, "out/main.luau");
+	assert!(
+		main.contains("prefix-stage") && main.contains("defineMetadata") && main.contains("helper()"),
+		"main.luau lacks a stage:\n{main}"
 	);
 }
 
