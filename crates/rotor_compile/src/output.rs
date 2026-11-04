@@ -309,6 +309,11 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	let include_outputs = maybe_copy_include(&dir, &opts);
 	stop_include_copy.stop();
 	let include_outputs = include_outputs?;
+	// rotor-rs: the Rojo cache trusts its entries for the build (`for_one_build`); Go checks each
+	// one when it loads it, after cleanup and the include copy changed the tree.
+	if let Some(cache) = &opts.rojo_cache {
+		cache.revalidate();
+	}
 
 	// Copying the non-compiled files is disk work no compile stage reads, so it runs beside them;
 	// every return waits for it.

@@ -489,3 +489,49 @@ fn is_output_file_orphaned_dts_map() {
 		"expected .d.ts.map to be orphaned when its source was deleted"
 	);
 }
+
+/// Cleanup removes a copied nested Rojo project whose source is gone. The build's Rojo cache,
+/// loaded before cleanup and trusted for the build, must see the tree without it by project
+/// context, as Go's load there does; otherwise an import into the old partition keeps its path.
+#[test]
+fn cleanup_of_a_copied_rojo_project_reaches_project_context() {
+	let temp = write_project(
+		"cleanup-rojo-project",
+		r#"{"name":"game","tree":{"$className":"DataModel","ReplicatedStorage":{"out":{"$path":"out"},"include":{"$path":"include"}}}}"#,
+	);
+	enable_incremental_builds(&temp);
+	temp.write(
+		"src/sub/default.project.json",
+		r#"{"name":"inner","tree":{"$path":"code"}}"#,
+	);
+	temp.write("src/sub/code/x.ts", "export const x = 1;\n");
+	temp.write(
+		"src/main.ts",
+		"import { x } from \"./sub/code/x\";\nexport const y = x;\n",
+	);
+	build(&temp.dir(), &ProjectOptions::default());
+	let first = fs::read_to_string(temp.join("out/main.luau")).expect("main.luau");
+	assert!(
+		temp.join("out/sub/default.project.json").exists(),
+		"the nested project was not copied"
+	);
+
+	fs::remove_file(temp.join("src/sub/default.project.json")).expect("remove the nested project");
+	temp.write(
+		"src/main.ts",
+		"import { x } from \"./sub/code/x\";\nexport const y = x;\nexport const z = x;\n",
+	);
+	build(&temp.dir(), &ProjectOptions::default());
+	let second = fs::read_to_string(temp.join("out/main.luau")).expect("main.luau");
+
+	assert!(
+		!temp.join("out/sub/default.project.json").exists(),
+		"cleanup kept the orphaned nested project"
+	);
+	let import = |text: &str| text.lines().find(|line| line.contains("TS.import")).map(str::to_owned);
+	assert_eq!(
+		import(&second),
+		import(&first),
+		"the import resolved through the removed nested project:\n{second}"
+	);
+}

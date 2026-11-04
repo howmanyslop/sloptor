@@ -150,6 +150,14 @@ impl RojoResolverCache {
 		resolver
 	}
 
+	/// Checks every in-memory entry's manifest once, as Go's next load would, and drops the ones
+	/// that no longer hold, so a [`Self::for_one_build`] cache parses them again. A build calls it
+	/// once cleanup and the include copy may have changed what the resolver walks.
+	pub fn revalidate(&self) {
+		let mut entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+		entries.l1.retain(|_, entry| manifest_still_valid(&mut entry.manifest));
+	}
+
 	/// Writes `entry` to disk now, or queues it for [`Self::persist`].
 	fn store(&self, entries: &mut Entries, key: &str, entry: &CacheEntry) {
 		if self.defer_persist {
@@ -375,9 +383,10 @@ fn resolver_directory_listing(dir: &str) -> Option<String> {
 }
 
 /// Whether `manifest` covers exactly the paths `state` read: its walked configurations and
-/// directories, in order, then partition paths recorded as missing. Whether those paths still
-/// hold is `manifest_still_valid`'s question. Go compares a manifest taken now, which fails
-/// whenever a build output changed a walked directory's mtime.
+/// directories, in order, then partition paths recorded as missing, with every other partition
+/// path still there (a link the resolver followed is not walked itself). Whether the recorded
+/// paths still hold is `manifest_still_valid`'s question. Go compares a manifest taken now, which
+/// fails whenever a build output changed a walked directory's mtime.
 fn state_matches_manifest(state: &ResolverState, manifest: &[ManifestEntry]) -> bool {
 	let mut paths = state.walked_configs.clone();
 	paths.extend(state.walked_directories.iter().cloned());
@@ -392,6 +401,10 @@ fn state_matches_manifest(state: &ResolverState, manifest: &[ManifestEntry]) -> 
 		&& missing
 			.iter()
 			.all(|entry| entry.missing && state.partitions.iter().any(|partition| partition.fs_path == entry.path))
+		&& state.partitions.iter().all(|partition| {
+			missing.iter().any(|entry| entry.path == partition.fs_path)
+				|| !matches!(fs::metadata(&partition.fs_path), Err(err) if err.kind() == io::ErrorKind::NotFound)
+		})
 }
 
 /// Writes `data` to a temporary file beside `path` and renames it into place,

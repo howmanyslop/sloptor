@@ -371,3 +371,84 @@ fn rojo_cache_keeps_resolver_when_directory_gains_plain_file() {
 		"a build output file reparsed the Rojo tree"
 	);
 }
+
+/// A partition that was there when the cache was stored and that the resolver never walked (a
+/// symlinked `$path`, whose target directory is what it walks) must still be checked: Go's fresh
+/// manifest records it as missing once the link goes, so the disk entry no longer matches.
+#[cfg(unix)]
+#[test]
+fn rojo_cache_rebuilds_when_unwalked_partition_vanishes() {
+	let project = write_project(&[
+		(
+			"default.project.json",
+			r#"{"name":"p","tree":{"outer":{"$path":"out"},"linked":{"$path":"link"}}}"#,
+		),
+		("out/", ""),
+		("target/", ""),
+	]);
+	std::os::unix::fs::symlink(project.path("target"), project.path("link")).expect("symlink");
+	let config_path = project.path("default.project.json");
+	let cache_dir = project.path(".cache");
+	let first = RojoResolverCache::new(&cache_dir, "compiler-v1");
+	let _ = first.load(&config_path);
+	let missing = |cache: &RojoResolverCache| {
+		let data = fs::read(cache.cache_path(&config_path)).expect("cache file");
+		let file = parse_cache_file(&data).expect("cache file must be valid JSON");
+		file.mtime_manifest
+			.iter()
+			.any(|entry| entry.missing && entry.path == project.path("link"))
+	};
+	assert!(!missing(&first), "the linked partition was stored as missing");
+
+	fs::remove_file(project.path("link")).expect("remove link");
+	let second = RojoResolverCache::new(&cache_dir, "compiler-v1");
+	let _ = second.load(&config_path);
+
+	assert!(
+		missing(&second),
+		"the disk entry outlived its linked partition; it must be rebuilt with the partition missing"
+	);
+}
+
+/// A cache trusted for one build keeps its in-memory resolver until the build revalidates it, as
+/// it does once cleanup and the include copy are done; then a changed tree parses again, as Go's
+/// next load would.
+#[test]
+fn rojo_cache_for_one_build_reparses_a_changed_tree_once_revalidated() {
+	let project = write_project(&[
+		(
+			"default.project.json",
+			r#"{"name":"p","tree":{"outer":{"$path":"out"},"other":{"$path":"present"}}}"#,
+		),
+		("present/", ""),
+	]);
+	let config_path = project.path("default.project.json");
+	let item = project.path("out/lib/code/item.luau");
+	let cache = RojoResolverCache::memory().for_one_build();
+	let before = cache.load(&config_path);
+
+	fs::create_dir_all(project.path("out/lib/code")).expect("mkdir");
+	fs::write(
+		project.path("out/lib/default.project.json"),
+		r#"{"name":"inner","tree":{"$path":"code"}}"#,
+	)
+	.expect("write");
+	let trusted = cache.load(&config_path);
+	cache.revalidate();
+	let after = cache.load(&config_path);
+
+	assert!(
+		Arc::ptr_eq(&trusted, &before),
+		"the build's cache checked its entry before revalidation"
+	);
+	assert_eq!(
+		must_rbx_path(&before, &item),
+		rbx(&["outer", "lib", "code", "item"]),
+		"initial path"
+	);
+	assert_eq!(
+		must_rbx_path(&after, &item),
+		rbx(&["outer", "inner", "item"]),
+		"revalidated path"
+	);
+}
