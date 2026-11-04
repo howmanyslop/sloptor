@@ -11,7 +11,7 @@ use rotor_tsrs::compiler::{get_diagnostics_of_any_program, sort_and_deduplicate_
 use rotor_tsrs::diagnostics::Category;
 use rotor_tsrs::{Context, P, tspath};
 
-use crate::app::{Failure, not_ported};
+use crate::app::Failure;
 use crate::cli::CheckCommand;
 use crate::frames::{self, Frame, Location, Related, Severity};
 use crate::json::{JsonDiagnostic, JsonResult};
@@ -43,6 +43,8 @@ pub struct CheckPass {
 	pub files: usize,
 	/// Wall time.
 	pub elapsed: Duration,
+	/// What `check --watch` polls: the tsconfig, the root files, then the macro inputs.
+	pub watch_files: Vec<String>,
 }
 
 /// `runCheckCore`: builds the project's program and collects its diagnostics in tsc's order
@@ -56,9 +58,33 @@ pub fn check_pass(
 	progress: Option<&BuildProgress>,
 	warnings: &mut dyn std::io::Write,
 ) -> CheckPass {
+	check_pass_in(dir, checkers, render, progress, warnings, false)
+}
+
+/// [`check_pass`]; with `scoped`, the pass frees its program, checkers and their types when it
+/// ends, so a watch session's passes do not accumulate, and it runs on the calling thread, which
+/// must have a large stack (a watch session checks on one thread for good).
+#[must_use]
+pub fn check_pass_in(
+	dir: &str,
+	checkers: Option<i64>,
+	render: Render,
+	progress: Option<&BuildProgress>,
+	warnings: &mut dyn std::io::Write,
+	scoped: bool,
+) -> CheckPass {
 	let started = Instant::now();
 	let slash_dir = gopath::to_slash(dir).into_owned();
-	let mut pass = rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render, progress));
+	let mut pass = if scoped {
+		// SAFETY: the pass returns owned data only (rendered frames and JSON entries, counts and
+		// paths), and every thread that checks for it is done before it returns, so nothing
+		// from the scope's program, or allocated in its region, outlives the scope.
+		#[expect(unsafe_code, reason = "check --watch frees each pass's program")]
+		let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+		check_on_large_stack(&slash_dir, checkers, render, progress)
+	} else {
+		rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render, progress))
+	};
 	if let Some(error) = pass.1 {
 		let _ = writeln!(
 			warnings,
@@ -86,7 +112,8 @@ fn check_on_large_stack(
 	let config_path = format!("{slash_dir}/tsconfig.json");
 	let loaded = rotor_tsrs::project::load_check_program(slash_dir, &config_path, checkers);
 	let Some(program) = loaded.program else {
-		let pass = render_pass(&loaded.config_diagnostics, &compare_paths_options, render, 0);
+		let mut pass = render_pass(&loaded.config_diagnostics, &compare_paths_options, render, 0);
+		pass.watch_files = vec![config_path];
 		return (pass, None);
 	};
 	let context = Context::default();
@@ -112,13 +139,20 @@ fn check_on_large_stack(
 	};
 	let diagnostics = get_diagnostics_of_any_program(&context, program, None, false, &mut bind, &mut semantic);
 	let diagnostics = sort_and_deduplicate_diagnostics(&diagnostics);
-	let pass = render_pass(
+	let mut pass = render_pass(
 		&diagnostics,
 		&compare_paths_options,
 		render,
 		program.source_files().len(),
 	);
 	let warning = refresh_rotor_types(slash_dir, &file_names, program).err();
+	pass.watch_files = std::iter::once(config_path)
+		.chain(file_names.iter().cloned())
+		.chain(rotor_compile::macro_inputs::macro_input_files(
+			slash_dir,
+			program.source_files(),
+		))
+		.collect();
 	(pass, warning)
 }
 
@@ -260,10 +294,10 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 	if std::fs::metadata(gopath::join(&[&dir, "tsconfig.json"])).is_err() {
 		return Err(Failure::Runtime(format!("no tsconfig.json found in {dir}")));
 	}
-	if command.watch == Some(true) {
-		return Err(not_ported("check --watch"));
-	}
-	let _lease = crate::build::admit(streams);
+	let watch = command.watch == Some(true);
+	rotor_tsrs::project::set_long_lived(watch);
+	// A watch session takes no build slot, as in Go.
+	let _lease = (!watch).then(|| crate::build::admit(streams));
 	let missing_modules = std::fs::metadata(gopath::join(&[&dir, "package.json"])).is_ok()
 		&& std::fs::metadata(gopath::join(&[&dir, "node_modules"])).is_err();
 	let modules_warning = format!(
@@ -271,6 +305,22 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		 dependencies first",
 		ui::rel_for_display(&dir)
 	);
+
+	if watch && command.json == Some(true) {
+		if missing_modules {
+			let err = streams.err_paint();
+			ui::warn(streams.err, err, &modules_warning);
+		}
+		crate::watch::exit_on_interrupt(false);
+		// The compiler's warnings must not corrupt the event stream.
+		logservice::set_output_stderr(true);
+		let mut reporter =
+			crate::watch_json::JsonCheckReporter(crate::watch_json::WatchEventWriter::new(streams.out, &dir));
+		rotor_tsrs::with_large_stack(|| {
+			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, command.checkers, &mut reporter);
+		});
+		return Ok(());
+	}
 
 	if command.json == Some(true) {
 		// stdout carries exactly one JSON object, so compiler warnings move to stderr.
@@ -294,9 +344,21 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 
 	let out = streams.out_paint();
 	let name = ui::project_name(&gopath::join(&[&dir, "tsconfig.json"]));
-	ui::header(streams.out, out, &["check", &name]);
+	ui::header(
+		streams.out,
+		out,
+		&[if watch { "check --watch" } else { "check" }, &name],
+	);
 	if missing_modules {
 		ui::warn(streams.out, out, &modules_warning);
+	}
+	if watch {
+		crate::watch::exit_on_interrupt(streams.err_color && crate::term::process_terminals().1);
+		let mut reporter = crate::watch::StyledCheckReporter::new(streams, &dir);
+		rotor_tsrs::with_large_stack(|| {
+			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, command.checkers, &mut reporter);
+		});
+		return Ok(());
 	}
 	let progress = Arc::new(BuildProgress::new(false));
 	let view = live::View {

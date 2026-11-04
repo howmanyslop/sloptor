@@ -1,5 +1,5 @@
 //! The result block of a build: the success or failure lines of one project or a solution, the
-//! diagnostic frames, and the `--verbose` timing report. The watch loop (Stage 7b) prints the same
+//! diagnostic frames, and the `--verbose` timing report. The watch loop (`watch.rs`) prints the same
 //! blocks after each rebuild.
 
 use std::io::Write;

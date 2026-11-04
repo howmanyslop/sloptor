@@ -7,13 +7,20 @@ mod support;
 
 use clap as _;
 use clap_complete as _;
+use ctrlc as _;
+use icu_normalizer as _;
+use jiff as _;
 #[cfg(target_os = "macos")]
 use libc as _;
+use libmimalloc_sys2 as _;
 use mimalloc_safe as _;
+use notify as _;
 use rotor_compile as _;
+use rotor_lsp as _;
 use rotor_support as _;
 use rotor_tsrs as _;
 use serde_json::Value;
+use sha2 as _;
 use support::{
 	arg, buildable_project, checkable_project, diagnostics_project, reference_only_solution, run, run_binary,
 	run_with_stdin, rust_binary, temp, write,
@@ -640,33 +647,34 @@ fn completion_scripts_are_plain_and_name_the_commands() {
 }
 
 #[test]
-fn stage_7b_commands_parse_their_flags_then_fail_clearly() {
+fn stdio_servers_end_cleanly_at_end_of_input_and_reject_bad_flags() {
 	let dir = temp();
-	let project = checkable_project(&dir.path, "", "");
-	for args in [
-		&["lsp", "--stdio"][..],
-		&["api-server"],
-		&["build", "--watch", &arg(&project)],
-		&["build", "-w", "--json", &arg(&project)],
-		&["check", "--watch", &arg(&project)],
-	] {
-		let got = run(&dir.path, args);
-		assert_eq!(got.code, 1, "{args:?}");
-		assert!(
-			got.stderr.contains("is not ported to the Rust CLI yet"),
-			"{args:?}: {}",
-			got.stderr
-		);
+	for args in [&["lsp", "--stdio"][..], &["lsp"], &["api-server"]] {
+		let got = run_with_stdin(&rust_binary(), &dir.path, args, "");
+		assert_eq!((got.code, got.stdout.as_str()), (0, ""), "{args:?}: {}", got.stderr);
 	}
+	let got = run_with_stdin(
+		&rust_binary(),
+		&dir.path,
+		&["api-server"],
+		"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":1,\"clientVersion\":\"0.0.0\"}}\n",
+	);
+	assert_eq!(
+		got.stdout,
+		format!(
+			"{{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{{\"code\":\"VERSION_MISMATCH\",\"message\":\"client version 0.0.0 does not match server version {VERSION}\"}}}}\n"
+		)
+	);
 	for args in [
 		&["lsp", "--bogus"][..],
+		&["api-server", "extra"],
 		&["diagnostics", "--bogus"],
 		&["gen-docs"],
 		&["diagnostics", "--builders", "2"],
 	] {
 		let got = run(&dir.path, args);
 		assert_eq!(got.code, 1, "{args:?}");
-		assert!(!got.stderr.contains("not ported"), "{args:?} is a usage error");
+		assert!(!got.stderr.is_empty(), "{args:?} is a usage error");
 	}
 }
 

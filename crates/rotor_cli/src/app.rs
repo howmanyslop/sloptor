@@ -33,14 +33,6 @@ pub fn usage(subcommand: &str, message: impl Display) -> Failure {
 	Failure::Usage(Box::new(error))
 }
 
-/// The failure of a command, or a mode of one, that Stage 7b ports.
-#[must_use]
-pub fn not_ported(what: &str) -> Failure {
-	Failure::Runtime(format!(
-		"`sloptor {what}` is not ported to the Rust CLI yet (Stage 7b); use the Go build of sloptor for it"
-	))
-}
-
 /// Runs the CLI over `args` (without the program name) and returns the exit code.
 pub fn execute(args: Vec<OsString>, streams: &mut Streams) -> u8 {
 	// A bare `sloptor` shows the root help on stderr and fails, keeping Go's exit code 1 for
@@ -96,8 +88,8 @@ fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
 		Command::Check(command) => check::run(command, streams),
 		Command::Clean(command) => clean::run(command, streams),
 		Command::Diagnostics(command) => diagnostics::run(command, streams),
-		Command::Lsp(_) => Err(not_ported("lsp")),
-		Command::ApiServer => Err(not_ported("api-server")),
+		Command::Lsp(command) => crate::lsp::run(command, streams),
+		Command::ApiServer => crate::api_server::run(),
 		Command::GenDocs(command) => gen_docs::write(&command.dir).map_err(Failure::Runtime),
 		Command::Schema(command) => {
 			let schema = if command.rbxts == Some(true) {

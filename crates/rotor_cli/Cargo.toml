@@ -13,12 +13,19 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 clap_complete.workspace = true
+ctrlc.workspace = true
+icu_normalizer.workspace = true
+jiff.workspace = true
+libmimalloc-sys2.workspace = true
 mimalloc-safe.workspace = true
+notify.workspace = true
 rotor_compile.workspace = true
 rotor_config.workspace = true
+rotor_lsp.workspace = true
 rotor_support.workspace = true
 rotor_tsrs.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
 terminal_size.workspace = true
 

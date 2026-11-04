@@ -15,13 +15,20 @@ use std::path::Path;
 
 use clap as _;
 use clap_complete as _;
+use ctrlc as _;
+use icu_normalizer as _;
+use jiff as _;
 #[cfg(target_os = "macos")]
 use libc as _;
+use libmimalloc_sys2 as _;
 use mimalloc_safe as _;
+use notify as _;
 use rotor_compile as _;
 use rotor_config as _;
+use rotor_lsp as _;
 use rotor_support as _;
 use rotor_tsrs as _;
+use sha2 as _;
 use support::{
 	Run, arg, buildable_project, checkable_project, diagnostics_project, reference_only_solution, run, run_binary,
 	run_with_stdin, rust_binary, temp, write,

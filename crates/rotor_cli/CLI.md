@@ -3,8 +3,8 @@
 The `rotor-rs` binary: the Rust port of `cmd/rotor`, on clap. The command tree, flags, exit
 codes and every `--json` byte match Go; help, errors, completions and human output are
 redesigned. Stage 7a wires `build`, `check`, `clean`, `diagnostics`, `schema`, `completion`,
-`gen-docs` and `version`, and the runtime policy. `lsp`, `api-server`, `build --watch` and
-`check --watch` parse their flags, then fail with a "not ported" error until Stage 7b.
+`gen-docs` and `version`, and the runtime policy. Stage 7b adds `build --watch`,
+`check --watch`, `lsp` (crate `rotor_lsp`) and the hidden `api-server`.
 
 ## Go file to Rust module
 
@@ -14,8 +14,8 @@ redesigned. Stage 7a wires `build`, `check`, `clean`, `diagnostics`, `schema`, `
 | `cli.go` (Cobra tree, help, error policy) | `cli.rs` (clap derive tree), `app.rs` (exit codes, dispatch, help and error rendering) | ported; help redesigned |
 | `cli.go` (`normalizeCompilerInvocation`, `normalizeLegacyArgs`) | `argv.rs` | ported; clap reads the optional values itself |
 | `options.go` | `options.rs` | ported |
-| `build.go` | `build.rs`, `json.rs` | ported, except watch |
-| `check.go` | `check.rs`, plus `rotor_tsrs::project::load_check_program` | ported, except watch |
+| `build.go` | `build.rs`, `json.rs` | ported |
+| `check.go` | `check.rs`, plus `rotor_tsrs::project::load_check_program` | ported |
 | `clean.go` | `clean.rs` | ported; output redesigned |
 | `diagnostics.go` | `diagnostics.rs` | ported; JSON byte-identical, text output redesigned |
 | `gen_docs.go` | `gen_docs.rs` | ported; pages come from the clap tree |
@@ -26,8 +26,16 @@ redesigned. Stage 7a wires `build`, `check`, `clean`, `diagnostics`, `schema`, `
 | — | `rotor_compile::progress` | the atomics the live view samples |
 | `profiles.go` | `build.rs` | flags kept; they report a clear error |
 | `runtime_policy*.go`, `internal/admission` | `runtime.rs` | ported where Rust has an equivalent |
-| `lsp.go`, `api_server.go` | `cli.rs` (flags only) | Stage 7b |
-| `watch.go`, `watch_json.go`, `solution_watch*.go` | — | Stage 7b |
+| `watch.go` | `watch.rs` | ported; output redesigned |
+| `watch_json.go` | `watch_json.rs` | ported; NDJSON byte-identical |
+| `solution_watch.go` | `solution_watch.rs` | ported |
+| `solution_watch_coverage.go` | `solution_watch_coverage.rs` | ported |
+| `lsp.go` | `lsp.rs` | ported |
+| `api_server.go` | `api_server.rs` | ported |
+| `internal/buildapi` | `buildapi.rs` | ported; responses byte-identical |
+| `internal/lsp` | crate `rotor_lsp` | ported; messages byte-identical |
+| `tsgo/fswatch` (the surface the solution watch uses) | `fswatch.rs`, on `notify` | ported |
+| — | `memory.rs` | gives a pass's freed heap back after each watch rebuild and census |
 
 ## Flag names
 
@@ -66,7 +74,8 @@ references, a bare `--rojo` discovers the Rojo project, and a bare `--max-errors
 | Code | When |
 | --- | --- |
 | 0 | success, `--help`, `-h`, `--version`, `version` |
-| 1 | any failure: compile and type errors, config errors, usage errors (clap's included), "not ported" |
+| 1 | any failure: compile and type errors, config errors, usage errors (clap's included) |
+| 130 | a watch session ended by Ctrl+C (or SIGTERM, SIGHUP) |
 
 clap's own usage errors exit 2 by default; `app.rs` maps them to 1, as Go does.
 
@@ -102,7 +111,37 @@ cargo-style lines with the verb right-aligned in a 12-column gutter (`Compiled`,
   no progress line. `--json` output does not change.
 
 The pieces (`ui::header`, `ui::verb_line`, `frames::render_all`, `live::project_line`,
-`report::verbose`) are independent, so Stage 7b's watch loop can reuse them.
+`report::verbose`) are independent; the watch loop reuses them.
+
+## Watch mode, the language server and the build API
+
+- **Watchers.** `build --watch` and `check --watch` on one project poll, as Go does: a stamp
+  per file (size, time and, for small content-sensitive files, a SHA-256), a 100 ms to 1 s
+  interval scaled to the walk's cost, and a 50 ms quiet window capped at 500 ms. `build -b
+  --watch` uses file-system events through `notify` on every platform (FSEvents on macOS,
+  inotify on Linux, `ReadDirectoryChangesW` on Windows), behind `fswatch.rs`, which ports
+  `tsgo/fswatch`'s event coalescing and debounce (the first event after 500 ms of quiet runs at
+  once, others wait for 50 ms of quiet). tsrs mirrors no watcher.
+- **Human output.** The initial build prints as `sloptor build` does. Each rebuild opens with a
+  timestamped divider naming up to three changed files, then the frames, then
+  `Rebuilt N files in X · N written · M unchanged · rebuild #k` or
+  `Failed rebuild #k in X · counts · files`, then `Watching N files · last K ▁▅█ · Ctrl+C to
+  stop` (the sparkline only in colour) or `Waiting N errors · watching N files`. `--clear` (on by
+  default, as in Go) clears the screen before a rebuild on a terminal; `--bell` rings when a
+  rebuild flips between passing and failing. On a pipe the text is plain.
+- **`--json`** writes Go's NDJSON events (`buildStart`, `buildEnd`, `watching`), byte-identical
+  except the `at` and `durationMs` values.
+- **Memory.** A watch session, the language server and the build API mark the process
+  long-lived (`rotor_tsrs::project::set_long_lived`): each build, check or census runs in a
+  `ProgramScope` that frees its programs, their checker regions, the file loader's regions and
+  the processed-file data, and the Flamework preparse and declaration prefetch threads allocate
+  in regions the scope frees.
+  After each pass `memory.rs` returns the allocator's freed pages (`mi_collect`). See
+  `rotor_compile/COMPILE.md` for what still accumulates.
+- **`lsp`** runs its censuses one at a time on one long-lived large-stack thread, each in its
+  own program scope.
+- **`api-server`** decodes requests as a stream (no size limit) and keeps a transformer
+  callback's result bytes exact (serde_json `RawValue`), so the transport metrics match Go's.
 
 ## Runtime policy
 
@@ -166,8 +205,18 @@ It sits behind clap_complete's `unstable-dynamic` feature, which also turns on
   panic carries no Go stack.
 - **`gen-docs`** writes the same Starlight MDX layout as Go, built from the clap tree: options
   are grouped by help heading and the camelCase aliases get their own column.
-- **Not yet ported (Stage 7b):** `lsp`, `api-server`, `build --watch` and `check --watch`. They parse their flags, so a usage error is still a usage
-  error, then exit 1 with `` `sloptor <command>` is not ported to the Rust CLI yet``.
+- **Ctrl+C in a watch session** exits 130, the code a shell reports for Go's default signal
+  exit, after clearing a progress line that may be on screen. Nothing else needs restoring: a
+  session never changes the terminal's modes.
+- **`--use-polling` with `-b`** polls through `notify`'s `PollWatcher` (100 ms). Go accepts the
+  flag (it only checks that `--watch` is given) but always uses OS events.
+- **Watch human output** is redesigned (above). A solution rebuild prints the same compact lines
+  as a single-project one, and `unchanged` is left out when it is 0.
+- **The divider's clock** is local time from `jiff`.
+- **The language server's typed decoding.** Go decodes each request's params into typed structs
+  through go-json-experiment; the Rust server decodes the fields it reads with serde_json. A
+  request whose params do not decode gets the same error codes for `initialize` and `shutdown`,
+  but a malformed params object of another method can differ in the error's message text.
 - **The `Object` collision check.** rotor's tsgo removed the CommonJS top-level `Object`
   collision check (`12f44893`). The tsrs mirror patch
   `0010-rotor-fork-object-collision.patch` removes it too, so neither `build` nor `check`
@@ -176,7 +225,11 @@ It sits behind clap_complete's `unstable-dynamic` feature, which also turns on
 ## Tests
 
 `src/*` unit tests cover argv normalization, the option merge, the JSON encoder and the build
-flag semantics, the frames, the formatters, gen-docs and the runtime policy. `tests/cli.rs`
+flag semantics, the frames, the formatters, gen-docs, the runtime policy, the watch loops
+(`watch_test.go`, `watch_flamework_test.go`, `watch_json_test.go`, `solution_watch_test.go`,
+`solution_watch_coverage_test.go`, `package_watch_test.go`, over a fake watcher where Go uses
+one), the build API (`server_test.go`, `timing_schema_contract_test.go`) and `lsp_test.go`.
+`rotor_lsp/tests/server.rs` ports `internal/lsp`'s server tests. `tests/cli.rs`
 runs the binary end to end, including `diagnostics`, `gen-docs` and the `Object` binding under
 `build` and `check`. `tests/go_parity.rs` compares
 `--json` (`build`, `check` and `diagnostics`, with stdin overlays), `schema` and `version` output byte for byte, and exit codes, with a Go build. It is
@@ -201,5 +254,6 @@ These `cmd/rotor` tests were dropped or rewritten in Stage 7a:
 | `TestCheckProgramCheckerOverride`, `TestCmdCheckJSONKeepsCompilerWarningsOffStdout`, `TestBuildTimingsNormalOutputUnchanged`, `TestBuildSolutionPropagatesCheckers` | not ported yet: they need program or coordinator internals, or a compiler-warning source |
 | `runtime_policy*_test.go` | rewritten as `runtime.rs` unit tests; the `GOGC`/`GOMEMLIMIT` cases have no equivalent |
 | `diagnostics*_test.go`, `task7_diag_preconditions_test.go`, `gen_docs_test.go` | rewritten as `diagnostics_*` and `gen_docs_*` tests in `tests/cli.rs`, and the diagnostics cases in `tests/go_parity.rs` |
-| `lsp_test.go`, `watch*_test.go`, `solution_watch*_test.go`, `package_watch_test.go` | Stage 7b |
+| `TestStderrWriter` | Go's `stderrWriter` type has no counterpart; the solution watch writes its errors to `std::io::stderr` |
+| `TestCmdBuildJSONDiagnosticPathIsProjectRelative` | covered by `build_json_reports_success_and_diagnostics` in `tests/cli.rs` |
 | `parallel_transformer_test.go`, `concurrency_system_test.go`, `build_solution_reuse_test.go` | compile-level behaviour that needs the Node sidecar or fixtures; not ported in Stage 7a |

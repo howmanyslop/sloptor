@@ -27,6 +27,8 @@ allow = [
 	"BSD-2-Clause",
 	"BSD-3-Clause",
 	"BSL-1.0",
+	# notify (the watch mode's file-system events) is public domain.
+	"CC0-1.0",
 	"CDLA-Permissive-2.0",
 	"ISC",
 	"MIT",

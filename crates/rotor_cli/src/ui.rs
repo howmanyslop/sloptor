@@ -2,7 +2,7 @@
 //! commands share. Colour is decided per stream by the caller ([`Paint`]); plain output is the
 //! same text with no escapes.
 //!
-//! The pieces are independent so the watch loop (Stage 7b) can reuse them: [`header`], [`verb`],
+//! The pieces are independent so the watch loop (`watch.rs`) reuses them: [`header`], [`verb`],
 //! [`summary_parts`] and the frames in [`crate::frames`].
 
 use std::io::Write;

@@ -598,6 +598,18 @@ pub fn base(path: &str) -> String {
 	NATIVE.base(path)
 }
 
+/// `filepath.Ext` for the native platform: the suffix from the final element's last dot, or
+/// empty.
+#[must_use]
+pub fn ext(path: &str) -> String {
+	let element_start = path
+		.rfind(|character| character == '/' || (cfg!(windows) && character == '\\'))
+		.map_or(0, |index| index + 1);
+	path[element_start..]
+		.rfind('.')
+		.map_or_else(String::new, |index| path[element_start + index..].to_owned())
+}
+
 /// `filepath.VolumeName` for the native platform.
 #[must_use]
 pub fn volume_name(path: &str) -> String {

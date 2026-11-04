@@ -11,7 +11,7 @@ use rotor_compile::timings::BuildTimings;
 use rotor_compile::{ProjectOptions, build_project_with_options, build_solution_with_options};
 use rotor_support::{gopath, logservice};
 
-use crate::app::{Failure, not_ported, usage};
+use crate::app::{Failure, usage};
 use crate::cli::BuildCommand;
 use crate::json::{JsonDiagnostic, JsonResult};
 use crate::options::{
@@ -23,7 +23,7 @@ use crate::{VERSION, live, report, ui};
 
 /// `buildArgs`: the project path, the argv layer (exactly the flags passed), and the rest of the
 /// build surface.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[expect(clippy::struct_excessive_bools, reason = "Go's buildArgs fields")]
 pub struct BuildArgs {
 	pub project: String,
@@ -188,7 +188,7 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 	opts.single_threaded = args.single_threaded;
 	opts.one_shot_build = !opts.watch && !opts.emit_declaration_only;
 	if opts.watch {
-		return Err(not_ported("build --watch"));
+		return run_watch(args, streams, &ts_config_path, opts);
 	}
 	if !args.timings.is_empty() {
 		prepare_timings_path(&args.timings)
@@ -311,6 +311,120 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 	if failed { Err(Failure::Reported) } else { Ok(()) }
 }
 
+/// The watch half of `runBuildBody`. A watch session takes no build slot, as in Go (it applies
+/// only the runtime policy, which has no Rust equivalent), and runs until Ctrl+C.
+fn run_watch(
+	args: &BuildArgs,
+	streams: &mut Streams,
+	ts_config_path: &str,
+	opts: MergedOptions,
+) -> Result<(), Failure> {
+	rotor_tsrs::project::set_long_lived(true);
+	logservice::set_verbose(opts.verbose);
+	if opts.verbose {
+		log_concurrency(args, &opts);
+	}
+	let dir = gopath::dir(ts_config_path);
+	let options = project_compile_options(ts_config_path, &opts);
+	let include_dir = crate::options::include_dir(&dir, &opts);
+	let stop = crate::watch::Stop::default();
+	let watcher: Arc<dyn crate::fswatch::Watcher> = Arc::new(crate::fswatch::NotifyWatcher::new(opts.use_polling));
+	let reload = reload_options(ts_config_path, args);
+	let unsupported =
+		"--write-transformed-files is not supported by sloptor (rbxtsc transformer-plugin debug output); ignoring it";
+
+	if args.json {
+		crate::watch::exit_on_interrupt(false);
+		// The compiler's warnings must not corrupt the event stream.
+		logservice::set_output_stderr(true);
+		if opts.write_transformed_files {
+			let err = streams.err_paint();
+			ui::warn(streams.err, err, unsupported);
+		}
+		let mut reporter =
+			crate::watch_json::JsonBuildReporter(crate::watch_json::WatchEventWriter::new(streams.out, &dir));
+		if args.build {
+			let code = crate::solution_watch::run_build_solution_watch_loop(
+				&stop,
+				ts_config_path,
+				opts,
+				&reload,
+				&mut reporter,
+				watcher,
+			);
+			return if code == 0 { Ok(()) } else { Err(Failure::Reported) };
+		}
+		rotor_tsrs::with_large_stack(|| {
+			crate::watch::run_build_watch_loop(&stop, &dir, ts_config_path, &options, &include_dir, &mut reporter);
+		});
+		return Ok(());
+	}
+
+	let out = streams.out_paint();
+	let header_target = if args.build {
+		ui::rel_for_display(ts_config_path)
+	} else {
+		ui::project_name(ts_config_path)
+	};
+	ui::header(
+		streams.out,
+		out,
+		&[
+			if args.build {
+				"build -b --watch"
+			} else {
+				"build --watch"
+			},
+			&header_target,
+		],
+	);
+	if opts.write_transformed_files {
+		ui::warn(streams.out, out, unsupported);
+	}
+	crate::watch::exit_on_interrupt(streams.err_color && crate::term::process_terminals().1);
+	let watch_options = crate::watch::WatchOptions {
+		max_errors: args.max_errors,
+		bell: args.bell,
+		clear_screen: args.clear_screen,
+	};
+	let mut reporter = crate::watch::StyledBuildReporter::new(streams, ts_config_path, watch_options);
+	if args.build {
+		let code = crate::solution_watch::run_build_solution_watch_loop(
+			&stop,
+			ts_config_path,
+			opts,
+			&reload,
+			&mut reporter,
+			watcher,
+		);
+		return if code == 0 { Ok(()) } else { Err(Failure::Reported) };
+	}
+	rotor_tsrs::with_large_stack(|| {
+		crate::watch::run_build_watch_loop(&stop, &dir, ts_config_path, &options, &include_dir, &mut reporter);
+	});
+	Ok(())
+}
+
+/// `newBuildOptionsReload`: the options a watch rebuild reloads after a config change: the
+/// defaults, the tsconfig's `rbxts` key, then the command line.
+pub fn reload_options(
+	ts_config_path: &str,
+	args: &BuildArgs,
+) -> impl Fn() -> Result<MergedOptions, String> + Sync + use<> {
+	let ts_config_path = ts_config_path.to_owned();
+	let layer = args.opts.clone();
+	let (emit_declaration_only, builders, checkers) = (args.emit_declaration_only, args.builders, args.checkers);
+	move || {
+		let declared = read_rbxts_layer(&ts_config_path)?;
+		let mut next = merge_project_options(MergedOptions::default(), &[declared.as_ref(), Some(&layer)]);
+		next.argv = Some(layer.clone());
+		next.emit_declaration_only = emit_declaration_only;
+		next.builders = builders;
+		next.checkers = checkers;
+		Ok(next)
+	}
+}
+
 /// Takes a build slot and sizes the worker pool (`admitBuild`); the wait notice goes to stderr.
 pub fn admit(streams: &mut Streams) -> Option<crate::runtime::Lease> {
 	let err = &mut *streams.err;
@@ -355,14 +469,19 @@ pub struct Outcome {
 /// `runBuildOnceWithTimings` or `runBuildSolutionOnce`, with `buildDiagnostics`.
 #[must_use]
 pub fn run_build(dir: &str, ts_config_path: &str, options: &ProjectOptions, solution: bool) -> Outcome {
+	rotor_tsrs::with_large_stack(|| run_build_here(dir, ts_config_path, options, solution))
+}
+
+/// [`run_build`] on the calling thread, which must have a large stack. A watch session builds on
+/// one thread for good, so the allocators never see a thread per rebuild.
+#[must_use]
+pub fn run_build_here(dir: &str, ts_config_path: &str, options: &ProjectOptions, solution: bool) -> Outcome {
 	let started = Instant::now();
-	let built = rotor_tsrs::with_large_stack(|| {
-		if solution {
-			build_solution_with_options(ts_config_path, options)
-		} else {
-			build_project_with_options(dir, options)
-		}
-	});
+	let built = if solution {
+		build_solution_with_options(ts_config_path, options)
+	} else {
+		build_project_with_options(dir, options)
+	};
 	let elapsed = started.elapsed();
 	match built {
 		Ok(result) => Outcome {
