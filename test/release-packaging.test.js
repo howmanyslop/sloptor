@@ -21,7 +21,15 @@ function validate(root = repoRoot, ...arguments_) {
 
 function stageReleaseMetadata() {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-release-metadata-"));
-	for (const file of ["api.js", "package.json", "platform.js", "pnpm-lock.yaml"]) {
+	for (const file of [
+		"api.js",
+		"package.json",
+		"platform.js",
+		"pnpm-lock.yaml",
+		path.join("crates", "rotor_support", "src", "version.rs"),
+		path.join("crates", "rotor_cli", "src", "buildapi.rs"),
+	]) {
+		fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
 		fs.copyFileSync(path.join(repoRoot, file), path.join(root, file));
 	}
 	for (const directory of [path.join("internal", "version"), path.join("internal", "buildapi"), "packages"]) {
