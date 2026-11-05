@@ -34,6 +34,7 @@ shfmt = "latest"
 tombi = "latest"
 typos = "latest"
 vale = "latest"
+tak = "latest"
 
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
