@@ -17,7 +17,10 @@
 		".mise/**",
 		".tsbuildinfo*",
 		"tests/fixtures/**/{invalid-*,*-invalid}/**/*.json",
-		"**/{reference,testdata}/**/src/tests/**"
+		"**/{reference,testdata}/**/src/tests/**",
+		"**/testdata/**",
+		"{reference,third_party}/**",
+		"rbxts-tsconfig.schema.json"
 	],
 	"insertFinalNewline": true,
 	"jsdoc": false,

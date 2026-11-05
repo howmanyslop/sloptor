@@ -1,10 +1,10 @@
 import { clamp, fibonacci, gcd, polynomial } from "./arithmetic";
 import { chunk, unique, zip } from "./collections";
 import { NamedEntity } from "./entities";
+import { Dispatcher } from "./events";
 import { formatRow, padLeft, replicate } from "./format";
 import { isOk } from "./types";
 import { requireNonEmpty, requireRange } from "./validation";
-import { Dispatcher } from "./events";
 
 export function run(): string {
 	const values = [5, 3, 9, 3, 7, 1, 9];

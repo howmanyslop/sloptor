@@ -7,16 +7,16 @@ export class Dispatcher<T> {
 		this.listeners.push(listener);
 		return (): void => {
 			const remaining: Listener<T>[] = [];
-			for (let i = 0; i < this.listeners.length; i++) {
-				if (this.listeners[i] !== listener) remaining.push(this.listeners[i]);
+			for (let index = 0; index < this.listeners.length; index += 1) {
+				if (this.listeners[index] !== listener) remaining.push(this.listeners[index]);
 			}
 			this.listeners = remaining;
 		};
 	}
 
 	public emit(payload: T): void {
-		for (let i = 0; i < this.listeners.length; i++) {
-			this.listeners[i](payload);
+		for (let index = 0; index < this.listeners.length; index += 1) {
+			this.listeners[index](payload);
 		}
 	}
 
