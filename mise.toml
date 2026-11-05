@@ -19,7 +19,7 @@ bun = "latest"
 cargo-deny = "latest"
 communique = "latest"
 hk = { version = "2.9.0", workflow = "release.yml" }
-hyperfine = "2"
+hyperfine = "2.0.0"
 jactionlint = "latest"
 luau = "latest"
 mr-boxington = { version = "latest", workflow = "release.yml@refs/heads/main" }
@@ -82,6 +82,17 @@ cargo build --locked --release -p rotor_cli
 SLOPTOR_BIN="${CARGO_TARGET_DIR:-target}/release/sloptor"
 export SLOPTOR_BIN
 
+# hyperfine 2.0 executes commands directly and splits each command string
+# itself. Quote paths so a space or quote stays one argument.
+quote() {
+	printf "'"
+	printf '%s' "$1" | sed "s/'/'\\\\''/g"
+	printf "'"
+}
+readonly bin project_config
+bin="$(quote "$SLOPTOR_BIN")"
+project_config="$(quote "$PROJECT_DIR/$TSCONFIG_PATH")"
+
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
@@ -90,8 +101,8 @@ hyperfine \
 	--export-json "${PROJECT_DIR}/sloptor-benchmark-one-shot.json" \
 	--command-name "checkers=1" \
 	--command-name "checkers=$c4" \
-	"$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers 1" \
-	"$SLOPTOR_BIN build --project $PROJECT_DIR/$TSCONFIG_PATH --json --checkers $c4"
+	"$bin build --project $project_config --json --checkers 1" \
+	"$bin build --project $project_config --json --checkers $c4"
 '''
 
 [tasks."benchmark:solution"]
@@ -143,6 +154,17 @@ cargo build --locked --release -p rotor_cli
 SLOPTOR_BIN="${CARGO_TARGET_DIR:-target}/release/sloptor"
 export SLOPTOR_BIN
 
+# hyperfine 2.0 executes commands directly and splits each command string
+# itself. Quote paths so a space or quote stays one argument.
+quote() {
+	printf "'"
+	printf '%s' "$1" | sed "s/'/'\\\\''/g"
+	printf "'"
+}
+readonly bin project_config
+bin="$(quote "$SLOPTOR_BIN")"
+project_config="$(quote "$PROJECT_DIR/$TSCONFIG_PATH")"
+
 readonly prepareCommand="rm -rf \"$PROJECT_DIR/out\" \"$PROJECT_DIR/out-test\" \"$PROJECT_DIR/out-tsc\" && find \"$PROJECT_DIR\" -type f -name \"*.rbxtsc.tsbuildinfo\" -not -path \"*/node_modules/*\" -not -path \"*/.git/*\" -not -path \"*/.rotor/*\" -delete"
 
 hyperfine \
@@ -154,11 +176,11 @@ hyperfine \
 	--command-name "builders=1 checkers=$c4" \
 	--command-name "builders=$c4 checkers=1" \
 	--command-name "builders=$c2 checkers=$c2" \
-	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json" \
-	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers 1" \
-	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders 1 --checkers $c4" \
-	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c4 --checkers 1" \
-	"$SLOPTOR_BIN build --build $PROJECT_DIR/$TSCONFIG_PATH --json --builders $c2 --checkers $c2"
+	"$bin build --build $project_config --json" \
+	"$bin build --build $project_config --json --builders 1 --checkers 1" \
+	"$bin build --build $project_config --json --builders 1 --checkers $c4" \
+	"$bin build --build $project_config --json --builders $c4 --checkers 1" \
+	"$bin build --build $project_config --json --builders $c2 --checkers $c2"
 '''
 
 [tasks."build:one-shot"]
