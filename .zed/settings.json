@@ -7,14 +7,32 @@
 	},
 	"colorize_brackets": true,
 	"context_servers": {
+		"chrome-devtools": {
+			"args": ["scripts/get-chrome-path.sh", "--serve"],
+			"command": "bash"
+		},
+		"fallow": {
+			"args": ["--run", "fallow-mcp"],
+			"command": "node",
+			"enabled": true,
+			"remote": false
+		},
 		"hk": {
 			"args": ["x", "--", "hk", "mcp", "--root", "."],
 			"command": "mise",
 			"enabled": true,
 			"remote": false
 		},
+		"jsr": {
+			"args": ["x", "--", "jsr-cli", "mcp"],
+			"command": "mise"
+		},
 		"npm": {
 			"args": ["x", "--", "npm-registry-mcp"],
+			"command": "mise"
+		},
+		"playwright": {
+			"args": ["x", "--", "nlx", "@playwright/mcp@latest"],
 			"command": "mise",
 			"enabled": true,
 			"remote": false
@@ -256,11 +274,12 @@
 			"hard_tabs": true,
 			"language_servers": [
 				"!deno",
-				"!knip",
-				"!vtsls",
 				"!effect-tsgo",
 				"!graphql",
+				"!knip",
+				"!sloptor",
 				"!typescript-language-server",
+				"!vtsls",
 				"..."
 			],
 			"prettier": { "allowed": false },
@@ -277,11 +296,12 @@
 			"hard_tabs": true,
 			"language_servers": [
 				"!deno",
-				"!knip",
-				"!vtsls",
 				"!effect-tsgo",
 				"!graphql",
+				"!knip",
+				"!sloptor",
 				"!typescript-language-server",
+				"!vtsls",
 				"..."
 			],
 			"prettier": { "allowed": false },
@@ -342,37 +362,6 @@
 				"run": "onType",
 				"runtime": "node",
 				"workingDirectories": [{ "directory": "." }]
-			}
-		},
-		"golangci-lint": {
-			"binary": {
-				"arguments": ["x", "--", "golangci-lint-langserver"],
-				"path": "mise"
-			},
-			"initialization_options": {
-				"command": [
-					"golangci-lint",
-					"run",
-					"--output.json.path",
-					"stdout",
-					"--show-stats=false",
-					"--issues-exit-code=1",
-					"--fix"
-				]
-			}
-		},
-		"gopls": {
-			"initialization_options": {
-				"gofumpt": true,
-				"hints": {
-					"assignVariableTypes": true,
-					"compositeLiteralFields": true,
-					"compositeLiteralTypes": true,
-					"constantValues": true,
-					"functionTypeParameters": true,
-					"parameterNames": true,
-					"rangeVariableTypes": true
-				}
 			}
 		},
 		"mdx-analyzer": {
