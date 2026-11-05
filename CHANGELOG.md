@@ -1,5 +1,32 @@
 All notable changes to sloptor are documented here.
 
+## [v3.0.0-beta.3] - 2026-11-05
+
+This is the first release built from Rust: the compiler, CLI, watch mode, language server, and API server now ship as one `sloptor` binary, and the Go build is removed. Intel Mac and Windows ARM64 are no longer supported, the first build after upgrading recompiles every file, and `.d.ts` and terminal output change.
+
+### ⚠️ Breaking Changes
+
+- **@rotor-rbx/rotor**: No npm package or release archive is published for macOS x64 or Windows ARM64, so `bin/rotor.js` fails there with `UNSUPPORTED_PLATFORM`. Previously those packages installed; switch to a supported target or build with `cargo build --release -p rotor_cli`, as the Go build is removed. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor completion**: Installed completion scripts must be regenerated, since the new ones are static `clap_complete` output and drop Cobra's `__complete` protocol. Previously the script used `__complete`; run `sloptor completion <shell>` again and replace the installed copy. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+
+### 🚀 Added
+
+- **sloptor completion**: Generates `elvish` completion scripts, e.g. `sloptor completion elvish`, alongside bash, zsh, fish, and PowerShell. Previously elvish was not a supported shell. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor version**: `sloptor -V` prints the version, as `-v` does. Previously `-V` was not a recognized flag. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+
+### 🔧 Changed
+
+- **sloptor build**: Help and errors show kebab-case flags such as `--include-path` and `--luau-types`, and the camelCase spellings such as `--includePath` still parse. Previously help listed the camelCase names. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **diagnostics**: `sloptor build` and `sloptor check` print rustc-style frames with an `error[TS2322]` header, the path with line and column, an underlined snippet, and `= help:` lines. Previously they used tsc's frame and plain-line layout. `--json` output is unchanged. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: The human output is redesigned, with a header, verb lines such as `Built` and `Failed`, a live progress line on a coloured terminal, and a line per project for `-b`. Previously it printed a banner and a summary. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: `--watch` rebuilds print a timestamped divider, the changed files, and a `Rebuilt N files` summary with a rebuild counter. `--json` watch events keep Go's NDJSON shape apart from the `at` and `durationMs` values. Previously rebuilds printed Go's layout. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: `--use-polling` with `-b` now polls at 100 ms through `notify`'s poll watcher. Previously Go accepted the flag and always used OS file events. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: An unchanged output is trusted without rereading when its size, mtime, ctime, inode, and device match a record in `.rotor/cache/output-stamps`; a file whose timestamps are too close to that record is hashed again. Previously every output was read and hashed on each build. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: The first build after upgrading recompiles every file and recopies non-compiled files, because the copy-files cache and incremental salt now record `sloptor <version>`. Previously these caches recorded tsgo's version, so caches from the Go build never match. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: `.d.ts` output uses TypeScript 7.1 printing, so `export const { a } = ...` declares `declare const { a }: { a: T };`. Previously beta.2 wrote `declare const a: T;`, and the types are identical. Luau output is not affected. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor build**: `GOGC` and `GOMEMLIMIT` no longer tune the build, while `GOMAXPROCS` still sizes the worker pool and `ROTOR_MAX_BUILDS` still controls build slots. Previously `GOGC` and `GOMEMLIMIT` tuned the Go runtime. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+- **sloptor lsp**: Malformed request params get `InvalidParams`, and the error text for methods other than `initialize` and `shutdown` can differ. Previously Go's typed decoder wrote that text. - by @howmanysmall in [#186](https://github.com/howmanyslop/sloptor/pull/186)
+
 ## [v3.0.0-beta.2] - 2026-11-03
 
 This beta adds `sloptor lsp` and opt-in Luau type annotations, changes generated Luau for `switch`, `try`, and object spreads, and fixes a false `sloptor check` error and two import bugs.
@@ -347,6 +374,7 @@ No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/
 
 No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/tag/v2.2.1-fork.4).
 
+[v3.0.0-beta.3]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.2...v3.0.0-beta.3
 [v3.0.0-beta.2]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.1...v3.0.0-beta.2
 [v3.0.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.9.0-beta.1...v3.0.0-beta.1
 [v2.9.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.8.3...v2.9.0-beta.1
