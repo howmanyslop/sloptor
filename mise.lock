@@ -1154,7 +1154,7 @@ url_api = "https://api.github.com/repos/mvdan/sh/releases/assets/547320827"
 [[tools.tak]]
 version = "0.0.13"
 backend = "github:jdx/tak"
-specifiers = ["latest"]
+specifiers = ["0.0.13"]
 
 [tools.tak."platforms.linux-arm64"]
 checksum = "sha256:514c890ad2f34d5fbfa7e9327537a3d96a20ba863c9e45e74e210de13fa4b2aa"
