@@ -208,9 +208,17 @@ pub(super) fn task7_root_dir(files: &[P<SourceFile>]) -> &'static str {
 
 /// `runTask7Oracle`: the real `rbxtsc`, which must succeed or fail as `success` says.
 pub(super) fn run_task7_oracle(root: &Path, project: &str, success: bool) -> String {
-	// `npm install` leaves a `.cmd` launcher on Windows, which `exec.Command` finds by `PATHEXT`.
-	let launcher = if cfg!(windows) { "rbxtsc.cmd" } else { "rbxtsc" };
-	let mut command = Command::new(root.join("node_modules").join(".bin").join(launcher));
+	// On Windows `npm install` leaves a `.cmd` launcher and `bun install` an `.exe`, and
+	// `exec.Command` finds either by `PATHEXT`.
+	let bin = root.join("node_modules").join(".bin");
+	let launcher = if !cfg!(windows) {
+		"rbxtsc"
+	} else if bin.join("rbxtsc.exe").exists() {
+		"rbxtsc.exe"
+	} else {
+		"rbxtsc.cmd"
+	};
+	let mut command = Command::new(bin.join(launcher));
 	command
 		.args(["--project", project])
 		.current_dir(root)
