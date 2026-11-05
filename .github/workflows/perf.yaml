@@ -1,0 +1,70 @@
+name: perf
+
+# Record sloptor's instruction counts for every commit that lands on main into
+# refs/notes/tak. cachegrind only exists on Linux, so this is the only place
+# the gate-able metric is produced; local runs on macOS are timing-only.
+#
+# Only main publishes. A branch's numbers are not the trunk's, and a series
+# that mixes them cannot be read. This workflow also works with
+# workflow_dispatch from a branch: it measures, but `push: false` keeps those
+# measurements out of the shared history.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  CARGO_INCREMENTAL: "0"
+  # mise.toml routes cargo through mbx, whose local cache starts empty on a
+  # hosted runner.
+  MBX_DISABLE: "1"
+  # Series are partitioned by runner class. This encodes the runner image, the
+  # pinned Rust toolchain and the pinned tak version. Change it in BOTH this
+  # file and perf-pr.yaml when any of those changes: numbers either side of
+  # that change do not belong in the same series.
+  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.99.1-tak0.0.13
+
+# One writer at a time, and never cancel: a cancelled run is a hole in the
+# history.
+concurrency:
+  group: perf
+  cancel-in-progress: false
+
+jobs:
+  record:
+    name: Record instruction counts
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Full history lets a later tak release add `tak detect`, which walks
+          # the first-parent commits between recorded points.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          tools: tak
+          # No cargo cache: a binary built on a different runner class must not
+          # be relabelled as a measurement on this one.
+          mise-cache: "false"
+
+      - name: Measure and publish
+        uses: jdx/tak-action@5d75a54320ad428da90d72ecd6259562fbda202d # v0.1.0
+        with:
+          mode: record
+          version: 0.0.13
+          # tak comes from mise.toml. Installing a second copy risks measuring
+          # and comparing with different instruments.
+          install: false
+          run: mise run perf:record
+          token: ${{ secrets.GITHUB_TOKEN }}
+          push: ${{ github.ref == 'refs/heads/main' }}
+    timeout-minutes: 45

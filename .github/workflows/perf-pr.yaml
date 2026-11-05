@@ -1,0 +1,75 @@
+name: perf-pr
+
+# Measure a pull request on Linux/Valgrind and compare its instruction counts
+# with the merge base, then fail if a benchmark rose past the 1% gate in
+# tak.toml. Nothing here writes to refs/notes/tak: the measurement is recorded
+# locally, used for the comparison, and discarded with the runner. Only main
+# contributes to the history.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions: {}
+
+env:
+  CARGO_INCREMENTAL: "0"
+  MBX_DISABLE: "1"
+  # Must match perf.yaml exactly, or every comparison reports nothing.
+  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.99.1-tak0.0.13
+
+concurrency:
+  group: perf-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    name: Compare instruction counts
+    permissions:
+      # Read only. This job builds and runs pull-request code, so it must never
+      # hold a token that can write anything. The comment and check run live in
+      # perf-pr-report.yaml, on a separate workflow_run job.
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # The branch commit, not GitHub's synthetic merge commit. Measuring
+          # that would attribute a number to a commit nobody can check out.
+          ref: ${{ github.event.pull_request.head.sha }}
+          # Needed to find the merge base and to walk the recorded history.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Trusted half first. This fetches the base branch and refs/notes/tak
+      # with the read-only token, then removes every checkout credential before
+      # any pull-request code (the build) runs. It must be the first step after
+      # checkout that touches the repository.
+      - name: Fetch base and notes, remove credentials
+        uses: jdx/tak-action@5d75a54320ad428da90d72ecd6259562fbda202d # v0.1.0
+        with:
+          mode: prepare
+          install: false # prepare runs only git; tak arrives from mise.toml
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          tools: tak
+          mise-cache: "false"
+
+      - name: Measure, compare and gate
+        uses: jdx/tak-action@5d75a54320ad428da90d72ecd6259562fbda202d # v0.1.0
+        with:
+          mode: compare
+          version: 0.0.13
+          install: false
+          # Build and measure after credentials are gone. Same command as
+          # `mise run perf` locally, plus --record.
+          run: mise run perf:record
+          # Adoption only: until perf.yaml has recorded a commit on main, every
+          # comparison is empty. A regression still fails with this off; only
+          # the empty case is waived. Flip to true once a baseline exists —
+          # left on, a broken recording also only warns.
+          fail-on-nothing-compared: false
+    timeout-minutes: 45
