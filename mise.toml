@@ -18,6 +18,7 @@ betterleaks = "latest"
 bun = "latest"
 cargo-deny = "latest"
 communique = "latest"
+container = { version = "latest", os = ["macos/arm64"] }
 hk = { version = "2.9.0", workflow = "release.yml" }
 hyperfine = "2.0.0"
 jactionlint = "latest"
@@ -31,10 +32,10 @@ rumdl = "latest"
 rust = { version = "1.99.1", components = ["rustfmt", "clippy"], mr_boxington = true }
 shellcheck = "latest"
 shfmt = "latest"
+tak = "latest"
 tombi = "latest"
 typos = "latest"
 vale = "latest"
-tak = "latest"
 
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
