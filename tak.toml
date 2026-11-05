@@ -1,4 +1,3 @@
-# :schema https://tak.jdx.dev/schema/tak.json
 # Instruction-counted benchmarks for sloptor, measured by tak
 # (https://tak.jdx.dev). `mise run perf` builds the release binary and runs
 # these; `mise run perf:record` also writes them to refs/notes/tak.
