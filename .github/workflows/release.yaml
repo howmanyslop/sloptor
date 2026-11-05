@@ -301,7 +301,7 @@ jobs:
             cd dist
             sha256sum --check "sloptor-v$VERSION-checksums.txt"
           )
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 9
 
           tag="$GITHUB_REF_NAME"
           prerelease_args=(--prerelease=false)
@@ -327,8 +327,8 @@ jobs:
           fi
 
           asset_count=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
-          if [ "$asset_count" -ne 13 ]; then
-            echo "draft release has $asset_count assets, expected 13"
+          if [ "$asset_count" -ne 9 ]; then
+            echo "draft release has $asset_count assets, expected 9"
             exit 1
           fi
 
