@@ -19,7 +19,7 @@ bun = "latest"
 cargo-deny = "latest"
 communique = "latest"
 hk = { version = "2.9.0", workflow = "release.yml" }
-hyperfine = "1.20.0"
+hyperfine = "2"
 jactionlint = "latest"
 luau = "latest"
 mr-boxington = { version = "latest", workflow = "release.yml@refs/heads/main" }
