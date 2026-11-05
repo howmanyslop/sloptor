@@ -204,7 +204,7 @@ local fileChecks = new Mapping<String, Step> {
   ["shfmt"] = (Builtins.shfmt) {
     check_diff = (Builtins.shfmt.check_diff) {
       command = new Command {
-        argv = List("shfmt", "-i", "4", "-d", "--apply-ignore", "{{files}}")
+        argv = List("shfmt", "-bn", "-ci", "-sr", "-d", "--apply-ignore", "{{files}}")
       }
     }
     check_list_files = (Builtins.shfmt.check_list_files) {
