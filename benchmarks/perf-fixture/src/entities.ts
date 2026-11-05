@@ -1,11 +1,15 @@
+// oxlint-disable typescript/prefer-for-of max-classes-per-file -- no
+
 export interface Identified {
 	readonly id: number;
 }
 
 export class Entity implements Identified {
+	private tags: Array<string> = [];
+
 	public readonly id: number;
+
 	public name: string;
-	private tags: string[] = [];
 
 	public constructor(id: number, name: string) {
 		this.id = id;
@@ -16,15 +20,15 @@ export class Entity implements Identified {
 		this.tags.push(tag);
 	}
 
-	public hasTag(tag: string): boolean {
-		for (let i = 0; i < this.tags.length; i++) {
-			if (this.tags[i] === tag) return true;
-		}
-		return false;
-	}
-
 	public describe(): string {
 		return `${this.id}:${this.name}`;
+	}
+
+	public hasTag(tag: string): boolean {
+		for (let index = 0; index < this.tags.length; index += 1) {
+			if (this.tags[index] === tag) return true;
+		}
+		return false;
 	}
 }
 

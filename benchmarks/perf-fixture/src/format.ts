@@ -10,19 +10,20 @@ export function padLeft(value: string, width: number, fill: string): string {
 	return result;
 }
 
-export function formatRow(cells: string[], widths: number[]): string {
+export function formatRow(cells: Array<string>, widths: Array<number>): string {
 	let result = "";
-	for (let i = 0; i < cells.length; i++) {
-		const width = i < widths.length ? widths[i] : 0;
-		if (i > 0) result += " | ";
-		result += padLeft(cells[i], width, " ");
+	// oxlint-disable-next-line unicorn-js/no-for-loop -- no
+	for (let index = 0; index < cells.length; index += 1) {
+		const width = index < widths.length ? widths[index] : 0;
+		if (index > 0) result += " | ";
+		result += padLeft(cells[index], width, " ");
 	}
 	return result;
 }
 
 export function replicate(value: string, count: number): string {
 	let result = "";
-	for (let i = 0; i < count; i++) {
+	for (let index = 0; index < count; index += 1) {
 		result += value;
 	}
 	return result;

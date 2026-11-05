@@ -1,15 +1,15 @@
 import type { Identified } from "./entities";
 
-export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
+export type Result<TOk, TError> = { error: TError; ok: false } | { ok: true; value: TOk };
 
-export interface Repository<T extends Identified> {
-	find(id: number): T | undefined;
-	all(): T[];
+export interface Repository<TIdentified extends Identified> {
+	all(): Array<TIdentified>;
+	find(id: number): TIdentified | undefined;
 }
 
-export type Keys<T> = { [K in keyof T]: K };
-export type Nullable<T> = T | undefined;
+export type Keys<TObject> = { [TKey in keyof TObject]: TKey };
+export type Nullable<TValue> = TValue | undefined;
 
-export function isOk<T, E>(result: Result<T, E>): result is { ok: true; value: T } {
+export function isOk<TOk, TError>(result: Result<TOk, TError>): result is { ok: true; value: TOk } {
 	return result.ok;
 }

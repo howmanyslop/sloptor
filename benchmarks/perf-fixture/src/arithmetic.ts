@@ -1,3 +1,4 @@
+// oxlint-disable no-param-reassign -- no
 // biome-ignore-all lint/style/noParameterAssign: no
 
 export function clamp(value: number, min: number, max: number): number {
@@ -6,10 +7,10 @@ export function clamp(value: number, min: number, max: number): number {
 	return value;
 }
 
-export function fibonacci(n: number): number {
+export function getFibonacci(number: number): number {
 	let a = 0;
 	let b = 1;
-	for (let i = 0; i < n; i++) {
+	for (let index = 0; index < number; index += 1) {
 		const following = a + b;
 		a = b;
 		b = following;
@@ -17,7 +18,7 @@ export function fibonacci(n: number): number {
 	return a;
 }
 
-export function gcd(a: number, b: number): number {
+export function getGcd(a: number, b: number): number {
 	while (b !== 0) {
 		const remainder = a % b;
 		a = b;
@@ -26,10 +27,10 @@ export function gcd(a: number, b: number): number {
 	return a;
 }
 
-export function polynomial(x: number, coefficients: number[]): number {
+export function getPolynomial(x: number, coefficients: Array<number>): number {
 	let result = 0;
-	for (let i = 0; i < coefficients.length; i++) {
-		result = result * x + coefficients[i];
+	for (const coefficient of coefficients) {
+		result = result * x + coefficient;
 	}
 	return result;
 }

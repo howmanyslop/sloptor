@@ -1,8 +1,10 @@
-export function unique(values: number[]): number[] {
+// oxlint-disable unicorn-js/no-for-loop typescript/prefer-for-of typescript/consistent-indexed-object-style -- no
+
+export function unique(values: Array<number>): Array<number> {
 	const seen: { [key: number]: boolean } = {};
-	const result: number[] = [];
-	for (let i = 0; i < values.length; i++) {
-		const value = values[i];
+	const result: Array<number> = [];
+	for (let index = 0; index < values.length; index += 1) {
+		const value = values[index];
 		if (!seen[value]) {
 			seen[value] = true;
 			result.push(value);
@@ -11,24 +13,24 @@ export function unique(values: number[]): number[] {
 	return result;
 }
 
-export function chunk<T>(values: T[], size: number): T[][] {
-	const result: T[][] = [];
-	for (let i = 0; i < values.length; i += size) {
-		const part: T[] = [];
-		for (let j = i; j < i + size && j < values.length; j++) {
-			part.push(values[j]);
+export function chunk<TValue>(values: Array<TValue>, size: number): Array<Array<TValue>> {
+	const result: Array<Array<TValue>> = [];
+	for (let index = 0; index < values.length; index += size) {
+		const part: Array<TValue> = [];
+		for (let jndex = index; jndex < index + size && jndex < values.length; jndex += 1) {
+			part.push(values[jndex]);
 		}
 		result.push(part);
 	}
 	return result;
 }
 
-export function zip<A, B>(left: A[], right: B[]): Array<{ first: A; second: B }> {
+export function zip<TLeft, TRight>(left: Array<TLeft>, right: Array<TRight>): Array<{ first: TLeft; second: TRight }> {
 	// biome-ignore lint/nursery/useMathMinMax: not defined
 	const length = left.length < right.length ? left.length : right.length;
-	const result: Array<{ first: A; second: B }> = [];
-	for (let i = 0; i < length; i++) {
-		result.push({ first: left[i], second: right[i] });
+	const result: Array<{ first: TLeft; second: TRight }> = [];
+	for (let index = 0; index < length; index += 1) {
+		result.push({ first: left[index], second: right[index] });
 	}
 	return result;
 }

@@ -1,3 +1,4 @@
+// oxlint-disable typescript/consistent-type-definitions typescript/no-empty-object-type typescript/ban-types typescript/no-empty-interface vars-on-top no-implicit-globals no-var -- coal
 // biome-ignore-all lint/suspicious/noShadowRestrictedNames: coalrule
 // biome-ignore-all lint/suspicious/noEmptyInterface: coal rule
 
@@ -11,10 +12,10 @@
 // Only members actually used by the corpus below are declared. Adding a method
 // here changes what gets compiled, so edit it alongside the sources.
 
-interface Array<T> {
+interface Array<TValue> {
+	[index: number]: TValue;
 	length: number;
-	[index: number]: T;
-	push(...items: T[]): number;
+	push(...items: Array<TValue>): number;
 }
 interface Boolean {}
 interface CallableFunction extends Function {}
@@ -27,7 +28,7 @@ interface RegExp {}
 interface String {
 	length: number;
 }
-type Promise<T> = {};
+type Promise<TValue> = {};
 type PromiseConstructor = {};
 declare var Promise: PromiseConstructor;
-declare function print(...params: Array<unknown>): void;
+declare function print(...parameters: Array<unknown>): void;

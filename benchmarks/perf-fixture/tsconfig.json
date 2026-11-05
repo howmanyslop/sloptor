@@ -1,11 +1,11 @@
 {
 	"compilerOptions": {
-		"target": "ESNext",
+		"target": "esnext",
 		"moduleDetection": "force",
 		"noLib": true,
 		"rootDir": "src",
-		"module": "CommonJS",
-		"moduleResolution": "Node",
+		"module": "commonjs",
+		"moduleResolution": "node",
 		"typeRoots": ["node_modules/@rbxts"],
 		"types": [],
 		"strict": true,

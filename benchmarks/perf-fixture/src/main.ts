@@ -1,4 +1,4 @@
-import { clamp, fibonacci, gcd, polynomial } from "./arithmetic";
+import { clamp, getFibonacci, getGcd, getPolynomial } from "./arithmetic";
 import { chunk, unique, zip } from "./collections";
 import { NamedEntity } from "./entities";
 import { Dispatcher } from "./events";
@@ -20,10 +20,10 @@ export function run(): string {
 	dispatcher.subscribe((payload) => {
 		seen += payload;
 	});
-	dispatcher.emit(fibonacci(8));
+	dispatcher.emit(getFibonacci(8));
 
 	const checked = requireRange(clamp(seen, 0, 100), 0, 100);
-	const label = isOk(checked) ? requireNonEmpty(entity.describe()) : { ok: false, error: "bad" };
-	const cells = [padLeft(`${gcd(48, 18)}`, 3, "0"), `${polynomial(2, [1, 2, 3])}`];
+	const label = isOk(checked) ? requireNonEmpty(entity.describe()) : { error: "bad", ok: false };
+	const cells = [padLeft(`${getGcd(48, 18)}`, 3, "0"), `${getPolynomial(2, [1, 2, 3])}`];
 	return `${formatRow(cells, [4, 4])} groups=${groups.length} pairs=${zipped.length} label=${label.ok}`;
 }
