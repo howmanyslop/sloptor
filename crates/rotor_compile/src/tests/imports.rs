@@ -22,7 +22,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_main.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local __scratch_util = TS.import(script, script.Parent, \"_scratch_util\")\n",
 				"local greeter = __scratch_util.default\n",
@@ -36,7 +36,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_util.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local VALUE = 123\n",
 				"local function greet(name)\n",
 				"\treturn `Hello, {name}`\n",
@@ -54,7 +54,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_once.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local g = TS.import(script, script.Parent, \"_scratch_util\").greet\n",
 				"print(g(\"once\"))\n",
@@ -64,7 +64,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_twice.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local __scratch_util = TS.import(script, script.Parent, \"_scratch_util\")\n",
 				"local VALUE = __scratch_util.VALUE\n",
@@ -76,7 +76,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_default_once.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local greeter = TS.import(script, script.Parent, \"_scratch_util\").default\n",
 				"print(greeter())\n",
@@ -86,7 +86,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_ns.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local util = TS.import(script, script.Parent, \"_scratch_util\")\n",
 				"print(util.VALUE)\n",
@@ -96,7 +96,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_typeonly.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local n = 1\n",
 				"print(n)\n",
 				"return nil\n",
@@ -105,7 +105,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_elide.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local s = \"types\"\n",
 				"print(s)\n",
 				"return nil\n",
@@ -114,7 +114,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_sideeffect.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"TS.import(script, script.Parent, \"_scratch_util\")\n",
 				"return nil\n",
@@ -123,7 +123,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_eq.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local util = TS.import(script, script.Parent, \"_scratch_util\")\n",
 				"print(util.VALUE)\n",
@@ -133,7 +133,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_eqchain.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local VfxForge = TS.import(script, script.Parent, \"_scratch_eqchain_index\")\n",
 				"VfxForge.emit(\"effect\")\n",
@@ -143,7 +143,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_eqns.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local A = Ambient\n",
 				"print(A.val)\n",
 				"return nil\n",
@@ -152,7 +152,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_synthmain.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local synth = TS.import(script, script.Parent, \"_scratch_synth\")\n",
 				"print(synth())\n",
@@ -162,7 +162,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_dynamic.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local p = TS.Promise.new(function(resolve)\n",
 				"\tresolve(TS.import(script, script.Parent, \"_scratch_util\"))\n",
@@ -174,7 +174,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_pkg.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.include.RuntimeLib)\n",
 				"local dummy = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n",
 				"print(dummy())\n",
@@ -184,7 +184,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_sub/inner.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(script.Parent.Parent.include.RuntimeLib)\n",
 				"local VALUE = TS.import(script, script.Parent.Parent, \"_scratch_util\").VALUE\n",
 				"print(VALUE)\n",
@@ -194,7 +194,7 @@ fn compile_project_imports_model() {
 		(
 			"out/_scratch_types.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local tag = \"types\"\n",
 				"return {\n",
 				"\ttag = tag,\n",
@@ -213,7 +213,7 @@ fn compile_project_imports_game() {
 		(
 			"out/_scratch_once.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n",
 				"local g = TS.import(script, game:GetService(\"ReplicatedStorage\"), \"out\", \"_scratch_util\").greet\n",
 				"print(g(\"once\"))\n",
@@ -223,7 +223,7 @@ fn compile_project_imports_game() {
 		(
 			"out/_scratch_pkg.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n",
 				"local dummy = TS.import(script, game:GetService(\"ReplicatedStorage\"), \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n",
 				"print(dummy())\n",
@@ -233,7 +233,7 @@ fn compile_project_imports_game() {
 		(
 			"out/_scratch_dynamic.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n",
 				"local p = TS.Promise.new(function(resolve)\n",
 				"\tresolve(TS.import(script, game:GetService(\"ReplicatedStorage\"), \"out\", \"_scratch_util\"))\n",
@@ -245,7 +245,7 @@ fn compile_project_imports_game() {
 		(
 			"out/_scratch_sub/inner.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n",
 				"local VALUE = TS.import(script, game:GetService(\"ReplicatedStorage\"), \"out\", \"_scratch_util\").VALUE\n",
 				"print(VALUE)\n",
@@ -263,7 +263,7 @@ fn compile_project_imports_package() {
 		(
 			"out/_scratch_pkg.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = _G[script]\n",
 				"local dummy = TS.import(script, TS.getModule(script, \"@rbxts\", \"dummy\").out).dummy\n",
 				"print(dummy())\n",
@@ -273,7 +273,7 @@ fn compile_project_imports_package() {
 		(
 			"out/_scratch_once.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local TS = _G[script]\n",
 				"local g = TS.import(script, script.Parent, \"_scratch_util\").greet\n",
 				"print(g(\"once\"))\n",

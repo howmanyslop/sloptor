@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.2
+-- Compiled with sloptor v3.0.0-beta.3
 local function iterateTable(t)
 	local sum = 0
 	for k, v in t do

@@ -9,7 +9,7 @@ fn compile_project_base_url_paths_rewrite() {
 	let wants = [
 		(
 			"out/main.luau",
-			"-- Compiled with sloptor v3.0.0-beta.2\n\
+			"-- Compiled with sloptor v3.0.0-beta.3\n\
 			local TS = require(script.Parent.include.RuntimeLib)\n\
 			local _mod = TS.import(script, script.Parent, \"shared\", \"mod\")\n\
 			local sharedFn = _mod.sharedFn\n\
@@ -20,7 +20,7 @@ fn compile_project_base_url_paths_rewrite() {
 		),
 		(
 			"out/shared/mod.luau",
-			"-- Compiled with sloptor v3.0.0-beta.2\n\
+			"-- Compiled with sloptor v3.0.0-beta.3\n\
 			local SHARED_VALUE = 5\n\
 			local function sharedFn()\n\
 			\treturn SHARED_VALUE * 2\n\

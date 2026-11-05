@@ -39,7 +39,7 @@ fn compile_file_elides_unreferenced_function_after_return() {
 ",
 	);
 	assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-	let want = "-- Compiled with sloptor v3.0.0-beta.2
+	let want = "-- Compiled with sloptor v3.0.0-beta.3
 local function NoReference()
 	return 1
 end
@@ -61,7 +61,7 @@ fn compile_file_preserves_reachable_hoisted_function() {
 ",
 	);
 	assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
-	let want = "-- Compiled with sloptor v3.0.0-beta.2
+	let want = "-- Compiled with sloptor v3.0.0-beta.3
 local function Reachable(value)
 	local read
 	local later = function()

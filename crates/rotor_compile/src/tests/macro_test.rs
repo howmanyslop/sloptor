@@ -7,7 +7,7 @@ use crate::output::build_project_with_options;
 use crate::project::compile_project;
 use crate::rotortypes::{ROTOR_TYPES_FILE_NAME, rotor_types_file_text, write_rotor_types};
 
-const MACROS_MODEL: &str = "-- Compiled with sloptor v3.0.0-beta.2\n\
+const MACROS_MODEL: &str = "-- Compiled with sloptor v3.0.0-beta.3\n\
 	-- $nameof: trailing property name, and a bare identifier.\n\
 	print(\"Health\")\n\
 	print(\"foo\")\n\

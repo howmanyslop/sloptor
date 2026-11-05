@@ -53,7 +53,7 @@ fn compile_file_return_map_shape() {
 		Err(failure) => panic!("CompileFile: {failure} (diags: {:?})", failure.messages()),
 	};
 	assert!(diags.is_empty(), "diagnostics: {diags:?}");
-	let want = "-- Compiled with sloptor v3.0.0-beta.2\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
 		local x = 1\n\
 		return {\n\
 		\tx = x,\n\
@@ -109,7 +109,7 @@ fn compile_file_uses_file_affined_checker_for_imports() {
 		Err(failure) => panic!("CompileFile: {failure} (diags: {:?})", failure.messages()),
 	};
 	assert!(diags.is_empty(), "diagnostics: {diags:?}");
-	let want = "-- Compiled with sloptor v3.0.0-beta.2\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
 		local TS = require(script.Parent.include.RuntimeLib)\n\
 		local g = TS.import(script, script.Parent, \"_scratch_util\").greet\n\
 		print(g(\"once\"))\n\

@@ -51,7 +51,7 @@ fn flamework_discovery_lookup_emitted_artifacts_and_recovery() {
 	);
 	let output = output_text(&result.expect("a result"), "out/init.luau");
 	// Captured from baseline production, including the absence of source decorator calls.
-	let want_output = "-- Compiled with sloptor v3.0.0-beta.2\nlocal TS = _G[script]\n--* @metadata identifier \n"
+	let want_output = "-- Compiled with sloptor v3.0.0-beta.3\nlocal TS = _G[script]\n--* @metadata identifier \n"
 		.to_owned()
 		+ r#"local Reflect = TS.import(script, TS.getModule(script, "@flamework", "core").out).Reflect
 local Persisted

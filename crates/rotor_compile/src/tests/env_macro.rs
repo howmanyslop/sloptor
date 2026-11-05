@@ -17,7 +17,7 @@ use crate::rotortypes::{ROTOR_TYPES_FILE_NAME, rotor_types_file_text, write_roto
 fn env_macro_model() {
 	let files = expect_compiled(large_stack(|| compile_project(&testdata("env_model"))));
 	let want = concat!(
-		"-- Compiled with sloptor v3.0.0-beta.2\n",
+		"-- Compiled with sloptor v3.0.0-beta.3\n",
 		"print(\"Adventure Quest\")\n",
 		"print(\"from-process\")\n",
 		"print(\"fallback-value\")\n",

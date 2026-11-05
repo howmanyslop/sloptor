@@ -81,7 +81,7 @@ pub fn write_pnpm_fixture() -> Temp {
 	temp
 }
 
-const PNPM_MAIN: &str = "-- Compiled with sloptor v3.0.0-beta.2\n\
+const PNPM_MAIN: &str = "-- Compiled with sloptor v3.0.0-beta.3\n\
 	local TS = require(script.Parent.include.RuntimeLib)\n\
 	local dummy = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"dummy\", \"out\").dummy\n\
 	local linked = TS.import(script, script.Parent, \"node_modules\", \"@rbxts\", \"linked\").linked\n\

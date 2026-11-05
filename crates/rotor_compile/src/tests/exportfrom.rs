@@ -6,7 +6,7 @@ use crate::project::compile_project;
 macro_rules! header {
 	() => {
 		concat!(
-			"-- Compiled with sloptor v3.0.0-beta.2\n",
+			"-- Compiled with sloptor v3.0.0-beta.3\n",
 			"local TS = require(script.Parent.include.RuntimeLib)\n",
 		)
 	};
@@ -20,7 +20,7 @@ fn compile_project_export_from_model() {
 		(
 			"out/_scratch_util.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local VALUE = 123\n",
 				"local function greet(name)\n",
 				"\treturn `Hello, {name}`\n",
@@ -112,7 +112,7 @@ fn compile_project_export_from_model() {
 		(
 			"out/_scratch_retypeonly.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local n = 5\n",
 				"print(n)\n",
 				"return nil\n",
@@ -130,7 +130,7 @@ fn compile_project_export_from_model() {
 		(
 			"out/_scratch_eqtable.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"return {\n",
 				"\ta = 1,\n",
 				"\tb = \"two\",\n",
@@ -140,7 +140,7 @@ fn compile_project_export_from_model() {
 		(
 			"out/_scratch_eqfunc.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local function f()\n",
 				"\treturn 1\n",
 				"end\n",
@@ -150,7 +150,7 @@ fn compile_project_export_from_model() {
 		(
 			"out/_scratch_eqmid.luau",
 			concat!(
-				"-- Compiled with sloptor v3.0.0-beta.2\n",
+				"-- Compiled with sloptor v3.0.0-beta.3\n",
 				"local t = {\n",
 				"\ta = 1,\n",
 				"}\n",

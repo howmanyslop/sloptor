@@ -19,7 +19,7 @@ print(over(1), over(\"x\"))
 /// `default`.
 #[test]
 fn export_default_named_function() {
-	let want = "-- Compiled with sloptor v3.0.0-beta.2
+	let want = "-- Compiled with sloptor v3.0.0-beta.3
 local function foo(n)
 	return if n == 0 then 1 else n * foo(n - 1)
 end
@@ -34,7 +34,7 @@ return {
 /// localized.
 #[test]
 fn export_default_anonymous_function() {
-	let want = "-- Compiled with sloptor v3.0.0-beta.2
+	let want = "-- Compiled with sloptor v3.0.0-beta.3
 local function default(x)
 	return x + 10
 end
