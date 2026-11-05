@@ -1,6 +1,4 @@
 * text=auto
-*.go text eol=lf
-*.go.tmpl text eol=lf
 *.patch text eol=lf
 # Patch context and the verbatim upstream notice contain intentional whitespace.
 tools/mirror/patches/*.patch -whitespace
@@ -25,4 +23,11 @@ testdata/** -text
 # This byte-parity fixture deliberately exercises CRLF and a UTF-8 BOM.
 testdata/forkparity/project/performance-output/tree/src/*.ts -text whitespace=-cr-at-eol
 # The $file macro inlines this text file byte-for-byte into Luau output.
-internal/compile/testdata/macros_model/src/notes.txt -text
+testdata/compile-unit/macros_model/src/notes.txt -text
+# third_party/tsrs is mirrored byte-for-byte by tools/tsrs-mirror (some upstream files are CRLF).
+third_party/tsrs/** -text
+tools/tsrs-mirror/patches/*.patch -whitespace
+# Frozen number-formatting oracle, captured from the retired Go implementation.
+crates/rotor_luau/tests/data/jsnumber/*.txt -diff linguist-generated
+# Frozen dump of the retired Go checker, kept as the rotor_tsrs differential oracle.
+testdata/tsrs-oracle/*.tsv -diff linguist-generated

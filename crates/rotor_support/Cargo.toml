@@ -1,0 +1,21 @@
+[package]
+name = "rotor_support"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dunce.workspace = true
+
+[dev-dependencies]
+rotor_luau.workspace = true
+tempfile.workspace = true
+
+[target."cfg(windows)".dependencies]
+tsrs_vfs.workspace = true
+windows-sys.workspace = true
+
+[lints]
+workspace = true

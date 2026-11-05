@@ -1,0 +1,141 @@
+// Isolated smoke tests for the jsx and legacy decorator transforms: build a program, lend the file's checker to a
+// Resolver, run only the given transforms (no type eraser) and print the result. Inputs are .js/.jsx files so no
+// TypeScript syntax needs erasing.
+
+use std::rc::Rc;
+use std::sync::Arc;
+use tsrs_core::P;
+use tsrs_printer as printer;
+use tsrs_transformers::chain::*;
+use tsrs_transformers::resolver::*;
+
+use tsrs_compiler::{Context, ProgramOptions, new_compiler_host, new_program};
+use tsrs_tsoptions::{self as tsoptions, ParseConfigHost};
+use tsrs_vfs::{FS, vfstest};
+
+use tsrs_transformers::*;
+
+struct ConfigHost {
+    fs: Arc<dyn FS>,
+}
+
+impl ParseConfigHost for ConfigHost {
+    fn fs(&self) -> &dyn FS {
+        &*self.fs
+    }
+    fn get_current_directory(&self) -> &'static str {
+        "/"
+    }
+}
+
+fn emit(files: &[(&str, &str)], file: &str, transforms: &[TransformerFactory]) -> String {
+    let fs: Arc<dyn FS> = Arc::new(vfstest::from_map(files.iter().map(|&(k, v)| (k, v)), true));
+    let host: &'static ConfigHost =
+        Box::leak(Box::new(ConfigHost { fs: std::sync::Arc::clone(&fs) }));
+    let (config, diagnostics) = tsoptions::get_parsed_command_line_of_config_file(
+        "/src/tsconfig.json",
+        None,
+        None,
+        host,
+        None,
+    );
+    assert_eq!(diagnostics, [] as [tsrs_core::P<tsrs_ast::Diagnostic>; 0]);
+    let config = P::new(config.unwrap());
+    let program =
+        new_program(ProgramOptions::new(config, new_compiler_host("/", fs, "", None, None, None)));
+    let ctx = Context::default();
+    let source_file = program.get_source_file(file).unwrap();
+    let mut checker = program.get_type_checker_for_file(&ctx, source_file);
+    let slot = P::new(tsrs_checker::CheckerSlot::default());
+    let context = printer::new_emit_context();
+    let resolver = Resolver::new((*checker).new_emit_resolver(context), slot);
+    let options = program.options();
+    slot.lend(&mut checker, || {
+        let opts = TransformOptions {
+            context,
+            compiler_options: options,
+            resolver: ReferenceResolverRef::Emit(resolver),
+            emit_resolver: Some(resolver),
+            get_emit_module_format_of_file: Rc::new(|_| tsrs_core::ModuleKind::ES_NEXT),
+            content_mapper_extension_rewrites: Vec::new(),
+            use_case_sensitive_file_names: true,
+        };
+        let mut result = source_file;
+        result = transforms.iter().fold(result, |mut result, t| {
+            result = t(&opts).unwrap().transform_source_file(result);
+
+            result
+        });
+        let mut p = printer::new_printer(
+            printer::PrinterOptions {
+                target: options.get_emit_script_target(),
+                ..Default::default()
+            },
+            printer::PrintHandlers::default(),
+            Some(context),
+        );
+        p.emit_source_file(result)
+    })
+}
+
+#[test]
+fn jsx_react_jsx() {
+    let out = emit(
+        &[
+            (
+                "/src/tsconfig.json",
+                r#"{"compilerOptions":{"noLib":true,"allowJs":true,"jsx":"react-jsx","module":"esnext","target":"esnext"},"files":["a.jsx"]}"#,
+            ),
+            (
+                "/src/a.jsx",
+                "export const x = <div className=\"a\" key=\"k\">hi &amp; {1}<span/></div>;\nexport const y = <>a</>;\n",
+            ),
+        ],
+        "/src/a.jsx",
+        &[jsxtransforms::new_jsx_transformer],
+    );
+    println!("{out}");
+    assert!(out.contains("import { Fragment as _Fragment, jsx as _jsx, jsxs as _jsxs } from \"react/jsx-runtime\";"), "{out}");
+    assert!(out.contains("_jsxs(\"div\", { className: \"a\", children: [\"hi & \", 1, _jsx(\"span\", {})] }, \"k\")"), "{out}");
+}
+
+#[test]
+fn jsx_react_classic() {
+    let out = emit(
+        &[
+            (
+                "/src/tsconfig.json",
+                r#"{"compilerOptions":{"noLib":true,"allowJs":true,"jsx":"react","module":"esnext","target":"es2015"},"files":["a.jsx"]}"#,
+            ),
+            ("/src/a.jsx", "var React;\nconst x = <div {...p} a=\"1\">t<b/></div>;\n"),
+        ],
+        "/src/a.jsx",
+        &[jsxtransforms::new_jsx_transformer],
+    );
+    println!("{out}");
+    assert!(
+        out.contains("React.createElement(\"div\", Object.assign({}, p, { a: \"1\" }),"),
+        "{out}"
+    );
+}
+
+#[test]
+fn legacy_decorators() {
+    let out = emit(
+        &[
+            (
+                "/src/tsconfig.json",
+                r#"{"compilerOptions":{"noLib":true,"allowJs":true,"experimentalDecorators":true,"target":"es2015"},"files":["a.js"]}"#,
+            ),
+            (
+                "/src/a.js",
+                "function dec() {}\n@dec\nclass C {\n    static x() { return C.y; }\n    @dec m() {}\n}\n",
+            ),
+        ],
+        "/src/a.js",
+        &[tstransforms::new_legacy_decorators_transformer],
+    );
+    println!("{out}");
+    assert!(out.contains("let C = C_1 = class C {"), "{out}");
+    assert!(out.contains("C = C_1 = __decorate([\n    dec\n], C);"), "{out}");
+}

@@ -9,7 +9,7 @@ Diagnostic fixtures in `diagnostics/` use the expected Rotor diagnostic ID as
 the filename prefix, followed by an optional numeric case suffix. The pinned
 compiler must also reject each fixture.
 
-`TestPinnedCompatibility` requires Node, npm, Rojo, and Lune. It installs the
+The pinned runtime tests require Node, npm, Rojo, and Lune. They install the
 exact upstream npm package and `@rbxts/types` version into the user cache,
 verifies the registry `gitHead`, and rejects a compiler with the wrong version.
 Set `ROTOR_PINNED_RBXTS_CLI` to an already-installed `cli.js` to use an explicit
@@ -18,8 +18,11 @@ local copy; the version check still runs.
 Run the complete pinned surface with:
 
 ```sh
-go test ./internal/conformance -run '^(TestPinnedCompatibility|TestPinnedCompatibilityDiagnostics|TestPinnedPackageInterop)$' -count=1 -v
+mise run rust:forkparity
 ```
+
+It runs `crates/rotor_cli/tests/forkparity.rs`, whose `runtime::pinned_*` tests
+are this surface.
 
 The package test compiles `@rbxts/compat-library` and its declaration file with
 each compiler, compiles a consumer with the other compiler, then executes both

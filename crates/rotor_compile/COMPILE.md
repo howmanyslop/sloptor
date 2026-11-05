@@ -1,0 +1,312 @@
+# rotor_compile: the port of `internal/compile`
+
+Stage 5a ports the single-project pipeline: `CompileFile`, `CompileProject` and
+`BuildProjectWithOptions` with declarations, the incremental manifest, the copy-files gate and
+output writing. Stage 5b ports the solution builder, the transformer-plugin sidecar, the census
+and watch mode. Stage 6 ports native Flamework and Jecs (`internal/flamework`, `internal/jecs`)
+and the glue that calls them.
+
+A file split between stages keeps one Rust module per Go file. Stage 6 ports `internal/jecs`
+into `rotor_jecs` (`forof`, `query`, `transform`) and the compile-side glue listed below.
+
+## File map (61 Go files)
+
+| Go file | Stage | Rust module | Notes |
+| --- | --- | --- | --- |
+| `afterdeclarations.go` | 5a | `afterdeclarations` | |
+| `census.go` | 5b | `census` | |
+| `census_solution.go` | 5b | `census_solution` | |
+| `compile.go` | 5a | `compile` | |
+| `compiler_options.go` | 5a | `compiler_options` | The loader in `rotor_tsrs::project` applies the same overrides |
+| `copyfilesgate.go` | 5a | `copyfilesgate` | |
+| `crossproject.go` | 5a, 5b | `crossproject` | |
+| `declaration_prefetch.go` | 5a | `declaration_prefetch` | |
+| `declmap.go` | 5a | `declmap` | |
+| `declpaths.go` | 5a | `declpaths` | |
+| `envdecl.go` | 5a | `envdecl` | The synthetic file is injected by `rotor_tsrs::project` |
+| `filemacro.go` | 5a | `filemacro` | `$file` returns raw bytes |
+| `flamework_config.go` | 5a | `flamework_config` | Moved to 5a: the pipeline needs its Flamework-off detection |
+| `flamework_pipeline.go` | 5a, 6 | `flamework_pipeline` | |
+| `flamework_program_update.go` | 6 | `flamework_program_update` | Multi-file updates use tsrs patch 0007 (`Program::update_program_files_with_checkers`) |
+| `incremental_flamework.go` | 6 | `incremental_flamework` | |
+| `incremental_manifest.go` | 5a | `incremental_manifest` | |
+| `incremental_paths.go` | 5a | `incremental_paths` | |
+| `incremental_plugin_salt.go` | 5a | `incremental_plugin_salt` | |
+| `incremental_salt.go` | 5a | `incremental_salt` | |
+| `incremental_signature.go` | 5a | `incremental_signature` | |
+| `jecs_native.go`, `jecs_rebase.go` | 6 | `jecs_native`, `jecs_rebase` | |
+| `luau_types.go` | 5a | `luau_types` | |
+| `macro_inputs.go` | 5a | `macro_inputs` | |
+| `macrodecl.go` | 5a | `macrodecl` | |
+| `native_types.go` | 5a | `native_types` | |
+| `output.go` | 5a | `output` | |
+| `outputwriter.go` | 5a | `outputwriter` | `os.Root` replaced by canonical-path confinement |
+| `outputwriter_manifest.go` | 5a | `outputwriter_manifest` | |
+| `overlayfs.go` | 5a | `overlayfs` | Overlays go through `rotor_tsrs::project::update_with_overlays` |
+| `package_layout.go` | 5a | `package_layout` | |
+| `package_layout_watch.go` | 5b | `package_layout_watch` | |
+| `packageexports.go` | 5a | `packageexports` | |
+| `packageexports_parse.go` | 5a | `packageexports_parse` | Condition order comes from the `gojson` ordered parse |
+| `parallelwrite.go` | 5a | `parallelwrite` | |
+| `project.go` | 5a | `project` | Program construction is in `rotor_tsrs::project` |
+| `project_config.go` | 5a | `project_config` | |
+| `project_references.go` | 5b | `project_references` | Single-project reference path maps are in `project` |
+| `rbxts_options.go` | 5a | `rbxts_options` | |
+| `rbxts_schema.go` | 5a | `rbxts_schema` | |
+| `reference_validation.go` | 5b | `reference_validation` | |
+| `rotortypes.go` | 5a | `rotortypes` | |
+| `sanitize.go` | 5a | `sanitize` | Re-exports `rotor_tsrs::tsconfig` |
+| `sidecar.go` | 5b | `sidecar` | The embedded worker is `include_bytes!` of `tools/sidecar` (`sidecar_install`) |
+| `sidecar_install.go`, `sidecar_parallel.go`, `sidecar_roots.go`, `sidecar_shards.go` | 5b | `sidecar_install`, `sidecar_parallel`, `sidecar_roots`, `sidecar_shards` | |
+| `solution.go` | 5b | `solution` | |
+| `solution_cache.go`, `solution_drain.go`, `solution_satisfied.go`, `solution_scheduler.go`, `solution_watch.go` | 5b | `solution_cache`, `solution_drain`, `solution_satisfied`, `solution_scheduler`, `solution_watch` | `solution_watch` is the coordinator's half; the watch loop is `rotor_cli::solution_watch` |
+| `source_trace.go` | 5a | `source_trace` | |
+| `source_trace_sourcemap.go` | 5a | `source_trace_sourcemap` | |
+| `timings.go` | 5a | `timings` | Go runtime metadata fields are left out |
+| `transformer_host.go`, `transformer_host_sidecar.go` | 5b | `transformer_host`, `transformer_host_sidecar` | |
+| `transformer_order.go` | 5a | `transformer_order` | |
+
+Outside the Go file map:
+
+- `gojson`: Go-compatible JSON helpers. The parse keeps key order and duplicates, strings are
+  escaped the way `encoding/json` escapes them (HTML escaping included), and indentation
+  matches `MarshalIndent`.
+- `internal/logservice` is ported as `rotor_support::logservice`.
+- `rotor_tsrs::project::load_project_in` takes the project directory separately from the
+  tsconfig's directory, as `newProjectProgramFromFSWithOptions` does under `--project`.
+
+## Deviations from Go
+
+- The incremental salt is a hash over the same inputs as Go's (`incremental_salt.rs`), with the
+  path options made project-relative as `portableIncrementalOptions` does. The compiler options
+  are encoded by tsrs's Go-JSON writer, so the salt is not byte-identical to Go's, and a Go-built
+  manifest never matches a sloptor build.
+- The copy-files manifest (`copyfilesgate.rs`, `compiler_version`) and the Rojo resolver cache
+  key (`output.rs`, `load_rojo_caches_pre_build`) record `sloptor <version>`, where Go records
+  tsgo's `core.Version()`. The TypeScript versions differ, so sloptor keeps its caches apart
+  from Go's on purpose. The first sloptor build after a Go build in the same checkout therefore
+  copies non-compiled files, resolves Rojo data and compiles every file in full.
+- `OutputWriter` confines writes without `os.Root`. Each output's parent directory is resolved
+  once and cached (`dir_roots`, Go's `dirRoot`), and only a final symlink is resolved per write.
+- tsrs diagnostics have no string codes, so every diagnostic code is `TS####`.
+- Stage 5b:
+  - The solution's shared parse cache goes through a `SourceFileCache` hook on a caching
+    `CompilerHost` in `rotor_tsrs` (`load_project_in_cached`); Go's shared `cachedvfs` stat
+    cache is not ported.
+  - Cancellation is a flag (`project::Cancellation`) checked where Go checks `ctx.Err()`; there
+    is no deadline context. Tests build Go's countdown context with `Cancellation::countdown`.
+  - The API transformer callback rides on `ProjectOptions::transformer_callback` instead of the
+    context. The build API makes its host once per session at `initialize`
+    (`TransformerCallbackHost`, `with_transformer_host`), as Go's `buildBase` is, so each
+    project's tracker outlives a build and a later build sends the files edited since; a host
+    made per build (`with_transformer_callback`) starts fresh and sends none. The callback gets
+    `Cancellation::with_timeout`, Go's `context.WithTimeout` (`Cancellation::err` gives
+    `context deadline exceeded`).
+  - Go's owned-stderr spawn mode is not distinguished (`sidecar::spawn_sidecar_session_mode`);
+    a worker's stderr is always a pipe whose tail outlives `close`.
+  - The embedded worker's file list is written out (`sidecar_install::EMBEDDED_SIDECAR`) where
+    Go embeds `lib/*.js`; a test fails when `tools/sidecar` gains or changes a file.
+  - When `update_with_overlays` fails, the error is returned; Go's
+    `newProjectProgramWithOverlay` fallback is not ported.
+  - tsrs leaves out an empty `sourceRoot` in declaration maps where tsgo writes
+    `"sourceRoot":""`; `declmap::restore_empty_source_root` puts it back.
+  - The persistence queue lives on the coordinator (`SolutionCoordinator::persist_queue`),
+    used when the drainer opts in (`SolutionProjectDrainer::queues_persistence`), where Go's
+    build drainer owns it. A reload empties it with the build drainer it replaces, as Go's fresh
+    drainer starts empty. Persistence steps are `FnMut`, so a failed step is retried.
+  - A build frees its programs when it ends (`output::build_project` opens a
+    `rotor_tsrs::project::ProgramScope`, and tracked programs get tsrs's checker regions), as
+    Go drops them. Parsed files stay in tsrs's thread arena, so the solution parse cache can
+    share them; Go's collector frees those too. A census, `compile_file` and `compile_project`
+    keep their programs.
+  - The sidecar shard count's CPU count is `std::thread::available_parallelism`, which honours
+    cgroup CPU quotas where Go's `runtime.NumCPU` does not. Only cgroup-limited Linux can see a
+    smaller default pool than Go.
+  - Tests override the environment the sidecar reads through `sidecar::set_test_env` (Go's
+    `t.Setenv`); the process environment is never touched.
+- Stage 6:
+  - `rotor_jecs::transform` (`package_symbol`, transform.rs:491): the fallback walk over
+    resolved modules visits them sorted by path, then by name and mode, where Go ranges over a
+    map.
+  - `sidecar::merge_sidecar_overlays` (sidecar.rs:1652) indexes the sidecar's overlays by
+    normalized path; Go rescans them per file (`overlayByPath`). Same result, linear time.
+  - `rotor_flamework` caches each directory's `package.json` and `flamework.build` facts for
+    one transform (`package_declaration_facts`, transform_symbols.rs:167) and indexes plans by
+    path suffix (`plan_index`, transform_state.rs:174); Go rereads and rescans per lookup.
+  - `parallel_overlay_aliases` (flamework_program_update.rs:455) and `overlay_aliases` take
+    overlays in path order; Go ranges over its map, so a colliding alias's text is
+    nondeterministic there.
+  - `SourceTraceMap::new` decodes Go's `rawSourceMap` with `gojson` and reproduces
+    `encoding/json`'s errors for that struct (`decode_raw_source_map`, source_trace.rs:288).
+  - A malformed `rotor.toml` reports `rotor_config`'s TOML error text, not BurntSushi's
+    (tests/task7_acceptance.rs:178).
+  - The salt keeps Stage 5a's deviation: Flamework inputs feed the same hash, so a Go-built
+    manifest still never matches.
+  - Test hooks: `PROGRAM_UPDATES` and `LAST_PREPARSE` (flamework_program_update.rs:322) stand
+    in for Go's `CreateCheckerPool` counting hook and its `program.Host().(nativeOverlayHost)`
+    assertion; `solution_cache::wrap` is Go's `cache.wrap` over any host.
+- Build speed and memory (no output changes):
+  - Output-hash validation (`validated_output_hashes`) trusts an output whose size, mtime,
+    ctime, inode and device match the stamp recorded when its hash was last confirmed
+    (`output_stamps.rs`, `.rotor/cache/output-stamps`); Go reads and hashes every output. A
+    skipped write keeps the stamp validation saw, and a stamp whose mtime or ctime is not older
+    than the stamps file is not trusted (Git's racily clean entries), so the next build hashes
+    that file again. The
+    previous outputs' presence index comes from that validation, where Go lists their
+    directories again (`validated_presence_index`).
+  - The Rojo resolver cache loads before the native Flamework project opens, which reuses its
+    resolver (`ProjectOptions::rojo_resolvers`), and trusts its in-memory entries for the build
+    (`RojoResolverCache::for_one_build`), checking them once after cleanup and the include copy
+    (`RojoResolverCache::revalidate`), where Go checks at each load. A build that wrote outputs refreshes the entries those
+    writes invalidated before persisting (`RojoResolverCache::refresh`), and a disk entry is
+    checked against the paths its manifest recorded, and every other partition path must still
+    exist, rather than against a rebuilt manifest (`state_matches_manifest`). Reference validation reads the same disk caches, read-only.
+  - A build that selected no files does not collect the Flamework inputs and the salt a second
+    time after the pipeline; nothing changed them.
+  - A transform's input program and, once its declarations are emitted, the original program
+    drop their checkers when the transform's output replaces them (tsrs patch 0009,
+    `release_checkers`); `ProgramScope` would otherwise hold them to the end of the build.
+    Go's collector frees them once the programs are unreachable. `rotor_tsrs` binds every
+    program it derives as it makes it, so no file's symbols live in a checker's region. A held
+    checker, or a later request for one, panics, and in tsrs's poison mode
+    (`TSRS_ARENA_POISON=1`, `arena::enable_poison_mode`) a freed region's pages are made
+    inaccessible.
+
+## Declaration emit (TypeScript 7.1), approved differences
+
+sloptor writes `.d.ts` files with tsrs's TypeScript 7.1 declaration emitter; Go uses its
+typescript-go fork (7.0). The two print some declarations differently while declaring the same
+types. The user reviewed these on 2026-11-03 and accepted them, because consumers see identical
+types: on the benchmark solution every package type-checks against the other packages' 7.1
+declarations and all Luau output stays byte-identical. Every other output byte must match Go.
+
+- 7.1 adds type-only `import { X } from "..."` lines where the fork writes `import("...").X`
+  inline. Most come from enum-keyed properties (`[Rarity.Epic]: T`, where the fork prints the
+  member's value) and from `typeof fn` printback (where the fork spells out the signature).
+- `export const { a } = ...` declares `declare const { a }: { a: T };` where the fork writes
+  `declare const a: T;`.
+- A default-exported function value declares `declare function _default(...)` where the fork
+  writes `declare const _default: (...) => R;`.
+- `.d.ts.map` mappings differ where the printed text differs, and for `export = X;`, which 7.1
+  maps as one segment.
+- `.tsbuildinfo` records the hashes of those files.
+
+Patches that would restore the fork's printing were started and parked, not applied (rotor_fork
+gates for binding patterns, `export =` maps, enum property names and `typeof` printback).
+
+## Go tests
+
+The Go tests are ported in `src/tests/` and in `src/source_trace.rs`'s test module. Each Go test
+file maps to one Rust module, and the expected strings are copied verbatim.
+`logservice_test.go` is ported into `rotor_support::logservice`. `tests/conformance.rs` is the
+conformance golden gate (`internal/conformance` `TestConformance`) and holds the golden manifest
+(`TestFixtureManifestCoverage`), and `tests/filemacro_bytes.rs` covers `$file` on Windows-1252
+bytes. Its upstream-corrected rows are exempt from byte equality only because each names a runtime
+test in `rotor_cli`'s `tests/forkparity.rs` (see CLI.md), which also holds the Lune suites and the
+diagnostics corpus.
+
+| Go suite | Rust test |
+| --- | --- |
+| `internal/conformance` `TestConformance` | `tests/conformance.rs` `conformance_goldens_match` |
+| `internal/conformance` `TestFixtureManifestCoverage` | `tests/conformance.rs` `fixture_manifest_covers_every_golden` |
+| `internal/conformance` runtime, pinned and diagnostics suites | `rotor_cli` `tests/forkparity.rs`, module `runtime` |
+| `internal/diff` `TestDifferential` | `rotor_transformer` `tests/diff.rs`, all but the three upstream-corrected fixtures |
+| `internal/forkparity` | `rotor_cli` `tests/forkparity.rs`, module `matrix` |
+
+The unit fixtures Go kept under `internal/<package>/testdata` live in `testdata/compile-unit`,
+`testdata/transformer-unit`, `testdata/flamework-unit` and `testdata/spike-unit`.
+
+Ported: `array_append_optimization`, `audit`, `baseurl`, `comment_directives`, `compile`,
+`copyfilesgate`, `declaration_emit`, `declmap`, `declpaths`, `diagnostic_string_code`,
+`env_macro`, `exportfrom`, `getmoduletree_folder`, `imports`, `incremental`,
+`incremental_plugin_salt`, `incremental_signature`, `incremental_signature_build`, `jsx_build`,
+`labels`, `luau_types`, `luau_types_emit`, `macro`, `macro_inputs`, `native_types`, `output`,
+`output_guard`, `outputwriter`, `overlayfs` (through the overlay route rotor_compile takes),
+`package_layout`, `packageexports`, `packageexports_compile`, `parallelwrite`, `pnpm`, `project`,
+`project_context_selection`, `rbxts_options`, `rotortypes`, `skip_identical_writes`,
+`source_trace`, `sourcemap_acceptance`, `sourcemap_columns`, `sourcemap_fallback`,
+`sourcemap_lines`, `sourcemap_paths`, `timings`, `unreachable_function`, `validateoptions`,
+`vector_math`.
+
+Stage 6 ports `flamework_*`, `incremental_flamework*`, `jecs_native`, `solution_flamework_*`,
+`task7_*`, and the Flamework halves of `sidecar`, `sidecar_acceptance` (source maps and React
+syntax origin) and `transformers_integration`. The native fixture tests copy
+`testdata/transformers/native/project` into a temporary directory, where Go builds it in place,
+so concurrent test processes do not race on its `node_modules` link. Ignored tests name their
+reason in `#[ignore]`:
+
+- Tests that swap Go's `transformer.TransformStatement` variable.
+- Tests that set process environment variables outside the sidecar's settings. That is
+  `unsafe` in Rust 2024, which the workspace denies.
+- Tests that inject `outputWriterOperations` or count calls on `newOverlayFS`.
+- Tests that need string-code diagnostics, which tsrs does not have.
+- Tests that swap Go's `declarationTextsForSelection` variable, and the guard against a
+  selection with a nil emitter, which a Rust `DeclarationSignatureSelection` cannot express.
+
+Stage 5b ports `census`, `census_solution`, `project_reference_import`, `sidecar*`,
+`solution*` (all but the benchmark-only `solution_watch_bench`), `transformer_host` and
+`transformers_integration`, and turns on the 5a tests that were waiting for it. Scripted
+sidecar sessions (`sidecar_parallel`) are small Node workers instead of Go's in-memory pipes.
+
+`performance_parity` (it runs the CLI binary) and `incremental_portability` are not ported
+yet.
+
+## Long-lived sessions (Stage 7b)
+
+Watch mode, the language server and the build API call
+`rotor_tsrs::project::set_long_lived(true)`. Then:
+
+- A `ProgramScope` frees everything its programs allocated: their checker regions, the file
+  loader's regions (`ProgramOptions::regions`) and, with the last program sharing it, the
+  processed-file data (`SharedProgramData::free`). Lazily filled data of an object outside every
+  region goes to its owner's region (`arena::route_by_owner`).
+- A solution drain's parse cache (`SolutionCompileCache`) owns one set of loader regions shared
+  by its projects (`SourceFileCache::loader_regions`), dropped with the cache.
+- The Flamework preparse threads (`flamework_program_update`) and the declaration prefetch
+  thread (`declaration_prefetch`) allocate in regions the scope frees
+  (`project::scope_thread_region`).
+- In long-lived mode the scope also enters a scratch region of its own on its thread, so what
+  the pass allocates there goes back with it.
+- A scope adopts its programs' processed-file data (`processed`, a heap object) into a
+  registered owner region (`Region::adopt_owner`, through the mirror patch
+  `0011-rotor-long-lived-memory.patch`), so the symlink cache tsrs fills lazily for it
+  (`Program::get_symlink_cache`, with heap maps inside) is freed with the scope instead of going
+  to the filling thread's arena.
+- A derived program's files bind on the scope's thread (`bind_outside_checkers`), not on the
+  worker pool, whose arenas are never freed. `macro_inputs::macro_watch_files` parses in a
+  region of its own, and the bundled file system behind config parsing is made once per process
+  (each parse leaked one).
+- After each pass, every thread that compiled hands its tsrs slab on and the slab cache is
+  decommitted (`arena::release_thread_slabs`, `arena::release_slab_cache`, patch 0011): the
+  pool's threads never exit, so each kept a 1 MiB slab of freed regions resident, and up to 64
+  released slabs stayed committed.
+- Threads are reused instead of started and ended per pass. Rotor's work groups, solution
+  workers, Flamework preparse, declaration prefetch, copy, declaration-write and parallel-write
+  threads run in `rotor_tsrs::threads::scope`, a drop-in for `std::thread::scope`: in a one-shot
+  build each job still gets a thread that ends with it; in a long-lived session a finished thread
+  stops its tsrs id blocks, leaves the shared-graph overlay, hands its arena on and waits for the
+  next job. tsrs's checker threads wait without their 1 s idle timeout and the file loader's drop
+  helper runs on the worker pool (`checkerpool::set_keep_threads`, through the mirror patch
+  `0012-rotor-keep-threads.patch`). The trim after each pass reaches the idle threads too
+  (`threads::for_each_idle`, `checkerpool::for_each_idle_checker_thread`). A 40-rebuild
+  session creates 31 threads, all at startup (474 before). One-shot builds are unchanged. The
+  language server's run loops (`rotor_lsp` scheduler) and the build API's builds also run on
+  session threads (`threads::spawn`), not on a new thread each.
+
+Measured over 120 `build --watch` rebuilds of the Flamework fixture on macOS (cycle 20 to 120):
+live Rust heap 1.72 to 1.84 MB, tsrs reservation resident 0.16 to 0.32 MB, thread arenas' used
+bytes 32 to 196 KB. Before these changes: heap 1.6 to 5.7 MB, reservation resident 13 to 27 MB,
+thread arenas 0.3 to 1.7 MB. With thread reuse, mimalloc's dirty memory goes 11 to 13 MB from cycle 20 to 200 of a 200-rebuild
+`build --watch` session, and the process footprint sits near 18 MB with spikes to 22 MB
+(every 20 cycles: 16, 17, 18, 18, 18, 22, 18, 22, 18, 18 MB). ps RSS still rises, 72 to 94 MB,
+because it counts mimalloc's purged pages (`MADV_FREE_REUSABLE`, which the kernel can reclaim
+at any time; 43 to 63 MB of them); footprint excludes them and is the figure that plateaus.
+A 200-cycle `lsp` session plateaus less cleanly: footprint every 20 cycles is 18, 19, 23, 22, 21,
+22, 25, 24, 21, 22 MB (single cycles range 20 to 28 MB), and RSS rises 75 to 100 MB. Reusing
+its run-loop thread halved the threads it creates but did not change the footprint. Fifty
+`api-server` builds with an edit before each: footprint 14, 15, 18, 20, 19, 19 MB every 10
+builds (RSS 38 to 82 MB); before the build API was long-lived, each build kept about 17 MB
+(footprint 915 MB after 50).
+An untested lead: `MIMALLOC_ARENA_EAGER_COMMIT=0` kept RSS flat in one 120-rebuild run; it is not
+set and was not benchmarked. The rest of the tsrs growth is lazily filled source-file data
+(JSDoc, line maps) of files in the unregistered loader regions, about 1.6 KB per rebuild.

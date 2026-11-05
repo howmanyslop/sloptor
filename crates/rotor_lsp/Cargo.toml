@@ -1,0 +1,19 @@
+[package]
+name = "rotor_lsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rotor_compile.workspace = true
+rotor_support.workspace = true
+rotor_tsrs.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

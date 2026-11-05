@@ -15,12 +15,6 @@ const PLATFORM_TARGETS = Object.freeze({
 		goos: "darwin",
 		goarch: "arm64",
 	}),
-	"darwin-x64": Object.freeze({
-		packageName: "@rotor-rbx/rotor-darwin-x64",
-		executable: "bin/sloptor",
-		goos: "darwin",
-		goarch: "amd64",
-	}),
 	"linux-arm64": Object.freeze({
 		packageName: "@rotor-rbx/rotor-linux-arm64",
 		executable: "bin/sloptor",
@@ -32,12 +26,6 @@ const PLATFORM_TARGETS = Object.freeze({
 		executable: "bin/sloptor",
 		goos: "linux",
 		goarch: "amd64",
-	}),
-	"win32-arm64": Object.freeze({
-		packageName: "@rotor-rbx/rotor-win32-arm64",
-		executable: "bin/sloptor.exe",
-		goos: "windows",
-		goarch: "arm64",
 	}),
 	"win32-x64": Object.freeze({
 		packageName: "@rotor-rbx/rotor-win32-x64",
@@ -76,7 +64,7 @@ function resolvePlatformBinary(options = {}) {
 	if (!target) {
 		throw new PlatformBinaryError(
 			"UNSUPPORTED_PLATFORM",
-			`Sloptor does not support ${platform}-${architecture}. Supported targets are macOS, Linux, and Windows on x64 or arm64. Build from source with "go build ./cmd/rotor".`,
+			`Sloptor does not support ${platform}-${architecture}. Supported targets are macOS on arm64, Linux on x64 and arm64, and Windows on x64. Build from source with "cargo build --release -p rotor_cli".`,
 		);
 	}
 

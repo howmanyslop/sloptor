@@ -8,6 +8,18 @@ on:
 permissions:
   contents: read
 
+env:
+  CARGO_INCREMENTAL: "0"
+  # Debug info is the largest part of a test build and nothing in CI reads it.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_TEST_DEBUG: "0"
+  CARGO_TERM_COLOR: always
+  # mise.toml routes cargo through mbx, whose local cache starts empty on every
+  # runner. Swatinem/rust-cache restores target/ instead.
+  MBX_DISABLE: "1"
+  NEXTEST_PROFILE: ci
+  RUST_BACKTRACE: short
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -21,7 +33,7 @@ jobs:
       pull-requests: read
     runs-on: ubuntu-24.04
     outputs:
-      go: ${{ steps.filter.outputs.go }}
+      rust: ${{ steps.filter.outputs.rust }}
     steps:
       # Pushes are diffed with git; pull requests ask the API instead.
       - name: Check out repository
@@ -30,17 +42,16 @@ jobs:
           persist-credentials: false
 
       - id: filter
-        name: Detect Go-relevant changes
+        name: Detect Rust-relevant changes
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           predicate-quantifier: some-with-excludes
-          # Fails open: Go reads include/, reference/, testdata/, the
-          # schemas, and more, so every path runs it except the ones listed
-          # here as Go-free. This file is not among them, so a CI edit always
-          # proves itself; the docs lane lives in ci-documentation.yaml so
-          # editing it does not wake the Go suites.
+          # Fails open: the Rust crates read testdata/, include/, reference/,
+          # and tools/sidecar, so every path runs the Rust lanes except the
+          # docs and release ones listed here. This file and the setup-rust
+          # action are not among them, so a CI edit always proves itself.
           filters: |
-            go:
+            rust:
               - "**"
               - "!.github/workflows/ci-documentation.yaml"
               - "!.github/workflows/docs.yaml"
@@ -54,9 +65,57 @@ jobs:
 
     timeout-minutes: 5
 
-  lint:
+  # crates/rotor_cli/tests/forkparity.rs compares the sloptor release binary
+  # with the pinned roblox-ts fork and runs the Lune runtime suites behind the
+  # ledger's upstream-corrected rows. `mise run rust:forkparity` builds the
+  # release binary and hands it to the suite through ROTOR_BIN. Node, Rojo,
+  # Lune and the fixture node_modules are what it needs.
+  rust-forkparity:
+    if: needs.changes.outputs.rust == 'true'
+    name: rust-forkparity (${{ matrix.name }})
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      # Hosted Windows runners real-time-scan every file the toolchain and the
+      # build touch.
+      # Pure optimization: never fail a job over it.
+      - continue-on-error: true
+        if: runner.os == 'Windows'
+        name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
+
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: forkparity-${{ matrix.name }}
+          fixtures: "true"
+          tools: bun node cargo:cargo-nextest github:rojo-rbx/rojo github:lune-org/lune
+
+      - name: Fork parity
+        run: mise run rust:forkparity
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-24.04
+          - name: windows
+            runner: windows-2025
+
+    timeout-minutes: 45
+
+  # Mirrors `mise run rust:lint`: rustfmt, clippy (-D warnings), cargo-deny, and
+  # cargo-machete. rust-test repeats clippy per OS for the cfg(target_os) code.
+  rust-lint:
+    if: needs.changes.outputs.rust == 'true'
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -64,146 +123,74 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
         with:
-          install_args: go golangci-lint go:go.uber.org/nilaway/cmd/nilaway go:golang.org/x/tools/cmd/deadcode
-          experimental: true
+          cache-key: lint
+          tools: cargo-deny github:bnjbvr/cargo-machete
 
-      - name: Restore Go module, build, and lint caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/.cache/golangci-lint
-          key: ${{ runner.os }}-golangci-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-golangci-
-
-      - name: golangci-lint
-        # Same package set as vet; the vendored tsgo mirror is excluded.
-        run: golangci-lint run ./internal/... ./cmd/... ./tools/...
-
-      - name: nilaway
-        # Findings in the vendored tsgo mirror are never actionable.
-        run: nilaway -exclude-errors-in-files=tsgo ./internal/... ./cmd/... ./tools/...
-
-      - name: deadcode
-        # deadcode exits 0 when it reports unreachable functions, so any
-        # output fails the step. The filter keeps it to first-party packages.
-        run: |
-          set -euo pipefail
-          findings="$(deadcode -test '-filter=^rotor/(internal|cmd|tools)' ./internal/... ./cmd/... ./tools/...)"
-          if [ -n "$findings" ]; then
-            echo "$findings"
-            exit 1
-          fi
-
-    timeout-minutes: 15
-
-  race:
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-        with:
-          # -race builds are distinct cache entries. With the shared key this
-          # job restored non-race builds and never saved its own ("cache hit,
-          # not saving"): a cold -race rebuild on every run. Its own key pays
-          # once, then restores.
-          go-cache-suffix: -race
-
-      - name: Race detector
-        run: go test -race -shuffle=on -count=1 ./internal/logservice ./internal/compile ./cmd/rotor ./tsgo/compiler
-        env:
-          ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
+      - name: Lint
+        run: mise run rust:lint
 
     timeout-minutes: 20
 
-  # Linux lanes. Everything except the four heaviest packages (flamework,
-  # conformance, forkparity, compile) runs here alongside gofmt and vet; the
-  # heavy four get their own runner in test-heavy. New packages land here by
-  # default; move one to test-heavy only if it belongs with the big ones.
-  test:
+  # Mirrors `mise run rust:test` (nextest over the whole workspace) on every OS
+  # sloptor ships on. That includes crates/rotor_compile/tests/conformance.rs,
+  # the byte-for-byte golden gate. The fixture node_modules come from bun.
+  rust-test:
+    if: needs.changes.outputs.rust == 'true'
+    name: rust-test (${{ matrix.name }})
     needs: changes
-    if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      # Hosted Windows runners real-time-scan every file the toolchain and the
+      # build touch.
+      # Pure optimization: never fail a job over it.
+      - continue-on-error: true
+        if: runner.os == 'Windows'
+        name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
 
-      - name: Check formatting
-        run: |
-          unformatted="$(gofumpt -l internal cmd tools)"
-          if [ -n "$unformatted" ]; then
-            echo "gofumpt needs to run on:"
-            echo "$unformatted"
-            exit 1
-          fi
-          unformatted_imports="$(goimports -l internal cmd tools)"
-          if [ -n "$unformatted_imports" ]; then
-            echo "goimports needs to run on:"
-            echo "$unformatted_imports"
-            exit 1
-          fi
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: test-${{ matrix.name }}
+          fixtures: "true"
+          tools: bun node cargo:cargo-nextest
 
-      - name: Vet
-        run: go vet ./internal/... ./cmd/... ./tools/...
+      - name: Clippy
+        # The same command as rust:lint, run per OS because the macOS and
+        # Windows code paths only compile there.
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+        shell: bash
 
       - name: Test
-        run: |
-          set -euo pipefail
-          # -p above GOMAXPROCS overlaps I/O waits across the many small
-          # packages; the heavy four excluded here run in test-heavy.
-          # shellcheck disable=SC2046 # word splitting is the point
-          go test -count=1 -p 8 \
-            $(go list ./... | grep -vE '/internal/(flamework|conformance|forkparity|compile)$')
+        run: mise run rust:test
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            runner: ubuntu-24.04
+          - name: macos
+            runner: macos-15
+          - name: windows
+            runner: windows-2025
 
-    timeout-minutes: 15
-
-  # The four heavy packages on a dedicated runner; they overlap through the
-  # default -p (one lane each on 4 vCPUs) instead of queueing behind vet.
-  test-heavy:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      - env:
-          # The setup action installs testdata/transformers/project, so
-          # internal/compile's real-package transformer test must run here,
-          # never skip.
-          ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
-        name: Test
-        run: go test -count=1 ./internal/flamework ./internal/conformance ./internal/forkparity ./internal/compile
-
-    timeout-minutes: 15
+    timeout-minutes: 45
 
   # Node suites on their own runner. The API integration suite builds the
-  # rotor binary itself (go build in test.before), so it needs the toolchain
-  # and module cache too.
+  # sloptor release binary itself (cargo build in test.before), so it needs the
+  # Rust toolchain; the cargo cache keeps that build warm.
   test-node:
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.rust == 'true'
     needs: changes
     runs-on: ubuntu-24.04
     steps:
@@ -212,8 +199,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: node
+          fixtures: "true"
+          tools: bun node
 
       - name: API integration tests
         run: node --test test/api.integration.test.js test/api.lifecycle.test.js
@@ -227,184 +218,10 @@ jobs:
           mise install node@24
           mise exec node@24 -- node --test tools/sidecar/test/package-map.test.js
 
-    timeout-minutes: 15
-
-  vuln:
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-24.04
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
-        with:
-          install_args: go go:golang.org/x/vuln/cmd/govulncheck
-          experimental: true
-
-      - name: Restore Go module and build caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/AppData/Local/go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-
-      - name: govulncheck
-        # Reachability-scoped scan of the whole module (rotor + vendored tsgo):
-        # fails the build only for advisories on code paths rotor can actually
-        # execute.
-        run: govulncheck ./...
-
-    timeout-minutes: 15
-
-  windows-compile:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: windows-2025
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
-
-      - env:
-          # The setup action installs testdata/transformers/project, so
-          # internal/compile's real-package transformer test must run here,
-          # never skip.
-          ROTOR_REQUIRE_TRANSFORMERS_FIXTURE: "1"
-        name: Test
-        run: |
-          set -euo pipefail
-          # flamework, conformance, and forkparity run in their own lanes;
-          # compile and everything else run here. -p above GOMAXPROCS
-          # overlaps I/O waits across the smaller packages.
-          # shellcheck disable=SC2046 # word splitting is the point
-          go test -count=1 -p 8 \
-            $(go list ./... | grep -vE '/internal/(flamework|conformance|forkparity)$')
-        shell: bash
-
-    timeout-minutes: 20
-
-  windows-conformance:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: windows-2025
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
-
-      - name: Test
-        run: go test -count=1 -p 2 ./internal/conformance ./internal/forkparity
-        shell: bash
-
-    timeout-minutes: 20
-
-  windows-flamework:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: windows-2025
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
-
-      - name: Test
-        run: go test -count=1 -v -timeout=15m -skip '^(TestTask7Differential|TestTask7Diagnostic006|TestTask7DiagnosticsTransform)' ./internal/flamework
-        shell: bash
-
-    timeout-minutes: 20
-
-  # Windows lanes: one suite family per runner. The old single windows job
-  # stacked three suites on 4 vCPUs and flamework (a mostly sequential suite)
-  # starved until it timed out. flamework needs its own machine more than it
-  # needs the cores; the other families overlap within a lane.
-  # flamework is the CI floor: a mostly sequential suite of npm installs and
-  # pinned-CLI builds. It is sharded across three runners by test name, sized
-  # from the per-test durations the -v logs record. Every test lands in
-  # exactly one lane by construction: the first two lanes claim explicit name
-  # prefixes and the base lane skips exactly those prefixes. New tests default
-  # into the base lane; move a name into a -run filter only with a measured
-  # duration, and keep the -skip pattern in sync with the -run filters.
-  windows-flamework-differential:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: windows-2025
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      # Restore the cache before the long steps; an early download keeps a cold
-      # cache available after cancellation or failure.
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
-
-      - name: Test
-        run: go test -count=1 -v -timeout=15m -run '^TestTask7Differential' ./internal/flamework
-        shell: bash
-
-    timeout-minutes: 20
-
-  windows-flamework-pinned:
-    if: needs.changes.outputs.go == 'true'
-    needs: changes
-    runs-on: windows-2025
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
-
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
-
-      - name: Test
-        run: go test -count=1 -v -timeout=15m -run '^TestTask7Diagnostic006|^TestTask7DiagnosticsTransform' ./internal/flamework
-        shell: bash
-
-    timeout-minutes: 20
+    timeout-minutes: 30
 
   windows-node:
-    if: needs.changes.outputs.go == 'true'
+    if: needs.changes.outputs.rust == 'true'
     needs: changes
     runs-on: windows-2025
     steps:
@@ -413,14 +230,21 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up rotor toolchain
-        uses: ./.github/actions/setup
+      # Pure optimization: never fail a job over it.
+      - continue-on-error: true
+        name: Disable Windows Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+        shell: pwsh
 
-      # The API integration suite builds the rotor binary in test.before.
-      - name: Cache go modules
-        run: go mod download
-        shell: bash
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-key: windows-node
+          fixtures: "true"
+          tools: bun node
 
+      # The API integration suite builds the sloptor release binary in
+      # test.before.
       - name: API integration tests
         run: node --test test/api.integration.test.js test/api.lifecycle.test.js
         shell: bash
@@ -430,10 +254,10 @@ jobs:
         shell: bash
         working-directory: tools/sidecar
 
-    timeout-minutes: 20
+    timeout-minutes: 40
 
-  # Not gated on the Go filter: release.yaml, docs.yaml, and
-  # ci-documentation.yaml count as Go-free there, and they need linting most.
+  # Not gated on the Rust filter: release.yaml, docs.yaml, and
+  # ci-documentation.yaml count as Rust-free there, and they need linting most.
   workflow-lint:
     runs-on: ubuntu-24.04
     steps:
@@ -450,6 +274,6 @@ jobs:
 
       - name: jactionlint
         # Same profile (.github/jactionlint.yaml) and exit policy as the hook.
-        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup/action.yaml
+        run: jactionlint --strict-exit .github/workflows/*.yaml .github/actions/setup-rust/action.yaml
 
     timeout-minutes: 5

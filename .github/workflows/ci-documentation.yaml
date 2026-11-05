@@ -8,13 +8,17 @@ on:
 permissions:
   contents: read
 
+env:
+  # mbx's local cache starts empty on a runner.
+  MBX_DISABLE: "1"
+
 concurrency:
   group: ci-documentation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   # Decides whether this change touches the site. A skipped job still
-  # satisfies a required check, so a Go-only PR never waits on it.
+  # satisfies a required check, so a PR that skips the site never waits on it.
   changes:
     permissions:
       contents: read
@@ -34,11 +38,11 @@ jobs:
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           # The site compiles the CLI to generate the command reference, so
-          # cmd/rotor counts as documentation too.
+          # crates/rotor_cli counts as documentation too.
           filters: |
             documentation:
               - .github/workflows/ci-documentation.yaml
-              - cmd/rotor/**
+              - crates/rotor_cli/**
               - documentation/**
               - mise.lock
               - mise.toml
@@ -62,21 +66,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Mise toolchain
-        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
         with:
-          install_args: go node pnpm
-          experimental: true
-
-      - name: Restore Go module and build caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-docs-${{ hashFiles('mise.toml', 'mise.lock', 'go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-docs-
+          cache-key: docs
+          tools: node pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

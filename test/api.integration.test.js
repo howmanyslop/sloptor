@@ -14,13 +14,27 @@ const { version: packageVersion } = packageJson;
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "sloptor-api-test-"));
-const executable = path.join(temporaryRoot, process.platform === "win32" ? "sloptor.exe" : "sloptor");
+const executableName = process.platform === "win32" ? "sloptor.exe" : "sloptor";
+// ROTOR_BIN names a prebuilt sloptor executable (CI builds the release binary once). Without it,
+// test.before builds crates/rotor_cli with cargo.
+// biome-ignore lint/style/noProcessEnv: the prebuilt binary is passed in by the caller.
+const prebuiltExecutable = process.env.ROTOR_BIN ? path.resolve(process.env.ROTOR_BIN) : undefined;
+const executable = prebuiltExecutable ?? path.join(temporaryRoot, executableName);
 
 test.before(() => {
-	execFileSync("go", ["build", "-trimpath", "-o", executable, "./cmd/rotor"], {
+	if (prebuiltExecutable !== undefined) return;
+	execFileSync("cargo", ["build", "--locked", "--release", "-p", "rotor_cli"], {
 		cwd: repoRoot,
 		stdio: "inherit",
 	});
+	const metadata = JSON.parse(
+		execFileSync("cargo", ["metadata", "--format-version", "1", "--no-deps", "--locked"], {
+			cwd: repoRoot,
+			encoding: "utf8",
+			maxBuffer: 64 * 1024 * 1024,
+		}),
+	);
+	fs.copyFileSync(path.join(metadata.target_directory, "release", executableName), executable);
 });
 
 test.after(() => {

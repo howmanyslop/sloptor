@@ -22,11 +22,14 @@ testdata/transformers/project/include/
 testdata/transformers/project/flamework.build
 
 dist/
-internal/compile/testdata/**/out/
-internal/compile/testdata/**/include/
+testdata/compile-unit/**/out/
+testdata/compile-unit/**/include/
 # ... except a fixture package's shipped `out`, which is INPUT to the test
 # (the rule above is meant for the trees a test build writes).
-!internal/compile/testdata/**/node_modules/**/out/
+!testdata/compile-unit/**/node_modules/**/out/
+# Throwaway projects the conformance test makes per golden; left behind only
+# when a run is killed.
+.phase5-fixture-*/
 
 # Per-project resolver/cache state written by rotor builds
 .rotor/
@@ -92,3 +95,6 @@ documentation/playwright-report/
 .agents/skills/wayfinder
 .agents/skills/wizard
 .agents/skills/writing-for-agents
+
+# Rust build output
+/target

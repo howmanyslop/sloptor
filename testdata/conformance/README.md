@@ -2,7 +2,7 @@
 
 A second differential corpus: roblox-ts's **own upstream test sources**, compiled
 by the real `rbxtsc` 3.0.0 into committed goldens that rotor's output is
-byte-compared against (`internal/conformance`). Fork-divergent fixtures use
+byte-compared against (`crates/rotor_compile/tests/conformance.rs`). Fork-divergent fixtures use
 fork-authoritative Rotor goldens instead: `tests/array.spec.luau`,
 `tests/class.spec.luau`, `tests/destructure.spec.luau`,
 `tests/exportLet.spec.luau`, `tests/function.spec.luau`,
@@ -13,12 +13,12 @@ Rotor omits the exit guard when try and catch cannot complete normally.
 
 Phase 5 now has three harnesses:
 
-- `TestDiagnosticsCorpus` compiles the vendored `excluded/diagnostics/*` files
-  one by one and asserts rotor's diagnostic IDs.
-- `TestConformance` compiles enabled golden fixtures one by one through temp
-  projects rooted under `project/`, so unsupported nodes in unrelated upstream
-  specs do not block the fixtures that already match.
-- `TestBehavioralSuite` and `TestRandomnessAcceptance` are environment-gated
+- `diagnostics_corpus` (`crates/rotor_cli/tests/forkparity/runtime.rs`) compiles the
+  vendored `excluded/diagnostics/*` files one by one and asserts rotor's diagnostic IDs.
+- `conformance_goldens_match` (`crates/rotor_compile/tests/conformance.rs`) compiles every
+  golden fixture one by one through temp projects rooted under `project/`, so unsupported
+  nodes in unrelated upstream specs do not block the fixtures that already match.
+- `behavioral_suite` and `randomness_acceptance` (same `runtime.rs`) are environment-gated
   runners for the upstream runtime suite and the real `randomness` project.
 
 ## Provenance
@@ -92,19 +92,16 @@ prefers `bun install --no-save` on first run, falls back to npm, cleans `project
 
 The upstream oracle must not overwrite the seven fork-divergent fixtures listed
 above. Regenerate those only from current fork-correct Rotor output after
-`TestFullForkParity` confirms the archived fork contract.
+`full_fork_parity` confirms the archived fork contract.
 
 ## Enabling fixtures
 
-Add the golden-relative slash path (e.g. `"tests/array.spec.luau"`) to
-`EnabledFixtures` in `internal/conformance/manifest.go`. Then
-`go test ./internal/conformance/ -run TestConformance -count=1 -v` compiles
-each enabled fixture through a temp project rooted under `project/`, preserving
+Add the golden under `golden/` (e.g. `tests/array.spec.luau`). Then
+`mise run rust:conformance` compiles each golden through a temp project rooted under `project/`, preserving
 the shared `node_modules` tree while limiting the compile to the selected
 source plus shared helpers.
 
-As of June 7, 2026, **44 / 44** committed goldens are enabled. `DisabledFixtures`
-is empty and the vendored conformance corpus is fully closed: byte-diff,
+As of June 7, 2026, **44 / 44** committed goldens are checked and the vendored conformance corpus is fully closed: byte-diff,
 diagnostics, runtime, and real-project acceptance all have green harnesses.
 
 ## Diagnostics corpus
@@ -112,7 +109,7 @@ diagnostics, runtime, and real-project acceptance all have green harnesses.
 Run:
 
 ```powershell
-go test ./internal/conformance/ -run TestDiagnosticsCorpus -count=1
+mise run rust:forkparity   # includes diagnostics_corpus
 ```
 
 The harness installs `project/node_modules` on first use if needed, then
@@ -127,7 +124,7 @@ full vendored diagnostics corpus now runs without skips.
 Run:
 
 ```powershell
-go test ./internal/conformance/ -run TestBehavioralSuite -count=1 -v
+mise run rust:forkparity   # includes behavioral_suite
 ```
 
 Requires `rojo` plus `lune`. Detection order is:
@@ -159,7 +156,7 @@ runtime corpus green (`460 passed, 0 failed, 0 skipped` on June 7, 2026).
 Run:
 
 ```powershell
-go test ./internal/conformance/ -run TestRandomnessAcceptance -count=1 -v
+mise run rust:forkparity   # includes randomness_acceptance
 ```
 
 Set `ROTOR_RANDOMNESS_PATH` to the local project root before running. The test
@@ -181,5 +178,5 @@ The four repairs pinned to upstream commit
 use runtime results and diagnostics as their compatibility contract. The original
 goldens above remain unchanged. Entries classified as `upstream-corrected` in
 `../forkparity/divergence-ledger.json` retain their byte comparison and require
-the named behavioral regression; `TestConformance` also runs the original
+the named behavioral regression; `behavioral_suite` also runs the original
 Rojo/Lune suite. See `../compatibility/` for the shared fixtures and pinned setup.

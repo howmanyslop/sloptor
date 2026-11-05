@@ -1,0 +1,28 @@
+[package]
+name = "rotor_flamework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+rotor_config.workspace = true
+rotor_rojo.workspace = true
+rotor_support.workspace = true
+rotor_tsrs.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+regex.workspace = true
+rotor_luau.workspace = true
+rotor_transformer.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[target."cfg(unix)".dependencies]
+rustix.workspace = true
+
+[lints]
+workspace = true

@@ -455,22 +455,19 @@ importers:
       typescript:
         specifier: catalog:tooling
         version: 5.9.3
+      vitest:
+        specifier: catalog:test
+        version: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.2.0)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
     optionalDependencies:
       '@rotor-rbx/rotor-darwin-arm64':
         specifier: 3.0.0-beta.2
         version: link:packages/rotor-darwin-arm64
-      '@rotor-rbx/rotor-darwin-x64':
-        specifier: 3.0.0-beta.2
-        version: link:packages/rotor-darwin-x64
       '@rotor-rbx/rotor-linux-arm64':
         specifier: 3.0.0-beta.2
         version: link:packages/rotor-linux-arm64
       '@rotor-rbx/rotor-linux-x64':
         specifier: 3.0.0-beta.2
         version: link:packages/rotor-linux-x64
-      '@rotor-rbx/rotor-win32-arm64':
-        specifier: 3.0.0-beta.2
-        version: link:packages/rotor-win32-arm64
       '@rotor-rbx/rotor-win32-x64':
         specifier: 3.0.0-beta.2
         version: link:packages/rotor-win32-x64
@@ -562,13 +559,9 @@ importers:
 
   packages/rotor-darwin-arm64: {}
 
-  packages/rotor-darwin-x64: {}
-
   packages/rotor-linux-arm64: {}
 
   packages/rotor-linux-x64: {}
-
-  packages/rotor-win32-arm64: {}
 
   packages/rotor-win32-x64: {}
 

@@ -5,8 +5,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const CLIENT_PROTOCOL_PATTERN = /^const PROTOCOL_VERSION = (?<protocolVersion>[0-9]+);$/mu;
-const GO_VERSION_PATTERN = /^const Version = "(?<version>[^"]+)"$/mu;
-const SERVER_PROTOCOL_PATTERN = /^const ProtocolVersion = (?<protocolVersion>[0-9]+)$/mu;
+const RUST_VERSION_PATTERN = /^pub const VERSION: &str = "(?<version>[^"]+)";$/mu;
+const RUST_SERVER_PROTOCOL_PATTERN = /^pub const PROTOCOL_VERSION: i64 = (?<protocolVersion>[0-9]+);$/mu;
 
 function readJson(file) {
 	return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -22,12 +22,12 @@ function readMatch(file, pattern, label) {
 function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	const packageJson = readJson(path.join(root, "package.json"));
 	const codeVersion = readMatch(
-		path.join(root, "internal", "version", "version.go"),
-		GO_VERSION_PATTERN,
-		"Go product version",
+		path.join(root, "crates", "rotor_support", "src", "version.rs"),
+		RUST_VERSION_PATTERN,
+		"Rust product version",
 	);
 	if (packageJson.version !== codeVersion) {
-		throw new Error(`version drift: package.json=${packageJson.version}, internal/version=${codeVersion}`);
+		throw new Error(`version drift: package.json=${packageJson.version}, rotor_support=${codeVersion}`);
 	}
 	if (tag !== undefined && tag !== `v${codeVersion}`) {
 		throw new Error(`tag ${tag} does not match release version v${codeVersion}`);
@@ -38,8 +38,8 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 	);
 	const serverProtocol = Number(
 		readMatch(
-			path.join(root, "internal", "buildapi", "server.go"),
-			SERVER_PROTOCOL_PATTERN,
+			path.join(root, "crates", "rotor_cli", "src", "buildapi.rs"),
+			RUST_SERVER_PROTOCOL_PATTERN,
 			"server protocol version",
 		),
 	);
@@ -49,7 +49,7 @@ function validateRelease({ root = path.resolve(__dirname, ".."), tag } = {}) {
 
 	const platformModule = require(path.join(root, "platform.js"));
 	const targets = Object.values(platformModule.PLATFORM_TARGETS);
-	if (targets.length !== 6) throw new Error(`expected 6 supported platform targets, found ${targets.length}`);
+	if (targets.length !== 4) throw new Error(`expected 4 supported platform targets, found ${targets.length}`);
 	const expectedDependencies = targets.map((target) => target.packageName).sort();
 	// biome-ignore lint/suspicious/useArraySortCompare: no.
 	const actualDependencies = Object.keys(packageJson.optionalDependencies ?? {}).sort();

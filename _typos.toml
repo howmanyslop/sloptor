@@ -4,7 +4,7 @@ extend-exclude = [
 	"node_modules",
 	"dist",
 	"bin",
-	"tsgo",
+	"third_party",
 	"reference",
 	"include",
 	"**/testdata/**",
@@ -34,8 +34,15 @@ inferrable = "inferrable"
 mis = "mis"
 onces = "onces"
 pn = "pn"
+tru = "tru"
 unparseable = "unparseable"
 writables = "writables"
 
 [default.extend-identifiers]
+# Go encoding/json scanner state for the literal "false" (rotor_flamework/src/json_syntax.rs).
+Fals = "Fals"
+# tasklist /FO, its output format flag (rotor_compile/src/tests/sidecar_parallel.rs).
+FO = "FO"
+# rustix::fs::Mode::WOTH, the others-write permission bit.
+WOTH = "WOTH"
 iz = "iz"

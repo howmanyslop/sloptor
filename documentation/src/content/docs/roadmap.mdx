@@ -3,8 +3,10 @@ title: "Roadmap"
 description: "Every phase of sloptor, from the first checker spike to the Luau and cloud toolchains."
 ---
 
-sloptor is a native Go reimplementation of the roblox-ts compiler (`rbxtsc`), built on
-[typescript-go](https://github.com/microsoft/typescript-go). The contract is upstream
+sloptor is a native reimplementation of the roblox-ts compiler (`rbxtsc`), built on
+[tsrs](https://github.com/oxc-project/tsrs), a Rust port of [typescript-go](https://github.com/microsoft/typescript-go).
+It began in Go; the Rust port in `crates/` replaced it, and the Go code is gone. The phase
+records below are history and still name the Go packages and tools of their day. The contract is upstream
 parity on unaffected surfaces, with the verified `@isentinel/roblox-ts@4.0.11` fork
 archive authoritative for fork-changed surfaces. The same `@rbxts/*` ecosystem and CLI
 remain the target, at roughly 10x the speed.

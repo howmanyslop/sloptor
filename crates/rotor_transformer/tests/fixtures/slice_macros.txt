@@ -1,0 +1,6 @@
+# Slice iv (macros). 26_stringmacros and 31_mixed3b are upstream-corrected ledger rows.
+23_new
+25_mathmacros
+27_arraymacros
+28_collectionmacros
+30_optional

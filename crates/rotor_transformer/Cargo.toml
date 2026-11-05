@@ -1,0 +1,21 @@
+[package]
+name = "rotor_transformer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+rotor_config.workspace = true
+rotor_luau.workspace = true
+rotor_rojo.workspace = true
+rotor_support.workspace = true
+rotor_tsrs.workspace = true
+
+[dev-dependencies]
+rotor_compile.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -5,7 +5,7 @@ description: "Install sloptor from npm, a toolchain manager, a release archive, 
 
 import PackageManagerTabs from "$components/package-manager-tabs.astro";
 
-sloptor ships as one native binary for macOS, Linux, and Windows on x64 and ARM64. Pick whichever way your project already installs tools.
+sloptor ships as one native binary for macOS on ARM64, Linux on x64 and ARM64, and Windows on x64. Pick whichever way your project already installs tools.
 
 ## From npm
 
@@ -58,12 +58,14 @@ Every [GitHub release](https://github.com/howmanyslop/sloptor/releases) has arch
 
 ## From source
 
-Building from source needs the Go version in `go.mod`:
+Building from source needs the Rust version pinned in `mise.toml` (`mise install rust` installs it):
 
 ```sh
 git clone https://github.com/howmanyslop/sloptor && cd sloptor
-go build ./cmd/rotor
+cargo build --locked --release -p rotor_cli
 ```
+
+The executable is `target/release/sloptor`.
 
 ## Check the project
 

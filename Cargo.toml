@@ -1,0 +1,98 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# third_party/tsrs is its own workspace, mirrored by tools/tsrs-mirror and pulled in as path
+# dependencies only, so rotor's lints never apply to it. editors/zed is the standalone Zed
+# extension (wasm, edition 2021, its own lockfile and rustfmt.toml).
+exclude = ["editors/zed", "third_party/tsrs"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[workspace.dependencies]
+clap = { version = "4.6.7", features = ["derive", "wrap_help"] }
+clap_complete = "4.6.11"
+ctrlc = { version = "3.5.2", features = ["termination"] }
+dunce = "1.0.5"
+getrandom = "0.4"
+icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
+jiff = "0.2.24"
+libc = "0.2.191"
+libmimalloc-sys2 = { version = "0.1.64", default-features = false, features = ["extended"] }
+mimalloc-safe = { version = "0.1.67", features = ["no_thp", "v3"] }
+miniz_oxide = "0.9"
+notify = { version = "8.2.0", default-features = false, features = ["macos_fsevent"] }
+rayon = "1"
+regex = "1.13.1"
+rotor_compile = { path = "crates/rotor_compile" }
+rotor_config = { path = "crates/rotor_config" }
+rotor_flamework = { path = "crates/rotor_flamework" }
+rotor_jecs = { path = "crates/rotor_jecs" }
+rotor_lsp = { path = "crates/rotor_lsp" }
+rotor_luau = { path = "crates/rotor_luau" }
+rotor_rojo = { path = "crates/rotor_rojo" }
+rotor_support = { path = "crates/rotor_support" }
+rotor_transformer = { path = "crates/rotor_transformer" }
+rotor_tsrs = { path = "crates/rotor_tsrs" }
+rustix = { version = "1.1.5", default-features = false, features = ["fs", "std"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.11"
+tempfile = "3"
+terminal_size = "0.4.4"
+toml_edit = { version = "0.25", default-features = false, features = ["parse"] }
+tsrs_ast = { path = "third_party/tsrs/crates/tsrs_ast" }
+tsrs_binder = { path = "third_party/tsrs/crates/tsrs_binder" }
+tsrs_checker = { path = "third_party/tsrs/crates/tsrs_checker" }
+tsrs_compiler = { path = "third_party/tsrs/crates/tsrs_compiler" }
+tsrs_contentmapper = { path = "third_party/tsrs/crates/tsrs_contentmapper" }
+tsrs_core = { path = "third_party/tsrs/crates/tsrs_core" }
+tsrs_diagnostics = { path = "third_party/tsrs/crates/tsrs_diagnostics" }
+tsrs_module = { path = "third_party/tsrs/crates/tsrs_module" }
+tsrs_parser = { path = "third_party/tsrs/crates/tsrs_parser" }
+tsrs_printer = { path = "third_party/tsrs/crates/tsrs_printer" }
+tsrs_scanner = { path = "third_party/tsrs/crates/tsrs_scanner" }
+tsrs_sourcemap = { path = "third_party/tsrs/crates/tsrs_sourcemap" }
+tsrs_tsoptions = { path = "third_party/tsrs/crates/tsrs_tsoptions" }
+tsrs_vfs = { path = "third_party/tsrs/crates/tsrs_vfs" }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Console"] }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "deny"
+expect_used = "deny"
+nursery = { level = "warn", priority = -1 }
+panic = "deny"
+pedantic = { level = "warn", priority = -1 }
+print_stderr = "deny"
+print_stdout = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+unused_crate_dependencies = "warn"
+
+[profile.dev]
+debug = 1
+
+# Matches tsrs's release profile. tsrs may rely on unwinding, so panic stays "unwind".
+[profile.release]
+opt-level = 3
+debug = false
+lto = "fat"
+panic = "unwind"
+codegen-units = 1
+
+# Iteration profile: optimized, no LTO, parallel codegen.
+[profile.fastrel]
+inherits = "release"
+debug = false
+lto = "off"
+codegen-units = 16

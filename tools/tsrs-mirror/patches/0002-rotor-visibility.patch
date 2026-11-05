@@ -1,0 +1,52 @@
+diff --git a/crates/tsrs_checker/src/checker.rs b/crates/tsrs_checker/src/checker.rs
+index 89c00e69..c15b499d 100644
+--- a/crates/tsrs_checker/src/checker.rs
++++ b/crates/tsrs_checker/src/checker.rs
+@@ -1328,7 +1328,7 @@ pub struct Checker {
+     pub(crate) auto_type: P<Type>,
+     pub(crate) wildcard_type: P<Type>,
+     pub(crate) blocked_string_type: P<Type>,
+-    pub(crate) error_type: P<Type>,
++    pub error_type: P<Type>,
+     pub(crate) unresolved_type: P<Type>,
+     pub(crate) non_inferrable_any_type: P<Type>,
+     pub(crate) intrinsic_marker_type: P<Type>,
+diff --git a/crates/tsrs_checker/src/types.rs b/crates/tsrs_checker/src/types.rs
+index 3e319258..b8664178 100644
+--- a/crates/tsrs_checker/src/types.rs
++++ b/crates/tsrs_checker/src/types.rs
+@@ -2427,7 +2427,7 @@ bitflags! {
+
+ #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+ pub struct TupleElementInfo {
+-    pub(crate) flags: ElementFlags,
++    pub flags: ElementFlags,
+     pub(crate) labeled_declaration: Option<P<Node>>, // NamedTupleMember | ParameterDeclaration | nil
+ }
+
+diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/program.rs
+index 548025c2..42203919 100644
+--- a/crates/tsrs_compiler/src/program.rs
++++ b/crates/tsrs_compiler/src/program.rs
+@@ -325,7 +325,7 @@ impl Program {
+
+     // GetRedirectTargets returns the list of file paths that redirect to the given path.
+     // These are files from the same package (same name@version) installed in different locations.
+-    pub(crate) fn get_redirect_targets(&self, path: &Path) -> &[String] {
++    pub fn get_redirect_targets(&self, path: &Path) -> &[String] {
+         self.redirect_targets_map.get(path).map_or(&[] as &[String], std::vec::Vec::as_slice)
+     }
+
+diff --git a/crates/tsrs_printer/src/factory.rs b/crates/tsrs_printer/src/factory.rs
+index 0a4fbd63..19fe5590 100644
+--- a/crates/tsrs_printer/src/factory.rs
++++ b/crates/tsrs_printer/src/factory.rs
+@@ -265,7 +265,7 @@ impl NodeFactory {
+     }
+
+     // factory.go:229
+-    pub(crate) fn new_strict_equality_expression(&self, left: P<Node>, right: P<Node>) -> P<Node> {
++    pub fn new_strict_equality_expression(&self, left: P<Node>, right: P<Node>) -> P<Node> {
+         self.new_binary_expression(
+             None, /*modifiers*/
+             left,

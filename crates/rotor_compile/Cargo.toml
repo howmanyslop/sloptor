@@ -1,0 +1,26 @@
+[package]
+name = "rotor_compile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+icu_normalizer.workspace = true
+rotor_config.workspace = true
+rotor_flamework.workspace = true
+rotor_jecs.workspace = true
+rotor_luau.workspace = true
+rotor_rojo.workspace = true
+rotor_support.workspace = true
+rotor_transformer.workspace = true
+rotor_tsrs.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+
+[lints]
+workspace = true

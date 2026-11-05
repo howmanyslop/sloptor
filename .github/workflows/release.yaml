@@ -15,7 +15,9 @@ concurrency:
 
 jobs:
   build:
-    needs: validate
+    needs:
+      - compile
+      - validate
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -28,60 +30,15 @@ jobs:
         with:
           # Tag-triggered: never restore a cache into release artifacts.
           cache: false
-          install_args: go node
+          install_args: node
           experimental: true
 
-      # No Go cache restore: release binaries build from a clean module and
-      # build cache so a poisoned cache entry cannot reach published assets.
-      - name: Build release binaries
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-
-          build_target() {
-            local goos="$1"
-            local goarch="$2"
-            local suffix="$3"
-            local output="dist/sloptor-v$VERSION-$goos-$goarch-bin$suffix"
-
-            GOOS="$goos" GOARCH="$goarch" go build -p 5 -trimpath -ldflags="-s -w" -o "$output" ./cmd/rotor
-            test -s "$output"
-            go version -m "$output"
-
-            if [ "$goos/$goarch" = "linux/amd64" ]; then
-              chmod +x "$output"
-              reported_version=$("$output" --version)
-              if [ "$reported_version" != "$VERSION" ]; then
-                echo "binary reports $reported_version, expected $VERSION"
-                return 1
-              fi
-            fi
-          }
-
-          pids=()
-          build_target darwin amd64 "" &
-          pids+=("$!")
-          build_target darwin arm64 "" &
-          pids+=("$!")
-          build_target linux amd64 "" &
-          pids+=("$!")
-          build_target linux arm64 "" &
-          pids+=("$!")
-          build_target windows amd64 ".exe" &
-          pids+=("$!")
-          build_target windows arm64 ".exe" &
-          pids+=("$!")
-
-          status=0
-          for pid in "${pids[@]}"; do
-            if ! wait "$pid"; then
-              status=1
-            fi
-          done
-          exit "$status"
-        env:
-          CGO_ENABLED: "0"
-          VERSION: ${{ needs.validate.outputs.version }}
+      - name: Download executables
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          path: dist
+          pattern: sloptor-bin-*
+          merge-multiple: true
 
       - name: Package and verify release assets
         run: |
@@ -111,14 +68,12 @@ jobs:
             fi
           }
 
-          package_target darwin amd64 ""
           package_target darwin arm64 ""
           package_target linux amd64 ""
           package_target linux arm64 ""
           package_target windows amd64 ".exe"
-          package_target windows arm64 ".exe"
 
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 8
 
           (
             cd dist
@@ -131,7 +86,7 @@ jobs:
             sha256sum --check "sloptor-v$VERSION-checksums.txt"
           )
 
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 9
 
           for archive in "dist/sloptor-v$VERSION-"*.tar.gz; do
             test "$(tar -tzf "$archive" | sort | paste -sd ' ' -)" = "LICENSE README.md sloptor"
@@ -140,12 +95,10 @@ jobs:
             test "$(unzip -Z1 "$archive" | sort | paste -sd ' ' -)" = "LICENSE README.md sloptor.exe"
           done
 
-          file "dist/sloptor-v$VERSION-darwin-amd64-bin" | grep -q "Mach-O.*x86_64"
           file "dist/sloptor-v$VERSION-darwin-arm64-bin" | grep -q "Mach-O.*arm64"
           file "dist/sloptor-v$VERSION-linux-amd64-bin" | grep -q "ELF 64-bit.*x86-64"
           file "dist/sloptor-v$VERSION-linux-arm64-bin" | grep -q "ELF 64-bit.*ARM aarch64"
           file "dist/sloptor-v$VERSION-windows-amd64-bin.exe" | grep -q "PE32+.*x86-64"
-          file "dist/sloptor-v$VERSION-windows-arm64-bin.exe" | grep -q "PE32+.*Aarch64"
         env:
           VERSION: ${{ needs.validate.outputs.version }}
 
@@ -153,7 +106,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/stage-npm-release.cjs --dist dist --output dist/npm
-          test "$(find dist/npm -maxdepth 1 -name '*.tgz' -type f | wc -l)" -eq 7
+          test "$(find dist/npm -maxdepth 1 -name '*.tgz' -type f | wc -l)" -eq 5
 
       - name: Upload release bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -215,6 +168,104 @@ jobs:
 
     timeout-minutes: 10
 
+  # One native runner per target, so every binary runs its own --version check
+  # and none is cross-compiled. Each job uploads its bare executable; the
+  # `build` job downloads all four and packages them.
+  compile:
+    name: Compile (${{ matrix.target }})
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+      # mise.toml routes cargo through mbx, whose local cache starts empty on
+      # a runner; a release build never reads a cache anyway.
+      MBX_DISABLE: "1"
+      RUST_BACKTRACE: short
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # No cargo cache restore (setup-rust skips it without a cache-key):
+      # release binaries build from a clean target directory so a poisoned
+      # cache entry cannot reach published assets.
+      - name: Set up Rust toolchain
+        uses: ./.github/actions/setup-rust
+        with:
+          mise-cache: "false"
+
+      # tools/sidecar is embedded with include_bytes! from the checked-in
+      # sources (crates/rotor_compile/src/sidecar_install.rs); there is no
+      # sidecar build step to run before cargo.
+      - name: Build release binary
+        run: |
+          set -euo pipefail
+          # Same command as `mise run rust:release`, plus --target so the output
+          # path is the same on every runner.
+          cargo build --locked --release -p rotor_cli --target "$TRIPLE"
+
+          output="dist/sloptor-v$VERSION-$GOOS-$GOARCH-bin$SUFFIX"
+          mkdir -p dist
+          cp "target/$TRIPLE/release/sloptor$SUFFIX" "$output"
+          test -s "$output"
+          chmod +x "$output"
+
+          reported_version=$("$output" --version)
+          if [ "$reported_version" != "$VERSION" ]; then
+            echo "binary reports $reported_version, expected $VERSION"
+            exit 1
+          fi
+        shell: bash
+        env:
+          # The equivalent of Go's -ldflags="-s -w".
+          CARGO_PROFILE_RELEASE_STRIP: symbols
+          GOARCH: ${{ matrix.goarch }}
+          GOOS: ${{ matrix.goos }}
+          SUFFIX: ${{ matrix.suffix }}
+          TRIPLE: ${{ matrix.triple }}
+          VERSION: ${{ needs.validate.outputs.version }}
+
+      - name: Upload executable
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: sloptor-bin-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/sloptor-v${{ needs.validate.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}-bin${{ matrix.suffix }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+    timeout-minutes: 60
+
+    strategy:
+      matrix:
+        include:
+          - goarch: arm64
+            goos: darwin
+            runner: macos-15
+            suffix: ""
+            target: darwin-arm64
+            triple: aarch64-apple-darwin
+          - goarch: arm64
+            goos: linux
+            runner: ubuntu-24.04-arm
+            suffix: ""
+            target: linux-arm64
+            triple: aarch64-unknown-linux-gnu
+          - goarch: amd64
+            goos: linux
+            runner: ubuntu-24.04
+            suffix: ""
+            target: linux-x64
+            triple: x86_64-unknown-linux-gnu
+          - goarch: amd64
+            goos: windows
+            runner: windows-2025
+            suffix: .exe
+            target: win32-x64
+            triple: x86_64-pc-windows-msvc
+      fail-fast: true
+
   deploy-documentation:
     if: github.event_name == 'push' && github.ref_type == 'tag'
     needs: changelog
@@ -250,7 +301,7 @@ jobs:
             cd dist
             sha256sum --check "sloptor-v$VERSION-checksums.txt"
           )
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 13
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 9
 
           tag="$GITHUB_REF_NAME"
           prerelease_args=(--prerelease=false)
@@ -276,8 +327,8 @@ jobs:
           fi
 
           asset_count=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets | length')
-          if [ "$asset_count" -ne 13 ]; then
-            echo "draft release has $asset_count assets, expected 13"
+          if [ "$asset_count" -ne 9 ]; then
+            echo "draft release has $asset_count assets, expected 9"
             exit 1
           fi
 
@@ -363,14 +414,10 @@ jobs:
             target: linux-x64
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
           - runner: macos-15
             target: darwin-arm64
           - runner: windows-2025
             target: win32-x64
-          - runner: windows-11-arm
-            target: win32-arm64
 
     timeout-minutes: 10
 
@@ -396,14 +443,14 @@ jobs:
       - id: version
         name: Validate version
         run: |
-          code_version=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' internal/version/version.go)
+          code_version=$(sed -n 's/^pub const VERSION: &str = "\(.*\)";$/\1/p' crates/rotor_support/src/version.rs)
           if [ -z "$code_version" ]; then
-            echo "could not read Version from internal/version/version.go"
+            echo "could not read VERSION from crates/rotor_support/src/version.rs"
             exit 1
           fi
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "v$code_version" != "$GITHUB_REF_NAME" ]; then
-            echo "tag $GITHUB_REF_NAME does not match internal/version/version.go (v$code_version)"
-            echo "bump the Version constant before tagging a release"
+            echo "tag $GITHUB_REF_NAME does not match crates/rotor_support/src/version.rs (v$code_version)"
+            echo "bump the VERSION constant before tagging a release"
             exit 1
           fi
           validation_args=()

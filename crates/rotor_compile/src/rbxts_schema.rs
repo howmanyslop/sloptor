@@ -1,0 +1,33 @@
+//! `rbxts_schema.go`: the JSON schema of the tsconfig `rbxts` key, for editor autocomplete.
+
+/// `RbxtsTsConfigSchema`
+pub const RBXTS_TS_CONFIG_SCHEMA: &str = r#"{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/howmanyslop/sloptor/main/rbxts-tsconfig.schema.json",
+  "title": "roblox-ts tsconfig.json",
+  "description": "JSON schema for roblox-ts-specific options in tsconfig.json. Reference via \"$schema\" at the top of your tsconfig.json to get IDE autocomplete and validation for both standard TypeScript options and the \"rbxts\" field.",
+  "type": "object",
+  "allOf": [{"$ref": "https://json.schemastore.org/tsconfig"}],
+  "properties": {
+    "rbxts": {
+      "type": "object",
+      "description": "roblox-ts compiler options. CLI flags override these at runtime.",
+      "properties": {
+        "allowCommentDirectives": {"type": "boolean", "description": "Allow TypeScript comment directives such as @ts-ignore."},
+        "includePath": {"type": "string", "description": "Path to where the runtime library files should be stored. Resolved relative to this tsconfig.json."},
+        "logTruthyChanges": {"type": "boolean", "description": "Log changes to truthiness evaluation from Lua truthiness rules."},
+        "luau": {"type": "boolean", "description": "Emit files with .luau extension."},
+        "luauTypes": {"type": "boolean", "description": "Experimental. Emit full Luau type annotations (parameters, returns, locals, class fields, exported type aliases) in compiled output so Luau code can consume it with real types. Off by default; rotor.toml's luauTypes is the fallback when this is not set. Output may change between releases."},
+        "nativeTypes": {"type": "boolean", "description": "Emit Luau parameter and return annotations for files whose leading comments include //!native. Off by default; rotor.toml's nativeTypes is the fallback when this is not set."},
+        "noInclude": {"type": "boolean", "description": "Do not copy include files."},
+        "optimizedArrayAppends": {"type": "boolean", "description": "Replace eligible Array.push calls in loops with indexed writes."},
+        "optimizedLoops": {"type": "boolean", "description": "Enable numeric-for loop optimization."},
+        "rojo": {"type": "string", "description": "Path to the Rojo configuration file. Resolved relative to this tsconfig.json. If omitted, roblox-ts auto-detects a *.project.json in the project root."},
+        "type": {"enum": ["game", "model", "package"], "description": "Override project type."}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}
+"#;

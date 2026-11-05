@@ -1,5 +1,5 @@
 system_extra = """
-You write release notes for sloptor, a native Go Roblox toolchain. The binary is `sloptor`, the
+You write release notes for sloptor, a native Rust Roblox toolchain. The binary is `sloptor`, the
 product is "sloptor", the repo is `howmanyslop/sloptor`. The reader already depends on the tool,
 runs `sloptor build`, `sloptor check`, `sloptor dev`, `sloptor bundle`, `sloptor pack`,
 `sloptor asset`, or `sloptor deploy` in a project, and is deciding whether to upgrade a pinned
@@ -12,10 +12,10 @@ Work in four steps: research, select, classify, write.
 
 Do not paraphrase commit subjects. For every candidate change, read the diff (`git_show`,
 `get_pr_diff`) and then the source it touched, using the layout in the context section: flags
-and commands in `cmd/rotor/`, emit in `internal/transformer/` and `internal/luau/`, build and
-watch in `internal/compile/`, diagnostics in `internal/transformer/diagnostics.go` and
-`internal/diagframe/`, cloud in `internal/assets/`, `internal/cloud/`, `internal/deploy/`,
-config in `internal/config/` and `rotor.schema.json`. The diff says what changed; the source
+and commands in `crates/rotor_cli/`, emit in `crates/rotor_transformer/` and
+`crates/rotor_luau/`, build and watch in `crates/rotor_compile/`, diagnostics in
+`crates/rotor_transformer/src/diagnostics.rs` and `crates/rotor_support/src/diagframe/`, config in
+`crates/rotor_config/` and `rotor.schema.json`. The diff says what changed; the source
 says what it means for the reader.
 
 Read the PR description when there is one. Its before/after examples are the best source for
@@ -32,16 +32,16 @@ A change is user-facing when the reader could observe it without reading the sou
 changed command, subcommand, or flag; a changed default; a new or changed compile-time macro;
 different Luau emit for the same input; a diagnostic that appears, disappears, or changes
 text, code frame, or `--json` shape; rebuild, watch, cache, or manifest behavior they would
-notice; `rotor.toml` or `tsconfig.json` schema or defaults; supported Go, Node, typescript-go,
+notice; `rotor.toml` or `tsconfig.json` schema or defaults; supported Rust, Node, tsrs,
 or fork archive versions; `@rotor-rbx/rotor` install behavior; a surface that newly matches or
 newly diverges from `rbxtsc 3.0.0` or the fork archive; a performance change they would feel,
 with numbers only if the commit or PR states them.
 
 Everything else is excluded with no "internal changes" section: dependency bumps, lockfiles,
-`go.sum`, CI, release automation, workflow files, tests, fixtures, refactors, formatting,
-renames, docs, README, roadmap, `mise.toml`, benchmark scripts, `tools/oracle`, `tsgo/`
-regeneration, `reference/` snapshots, and the release's own version bump (the
-`chore(release): prepare vX` commit, `internal/version/version.go`, and the resulting
+`Cargo.lock`, CI, release automation, workflow files, tests, fixtures, refactors, formatting,
+renames, docs, README, roadmap, `mise.toml`, benchmark scripts, `tools/oracle`, `third_party/tsrs`
+re-vendoring, `reference/` snapshots, and the release's own version bump (the
+`chore(release): prepare vX` commit, `crates/rotor_support/src/version.rs`, and the resulting
 `-- Compiled with sloptor vX` header line, which change every release). If an internal change
 has an observable effect, describe the effect and never the internals.
 
@@ -142,11 +142,11 @@ or more: name the shared theme.
 """
 
 context = """
-sloptor is an all-in-one Roblox toolchain, written in Go. The binary command is `sloptor`. The
+sloptor is an all-in-one Roblox toolchain, written in Rust. The binary command is `sloptor`. The
 GitHub repo is `howmanyslop/sloptor`. The npm package is `@rotor-rbx/rotor`.
 
-At its core is a native rewrite of the roblox-ts compiler (`rbxtsc`) built on Microsoft's
-typescript-go. It is a drop-in `rbxtsc` replacement with upstream-parity Luau output on
+At its core is a native rewrite of the roblox-ts compiler (`rbxtsc`) built on tsrs, a Rust
+port of Microsoft's typescript-go. It is a drop-in `rbxtsc` replacement with upstream-parity Luau output on
 unaffected surfaces, plus a native Luau toolchain and Open Cloud asset and deployment
 pipelines, all in one binary. It also ships compile-time macros that `rbxtsc` does not have:
 `$env`, `$asset`, `$nameof`, `$keys`, `$file`, `$git`, `$buildTime`, `$getModuleTree`.
@@ -158,31 +158,25 @@ optimization, object-rest direct access, the `rbxts` option cascade, `.luau.map`
 the copy-files gate, the Rojo resolver cache, solution builds, and solution watch.
 
 Repository layout worth reading when researching a change:
-- `cmd/rotor/` is the whole CLI: one file per command (`build.go`, `check.go`, `dev.go`,
-  `asset.go`, `deploy.go`, and so on), flag definitions in each, shared concurrency flags in
-  `concurrency_flags.go`, and diagnostic rendering for the terminal and `--json` in
-  `diagnostics.go`.
-- `internal/compile/` handles project builds, incremental state, watch mode, solution
+- `crates/rotor_cli/` is the whole CLI: one file per command (`build.rs`, `check.rs`,
+  `clean.rs`, `diagnostics.rs`, `lsp.rs`, and so on), the clap command tree in `cli.rs`,
+  and diagnostic rendering for the terminal and `--json` in `diagnostics.rs` and `report.rs`.
+- `crates/rotor_compile/` handles project builds, incremental state, watch mode, solution
   (project-reference) builds and watch, the manifest system, the copy-files gate, the
-  Flamework pipeline, and the macro declaration side of `$env`, `$asset`, and `$file`.
-- `internal/transformer/` is the roblox-ts emit port, TypeScript to Luau. Macro expansion
-  lives here too (`envmacro.go`, `assetmacro.go`, `nameofmacro.go`, `keysmacro.go`,
-  `filemacro.go`, `gitmacro.go`, `callmacros.go`), as do compiler diagnostics
-  (`diagnostics.go`).
-- `internal/luau/` is the Luau AST, lexer, CST, and renderer (port of `@roblox-ts/luau-ast`).
-- `internal/diagframe/` renders code frames for diagnostics.
-- `internal/bundle/`, `internal/pack/`, `internal/sourcemap/`, and `internal/migrate/` back
-  `sloptor bundle`, `sloptor pack`, `sloptor sourcemap`, and `sloptor migrate`.
-- `internal/assets/` and `internal/assetresolve/` implement Open Cloud asset sync and the
-  `$asset` lockfile; `internal/cloud/` is the Open Cloud client; `internal/deploy/` is the
-  deploy plan/apply IaC flow.
-- `internal/config/` and `rotor.schema.json` define the `rotor.toml` config shape.
-- `internal/rojo/` is the Rojo project resolver and its cache.
-- `internal/buildapi/` is the long-running build server behind `sloptor api-server`.
-- `internal/version/version.go` holds the single version constant.
+  Flamework pipeline (with `crates/rotor_flamework/`), and the macro declaration side of
+  `$env`, `$asset`, and `$file`.
+- `crates/rotor_transformer/` is the roblox-ts emit port, TypeScript to Luau. Macro expansion
+  lives under `src/macros/`, and compiler diagnostics are in `src/diagnostics.rs`.
+- `crates/rotor_luau/` is the Luau AST and renderer (port of `@roblox-ts/luau-ast`).
+- `crates/rotor_support/` holds shared helpers, the code-frame renderer, and the single
+  version constant (`src/version.rs`).
+- `crates/rotor_config/` and `rotor.schema.json` define the `rotor.toml` config shape.
+- `crates/rotor_rojo/` is the Rojo project resolver and its cache.
+- `crates/rotor_lsp/` is the language server behind `sloptor lsp`.
+- `crates/rotor_cli/src/buildapi.rs` is the long-running build server behind `sloptor api-server`.
 - `package.json` + `bin/rotor.js` + `scripts/install.js` are the npm shim that downloads the
   prebuilt binary.
-- `tsgo/` is a generated mirror of typescript-go; never edit by hand.
+- `third_party/tsrs` is a generated mirror of tsrs; never edit by hand.
 - `reference/` holds vendored roblox-ts and luau-ast source for porting reference.
 - `testdata/` holds the differential (`diff/`), conformance, compatibility, fork-parity,
   Flamework, and transformer suites.

@@ -12,5 +12,5 @@
 		"types": ["bun", "node"],
 		"sourceMap": false
 	},
-	"include": ["api.d.ts", "*.config.ts", "scripts/**/*.ts"]
+	"include": ["api.d.ts", "*.config.ts", "scripts/**/*.ts", "tools/tsrs-mirror/**/*.ts"]
 }

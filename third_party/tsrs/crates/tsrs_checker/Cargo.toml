@@ -1,0 +1,40 @@
+[package]
+name = "tsrs_checker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Creation-site counters (src/sitecount.rs): `#[track_caller]` on the checker's object constructors.
+site-counts = []
+# TSRS_WORK_CENSUS: attribute checker work to source patterns (workcensus.rs, docs/DEBUGGING.md).
+work-census = []
+
+[dependencies]
+tsrs_core.workspace = true
+tsrs_diagnostics.workspace = true
+tsrs_ast.workspace = true
+tsrs_scanner.workspace = true
+tsrs_parser.workspace = true
+tsrs_binder.workspace = true
+tsrs_module.workspace = true
+tsrs_tsoptions.workspace = true
+tsrs_pseudochecker.workspace = true
+tsrs_modulespecifiers.workspace = true
+tsrs_printer.workspace = true
+tsrs_astnav.workspace = true
+rustc-hash.workspace = true
+hashbrown.workspace = true
+smallvec.workspace = true
+smallbitvec.workspace = true
+bitflags.workspace = true
+xxhash-rust.workspace = true
+
+[lib]
+test = false
+doctest = false

@@ -1,0 +1,7 @@
+mod affinity_test;
+mod checkerpool_default_checker_tests;
+mod checkerpool_stealing_tests;
+mod contentmapper_test;
+mod modulespecifiers_oracle_test;
+mod program_test;
+mod projectreferencedtsfakinghost_region_tests;
