@@ -7,31 +7,16 @@ import { EnumType } from "@cliffy/command";
 import { type } from "arktype";
 import { exec } from "tinyexec";
 
+import { renderScenario, renderSummary, renderTitle } from "$utilities/benchmark-render-utilities";
+import { getComparison, isHyperfineOutput, SCENARIOS } from "$utilities/benchmark-statistics-utilities";
 import { createScriptCommand, parseScriptArgumentsAsync } from "$utilities/command-utilities";
 
-const isMeasurement = type({
-	exit_code: "number",
-	"instructions?": { value: "number" },
-	memory_peak_resident: { value: "number" },
-	time_cpu: { value: "number" },
-	time_wall_clock: { value: "number" },
-}).readonly();
-
-const isHyperfineResult = type({
-	name: "string",
-	measurements: isMeasurement.array(),
-}).readonly();
-type HyperfineResult = typeof isHyperfineResult.infer;
-
-const isHyperfineOutput = type({
-	results: isHyperfineResult.array().readonly(),
-}).readonly();
-type HyperfineOutput = typeof isHyperfineOutput.infer;
-
-const enum Scenario {
-	Cold = "cold",
-	Incremental = "incremental",
-}
+import type {
+	HyperfineOutput,
+	ProjectComparison,
+	Scenario,
+	ScenarioReport,
+} from "$utilities/benchmark-statistics-utilities";
 
 interface BenchmarkOptions {
 	readonly checkers: number;
@@ -44,9 +29,6 @@ interface BenchmarkOptions {
 }
 
 const DEFAULT_PROJECTS = ["hello", "algorithms", "containers", "async", "roblox-api", "obby", "wide"];
-const BYTES_PER_MEBIBYTE = 1_048_576;
-const MILLISECONDS_PER_SECOND = 1000;
-const MILLION = 1_000_000;
 
 const repositoryRoot = nodePath.resolve(import.meta.dirname, "..");
 const compareDirectory = nodePath.join(repositoryRoot, "benchmarks", "compare");
@@ -67,39 +49,8 @@ async function cleanAsync(project: string): Promise<void> {
 	);
 }
 
-function getMean(values: ReadonlyArray<number>): number {
-	return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
-
-function getStandardDeviation(values: ReadonlyArray<number>): number {
-	const average = getMean(values);
-	return Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1));
-}
-
-function summarize(result: HyperfineResult): string {
-	const { measurements } = result;
-	const wall = measurements
-		.map((measurement) => measurement.time_wall_clock.value * MILLISECONDS_PER_SECOND)
-		.toSorted((left, right) => left - right);
-	const failed = measurements.filter((measurement) => measurement.exit_code !== 0).length;
-	const cpu = getMean(measurements.map((measurement) => measurement.time_cpu.value * MILLISECONDS_PER_SECOND));
-	const memory = getMean(
-		measurements.map((measurement) => measurement.memory_peak_resident.value / BYTES_PER_MEBIBYTE),
-	);
-	const instructions = getMean(measurements.map((measurement) => (measurement.instructions?.value ?? 0) / MILLION));
-	const median = wall[Math.floor(wall.length / 2)] ?? 0;
-
-	return [
-		result.name.padEnd(8),
-		`n=${wall.length}`,
-		`failed=${failed}`,
-		`mean ${getMean(wall).toFixed(1)}±${getStandardDeviation(wall).toFixed(1)}ms`,
-		`median ${median.toFixed(1)}ms`,
-		`min ${(wall[0] ?? 0).toFixed(1)}ms`,
-		`cpu ${cpu.toFixed(0)}ms`,
-		`rss ${memory.toFixed(0)}MB`,
-		`${instructions.toFixed(0)}M instr`,
-	].join("  ");
+function getInstalledVersion(binary: string): string {
+	return nodePath.basename(nodePath.dirname(binary));
 }
 
 async function runBenchmarkAsync(
@@ -110,7 +61,7 @@ async function runBenchmarkAsync(
 	const output = nodePath.join(out, `${scenario}-${project}.json`);
 	const parameters = ["-N", "--warmup", String(warmup), "--runs", String(runs), "--export-json", output];
 
-	if (scenario === Scenario.Cold) {
+	if (scenario === "cold") {
 		parameters.push("--prepare", `rm -rf ${directory}/out ${directory}/include ${directory}/.rotor`);
 	}
 
@@ -133,18 +84,18 @@ async function runBenchmarkAsync(
 }
 
 const { command, log } = createScriptCommand(
-	"1.0.0",
+	"1.1.0",
 	"Benchmarks sloptor against rbxtsgo on the fixtures in benchmarks/compare. Needs mise (sloptor, rbxtsgo, hyperfine 2.x) and `pnpm install --ignore-workspace` run once inside each fixture.",
 );
 
 command
-	.type("scenario", new EnumType([Scenario.Cold, Scenario.Incremental]))
+	.type("scenario", new EnumType(SCENARIOS))
 	.option("--projects <projects:string[]>", "Fixtures to benchmark.", { default: DEFAULT_PROJECTS })
 	.option(
 		"--scenarios <scenarios:scenario[]>",
 		"Cold builds wipe all outputs first; incremental rebuilds change nothing.",
 		{
-			default: [Scenario.Cold, Scenario.Incremental],
+			default: [...SCENARIOS],
 		},
 	)
 	.option("--runs <runs:integer>", "Timed runs per command.", { default: 40 })
@@ -160,11 +111,18 @@ command
 				runAsync("mise", ["which", "rbxtsgo"]),
 				mkdir(out, { recursive: true }),
 			]);
+			console.log(
+				`${renderTitle({ rbxtsgo: getInstalledVersion(rbxtsgo), sloptor: getInstalledVersion(sloptor) })}\n`,
+			);
 
-			for (const project of projects) {
-				for (const scenario of scenarios) {
+			const reports = new Array<ScenarioReport>();
+			for (const scenario of scenarios) {
+				const comparisons = new Array<ProjectComparison>();
+
+				for (const project of projects) {
+					log.start(`${project} · ${scenario}`);
 					// oxlint-disable-next-line no-await-in-loop -- benchmarks must run one at a time or they skew each other
-					const { results } = await runBenchmarkAsync(project, {
+					const output = await runBenchmarkAsync(project, {
 						checkers,
 						out,
 						rbxtsgo,
@@ -173,11 +131,15 @@ command
 						sloptor,
 						warmup,
 					});
-
-					console.log(`\n== ${project} (${scenario}, checkers=${checkers})`);
-					for (const result of results) console.log(summarize(result));
+					comparisons.push(getComparison(project, output));
 				}
+
+				const report = { checkers, comparisons, runs, scenario };
+				reports.push(report);
+				console.log(`\n${renderScenario(report)}\n`);
 			}
+
+			console.log(renderSummary(reports));
 		} catch (error) {
 			log.fail(error instanceof Error ? error.message : String(error));
 			process.exitCode = 1;
