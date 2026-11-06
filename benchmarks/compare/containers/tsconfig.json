@@ -1,0 +1,24 @@
+{
+	"compilerOptions": {
+		"incremental": true,
+		"tsBuildInfoFile": "out/tsconfig.tsbuildinfo",
+		"target": "ESNext",
+		"jsx": "react",
+		"jsxFactory": "React.createElement",
+		"jsxFragmentFactory": "React.Fragment",
+		"moduleDetection": "force",
+		"noLib": true,
+		"experimentalDecorators": true,
+		"rootDir": "src",
+		"module": "commonjs",
+		"moduleResolution": "Node",
+		"resolveJsonModule": true,
+		"typeRoots": ["node_modules/@rbxts"],
+		"strict": true,
+		"downlevelIteration": true,
+		"outDir": "out",
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true
+	},
+	"include": ["src"]
+}

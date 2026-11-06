@@ -1,0 +1,48 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    devDependencies:
+      '@rbxts/compiler-types':
+        specifier: 3.0.0-types.0
+        version: 3.0.0-types.0
+      '@rbxts/services':
+        specifier: 1.6.0
+        version: 1.6.0
+      '@rbxts/types':
+        specifier: 1.0.961
+        version: 1.0.961
+      typescript:
+        specifier: 5.5.4
+        version: 5.5.4
+
+packages:
+
+  '@rbxts/compiler-types@3.0.0-types.0':
+    resolution: {integrity: sha512-VGOHJPoL7+56NTatMGqQj3K7xWuzEV+aP4QD5vZiHu+bcff3kiTmtoadaF6NkJrmwfFAvbsd4Dg764ZjWNceag==}
+
+  '@rbxts/services@1.6.0':
+    resolution: {integrity: sha512-YH02E1/tGHeMXB0Mam8qPdAZa2fjQWdylEscSL4Zn0RIaQeByYImA2qUsXM3nBdhcyKHDwltzSznDKyCGfFEWA==}
+
+  '@rbxts/types@1.0.961':
+    resolution: {integrity: sha512-9CsS11ylVVH4on1FpCOQULJS7gUX4JghrgkJIwgjXD1RiGQH17IFv42maq30GiP7gvZgtAjZlrmLb1/3eyw70w==}
+
+  typescript@5.5.4:
+    resolution: {integrity: sha512-Mtq29sKDAEYP7aljRgtPOpTvOfbwRWlS6dPRzwjdE+C0R4brX/GUyhHSecbHMFLNBLcJIPt9nl9yG5TZ1weH+Q==}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+snapshots:
+
+  '@rbxts/compiler-types@3.0.0-types.0': {}
+
+  '@rbxts/services@1.6.0': {}
+
+  '@rbxts/types@1.0.961': {}
+
+  typescript@5.5.4: {}

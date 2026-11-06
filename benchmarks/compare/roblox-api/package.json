@@ -1,0 +1,12 @@
+{
+	"name": "compare-roblox-api",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"devDependencies": {
+		"@rbxts/compiler-types": "3.0.0-types.0",
+		"@rbxts/services": "1.6.0",
+		"@rbxts/types": "1.0.961",
+		"typescript": "5.5.4"
+	}
+}
