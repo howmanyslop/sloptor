@@ -288,6 +288,9 @@ catalogs:
     '@cliffy/command':
       specifier: jsr:@cliffy/command@1.3.1
       version: 1.3.1
+    ansis:
+      specifier: 4.5.0
+      version: 4.5.0
     arktype:
       specifier: 2.2.8
       version: 2.2.8
@@ -570,6 +573,9 @@ importers:
       '@cliffy/command':
         specifier: catalog:scripts
         version: '@jsr/cliffy__command@1.3.1'
+      ansis:
+        specifier: catalog:scripts
+        version: 4.5.0
       arktype:
         specifier: catalog:scripts
         version: 2.2.8
@@ -1948,12 +1954,12 @@ packages:
     resolution: {integrity: sha512-wgm9Ehl2jpeqP3zw/7mo3kRHFp5MEDhqAdwy1fTGkHAwnkGOVsgpvQhL8B5n1qlb01jV3n/bI0ZfZp5lWA1k4w==}
     engines: {node: '>=18.0.0'}
 
-  '@isentinel/dict-rbxts@1.0.28':
-    resolution: {integrity: sha512-lqJ9CYSxASPAMBTKKi49edgDZ9MDiWtpJzgk55h9IG6hyEZTlAf6OZGgw9y7GXT+Y6xQTc7bqf9Brxl2EX9MrQ==}
+  '@isentinel/dict-rbxts@1.0.29':
+    resolution: {integrity: sha512-VpbPvU2I1ZUDXo8hcPnFjD/RPNDvP+fsEgFSoCvrWksxTZlUhBSB3U4p56vur68265I3is4zU3HSyDF6hNCZzw==}
     engines: {node: '>=22'}
 
-  '@isentinel/dict-roblox@1.0.21':
-    resolution: {integrity: sha512-rGl23rh/RQ5svoqKhiRR+tjRHNv334VNfNP10vgyUhXCM7T0V9U/93FPTSQhEP8oF+oXDKN5r9pFG5yqyfx9+Q==}
+  '@isentinel/dict-roblox@1.0.22':
+    resolution: {integrity: sha512-+wnI76DmboKrV7G25mu1am5w1qx9VlDSJfeS6l21vCleM37CpDAnxNu/4uNS0tPvS8QAY6bdegbhKiiWDGUkQw==}
     engines: {node: '>=20.18.0'}
 
   '@isentinel/eslint-config@6.1.0':
@@ -3616,6 +3622,10 @@ packages:
 
   ansis@4.3.1:
     resolution: {integrity: sha512-BJ8/l4R5LRE7hW9WdSuGYrLSHi2ynxeFpDFbH0K/CgNeY/tyhk+vO6TYxXC5r5CpUhNVX310xzPsN/H9lCdfOA==}
+    engines: {node: '>=14'}
+
+  ansis@4.5.0:
+    resolution: {integrity: sha512-KwIVkfFfJSSzBmZhDGuTmkhWqTdyB5oNVzzznBJbBZ5bZtHiqSrcugRF0RKJKT4Ss3d7ZrcjnlFVDlQNmtWfWw==}
     engines: {node: '>=14'}
 
   anymatch@3.1.3:
@@ -7748,9 +7758,9 @@ snapshots:
     dependencies:
       minipass: 7.1.3
 
-  '@isentinel/dict-rbxts@1.0.28': {}
+  '@isentinel/dict-rbxts@1.0.29': {}
 
-  '@isentinel/dict-roblox@1.0.21': {}
+  '@isentinel/dict-roblox@1.0.22': {}
 
   '@isentinel/eslint-config@6.1.0(patch_hash=6343ef278fb3d1dbd1624adc51ba95b64ef5b0d38413d848cde2ffed7e452095)(a843442e6d8eda09b3e126e32fe67789)':
     dependencies:
@@ -7760,8 +7770,8 @@ snapshots:
       '@e18e/eslint-plugin': 0.5.1(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))(oxlint@1.89.0(oxlint-tsgolint@7.0.2004))
       '@eslint-community/eslint-plugin-eslint-comments': 4.7.2(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))
       '@eslint/markdown': 8.0.3(supports-color@10.2.2)
-      '@isentinel/dict-rbxts': 1.0.28
-      '@isentinel/dict-roblox': 1.0.21
+      '@isentinel/dict-rbxts': 1.0.29
+      '@isentinel/dict-roblox': 1.0.22
       '@oxlint/plugins': 1.78.0
       '@pobammer-ts/small-rules': 3.6.0(typescript@5.9.3)
       '@stylistic/eslint-plugin': 5.10.0(eslint@10.12.0(jiti@2.7.0)(supports-color@10.2.2))
@@ -9034,6 +9044,8 @@ snapshots:
   ansi-styles@6.2.3: {}
 
   ansis@4.3.1: {}
+
+  ansis@4.5.0: {}
 
   anymatch@3.1.3:
     dependencies:
@@ -11431,7 +11443,7 @@ snapshots:
   pncat@0.13.0:
     dependencies:
       '@clack/prompts': 1.7.0
-      ansis: 4.3.1
+      ansis: 4.5.0
       cac: 7.0.0
       find-up: 8.0.0
       package-manager-detector: 1.8.0
@@ -12368,6 +12380,7 @@ time:
   '@types/react-dom@19.3.0': '2026-09-09T18:07:51.886Z'
   '@types/react@19.3.0': '2026-09-09T18:08:49.750Z'
   '@vitest/eslint-plugin@1.6.27': '2026-08-10T02:34:20.099Z'
+  ansis@4.5.0: '2026-11-01T21:05:38.561Z'
   arktype@2.2.8: '2026-10-07T22:53:53.585Z'
   astro@7.4.0: '2026-10-15T14:49:24.327Z'
   bumpp@12.3.0: '2026-09-03T07:21:10.442Z'
