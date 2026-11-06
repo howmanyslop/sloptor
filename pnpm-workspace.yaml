@@ -76,14 +76,17 @@ catalogs:
     "@astrojs/mdx": 8.1.0
     "@astrojs/react": 7.1.0
     "@astrojs/starlight": 0.42.6
+    "@base-ui/react": 1.9.0
     "@fontsource-variable/ibm-plex-sans": 5.3.0
     "@fontsource-variable/newsreader": 5.3.0
     "@fontsource/ibm-plex-mono": 5.3.0
+    "@number-flow/react": 0.6.2
     astro: 7.4.0
     get-tsconfig: 4.14.3
     oxc-transform-react: 0.154.0
     react: 19.3.1
     react-dom: 19.3.1
+    recharts: 3.10.1
     sharp: 0.35.5
     shiki: 4.5.0
     wrangler: 4.151.1
