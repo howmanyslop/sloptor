@@ -8,6 +8,7 @@ terminal_progress = false
 
 // Paths hk must never touch:
 // - reference/, include/: vendored mirrors of upstream sources.
+// - benchmarks/compare/: generated sloptor-vs-rbxtsgo benchmark inputs, not hand-formatted.
 // - **/testdata/**: compiler fixtures and byte-parity goldens.
 // - rotor.schema.json / rbxts-tsconfig.schema.json: must stay byte-identical to what `sloptor schema` prints.
 exclude =
@@ -17,6 +18,7 @@ exclude =
     "bin",
     "reference",
     "include",
+    "benchmarks/compare",
     "third_party",
     "target",
     "**/testdata/**",

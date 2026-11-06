@@ -102,3 +102,5 @@ documentation/playwright-report/
 
 # Rust build output
 /target
+benchmarks/compare/*/out/
+benchmarks/compare/*/include/

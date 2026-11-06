@@ -36,6 +36,8 @@ tak = "0.0.13"
 tombi = "latest"
 typos = "latest"
 vale = "latest"
+"github:plasma-node/rbxtsgo" = "0.1.1"
+"github:howmanyslop/sloptor" = "3.0.0-beta.3"
 
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
