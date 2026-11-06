@@ -2,6 +2,7 @@ export const baseIgnores = [
 	"**/*.{js,cjs,mjs}",
 	".mise/**",
 	".vale/**",
+	"benchmarks/perf-fixture/**",
 	"**/testdata/**",
 	"documentation/.wrangler/**",
 	"include/**",
