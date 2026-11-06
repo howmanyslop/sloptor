@@ -104,3 +104,4 @@ documentation/playwright-report/
 /target
 benchmarks/compare/*/out/
 benchmarks/compare/*/include/
+benchmarks/compare/results
