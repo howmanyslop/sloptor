@@ -31,6 +31,10 @@ testdata/compile-unit/**/include/
 # when a run is killed.
 .phase5-fixture-*/
 
+# Generated outputs from the tak benchmark fixture (mise run perf)
+/benchmarks/perf-fixture/out/
+/benchmarks/perf-fixture/include/
+
 # Per-project resolver/cache state written by rotor builds
 .rotor/
 /rotor

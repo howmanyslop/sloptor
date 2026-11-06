@@ -1,0 +1,44 @@
+name: perf-pr-report
+
+# Post the comparison as a sticky pull-request comment and a check run. This
+# runs in a separate workflow_run job so the write token is never in scope
+# while pull-request code is executing. It checks out nothing and runs nothing
+# from the pull request; it only reads the report artifact uploaded by perf-pr.
+#
+# GitHub runs workflow_run workflows from the default branch only, so this
+# file does nothing until it has been merged.
+
+on:
+  # This is the documented exception to the rule: the job checks out nothing,
+  # executes nothing from the pull request, and treats the artifact as
+  # untrusted (tak-action v0.1.0 validates every field it reads). It exists
+  # precisely so no job that runs pull-request code holds a write token.
+  # jactionlint ignore=dangerous-triggers
+  workflow_run:
+    workflows: [perf-pr]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: perf-pr-report-${{ github.event.workflow_run.head_sha || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  report:
+    permissions:
+      actions: read # download the report artifact from the perf-pr run
+      checks: write # a check run on the pull request's head commit
+      pull-requests: write # the sticky comment
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Comment and check
+        uses: jdx/tak-action@5d75a54320ad428da90d72ecd6259562fbda202d # v0.1.0
+        with:
+          mode: comment
+          # Mirror perf-pr.yaml while history accumulates. Once that flips to
+          # fail-on-nothing-compared: true, flip this too so the check run
+          # agrees with the compare job.
+          fail-on-nothing-compared: false
+    timeout-minutes: 10

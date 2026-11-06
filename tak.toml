@@ -1,0 +1,86 @@
+# Instruction-counted benchmarks for sloptor, measured by tak
+# (https://tak.jdx.dev). `mise run perf` builds the release binary and runs
+# these; `mise run perf:record` also writes them to refs/notes/tak.
+#
+# Three commands, following the adoption guide's shape: one startup control,
+# one typecheck, one full compile+emit. Everything below is hermetic — no
+# network, no clock, no installed packages, no mutable machine state — and was
+# checked rather than assumed: each command succeeds with HTTP(S)_PROXY pointed
+# at a dead port, and three clean builds produce byte-identical out/ trees.
+#
+# `benchmarks/perf-fixture` is a committed, dependency-free TS project. It
+# declares its own global stubs instead of needing @rbxts type packages, has no
+# transformer plugins (so no Node sidecar), and is not incremental. Its only
+# inputs are the files in this repo. `noLib` and `types: []` keep a benchmark
+# from silently measuring whichever node_modules happened to be installed.
+#
+# The startup control is `version`: process start, dynamic linking and clap
+# parsing with no compiler work. Reading `check` and `build` against it
+# separates "sloptor got slower to start" from "this path got slower".
+#
+# SLOPTOR_BIN is exported by the mise tasks, because this clone sets
+# CARGO_TARGET_DIR outside the repo. The default keeps a bare `tak run` working
+# in CI, where cargo builds into ./target. tak renders templates before
+# spawning, so a path containing spaces stays a single argument.
+#
+# The runner class is deliberately NOT set here: local runs record under
+# tak's derived `local-*` class and must never enter the CI series. Both CI
+# workflows pin it with TAK_RUNNER, which encodes the runner image, the pinned
+# Rust toolchain and the pinned tak version. Change it when any of those
+# changes, so the numbers on either side stay comparable.
+#
+# tak is pre-v1. This config targets the pinned 0.0.13 release; features from
+# newer releases (detect, log, per-benchmark gates, allow_empty, --accept) are
+# intentionally not used.
+
+[gate]
+pct = 1.0
+
+[defaults]
+runs = 10
+warmup = 2
+# ROTOR_MAX_BUILDS=0 disables sloptor's build-slot lock files under the user
+# cache. RAYON_NUM_THREADS=1 fixes the tsrs worker pool instead of sizing it
+# from the host. NO_COLOR=1 keeps styled diagnostics byte-stable.
+env = { ROTOR_MAX_BUILDS = "0", RAYON_NUM_THREADS = "1", NO_COLOR = "1" }
+
+# Fixed cost of every invocation. Deliberately not `--help`: rendering the
+# clap command tree is extra work that real commands do not pay.
+[bench.startup]
+cmd = ["{{ env.SLOPTOR_BIN | default(value='./target/release/sloptor') }}", "version"]
+
+# Native strict typecheck of the fixture: config parse, program build, binder
+# and checker. Read-only — it writes nothing for sources without macros.
+[bench.check]
+cmd = [
+	"{{ env.SLOPTOR_BIN | default(value='./target/release/sloptor') }}",
+	"check",
+	"--json",
+	"--checkers",
+	"1",
+	"benchmarks/perf-fixture",
+]
+
+# The path users actually wait for: typecheck plus Luau transform and emit.
+# --no-include limits the measured work to the compiler (the runtime include
+# files are embedded in the binary). --checkers 1 keeps the run single-threaded.
+[bench.build]
+cmd = [
+	"{{ env.SLOPTOR_BIN | default(value='./target/release/sloptor') }}",
+	"build",
+	"--json",
+	"--no-include",
+	"--checkers",
+	"1",
+	"benchmarks/perf-fixture",
+]
+# Every sample starts from the committed fixture, untimed. Without this the
+# incremental state and emitted files would make samples differ.
+prepare = [
+	"sh",
+	"-c",
+	"rm -rf benchmarks/perf-fixture/out benchmarks/perf-fixture/include benchmarks/perf-fixture/.rotor"
+]
+# A build that silently emits nothing is not a build. Exits 0 only when the
+# entry point was written, after every timed sample.
+check = ["sh", "-c", "test -f benchmarks/perf-fixture/out/main.luau"]
