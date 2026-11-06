@@ -120,6 +120,7 @@ catalogs:
     jsdom: 29.1.1
     vitest: 5.0.5
   tooling:
+    "@mdx-js/language-server": 0.6.3
     bumpp: 12.3.0
     jiti: 2.7.0
     pncat: 0.13.0
