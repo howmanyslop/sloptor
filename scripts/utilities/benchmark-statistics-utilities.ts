@@ -22,6 +22,10 @@ export type HyperfineOutput = typeof isHyperfineOutput.infer;
 export const SCENARIOS = ["cold", "incremental"] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
+/** The tools sloptor is measured against. */
+export const RIVALS = ["rbxtsgo", "rbxtsc"] as const;
+export type Rival = (typeof RIVALS)[number];
+
 export interface ToolStatistics {
 	readonly name: string;
 	/** Mean CPU time in milliseconds. */
@@ -41,7 +45,7 @@ export interface ToolStatistics {
 
 export interface ProjectComparison {
 	readonly project: string;
-	readonly rbxtsgo: ToolStatistics;
+	readonly rivals: ReadonlyArray<ToolStatistics>;
 	readonly sloptor: ToolStatistics;
 }
 
@@ -89,18 +93,19 @@ function getToolStatistics({ name, measurements }: HyperfineResult): ToolStatist
 }
 
 /**
- * Pairs the two tools' results from one hyperfine export.
+ * Sets sloptor's results from one hyperfine export against every other tool's.
  *
  * @param project - The fixture that was benchmarked.
  * @param output - The validated hyperfine export.
- * @returns Statistics for both tools.
+ * @returns Statistics for sloptor and for each rival, in export order.
  */
 export function getComparison(project: string, { results }: HyperfineOutput): ProjectComparison {
 	const sloptor = results.find((result) => result.name === "sloptor");
-	const rbxtsgo = results.find((result) => result.name === "rbxtsgo");
-	if (sloptor === undefined || rbxtsgo === undefined) {
-		throw new Error(`hyperfine output for ${project} is missing sloptor or rbxtsgo`);
-	}
+	if (sloptor === undefined) throw new Error(`hyperfine output for ${project} is missing sloptor`);
 
-	return { project, rbxtsgo: getToolStatistics(rbxtsgo), sloptor: getToolStatistics(sloptor) };
+	return {
+		project,
+		rivals: results.flatMap((result) => (result.name === "sloptor" ? [] : [getToolStatistics(result)])),
+		sloptor: getToolStatistics(sloptor),
+	};
 }

@@ -8,12 +8,13 @@ import { type } from "arktype";
 import { exec } from "tinyexec";
 
 import { renderScenario, renderSummary, renderTitle } from "$utilities/benchmark-render-utilities";
-import { getComparison, isHyperfineOutput, SCENARIOS } from "$utilities/benchmark-statistics-utilities";
+import { getComparison, isHyperfineOutput, RIVALS, SCENARIOS } from "$utilities/benchmark-statistics-utilities";
 import { createScriptCommand, parseScriptArgumentsAsync } from "$utilities/command-utilities";
 
 import type {
 	HyperfineOutput,
 	ProjectComparison,
+	Rival,
 	Scenario,
 	ScenarioReport,
 } from "$utilities/benchmark-statistics-utilities";
@@ -22,10 +23,19 @@ interface BenchmarkOptions {
 	readonly checkers: number;
 	readonly out: string;
 	readonly rbxtsgo: string;
+	readonly rivals: ReadonlyArray<Rival>;
 	readonly runs: number;
 	readonly scenario: Scenario;
 	readonly sloptor: string;
 	readonly warmup: number;
+}
+
+interface ToolCommandOptions {
+	readonly checkers: number;
+	readonly directory: string;
+	readonly rbxtsgo: string;
+	readonly rivals: ReadonlyArray<Rival>;
+	readonly sloptor: string;
 }
 
 const DEFAULT_PROJECTS = ["hello", "algorithms", "containers", "async", "roblox-api", "obby", "wide"];
@@ -53,26 +63,55 @@ function getInstalledVersion(binary: string): string {
 	return nodePath.basename(nodePath.dirname(binary));
 }
 
-async function runBenchmarkAsync(
-	project: string,
-	{ checkers, out, rbxtsgo, runs, scenario, sloptor, warmup }: BenchmarkOptions,
-): Promise<HyperfineOutput> {
-	const directory = nodePath.join(compareDirectory, project);
-	const output = nodePath.join(out, `${scenario}-${project}.json`);
-	const parameters = ["-N", "--warmup", String(warmup), "--runs", String(runs), "--export-json", output];
+async function getRbxtscVersionAsync(projects: ReadonlyArray<string>): Promise<string> {
+	const [project = DEFAULT_PROJECTS[0] ?? "hello"] = projects;
+	return runAsync(nodePath.join(compareDirectory, project, "node_modules", ".bin", "rbxtsc"), ["--version"]);
+}
 
-	if (scenario === "cold") {
-		parameters.push("--prepare", `rm -rf ${directory}/out ${directory}/include ${directory}/.rotor`);
+function getRivalCommand(rival: Rival, { checkers, directory, rbxtsgo }: ToolCommandOptions): string {
+	switch (rival) {
+		// Installed per fixture as a devDependency, like a user's project.
+		case "rbxtsc":
+			return `${directory}/node_modules/.bin/rbxtsc -p ${directory}`;
+
+		case "rbxtsgo":
+			return `${rbxtsgo} -p ${directory} -checkers ${checkers}`;
+
+		default:
+			throw new Error(`Unknown rival: ${String(rival satisfies never)}`);
 	}
+}
 
-	parameters.push(
+function getToolParameters(options: ToolCommandOptions): ReadonlyArray<string> {
+	const { checkers, directory, rivals, sloptor } = options;
+
+	return [
 		"-n",
 		"sloptor",
 		`${sloptor} build -p ${directory} --checkers ${checkers}`,
-		"-n",
-		"rbxtsgo",
-		`${rbxtsgo} -p ${directory} -checkers ${checkers}`,
-	);
+		...rivals.flatMap((rival) => ["-n", rival, getRivalCommand(rival, options)]),
+	];
+}
+
+async function runBenchmarkAsync(
+	project: string,
+	{ checkers, out, rbxtsgo, rivals, runs, scenario, sloptor, warmup }: BenchmarkOptions,
+): Promise<HyperfineOutput> {
+	const directory = nodePath.join(compareDirectory, project);
+	const output = nodePath.join(out, `${scenario}-${project}.json`);
+	const prepare =
+		scenario === "cold" ? ["--prepare", `rm -rf ${directory}/out ${directory}/include ${directory}/.rotor`] : [];
+	const parameters = [
+		"-N",
+		"--warmup",
+		String(warmup),
+		"--runs",
+		String(runs),
+		"--export-json",
+		output,
+		...prepare,
+		...getToolParameters({ checkers, directory, rbxtsgo, rivals, sloptor }),
+	];
 
 	await cleanAsync(project);
 	await runAsync("hyperfine", parameters);
@@ -84,13 +123,21 @@ async function runBenchmarkAsync(
 }
 
 const { command, log } = createScriptCommand(
-	"1.1.0",
-	"Benchmarks sloptor against rbxtsgo on the fixtures in benchmarks/compare. Needs mise (sloptor, rbxtsgo, hyperfine 2.x) and `pnpm install --ignore-workspace` run once inside each fixture.",
+	"1.2.0",
+	"Benchmarks sloptor against rivals on the fixtures in benchmarks/compare. Needs mise (sloptor, rbxtsgo, hyperfine 2.x) and `pnpm install --ignore-workspace` run once inside each fixture, which installs rbxtsc.",
 );
 
 command
 	.type("scenario", new EnumType(SCENARIOS))
+	.type("rival", new EnumType(RIVALS))
 	.option("--projects <projects:string[]>", "Fixtures to benchmark.", { default: DEFAULT_PROJECTS })
+	.option(
+		"--against <rivals:rival[]>",
+		"Tools to measure sloptor against. rbxtsc is much slower, so drop it for quick runs.",
+		{
+			default: [...RIVALS],
+		},
+	)
 	.option(
 		"--scenarios <scenarios:scenario[]>",
 		"Cold builds wipe all outputs first; incremental rebuilds change nothing.",
@@ -100,19 +147,28 @@ command
 	)
 	.option("--runs <runs:integer>", "Timed runs per command.", { default: 40 })
 	.option("--warmup <warmup:integer>", "Untimed warmup runs per command.", { default: 5 })
-	.option("--checkers <checkers:integer>", "Checker count handed to both tools.", { default: 4 })
+	.option("--checkers <checkers:integer>", "Checker count handed to sloptor and rbxtsgo. rbxtsc has no such flag.", {
+		default: 4,
+	})
 	.option("--out <directory:string>", "Where the raw hyperfine JSON goes.", {
 		default: nodePath.join(compareDirectory, "results"),
 	})
-	.action(async ({ checkers, out, projects, runs, scenarios, warmup }) => {
+	.action(async ({ against, checkers, out, projects, runs, scenarios, warmup }) => {
 		try {
 			const [sloptor, rbxtsgo] = await Promise.all([
 				runAsync("mise", ["which", "sloptor"]),
 				runAsync("mise", ["which", "rbxtsgo"]),
 				mkdir(out, { recursive: true }),
 			]);
+			const rivalVersions = await Promise.all(
+				against.map(async (rival) => ({
+					name: rival,
+					version: rival === "rbxtsgo" ? getInstalledVersion(rbxtsgo) : await getRbxtscVersionAsync(projects),
+				})),
+			);
+
 			console.log(
-				`${renderTitle({ rbxtsgo: getInstalledVersion(rbxtsgo), sloptor: getInstalledVersion(sloptor) })}\n`,
+				`${renderTitle([{ name: "sloptor", version: getInstalledVersion(sloptor) }, ...rivalVersions])}\n`,
 			);
 
 			const reports = new Array<ScenarioReport>();
@@ -126,6 +182,7 @@ command
 						checkers,
 						out,
 						rbxtsgo,
+						rivals: against,
 						runs,
 						scenario,
 						sloptor,
