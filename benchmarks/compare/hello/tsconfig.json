@@ -14,6 +14,7 @@
 		"moduleResolution": "Node",
 		"resolveJsonModule": true,
 		"typeRoots": ["node_modules/@rbxts"],
+		"types": ["types", "compiler-types"],
 		"strict": true,
 		"downlevelIteration": true,
 		"outDir": "out",
