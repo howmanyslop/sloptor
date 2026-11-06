@@ -52,7 +52,8 @@
 			"!**/testdata",
 			"!reference",
 			"!rbxts-tsconfig.schema.json",
-			"!rotor.schema.json"
+			"!rotor.schema.json",
+			"!benchmarks/compare"
 		]
 	},
 
