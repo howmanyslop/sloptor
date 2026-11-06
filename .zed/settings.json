@@ -173,17 +173,19 @@
 		"JavaScript": {
 			"language_servers": [
 				"!deno",
-				"!knip",
-				"!vtsls",
 				"!effect-tsgo",
 				"!graphql",
+				"!knip",
+				"!sloptor",
 				"!typescript-language-server",
+				"!vtsls",
 				"..."
 			]
 		},
 		"MDX": {
 			"format_on_save": "on",
 			"language_servers": [
+				"!knip",
 				"oxfmt",
 				"rumdl",
 				"wakatime",
@@ -224,7 +226,7 @@
 		},
 		"Rust": {
 			"format_on_save": "on",
-			"language_servers": ["rust-analyzer", "..."]
+			"language_servers": ["!knip", "rust-analyzer", "..."]
 		},
 		"Shell Script": {
 			"format_on_save": "on",
