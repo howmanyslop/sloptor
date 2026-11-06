@@ -49,6 +49,34 @@ export interface ProjectComparison {
 	readonly sloptor: ToolStatistics;
 }
 
+export interface ToolVersion {
+	readonly name: string;
+	readonly version: string;
+}
+
+export interface MachineInfo {
+	readonly cores: number;
+	readonly cpu: string;
+	readonly memoryGiB: number;
+}
+
+export interface ProjectSize {
+	readonly name: string;
+	/** TypeScript source files, declaration files excluded. */
+	readonly files: number;
+	readonly lines: number;
+}
+
+export interface BenchmarkSummary {
+	readonly checkers: number;
+	readonly hyperfine: string;
+	readonly machine: MachineInfo;
+	readonly projects: ReadonlyArray<ProjectSize>;
+	readonly scenarios: ReadonlyArray<ScenarioReport>;
+	readonly tools: ReadonlyArray<ToolVersion>;
+	readonly warmup: number;
+}
+
 export interface ScenarioReport {
 	readonly checkers: number;
 	readonly comparisons: ReadonlyArray<ProjectComparison>;
@@ -92,13 +120,6 @@ function getToolStatistics({ name, measurements }: HyperfineResult): ToolStatist
 	};
 }
 
-/**
- * Sets sloptor's results from one hyperfine export against every other tool's.
- *
- * @param project - The fixture that was benchmarked.
- * @param output - The validated hyperfine export.
- * @returns Statistics for sloptor and for each rival, in export order.
- */
 export function getComparison(project: string, { results }: HyperfineOutput): ProjectComparison {
 	const sloptor = results.find((result) => result.name === "sloptor");
 	if (sloptor === undefined) throw new Error(`hyperfine output for ${project} is missing sloptor`);

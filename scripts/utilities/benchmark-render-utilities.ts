@@ -4,7 +4,13 @@ import { getGeometricMean } from "./benchmark-statistics-utilities";
 
 import type { Ansis as Paint } from "ansis";
 
-import type { ProjectComparison, Scenario, ScenarioReport, ToolStatistics } from "./benchmark-statistics-utilities";
+import type {
+	ProjectComparison,
+	Scenario,
+	ScenarioReport,
+	ToolStatistics,
+	ToolVersion,
+} from "./benchmark-statistics-utilities";
 
 interface Layout {
 	readonly cpu: number;
@@ -29,12 +35,6 @@ interface ToolPair {
 	readonly sloptor: ToolStatistics;
 }
 
-export interface ToolVersion {
-	readonly name: string;
-	readonly version: string;
-}
-
-// Colour is detected from the terminal, FORCE_COLOR and NO_COLOR.
 const ansi = new Ansis();
 const gray = ansi.hex("8b8b8b");
 const rule = ansi.hex("55595f");
