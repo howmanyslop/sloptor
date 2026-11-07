@@ -177,7 +177,7 @@ fn listed<'a>(flags: &'a [FlagMeta<'a>]) -> impl Iterator<Item = &'a FlagMeta<'a
 fn see_also(name: &str) -> Option<&'static str> {
 	match name {
 		"lsp" => Some(
-			"[Editor setup](/sloptor/guide/editors/) covers client configuration, the project shape \
+			"[Editor setup](/sloptor/guide/editors/) covers client configuration, the tsconfig options \
 			 the server needs, and the errors it reports. [Diagnostics census](/sloptor/guide/diagnostics/) \
 			 describes the checks each census runs.",
 		),
@@ -242,7 +242,10 @@ fn page(root: &CommandMeta<'_>, command: &CommandMeta<'_>) -> String {
 		let _ = write!(out, "## Examples\n\n```sh\n{}\n```\n", examples.join("\n"));
 	}
 	if let Some(see_also) = see_also(name) {
-		let _ = write!(out, "\n## See also\n\n{see_also}\n");
+		if !out.ends_with("\n\n") {
+			out.push('\n');
+		}
+		let _ = write!(out, "## See also\n\n{see_also}\n");
 	}
 	out.trim_end().to_owned() + "\n"
 }

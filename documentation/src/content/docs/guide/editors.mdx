@@ -22,8 +22,13 @@ typing. Each check is a full compile of the project.
 ## Project setup
 
 The server finds a project by walking up from the open file to the nearest
-`tsconfig.json`. If `node_modules/@rbxts` isn't beside that config or in a
-parent directory, the server ignores the file. It treats the file as outside a
+`tsconfig.json`. Solution-style configs use `"files": []` and `references` to
+point at other projects. For those, the server walks the references depth first
+and uses the first config that lists the open file. Otherwise it uses the
+nearest config.
+
+If `node_modules/@rbxts` isn't beside the config it picked or in a parent
+directory, the server ignores the file. It treats the file as outside a
 roblox-ts project. There is no setting for the project path. Workspace roots,
 `rotor.toml` and environment variables don't take part in finding the project.
 
