@@ -43,10 +43,6 @@ You can also set options under the top-level `"rbxts"` key of `tsconfig.json`. T
 
 These extensions aren't in rbxtsc. You can ignore them for parity.
 
-### Minify
-
-`--minify` passes every emitted `.luau` and `.lua` source through the Luau minifier before writing. The minifier strips comments and whitespace and turns `t["x"]` into `t.x`. It's opt-in. It never minifies declaration files or `include/` files.
-
 ### Code-frame diagnostics
 
 TypeScript, transformer, and macro errors render as grouped code frames. Each frame has the source line with a caret or underline, keyword highlighting, and clickable file links. A footer reads `✗ N errors in M files`.

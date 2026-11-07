@@ -22,10 +22,10 @@ On the [benchmark projects](/sloptor/benchmarks/), a cold sloptor build is {mean
 
 <BenchmarkSummary />
 
-- **The gap to rbxtsgo is larger in CPU than on the clock:** a cold sloptor build uses {mean("cold", "cpu", "rbxtsgo")} less CPU time than rbxtsgo and executes {mean("cold", "instructions", "rbxtsgo")} fewer instructions, yet runs {mean("cold", "time", "rbxtsgo")} faster on the clock. Both tools check in parallel, so the lead isn't only a matter of more threads.
+- **CPU and instructions differ more than wall time does:** against rbxtsgo, a cold sloptor build uses {mean("cold", "cpu", "rbxtsgo")} less CPU time and {mean("cold", "instructions", "rbxtsgo")} fewer instructions. Wall time improves by {mean("cold", "time", "rbxtsgo")}. Both tools check in parallel, so the lead isn't only a matter of more threads.
 - **The rbxtsgo gap is small in milliseconds:** it's {helloGap} ms on the one-file `hello` project and {wideGap} ms on the 401-file `wide` project, and the ratio doesn't grow steadily with size, so don't extrapolate it to your game.
 - **The rbxtsc gap is the structural one:** rbxtsc boots Node and typechecks on one JS thread, and no amount of tuning changes that. Production games measure nearer 10× than {mean("cold", "time", "rbxtsc")}. Booting Node is a fixed cost, and it's a larger share of rbxtsc's time on a small project. [The home page](/sloptor/) shows the production timings, so keep the two sets apart.
-- **Scope:** every number came from sloptor {version} on an Apple M4 Pro. rbxtsgo publishes its own figures on a Windows desktop and a closed-source game, and those can't be compared with these. The [benchmarks page](/sloptor/benchmarks/) has the method and the command to rerun it on your own project.
+- **Scope:** every number came from sloptor {version} on an Apple M4 Pro. rbxtsgo publishes its own figures on a Windows desktop and a closed-source game, so you can't compare those with these. The [benchmarks page](/sloptor/benchmarks/) has the method and the command to rerun it on your own project.
 
 ## What sloptor does that a faster rbxtsc doesn't
 
@@ -39,7 +39,7 @@ A native build of the same emit isn't unique to sloptor. These are the reasons t
 - **Editor support for what TypeScript can't see:** [`sloptor lsp`](/sloptor/guide/editors/) publishes transformer diagnostics such as `noAny` and unsupported-construct errors for unsaved buffers, next to your normal TypeScript server.
 - **A programmatic API:** the typed JavaScript `createBuildSession()` client lets other tools drive builds. See [Install](/sloptor/guide/install/#client-api).
 - **Opt-in output tuning:** `--optimized-array-appends` turns eligible `Array.push` calls in loops into indexed writes, `//!native` files get Luau type annotations behind the `nativeTypes` option, and `--luau-types` is an experimental full-annotation mode. All are off by default. See [Building](/sloptor/guide/building/).
-- **Prebuilt binaries for four targets:** macOS ARM64, Linux x64, Linux ARM64, and Windows x64. rbxtsgo's README says it has only been run on Windows x64 so far, though it builds binaries for other platforms.
+- **Prebuilt binaries.** The [install page](/sloptor/guide/install/) lists the supported platforms. rbxtsgo's README says its author has only run it on Windows x64 so far, though it builds binaries for other platforms.
 
 sloptor aims to match `rbxtsc` 3.0.0 everywhere else, and the differential tests in the repo check that. Treat the [changelog](/sloptor/changelog/) as the list of known exceptions.
 
@@ -49,7 +49,7 @@ sloptor aims to match `rbxtsc` 3.0.0 everywhere else, and the differential tests
 - **You want its emit fixes:** rbxtsgo's optional `--fix-emit` repairs a few known `rbxtsc` bugs. sloptor has no equivalent flag.
 - **You can't feel the gap:** on a project without plugins, rbxtsgo may already build in a few dozen milliseconds. Moving over then changes little you would notice.
 
-And `rbxtsc` stays the reference. Every number and every byte-comparison on this page is measured against it. If your project depends on something sloptor hasn't ported, the roadmap and the "not yet supported" diagnostics say so up front.
+And `rbxtsc` stays the reference. The numbers and byte-comparisons on this page all use it as the baseline. If your project depends on something sloptor hasn't ported, the roadmap and the "not yet supported" diagnostics say so up front.
 
 ## Prior work
 

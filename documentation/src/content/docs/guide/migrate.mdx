@@ -1,9 +1,18 @@
 ---
 title: "Migrate from rbxtsc"
-description: "Swap rbxtsc for sloptor, move Flamework to the native pipeline, and drop plugins sloptor replaces."
+description: "What changes when you swap rbxtsc for sloptor, plus moving Flamework to the native pipeline and dropping plugins sloptor replaces."
 ---
 
-sloptor is a drop-in replacement for `rbxtsc`. Your `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins work unchanged.
+sloptor reads the same project files as `rbxtsc`: `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins. That makes the move short for most projects, but it isn't always a drop-in swap. Expect to change your scripts, and expect to check the first build.
+
+## What can break
+
+- **The command line:** `rbxtsc` has no subcommands and sloptor does. A script that runs `rbxtsc --verbose` has to become `sloptor build --verbose`, and tools that spawn `rbxtsc` with their own argument list need the same change.
+- **Typechecking differs:** sloptor typechecks with TypeScript 7's native checker, and `rbxtsc` bundles an older TypeScript. The two can disagree, so `sloptor build` can fail on a project that built fine before. One real 1,070-file project fails `sloptor check` with four `TS2589` errors for excessively deep type instantiation and one `TS2869` for an unreachable `??`. Run `sloptor check` before you edit your scripts.
+- **The Luau:** output is the same as `rbxtsc` 3.0.0 for most code, not all of it. A `switch` with a `case` after `default`, `switch` cases that compare against the original operand, and numeric `for` loops with changing bounds all emit differently on purpose. The [changelog](/sloptor/changelog/) lists them.
+- **Plugins:** external transformer plugins still run, but through a Node sidecar. Only native Flamework and jecs skip it.
+
+If a build fails or the output differs in a way this page doesn't cover, report it as a bug.
 
 ## Swap the compiler
 

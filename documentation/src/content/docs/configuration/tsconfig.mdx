@@ -26,7 +26,7 @@ Enable `compilerOptions.sourceMap` to write a `.luau.map` beside each Luau outpu
 
 Source maps provide an anchor at generated column 0 on each mapped Luau line. They also mark where expressions and object fields begin, and where source operators start. Arithmetic, comparison, concatenation, logical, compound assignment, and optional chain operators point to their TypeScript tokens, including tokens on continuation lines. Generated and original columns use UTF-16 code units.
 
-Binding names in declarations and parameters, punctuation, and synthesized literals don't get segments of their own. Compiler headers stay unmapped, and the maps have no `names` field. Maps describe the unminified output, so positions in `--minify` output don't match them. The compiler collects expression origins only with source maps on.
+Binding names in declarations and parameters, punctuation, and synthesized literals don't get segments of their own. Compiler headers stay unmapped, and the maps have no `names` field. The compiler collects expression origins only with source maps on.
 
 ## Editor schema
 
