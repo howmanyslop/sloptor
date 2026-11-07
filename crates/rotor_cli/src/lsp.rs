@@ -41,7 +41,7 @@ pub fn run(_command: LspCommand, _streams: &mut Streams) -> Result<(), Failure> 
 	let jobs = Mutex::new(jobs);
 	let options = rotor_lsp::Options {
 		find_ts_config: Arc::new(|file_name: &str| {
-			let ts_config_path = find_ts_config_path(&gopath::dir(file_name))?;
+			let ts_config_path = owning_ts_config(file_name, find_ts_config_path(&gopath::dir(file_name))?);
 			if !has_rbxts_types(&gopath::dir(&ts_config_path)) {
 				return Err(NOT_ROBLOX_TS.to_owned());
 			}
@@ -121,6 +121,48 @@ fn census(config: &str, overlays: BTreeMap<String, String>) -> (Option<ProjectDi
 	options.ignore_unmatched_overlays = true;
 	let (result, error) = compile_project_diagnostics(&gopath::dir(config), &options);
 	(Some(result), error.map(|error| error.to_string()))
+}
+
+/// The config that holds `file_name`: `nearest` itself, or else the first config its references
+/// reach, depth first, that lists the file, as tsserver picks a file's project. A solution-style
+/// `tsconfig.json` (`"files": []` and references, as a monorepo has) lists no file of its own.
+/// When no config lists the file, `nearest`.
+fn owning_ts_config(file_name: &str, nearest: String) -> String {
+	// SAFETY: only command lines are parsed in the scope, and nothing but owned strings leaves it.
+	#[expect(unsafe_code, reason = "the parses are freed with the scope")]
+	let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
+	let key = |path: &str| {
+		let path = rotor_tsrs::tspath::normalize_path(&gopath::to_slash(path));
+		if case_sensitive { path } else { path.to_lowercase() }
+	};
+	let wanted = key(file_name);
+	let options = rotor_tsrs::ProjectOptions {
+		skip_validation: true,
+		..rotor_tsrs::ProjectOptions::default()
+	};
+	let mut seen = std::collections::HashSet::new();
+	let mut stack = vec![nearest.clone()];
+	while let Some(config) = stack.pop() {
+		if !seen.insert(key(&config)) {
+			continue;
+		}
+		let Ok(parsed) = rotor_tsrs::project::parse_project_config(std::path::Path::new(&config), &options) else {
+			continue;
+		};
+		if parsed.file_names().iter().any(|name| key(name) == wanted) {
+			return config;
+		}
+		// Reversed, so the first reference is searched first.
+		stack.extend(
+			parsed
+				.resolved_project_reference_paths()
+				.iter()
+				.rev()
+				.map(|reference| gopath::from_slash(reference).into_owned()),
+		);
+	}
+	nearest
 }
 
 /// `hasRbxtsTypes`: `node_modules/@rbxts` exists in `dir` or an ancestor (a monorepo may hoist

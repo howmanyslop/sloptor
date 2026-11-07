@@ -4,11 +4,11 @@ description: "Run sloptor lsp, configure Neovim, Helix and Zed, and fix the proj
 ---
 
 `sloptor lsp` is a language server over stdio. stdio is the only transport.
-Editors pass `--stdio` for compatibility and the flag changes nothing. The
-server runs the same [census](/sloptor/guide/diagnostics/) as the diagnostics
-command over your unsaved buffers and publishes the result as editor
-diagnostics with the source `sloptor`. The
-[`lsp` command reference](/sloptor/commands/lsp/) lists its flags.
+Editors send `--stdio` for compatibility. The server ignores the flag. It runs
+the same [census](/sloptor/guide/diagnostics/) as the diagnostics command over
+your unsaved buffers and publishes the result as editor diagnostics with the
+source `sloptor`. The [lsp command reference](/sloptor/commands/lsp/) lists its
+flags.
 
 It reports what your TypeScript server can't: transformer diagnostics such as
 `noAny`, unsupported Luau constructs, macro failures, comment-directive
@@ -22,14 +22,13 @@ typing. Each check is a full compile of the project.
 ## Project setup
 
 The server finds a project by walking up from the open file to the nearest
-`tsconfig.json`. If `node_modules/@rbxts` is not beside that config or in one
-of its parent directories, the server treats the file as outside a roblox-ts
-project and ignores it silently. There is no setting for the project path.
-Workspace roots, `rotor.toml` and environment variables do not take part in
-finding the project.
+`tsconfig.json`. If `node_modules/@rbxts` isn't beside that config or in a
+parent directory, the server ignores the file. It treats the file as outside a
+roblox-ts project. There is no setting for the project path. Workspace roots,
+`rotor.toml` and environment variables don't take part in finding the project.
 
-A project that the server accepts still has to pass the compiler's
-`tsconfig.json` validation. These `compilerOptions` are required:
+The compiler also checks the options in `tsconfig.json`. Set these
+`compilerOptions`:
 
 | Option                         | Required value                                                                |
 | ------------------------------ | ----------------------------------------------------------------------------- |
@@ -40,9 +39,9 @@ A project that the server accepts still has to pass the compiler's
 | `moduleResolution`             | set explicitly to `Node` or `Node10`, or to `bundler` with `module: preserve` |
 | `allowSyntheticDefaultImports` | `true`                                                                        |
 | `typeRoots`                    | must contain `node_modules/@rbxts`                                            |
-| `rootDir` or `rootDirs`        | one of the two must be set                                                    |
-| `outDir`                       | must be set                                                                   |
-| `importsNotUsedAsValues`       | must be absent, use `verbatimModuleSyntax`                                    |
+| `rootDir` or `rootDirs`        | set one of the two                                                             |
+| `outDir`                       | set a path                                                                     |
+| `importsNotUsedAsValues`       | omit it, use `verbatimModuleSyntax`                                            |
 
 Every entry in `types` must resolve under one of the `typeRoots`. This config
 satisfies the checks:
@@ -117,8 +116,8 @@ name = "tsx"
 language-servers = ["typescript-language-server", "sloptor"]
 ```
 
-Keep `typescript-language-server` in the list. The two servers report
-different families of diagnostics.
+Keep `typescript-language-server` in the list. `sloptor lsp` reports
+transformer diagnostics, and the TypeScript server reports type errors.
 
 ## Zed
 
@@ -142,26 +141,27 @@ The extension looks for `sloptor` on your `PATH` and runs
 }
 ```
 
-`binary.path` replaces the `PATH` lookup, which is also how you use an npm
-install that named the binary `rotor`. `binary.arguments` replaces the default
+`binary.path` replaces the `PATH` lookup. Use it when the executable isn't on
+your `PATH`, as with an npm install. `binary.arguments` replaces the default
 `["lsp", "--stdio"]`. `initialization_options` passes through to the server.
 
 To turn the server off for one language, add `"!sloptor"` to that language's
 `language_servers` array.
 
-## VS Code
+## Other editors
 
 VS Code only launches language servers that an extension registers, and
-sloptor has no extension yet. There is no supported setup for VS Code yet. Run
+sloptor has no extension yet. Run
 [`sloptor diagnostics`](/sloptor/commands/diagnostics/) from the terminal for
 the same checks.
 
 ## Troubleshooting
 
-### `compile: invalid tsconfig.json configuration`
+### Tsconfig validation errors
 
-The editor shows this as two notifications. One carries the short error above,
-the other carries the compiler's validation text:
+The editor shows two notifications. One contains
+`compile: invalid tsconfig.json configuration`. The other contains the
+compiler's validation text:
 
 ```
 Invalid "tsconfig.json" configuration!
@@ -171,28 +171,28 @@ https://roblox-ts.com/docs/quick-start#project-folder-setup
 - "outDir" must be defined
 ```
 
-Neither is an LSP setting. Both come from the compiler rejecting the project's
-`tsconfig.json`. The server forwards census errors and project-level
-diagnostics through `window/showMessage`, so these are notifications rather
-than diagnostics on a line. It shows each error once, then again only after the
-error went away and came back. A broken config does not raise a popup per
-keystroke.
+Neither is a language server setting. Both come from the compiler rejecting
+the project's `tsconfig.json`. The server forwards census errors and
+project-level diagnostics through `window/showMessage`, so these are
+notifications rather than diagnostics on a line. It shows each error once, and
+repeats it only after a census in which the error was absent. A broken config
+doesn't raise a popup per keystroke.
 
 Add `rootDir` or `rootDirs` and `outDir` to `compilerOptions`, then check the
-rest of the list in [Project setup](#project-setup). The message names only the
-options that are missing, so fixing these two can uncover another. Save the
-file, since the server runs a new census on save. The same validation applies
-to [`sloptor build`](/sloptor/commands/build/) and
+rest of the list in [Project setup](#project-setup). Only the missing options
+appear in the message, so fixing these two can uncover another. Save the file
+to run a new census. The same validation applies to
+[`sloptor build`](/sloptor/commands/build/) and
 [`sloptor check`](/sloptor/commands/check/).
 
 ### No diagnostics appear
 
-The server ignores a file when it cannot find a `tsconfig.json` above it, or
+The server ignores a file when it can't find a `tsconfig.json` above it, or
 when `node_modules/@rbxts` is absent beside that config and its parents. Both
 failures are silent. Open a file inside the project, install its `@rbxts`
 packages, and check that the nearest `tsconfig.json` is the one you expect. A
 plain TypeScript project has no sloptor diagnostics by design.
 
-If the server does not start at all, check the binary name on your `PATH` and
-the editor's LSP log. The server writes its protocol to stdout and everything
-else to stderr.
+If the server doesn't start at all, check the binary name on your `PATH` and
+the editor's language server log. The server writes its protocol to stdout and
+everything else to stderr.
