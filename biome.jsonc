@@ -418,6 +418,15 @@
 			}
 		},
 		{
+			// Starlight theme overrides: scoped rules intentionally follow broader base selectors.
+			"includes": ["documentation/src/styles/custom.css"],
+			"linter": {
+				"rules": {
+					"style": { "noDescendingSpecificity": "off" }
+				}
+			}
+		},
+		{
 			"includes": ["apps/howmanysmall/src/**/*.astro"],
 			"linter": {
 				"domains": { "react": "none" },
