@@ -102,3 +102,4 @@ documentation/playwright-report/
 
 # Rust build output
 /target
+testdata/conformance/project/.*
