@@ -106,6 +106,7 @@ catalogs:
     oxlint: 1.92.0
     oxlint-plugin-react-doctor: 0.9.22
     oxlint-tsgolint: 7.0.2006
+    react-doctor: 0.9.22
   runtime:
     effect: 4.0.1
   scripts:
