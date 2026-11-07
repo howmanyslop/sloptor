@@ -7,7 +7,7 @@ use crate::project::compile_project;
 fn labels_model() {
 	let files = expect_compiled(large_stack(|| compile_project(&testdata("labels_model"))));
 	let want = concat!(
-		"-- Compiled with sloptor v3.0.0-beta.3\n",
+		"-- Compiled with sloptor v3.0.0-beta.4\n",
 		"local n = 0\n",
 		"local _outer\n",
 		"for i = 0, 2 do\n",

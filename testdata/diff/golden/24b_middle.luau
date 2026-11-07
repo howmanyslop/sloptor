@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.3
+-- Compiled with sloptor v3.0.0-beta.4
 local TS = require(script.Parent.include.RuntimeLib)
 local exports = {}
 local _24a_shared = TS.import(script, script.Parent, "24a_shared")

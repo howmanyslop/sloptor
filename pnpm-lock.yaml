@@ -495,16 +495,16 @@ importers:
         version: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
     optionalDependencies:
       '@rotor-rbx/rotor-darwin-arm64':
-        specifier: 3.0.0-beta.3
+        specifier: 3.0.0-beta.4
         version: link:packages/rotor-darwin-arm64
       '@rotor-rbx/rotor-linux-arm64':
-        specifier: 3.0.0-beta.3
+        specifier: 3.0.0-beta.4
         version: link:packages/rotor-linux-arm64
       '@rotor-rbx/rotor-linux-x64':
-        specifier: 3.0.0-beta.3
+        specifier: 3.0.0-beta.4
         version: link:packages/rotor-linux-x64
       '@rotor-rbx/rotor-win32-x64':
-        specifier: 3.0.0-beta.3
+        specifier: 3.0.0-beta.4
         version: link:packages/rotor-win32-x64
 
   documentation:

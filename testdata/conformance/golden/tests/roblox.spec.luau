@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.3
+-- Compiled with sloptor v3.0.0-beta.4
 return function()
 	it("should support using the Roblox API", function()
 		expect(game:FindFirstChild("Workspace")).to.equal(game:GetService("Workspace"))

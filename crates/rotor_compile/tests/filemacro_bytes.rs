@@ -40,7 +40,7 @@ const TS_CONFIG: &str = r#"{
 
 const ROJO_CONFIG: &str = r#"{"name":"file-bytes","tree":{"$path":"out","include":{"$path":"include"},"node_modules":{"$className":"Folder","@rbxts":{"$path":"node_modules/@rbxts"}}}}"#;
 
-const HEADER: &[u8] = b"-- Compiled with sloptor v3.0.0-beta.3\n";
+const HEADER: &[u8] = b"-- Compiled with sloptor v3.0.0-beta.4\n";
 
 /// A project with the conformance project's `@rbxts` packages, `main.ts` and the data files.
 #[expect(clippy::expect_used, reason = "a test fails loudly")]

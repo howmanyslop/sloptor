@@ -17,7 +17,7 @@ use crate::project::{
 };
 use crate::{Failure, ProjectOptions};
 
-const RUNTIME_LIB_MODEL: &str = "-- Compiled with sloptor v3.0.0-beta.3\n\
+const RUNTIME_LIB_MODEL: &str = "-- Compiled with sloptor v3.0.0-beta.4\n\
 	local TS = require(script.Parent.include.RuntimeLib)\n\
 	local isFoo = TS.instanceof(inst, Foo)\n\
 	print(isFoo)\n\
@@ -47,7 +47,7 @@ fn compile_project_runtime_lib_model() {
 #[test]
 fn compile_project_runtime_lib_game() {
 	let files = compile_runtime_lib_project("runtimelib_game");
-	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.4\n\
 		local TS = require(game:GetService(\"ReplicatedStorage\"):WaitForChild(\"include\"):WaitForChild(\"RuntimeLib\"))\n\
 		local isFoo = TS.instanceof(inst, Foo)\n\
 		print(isFoo)\n\
@@ -58,7 +58,7 @@ fn compile_project_runtime_lib_game() {
 #[test]
 fn compile_project_runtime_lib_package() {
 	let files = compile_runtime_lib_project("runtimelib_package");
-	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.4\n\
 		local TS = _G[script]\n\
 		local isFoo = TS.instanceof(inst, Foo)\n\
 		print(isFoo)\n\
@@ -128,7 +128,7 @@ fn compile_project_object_rest_destructuring() {
 	);
 
 	let files = expect_compiled(large_stack(|| compile_project(&temp.dir())));
-	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.4\n\
 		local change = props.Change\n\
 		local _extracted = {\n\t[\"Change\"] = true,\n}\n\
 		local _rest = {}\n\
@@ -387,7 +387,7 @@ fn compile_project_type_override_package_emission() {
 		&testdata("runtimelib_model"),
 		&options(|o| o.project_type = Some(ProjectType::Package)),
 	));
-	let want = "-- Compiled with sloptor v3.0.0-beta.3\n\
+	let want = "-- Compiled with sloptor v3.0.0-beta.4\n\
 		local TS = _G[script]\n\
 		local isFoo = TS.instanceof(inst, Foo)\n\
 		print(isFoo)\n\

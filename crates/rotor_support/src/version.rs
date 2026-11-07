@@ -9,4 +9,4 @@
 /// Bumping this constant is part of cutting a release: the release workflow
 /// refuses to publish a tag that doesn't match it (tag `vX.Y.Z` must equal `v`
 /// plus this constant).
-pub const VERSION: &str = "3.0.0-beta.3";
+pub const VERSION: &str = "3.0.0-beta.4";

@@ -126,7 +126,7 @@ fn prepend_header_cases() {
 		prepend_header(s, list);
 		assert_eq!(
 			render_list(s, list),
-			"-- Compiled with sloptor v3.0.0-beta.3\nreturn nil\n"
+			"-- Compiled with sloptor v3.0.0-beta.4\nreturn nil\n"
 		);
 	});
 
@@ -139,7 +139,7 @@ fn prepend_header_cases() {
 		prepend_header(s, list);
 		assert_eq!(
 			render_list(s, list),
-			"--!strict\n-- Compiled with sloptor v3.0.0-beta.3\n-- regular comment\nreturn nil\n"
+			"--!strict\n-- Compiled with sloptor v3.0.0-beta.4\n-- regular comment\nreturn nil\n"
 		);
 	});
 
@@ -153,7 +153,7 @@ fn prepend_header_cases() {
 		prepend_header(s, list);
 		assert_eq!(
 			render_list(s, list),
-			"--!strict\n-- Compiled with sloptor v3.0.0-beta.3\nlocal TS = _G[script]\nreturn nil\n"
+			"--!strict\n-- Compiled with sloptor v3.0.0-beta.4\nlocal TS = _G[script]\nreturn nil\n"
 		);
 	});
 
@@ -166,7 +166,7 @@ fn prepend_header_cases() {
 		prepend_header(s, list);
 		assert_eq!(
 			render_list(s, list),
-			"-- Compiled with sloptor v3.0.0-beta.3\n-- leading\n--!native\nreturn nil\n"
+			"-- Compiled with sloptor v3.0.0-beta.4\n-- leading\n--!native\nreturn nil\n"
 		);
 	});
 }
