@@ -36,7 +36,7 @@ export function BenchmarkFigure({
 	rows,
 	scenario,
 }: Readonly<BenchmarkFigureProperties>): ReactNode {
-	const description = `Bar chart of how many times as much ${METRICS[metricName].noun} rbxtsgo and rbxtsc need as sloptor on each of ${rows.length} projects. Every bar starts at zero. The table below lists every value.`;
+	const description = `Bar chart of how many times as much ${METRICS[metricName].noun} rbxtsgo and rbxtsc need as sloptor on each of ${rows.length} projects, on a log scale. The table below lists every value.`;
 
 	return (
 		<div className="note-body">

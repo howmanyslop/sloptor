@@ -38,8 +38,10 @@ const SERIES: ReadonlyArray<Series> = [
 	{ name: "rbxtsc", color: "var(--data-2)", dash: "6 3", delay: 120 },
 ];
 
-const NICE_STEPS = [1, 2, 5, 10, 20, 50];
-const TARGET_TICKS = 6;
+// A log axis has no zero, so every bar starts half a step below sloptor's 1×.
+// That gives sloptor a bar of its own instead of a line.
+const AXIS_DOMAIN: [number, number] = [0.5, 32];
+const AXIS_TICKS = [0.5, 1, 2, 4, 8, 16, 32];
 const ROW_HEIGHT = 64;
 const AXIS_HEIGHT = 56;
 const ANIMATION_DURATION = 320;
@@ -59,19 +61,9 @@ function formatBarLabel(value: RenderableText): string {
 	return value === 1 ? "1×" : `${formatRatio(value)}×`;
 }
 
-function getAxisTicks(rows: ReadonlyArray<ChartRow>): Array<number> {
-	let largest = 1;
-	for (const row of rows) largest = Math.max(largest, row.rbxtsc, row.rbxtsgo);
-
-	const step = NICE_STEPS.find((candidate) => candidate * TARGET_TICKS >= largest) ?? NICE_STEPS.at(-1) ?? 1;
-	const ticks = new Array<number>();
-	for (let tick = 0; tick < largest + step; tick += step) ticks.push(tick);
-	return ticks;
-}
 
 export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartProperties>): ReactNode {
 	const height = rows.length * ROW_HEIGHT + AXIS_HEIGHT;
-	const ticks = getAxisTicks(rows);
 	const series = SERIES.map(({ name, color, dash, delay }) => (
 		<Bar
 			key={name}
@@ -112,11 +104,12 @@ export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartPropert
 				<CartesianGrid horizontal={false} stroke="var(--rule)" />
 				<XAxis
 					axisLine={false}
-					domain={[0, ticks.at(-1) ?? 1]}
+					domain={AXIS_DOMAIN}
+					scale="log"
 					tick={AXIS_TICK}
 					tickFormatter={formatAxisTick}
 					tickLine={false}
-					ticks={ticks}
+					ticks={AXIS_TICKS}
 					type="number"
 				/>
 				<YAxis
