@@ -402,7 +402,7 @@ importers:
         version: 3.11.0(typescript@6.0.2)
       '@rotor-rbx/lint-configurations':
         specifier: workspace:*
-        version: link:tools/linter-utilities
+        version: link:tools/lint-configurations
       '@total-typescript/ts-reset':
         specifier: catalog:types
         version: 0.6.1
@@ -624,12 +624,18 @@ importers:
       '@isentinel/eslint-config':
         specifier: catalog:lint
         version: 6.3.0(patch_hash=5170c62cbd8f7fe155376b876739aa170be7348d47c491b7ff97da0c1f9503ee)(a6791fe724f6ceeb64b8d64ecb5879aa)
+      '@rotor-rbx/linter-utilities':
+        specifier: workspace:*
+        version: link:../linter-utilities
       eslint-plugin-astro:
         specifier: catalog:lint
         version: 3.2.1(@typescript-eslint/parser@8.65.0(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.3))(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)
       eslint-plugin-regexp:
         specifier: catalog:lint
         version: 3.1.1(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))
+      oxlint-plugin-react-doctor:
+        specifier: catalog:lint
+        version: 0.9.22
     devDependencies:
       '@types/node':
         specifier: catalog:types
@@ -637,9 +643,6 @@ importers:
       oxlint:
         specifier: catalog:lint
         version: 1.92.0(oxlint-tsgolint@7.0.2006)
-      oxlint-plugin-react-doctor:
-        specifier: catalog:lint
-        version: 0.9.22
       tsrs:
         specifier: catalog:tooling
         version: 0.22.0-ts7.1.0-beta

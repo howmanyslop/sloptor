@@ -2,25 +2,36 @@
 
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { GLOB_DTS, GLOB_SRC, GLOB_SRC_EXT, GLOB_TESTS } from "@isentinel/eslint-config";
+import { GLOB_DTS, GLOB_SRC, GLOB_SRC_EXT, GLOB_TESTS, type OxfmtOptions } from "@isentinel/eslint-config";
 import { isentinel } from "@isentinel/eslint-config/oxlint";
 
 import { baseIgnores, projectType } from "./constants.ts";
-import { getOxfmtConfigurationAsync } from "./get-oxfmt-configuration-async.ts";
 
 import type { OxlintConfig, OxlintRules } from "@isentinel/eslint-config/oxlint";
 
 const CONFIGURATION_FILES = `**/*.config.${GLOB_SRC_EXT}`;
 const SCRIPT_FILES = `scripts/${GLOB_SRC}`;
-// Resolved here: this package depends on it, the root does not.
+
 const REGEXP_PLUGIN = {
 	name: "regexp-js",
 	specifier: fileURLToPath(import.meta.resolve("eslint-plugin-regexp")),
 };
 
+const REACT_DOCTOR_PLUGIN = {
+	name: "react-doctor",
+	specifier: fileURLToPath(import.meta.resolve("oxlint-plugin-react-doctor")),
+};
+
 interface ConfigurationOptions {
 	readonly argv?: ReadonlyArray<string> | undefined;
+	readonly rootDirectory: string;
 	readonly tsconfigPath: string;
+}
+
+async function getOxfmtOptionsAsync(): Promise<OxfmtOptions> {
+	const { getOxfmtConfigurationAsync } = await import("@rotor-rbx/linter-utilities/configuration");
+
+	return getOxfmtConfigurationAsync();
 }
 
 const reactTestRules: OxlintRules = {
@@ -32,8 +43,25 @@ const reactTestRules: OxlintRules = {
 	"react/only-export-components": "off",
 };
 
-export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOptions): Promise<OxlintConfig> {
-	const oxfmtOptions = await getOxfmtConfigurationAsync();
+export async function getOxlintAsync({
+	argv,
+	rootDirectory,
+	tsconfigPath,
+}: ConfigurationOptions): Promise<OxlintConfig> {
+	const [allReactDoctorRules, oxfmtOptions] = await Promise.all([
+		import("oxlint-plugin-react-doctor").then((library) => library.ALL_REACT_DOCTOR_RULES),
+		getOxfmtOptionsAsync(),
+	]);
+
+	const reactDoctorRules = Object.fromEntries(
+		Object.entries(allReactDoctorRules).map(([key, value]) => {
+			if (key.includes("nextjs-") || key.includes("preact-") || key.includes("jsx-no-new-")) {
+				return [key, "off" as const];
+			}
+
+			return [key, value];
+		}),
+	);
 
 	return isentinel(
 		{
@@ -95,7 +123,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 					},
 				],
 				complexity: ["error", { max: 20 }],
-				curly: ["error", "multi-line"],
+				curly: "off",
 				"default-case": "off",
 				// this is literally not true -- it just worsens performance!
 				"e18e/prefer-static-collator": "off",
@@ -236,6 +264,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						replacements: {},
 					},
 				],
+				"small-rules/curly": "error",
 				"small-rules/directive-disable-enable-pair": "error",
 				"small-rules/directive-no-aggregating-enable": "error",
 				"small-rules/directive-no-duplicate-disable": "error",
@@ -274,6 +303,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-cascading-set-state": "error",
 				"small-rules/no-chain-state-updates": "error",
 				"small-rules/no-chained-type-assertions": "error",
+				"small-rules/no-cliffy-action-wrapper": "error",
 				"small-rules/no-color3-constructor": "off",
 				"small-rules/no-conditional-empty-object-spread": "error",
 				"small-rules/no-constant-condition-with-break": [
@@ -300,10 +330,14 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-increment-decrement": ["error", { allowAutofix: true }],
 				"small-rules/no-initialize-state": ["error", { environment: "standard" }],
 				"small-rules/no-inline-property-on-memo-component": "error",
+				"small-rules/no-inline-signature-types": "error",
 				"small-rules/no-instance-methods-without-this": "off",
+				"small-rules/no-jsx-spread-child": "error",
 				"small-rules/no-known-value-widening": "error",
 				"small-rules/no-module-mocking": "error",
+				"small-rules/no-multiple-cliffy-commands": "error",
 				"small-rules/no-native-properties-spread": "off",
+				"small-rules/no-nested-hook-calls": "warn",
 				"small-rules/no-new-instance-in-use-memo": "off",
 				"small-rules/no-object-parameters": "error",
 				"small-rules/no-pass-data-to-parent": ["error", { environment: "standard" }],
@@ -355,6 +389,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/prefer-modding-inspect": "off",
 				"small-rules/prefer-module-scope-constants": "off",
 				"small-rules/prefer-native-collection-copy": "off",
+				"small-rules/prefer-optional-parameter": "error",
 				"small-rules/prefer-padding-components": "off",
 				"small-rules/prefer-pascal-case-enums": "error",
 				"small-rules/prefer-sequence-overloads": "off",
@@ -396,6 +431,18 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/require-paired-calls": "error",
 				"small-rules/require-react-component-keys": "off",
 				"small-rules/require-react-display-names": ["error", { environment: "standard" }],
+				"small-rules/require-readable-spacing": [
+					"error",
+					{
+						allowAttachedUses: true,
+						allowGuardClauseRuns: true,
+						allowMultilineBindingRuns: true,
+						overrides: [
+							{ blankLine: "any", next: "return", previous: "expression" },
+							{ blankLine: "any", next: "binding", previous: "enum", usesPrevious: true },
+						],
+					},
+				],
 				"small-rules/require-safety-comment-for-type-assertion": "error",
 				"small-rules/require-switch-case-braces": [
 					"error",
@@ -409,6 +456,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						allow: [{ name: "ValidationError", from: "package", package: "@cliffy/command" }],
 					},
 				],
+				"small-rules/require-tsx-for-hooks": "error",
 				"small-rules/require-unicode-regex": "error",
 				"small-rules/rerender-memo-with-default-value": "error",
 				"small-rules/starts-with-verb": [
@@ -526,6 +574,31 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						max: 45,
 					},
 				],
+			},
+		},
+		{
+			name: "rotor/react-doctor",
+			files: [GLOB_SRC],
+			jsPlugins: [REACT_DOCTOR_PLUGIN],
+			rules: {
+				...reactDoctorRules,
+				// STOP DUPLICATING NATIVE RULES!!!
+				"react-doctor/forbid-component-props": "off",
+				"react-doctor/jsx-boolean-value": "off",
+				"react-doctor/jsx-curly-brace-presence": "off",
+				"react-doctor/jsx-max-depth": "off",
+				"react-doctor/jsx-no-new-array-as-prop": "off",
+				"react-doctor/jsx-no-new-function-as-prop": "off",
+				"react-doctor/jsx-no-new-object-as-prop": "off",
+				"react-doctor/jsx-props-no-spreading": "off",
+				"react-doctor/no-danger": "off",
+				"react-doctor/no-multi-comp": "off",
+				"react-doctor/no-unknown-property": "off",
+				"react-doctor/only-export-components": "off",
+				"react-doctor/react-in-jsx-scope": "off",
+			},
+			settings: {
+				"react-doctor": { rootDirectory },
 			},
 		},
 		{
