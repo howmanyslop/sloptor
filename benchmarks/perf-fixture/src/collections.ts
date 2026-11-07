@@ -26,7 +26,7 @@ export function chunk<TValue>(values: Array<TValue>, size: number): Array<Array<
 }
 
 export function zip<TLeft, TRight>(left: Array<TLeft>, right: Array<TRight>): Array<{ first: TLeft; second: TRight }> {
-	// biome-ignore lint/nursery/useMathMinMax: not defined
+	// biome-ignore lint/complexity/useMathMinMax: no
 	const length = left.length < right.length ? left.length : right.length;
 	const result: Array<{ first: TLeft; second: TRight }> = [];
 	for (let index = 0; index < length; index += 1) {

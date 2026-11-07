@@ -32,13 +32,13 @@ function isSingular(name: string): string {
 }
 
 function describeType(schema: JsonSchema): string {
-	if (schema.enum !== undefined) {
-		return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
-	}
+	if (schema.enum !== undefined) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+
 	if (schema.type === "array") {
 		const item = schema.items?.type;
 		return item === undefined ? "array" : `${item}[]`;
 	}
+
 	return schema.type ?? "any";
 }
 
@@ -53,6 +53,7 @@ function collectFromEntries(
 			children.push([path.length === 0 ? name : `${path}.${name}`, property]);
 			continue;
 		}
+
 		keys.push({
 			name,
 			defaultValue: property.default === undefined ? undefined : JSON.stringify(property.default),
@@ -79,7 +80,9 @@ function collect(schema: JsonSchema, path: string, tables: Array<SchemaTable>): 
 		collect(entry, `${path}.<${isSingular(segment)}>`, tables);
 	}
 
-	for (const [childPath, child] of children) collect(child, childPath, tables);
+	for (const [childPath, child] of children) {
+		collect(child, childPath, tables);
+	}
 }
 
 /**

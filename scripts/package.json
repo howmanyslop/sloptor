@@ -5,6 +5,7 @@
 	"type": "module",
 	"dependencies": {
 		"@cliffy/command": "catalog:scripts",
+		"ansis": "catalog:scripts",
 		"arktype": "catalog:scripts",
 		"consola": "catalog:scripts",
 		"tinyexec": "catalog:scripts"

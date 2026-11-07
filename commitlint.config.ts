@@ -1,11 +1,21 @@
+import { RuleConfigSeverity } from "@commitlint/types";
+
 import type { UserConfig } from "@commitlint/types";
 
-const configuration = {
+const configuration: UserConfig = {
 	extends: ["@commitlint/config-conventional"],
 	rules: {
-		"body-max-line-length": [0, "always", Number.POSITIVE_INFINITY],
-		"footer-max-line-length": [0, "always", Number.POSITIVE_INFINITY],
+		"header-max-length": [RuleConfigSeverity.Error, "always", 72],
+		"scope-case": [RuleConfigSeverity.Error, "always", "lower-case"],
+		"subject-empty": [RuleConfigSeverity.Error, "never"],
+		"subject-full-stop": [RuleConfigSeverity.Error, "never", "."],
+		"type-case": [RuleConfigSeverity.Error, "always", "lower-case"],
+		"type-enum": [
+			RuleConfigSeverity.Error,
+			"always",
+			["feat", "fix", "refactor", "docs", "style", "test", "chore", "perf", "ci", "build"],
+		],
 	},
-} as const satisfies UserConfig;
+};
 
 export default configuration;

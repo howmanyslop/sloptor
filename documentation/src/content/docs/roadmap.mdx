@@ -3,254 +3,255 @@ title: "Roadmap"
 description: "Every phase of sloptor, from the first checker spike to the Luau and cloud toolchains."
 ---
 
-sloptor is a native reimplementation of the roblox-ts compiler (`rbxtsc`), built on
+sloptor is a native reimplementation of the roblox-ts compiler (`rbxtsc`). It builds on
 [tsrs](https://github.com/oxc-project/tsrs), a Rust port of [typescript-go](https://github.com/microsoft/typescript-go).
-It began in Go; the Rust port in `crates/` replaced it, and the Go code is gone. The phase
-records below are history and still name the Go packages and tools of their day. The contract is upstream
-parity on unaffected surfaces, with the verified `@isentinel/roblox-ts@4.0.11` fork
-archive authoritative for fork-changed surfaces. The same `@rbxts/*` ecosystem and CLI
-remain the target, at roughly 10x the speed.
+It began in Go. The Rust port in `crates/` replaced that code, and the Go code no longer
+exists. The phase records below are history. They still name the Go packages and tools of
+their day. The contract is upstream parity on code paths the fork leaves alone. The verified
+`@isentinel/roblox-ts@4.0.11` fork archive is the authority for code paths the fork changed.
+sloptor still targets the same `@rbxts/*` ecosystem and command-line tool, at about 10x the
+speed.
 
 - **Design spec:** `docs/superpowers/specs/2026-06-05-rotor-design.md`
 - **Detailed plans:** `docs/superpowers/plans/`
-- **Porting source of truth:** research digests in `docs/superpowers/research/` (authority order: `reference/` > digest > plan > tests)
-- **Acceptance test:** the real `randomness` game project follows the applicable upstream or fork-authoritative oracle for each surface
+- **Porting source of truth:** research digests in `docs/superpowers/research/`, ordered by authority from `reference/` down through digest and plan to tests
+- **Acceptance test:** the real `randomness` game project follows the applicable upstream or fork-authoritative oracle for each feature area
 
 Legend: ✅ done · 🚧 in progress · ⬜ not started
 
 ## Status at a glance
 
-| Phase  | Scope                                                                     | Status |
-| :----: | ------------------------------------------------------------------------- | :----: |
-| **0**  | Foundation — repo, tsgo mirror, checker spike                             |   ✅   |
-| **1**  | Luau AST + renderer (port of `@roblox-ts/luau-ast` 2.0.0)                 |   ✅   |
-| **2**  | Transformer core + differential harness vs real rbxtsc                    |   ✅   |
-| **2b** | Functions, destructuring, for-of (arrays), switch, loop closures          |   ✅   |
-| **3a** | Imports, module resolution, Rojo resolver, `new` + constructor macros     |   ✅   |
-| **3b** | Macro tables, optional chaining, full iteration, pnpm/baseUrl resolution  |   ✅   |
-| **3c** | JSX, classes, decorators, spread, async, try, enums, namespaces           |   ✅   |
-| **4**  | Project layer — emit layout, watch, incremental, full CLI, plugin sidecar |   ✅   |
-| **5**  | Conformance — upstream behavioral suite, diagnostics corpus, acceptance   |   ✅   |
-|        | **v1.0 — drop-in `rbxtsc` replacement**                                   |   ✅   |
+| Phase  | Scope                                                                                   | Status |
+| :----: | --------------------------------------------------------------------------------------- | :----: |
+| **0**  | Foundation, repo, tsgo mirror, checker spike                                            |   ✅   |
+| **1**  | Luau abstract syntax tree and renderer, a port of `@roblox-ts/luau-ast` 2.0.0           |   ✅   |
+| **2**  | Transformer core and differential harness against real rbxtsc                           |   ✅   |
+| **2b** | Functions, destructuring, for-of over arrays, switch, loop closures                     |   ✅   |
+| **3a** | Imports, module resolution, Rojo resolver, `new` and constructor macros                 |   ✅   |
+| **3b** | Macro tables, optional chaining, full iteration, pnpm and `baseUrl` resolution          |   ✅   |
+| **3c** | JSX, classes, decorators, spread, async, try, enums, namespaces                         |   ✅   |
+| **4**  | Project layer, with emit layout, watch, incremental builds, command-line flags, sidecar |   ✅   |
+| **5**  | Conformance, with the behavioral suite, diagnostics corpus, and acceptance runs         |   ✅   |
+|        | **v1.0, drop-in `rbxtsc` replacement**                                                  |   ✅   |
 
-**Measured progress:** the differential and conformance harnesses cover the upstream
-reference plus fork-authoritative fixtures; upstream behavioral and diagnostics suites
-remain regression oracles where the fork has not changed behavior. Fork-divergent
-fixtures are not counted as upstream matches.
+**Measured progress:** the differential and conformance suites cover the upstream reference
+plus fork-authoritative fixtures. The upstream behavioral and diagnostics suites act as
+regression oracles where the fork hasn't changed behavior. Fork-divergent fixtures don't
+count as upstream matches.
 
 ---
 
-## Phase 0 — Foundation ✅
+## Phase 0, foundation ✅
 
-_Plan: `docs/superpowers/plans/2026-06-06-rotor-phase0-phase1.md`. De-risks the core bet:
-driving tsgo's real TypeChecker from Go._
+_Plan: `docs/superpowers/plans/2026-06-06-rotor-phase0-phase1.md`. This phase tests the core
+bet: driving tsgo's real `TypeChecker` from Go._
 
-- [x] **Task 1: Repo scaffolding** — Go module, layout (`cmd/`, `internal/`, `tools/`, `reference/`, `tsgo/`), README, LICENSE
-- [x] **Task 2: Vendor reference sources** — roblox-ts 3.0.0 + luau-ast 2.0.0 snapshots into `reference/` (SHAs recorded, `.git` stripped, licenses retained)
-- [x] **Task 3: tsgo mirror tool** — `tools/mirror`: snapshots a pinned typescript-go commit and rewrites `internal/...` import paths to importable `sloptor/tsgo/...` paths (+ overlay system for unexported APIs, e.g. `tsgo/checker/rotor_exports.go`)
-- [x] **Task 4: Run the mirror and build tsgo** — pinned @ `1f955e97`; vendored tree compiles
-- [x] **Task 5: Checker spike** — parse + typecheck a file from Go; exercise `GetTypeAtLocation`, `GetSymbolAtLocation`, config loading, program creation
+- [x] **Task 1. Repo scaffolding.** Go module. Layout: `cmd/`, `internal/`, `tools/`, `reference/`, `tsgo/`. Plus README and LICENSE.
+- [x] **Task 2. Vendoring the reference sources.** Snapshot roblox-ts 3.0.0 and luau-ast 2.0.0 into `reference/`. The snapshots record SHAs, strip `.git`, and keep the licenses.
+- [x] **Task 3. The tsgo mirror tool.** `tools/mirror` snapshots a pinned typescript-go commit and rewrites `internal/...` import paths to importable `sloptor/tsgo/...` paths. It also adds an overlay system for unexported APIs, such as `tsgo/checker/rotor_exports.go`.
+- [x] **Task 4. Run the mirror and build tsgo.** Pinned at `1f955e97`. The vendored tree compiles.
+- [x] **Task 5. The checker spike.** Parse and typecheck one file from Go, then call `GetTypeAtLocation` and `GetSymbolAtLocation`, load config, and create a program.
 
-## Phase 1 — Luau AST + Renderer ✅
+## Phase 1, Luau abstract syntax tree and renderer ✅
 
-_Plan: same file as Phase 0. Pure code, no checker; fully unit-tested; byte-exact formatting._
+_Plan: same file as Phase 0. Pure code with no checker. Unit tests exercise the code, and formatting is byte-exact._
 
-- [x] **Task 6: SyntaxKind + Node interfaces** — all 40 Luau node kinds
-- [x] **Task 7: List** — doubly-linked statement lists
-- [x] **Task 8: Node structs**
-- [x] **Task 9: Factories with clone-on-reparent**
-- [x] **Task 10: Type guards, validators, globals**
-- [x] **Task 11: RenderState + render utilities**
-- [x] **Task 12: solveTempIds** — scope-aware temp-identifier collision solver
-- [x] **Task 13: Expression renderers**
-- [x] **Task 14: Statement renderers + RenderAST**
-- [x] **Task 15: Golden integration test + benchmark**
+- [x] **Task 6. `SyntaxKind` and node interfaces.** All 40 Luau node kinds.
+- [x] **Task 7. List.** Doubly linked statement lists.
+- [x] **Task 8. Node structs.**
+- [x] **Task 9. Factories that clone on reparent.**
+- [x] **Task 10. Type guards, validators, and globals.**
+- [x] **Task 11. `RenderState` and render utilities.**
+- [x] **Task 12. `solveTempIds`.** A scope-aware solver for temporary identifier collisions.
+- [x] **Task 13. Expression renderers.**
+- [x] **Task 14. Statement renderers and `RenderAST`.**
+- [x] **Task 15. Golden integration test and benchmark.**
 
-## Phase 2 — Transformer Core + Differential Harness ✅
+## Phase 2, transformer core and differential harness ✅
 
-_Plan: `docs/superpowers/plans/2026-06-06-rotor-phase2.md`. First byte-identical Luau;
-the harness (real rbxtsc goldens via `tools/oracle/oracle.ps1`, manifest-gated diff tests)
-becomes the backbone for every later phase._
+_Plan: `docs/superpowers/plans/2026-06-06-rotor-phase2.md`. This phase produced the first
+byte-identical Luau. The harness runs real rbxtsc goldens through `tools/oracle/oracle.ps1`
+and drives manifest-gated diff tests. Every later phase builds on it._
 
-- [x] **Task 1: Fixture project, oracle runner, committed goldens** — `testdata/diff/project` (pinned roblox-ts@3.0.0 / typescript@5.5.3), fixtures 01–10, `tools/oracle/oracle.ps1`
-- [x] **Task 2: Differential harness** — `internal/diff` manifest-gated byte-compare vs goldens
-- [x] **Task 3: Diagnostics + DiagnosticService** — error/warning factories with exact upstream messages (66 byte-exact diagnostics by Phase 3a)
-- [x] **Task 4: TransformState core** — prereq statement stack, capture, `pushToVar*`, getType cache, `valueToIdStr`, hoisting maps, RuntimeLib tracking
-- [x] **Task 5: Per-file pipeline** — transformSourceFile, statement-list hoist merge, export shapes, `CompileFile`, tsconfig sanitizer (strips TS7-removed options: `downlevelIteration`, `baseUrl`, `moduleResolution: "Node"`)
-- [x] **Task 6: Dispatch + literals** — first byte-identical goldens (numerics raw-text, string quote rules, templates, array/object pointers)
-- [x] **Task 7: Identifiers, variable statements, expression statements** — symbol lookup, `undefined`→`nil`, hoist checks, export-let routing
-- [x] **Task 8: Type predicates + truthiness** — `isDefinitelyType`/`isPossiblyType` combinators; `createTruthinessChecks` (`~= 0`, NaN, `~= ""` order; TS#32778 workaround; `logTruthyChanges`)
-- [x] **Task 9: Binary, logical, assignment, unary** — type-directed `+` vs `..`, `===`→`==`, bitwise→`bit32.*`, compound assignment, logical chain flattening, `??`
-- [x] **Task 10: Access + calls** — +1 array indexing with constant folding, LuaTuple `select`, `isMethod` (`:` vs `.`), ensureTransformOrder
-- [x] **Task 11: Control flow** — if/while/do/C-style for incl. optimized numeric-for detection, break/continue/throw, return rules
-- [x] **Task 12: Export shapes end-to-end** — four shapes, mutable-export forcing the exports-table shape
-- [x] **Task 13: Conformance sweep** — adversarial fixtures 11–13 (edge numbers/strings/prereq torture), final review, merge
+- [x] **Task 1. The fixture project and oracle runner.** The committed goldens include `testdata/diff/project`, pinned to roblox-ts@3.0.0 and typescript@5.5.3, fixtures 01 through 10, plus `tools/oracle/oracle.ps1`.
+- [x] **Task 2. The differential harness.** `internal/diff` compares bytes against goldens, and each test runs only when the manifest lists it.
+- [x] **Task 3. Diagnostics and `DiagnosticService`.** Error and warning factories produce exact upstream messages. By Phase 3a that covered 66 byte-exact diagnostics.
+- [x] **Task 4. The `TransformState` core.** It handles the prereq statement stack, capture, `pushToVar*`, the `getType` cache, `valueToIdStr`, hoisting maps, and `RuntimeLib` tracking.
+- [x] **Task 5. The per-file pipeline.** `transformSourceFile`, the statement-list hoist merge, export strategies, `CompileFile`, and a tsconfig sanitizer. The sanitizer strips options that TS7 removed: `downlevelIteration`, `baseUrl`, and `moduleResolution: "Node"`.
+- [x] **Task 6. Dispatch and literals.** This produced the first byte-identical goldens: raw-text numerics, string quote rules, templates, and array and object pointers.
+- [x] **Task 7. Identifiers, variable statements, and expression statements.** Symbol lookup, `undefined` to `nil`, hoist checks, export-let routing.
+- [x] **Task 8. Type predicates and truthiness.** `isDefinitelyType` and `isPossiblyType` combinators, plus `createTruthinessChecks`. That covers the `~= 0`, `NaN`, and `~= ""` order, the TS#32778 workaround, and `logTruthyChanges`.
+- [x] **Task 9. Binary, logical, assignment, and unary operators.** It picks `+` or `..` from the types and converts `===` to `==`. Bitwise operators become `bit32.*`. Compound assignment, logical chain flattening, and `??` complete the set.
+- [x] **Task 10. Access and calls.** +1 array indexing with constant folding, `LuaTuple` `select`, `isMethod` for `:` versus `.`, and `ensureTransformOrder`.
+- [x] **Task 11. Control flow support.** if/while/do, C-style for loops with optimized numeric-for detection, break/continue/throw, and the return rules.
+- [x] **Task 12. Export strategies end to end.** There are four strategies, and a mutable export forces the exports-table strategy.
+- [x] **Task 13. The conformance sweep.** Adversarial fixtures 11 through 13 cover edge numbers, strings, and prereq stress cases. Then final review and merge.
 
-## Phase 2b — Functions, Destructuring, for-of, switch ✅
+## Phase 2b, functions, destructuring, for-of, and switch ✅
 
 _Plan: `docs/superpowers/plans/2026-06-07-rotor-phase2b.md`._
 
-- [x] **Task 1: Fixtures + goldens** — 14–19 (functions, arrows, destructuring, for-of, switch, closures)
-- [x] **Task 2: Reference walker + loop closure copies + case hoisting** — `eachSymbolReferenceInFile` port; the real closure-copy machinery replaces Phase 2's panic; fixes the body-write loop divergence
-- [x] **Task 3: Functions** — declarations/expressions/arrows, parameters (defaults, rest, implicit `self`, `this` elision), bodiless overloads, `export default function`
-- [x] **Task 4: Destructuring** — array/object binding + assignment patterns, nesting, defaults, omitted elements, and swap pattern
-- [x] **Task 5: for-of (arrays)** — `for _, x in exp do` shapes, inline destructure fast path, builder dispatch table (non-array → clean diagnostics)
-- [x] **Task 6: switch** — repeat-until-true wrapper, `_fallthrough` flag, clauses-after-default quirk, case-clause hoisting
-- [x] **Task 7: Conformance sweep + merge** — adversarial fixture 20, first `randomness` real-world smoke (14/95 byte-identical; blocker table drove Phase 3 priorities)
+- [x] **Task 1. Fixtures and goldens.** Fixtures 14 through 19 cover functions, arrows, destructuring, for-of, switch, and closures.
+- [x] **Task 2. The reference walker, loop closure copies, and case hoisting.** A port of `eachSymbolReferenceInFile`, real closure-copy machinery that replaces the Phase 2 panic, and a fix for the body-write loop divergence.
+- [x] **Task 3. Functions.** Declarations, expressions, and arrows, with default and rest parameters, an implicit `self`, and `this` elision. It also covers bodiless overloads and `export default function`.
+- [x] **Task 4. Destructuring.** Array and object binding and assignment patterns, nesting, defaults, omitted elements, and the swap pattern.
+- [x] **Task 5. For-of over arrays.** The `for _, x in exp do` forms, an inline destructure fast path, and a builder dispatch table. Non-array inputs get clean diagnostics.
+- [x] **Task 6. Switch.** Repeat-until-true wrapper, the `_fallthrough` flag, the clauses-after-default quirk, and case-clause hoisting.
+- [x] **Task 7. Conformance sweep and merge.** Adversarial fixture 20 and the first `randomness` real-world smoke test, at 14/95 byte-identical. The blocker table set the Phase 3 priorities.
 
-## Phase 3a — Imports, Module Resolution, NewExpression ✅
+## Phase 3a, imports, module resolution, and `NewExpression` ✅
 
-_Plan: `docs/superpowers/plans/2026-06-07-rotor-phase3a.md`. Unblocked the 96% of real-world
-files that were import-blocked._
+_Plan: `docs/superpowers/plans/2026-06-07-rotor-phase3a.md`. This phase unblocked the 96% of
+real-world files that imports had blocked._
 
-- [x] **Task 1: RojoResolver + PathTranslator ports** — `internal/rojo`; references vendored @ v1.1.0 (partitions LIFO, init/index renames, sub-extensions, isolated/network containers)
-- [x] **Task 2: MacroManager centralization + constructor macros** — one component owning all macro identification; `new Array(n)`, `Set`/`Map` literal-vs-loop, `WeakSet`/`WeakMap`; `transformNewExpression` (`X.new(...)` fallback, `new Instance("Part")`); math-op property-call macros (silent-wrong-output bug found via randomness, fixed)
-- [x] **Task 3: Project-aware compile + runtime-lib emission** — `CompileProject`, Model/Game/Package require shapes, RuntimeLibRbxPath diagnostics; checker-pool pinned to one checker (alias-marks are per-checker — Phase 4 perf item to restore parallelism)
-- [x] **Task 4: Import declarations** — elision via `IsReferencedAliasDeclaration`, lazy TS.import, default-import semantics, namespace imports, `createImportExpression` (TS.getModule, relative/absolute chains)
-- [x] **Task 5: Export-from + export assignment** — per-statement re-exports, `export *` star loop, `export =`
-- [x] **Task 6: Multi-file differential fixtures** — 21–23; harness switched to project-wide compilation
-- [x] **Task 7: Conformance + re-smoke + merge** — adversarial fixture 24; randomness 28/95; syntactic-diagnostics gap fixed
+- [x] **Task 1. The `RojoResolver` and `PathTranslator` ports.** They live in `internal/rojo` and follow the vendored reference at v1.1.0: partitions in reverse order, init and index renames, sub-extensions, and isolated and network containers.
+- [x] **Task 2. `MacroManager` centralization and constructor macros.** One component owns all macro identification: `new Array(n)`, `Set` and `Map` literal versus loop, and `WeakSet` and `WeakMap`. It also adds `transformNewExpression`, with the `X.new(...)` fallback and `new Instance("Part")`, plus math-op property-call macros. The `randomness` project exposed a bug in those macros that produced wrong output with no error, and this task fixed it.
+- [x] **Task 3. Project-aware compile and runtime-lib emission.** This adds `CompileProject`, the Model, Game, and Package require strategies, and `RuntimeLibRbxPath` diagnostics. This phase pinned the checker pool to one checker, because alias marks belong to each checker. Restoring parallelism became a Phase 4 performance item.
+- [x] **Task 4. Import declarations.** Elision through `IsReferencedAliasDeclaration`, lazy `TS.import`, default-import semantics, namespace imports, and `createImportExpression` with `TS.getModule` and relative or absolute chains.
+- [x] **Task 5. Export-from and export assignment.** Per-statement re-exports, the `export *` star loop, and `export =`.
+- [x] **Task 6. Multi-file differential fixtures.** Fixtures 21 through 23, with the harness moved to project-wide compilation.
+- [x] **Task 7. Conformance, a second smoke test, and merge.** Adversarial fixture 24, `randomness` at 28/95, and the fixed syntactic-diagnostics gap.
 
-## Phase 3b — Resolution Gaps, Macro Tables, Optional Chaining, Iteration ✅
+## Phase 3b, resolution gaps, macro tables, optional chaining, and iteration ✅
 
 _Plan: `docs/superpowers/plans/2026-06-08-rotor-phase3b.md`. Digest: `phase3b-digest.md`._
 
-- [x] **Task 1: Resolution fixes** — sanitizer `baseUrl`→`paths` rewrite; compiler-types Iterable-arity d.ts overlay (TS5/TS7 divergence); macro registration audit (`Missing()`, sentinel-gated)
-- [x] **Task 2: pnpm symlinks** — `GuessVirtualPath` via tsgo SymlinkCache (lexicographic-min; junction-safe Realpath)
-- [x] **Task 3: Macro infrastructure + String/ArrayLike tables** — `wrapComments` (`-- ▼ X ▼` markers), `argumentsWithDefaults`, 13 String macros + ArrayLike.size
-- [x] **Task 4: Array tables** — ReadonlyArray (15 macros) + Array (9 macros), verbatim emit logic
-- [x] **Task 5: Set/Map/Promise + call macros** — Set/Map families, `Promise.then`→`andThen`, `assert`/`typeOf`/`typeIs`/`classIs`/`identity`/`$tuple`/`$range`, Promise identifier macro
-- [x] **Task 6: for-of builders completion** — Set/Map (+inline `[k,v]`), string gmatch, IterableFunction, LuaTuple arity introspection, generator `.next`, `$range` numeric-for; all 7 binding accessors
-- [x] **Task 7: Optional chaining** — snapshot-free chainItem, double nil-check nesting, `_self` method rule, temp reuse, `noOptionalMacroCall`
-- [x] **Task 8: Conformance + re-smoke + merge** — fixture 31; 35/35 fixtures; randomness 54/95
+- [x] **Task 1. Resolution fixes.** The sanitizer now rewrites `baseUrl` to `paths`. A compiler-types Iterable-arity d.ts overlay handles the TS5 and TS7 divergence. The macro registration audit covers `Missing()` and the sentinel gate.
+- [x] **Task 2. Pnpm symlinks.** `GuessVirtualPath` reads the tsgo `SymlinkCache` and takes the lexicographic minimum, with a junction-safe real path.
+- [x] **Task 3. Macro infrastructure and the String and `ArrayLike` tables.** It adds `wrapComments` with the `-- ▼ X ▼` markers, `argumentsWithDefaults`, 13 String macros, and `ArrayLike.size`.
+- [x] **Task 4. Array tables.** `ReadonlyArray` gets 15 macros and `Array` gets 9, with verbatim emit logic.
+- [x] **Task 5. Set, Map, and Promise macros plus call macros.** The Set and Map families, `Promise.then` to `andThen`, and the `assert`, `typeOf`, `typeIs`, `classIs`, `identity`, `$tuple`, and `$range` macros. It also adds the Promise identifier macro.
+- [x] **Task 6. Completing the for-of builders.** Set and Map with inline `[k,v]`, string gmatch, `IterableFunction`, `LuaTuple` arity introspection, generator `.next`, and `$range` numeric-for. All 7 binding accessors.
+- [x] **Task 7. Optional chaining.** A snapshot-free `chainItem`, double nil-check nesting, the `_self` method rule, temp reuse, and `noOptionalMacroCall`.
+- [x] **Task 8. Conformance, a third smoke test, and merge.** Fixture 31, 35/35 fixtures, and `randomness` at 54/95.
 
-## Phase 3c — JSX, Classes, Spread, Async, Try, Enums ✅
+## Phase 3c, JSX, classes, spread, async, try, and enums ✅
 
 _Plan: `docs/superpowers/plans/2026-06-07-rotor-phase3c.md`. Digests: `phase3c-jsx-digest.md`,
-`phase3c-classes-digest.md`, `phase3c-async-try-enums-digest.md`. Breaks the JSX wall
-(33 randomness files) and completes the language surface._
+`phase3c-classes-digest.md`, and `phase3c-async-try-enums-digest.md`. This phase clears the
+JSX wall of 33 `randomness` files and completes language support._
 
-- [x] **Task 1: JSX** — factory-call assembler, lowercase-tag quirk, attribute spread paths (`table.clone` fast path vs `_k`/`_v` loop), `{}` attr → `true`, JsxText fixup port from tsgo (backslash-doubling quirk), fixture `32_jsx.tsx`
-- [x] **Task 2: Classes core** — setmetatable boilerplate byte-verbatim, `.new`/constructor synthesis, property initializers vs constructor-body order, parameter properties, static-method colon quirk, inheritance (`super()` 3 arms, `__tostring` re-emit), class expressions, computed names, `#field` diagnostic, fixture `33_classes.ts`
-- [x] **Task 3: Decorators** — legacy experimental decorators (class/method/property/parameter, init-first-to-last apply-last-to-first order, `shouldInline` spill rules, key-pinning); acceptance: `@ReactComponent` error boundary; fixture `34_decorators.ts`
-- [x] **Task 4: Object/array spread + logical assignments** — object spread fast path vs copy loop (+ all 7 iterable-to-array builders, call-argument spread); array-literal spread (`table.move`, `_length` bookkeeping quirks); `??=` / `&&=` / `||=` at both dispatch points; fixture `35_spread.ts`
-- [x] **Task 5: async + generators** — `TS.async` wrappers (declarations become locals; async methods drop colon), `await`→`TS.await`, `TS.generator` body swap, `yield`/`yield*` lowering, `async function*` banned; fixture `36_async.ts`
-- [x] **Task 6: try/catch/finally + flow-control rerouting** — `TS.try` with `TRY_RETURN`/`TRY_BREAK`/`TRY_CONTINUE` flags, blocked checks, both load-bearing orderings, `collapseFlowControlCases`; retires the Phase 2 TRY\_\* no-op; fixture `37_try.ts`
-- [x] **Task 7: Enums + namespaces** — enum do-block with `_inverse` + setmetatable, const enums emit nothing, constant folding; namespace `_container` do-blocks, dotted/nested namespaces, merging banned (`noEnumMerging`/`noNamespaceMerging`); fixture `38_enums_namespaces.ts`
-- [x] **Task 8: Conformance + re-smoke + merge** — adversarial fixture `39_mixed3c.tsx` (decorated React class components, spread props, enum-keyed Map iteration into JSX children, generators with `yield*` in try spread into JSX, async + try/await + break/continue rerouting, `??=` on class fields, namespace components as JSX tags) byte-identical on first run; randomness re-smoke **95/95 byte-identical, zero divergent, zero blocked**; README/roadmap updated (final review + merge handled at branch close)
+- [x] **Task 1. JSX.** A factory-call assembler, the lowercase-tag quirk, and attribute spread paths with a `table.clone` fast path next to the `_k` and `_v` loop. An empty `{}` attribute becomes `true`. The JsxText fixup port from tsgo keeps the backslash-doubling quirk. Fixture `32_jsx.tsx`.
+- [x] **Task 2. The classes core.** Byte-verbatim setmetatable boilerplate, `.new` and constructor synthesis, property initializers in constructor-body order, parameter properties, the static-method colon quirk, and inheritance with 3 `super()` arms and a `__tostring` re-emit. It also covers class expressions, computed names, the `#field` diagnostic, and fixture `33_classes.ts`.
+- [x] **Task 3. Decorators.** Legacy experimental decorators on classes, methods, properties, and parameters, with init running first to last and the apply step running last to first. `shouldInline` spill rules and key pinning are included. Acceptance covers the `@ReactComponent` error boundary. Fixture `34_decorators.ts`.
+- [x] **Task 4. Object and array spread plus logical assignments.** Object spread uses a fast path next to the copy loop, with all 7 iterable-to-array builders and call-argument spread. Array-literal spread uses `table.move` and carries the `_length` bookkeeping quirks. `??=`, `&&=`, and `||=` work at both dispatch points. Fixture `35_spread.ts`.
+- [x] **Task 5. Async and generators.** `TS.async` wrappers turn declarations into locals, and async methods drop the colon. `await` becomes `TS.await`, and `TS.generator` swaps the body. The task lowers `yield` and `yield*`, bans `async function*`, and adds fixture `36_async.ts`.
+- [x] **Task 6. Try, catch, finally, and flow-control rerouting.** `TS.try` with the `TRY_RETURN`, `TRY_BREAK`, and `TRY_CONTINUE` flags, blocked checks, both orderings that matter, and `collapseFlowControlCases`. This task retires the Phase 2 TRY\_\* no-op and adds fixture `37_try.ts`.
+- [x] **Task 7. Enums and namespaces.** An enum do-block with `_inverse` and a setmetatable, const enums that emit nothing, and constant folding. Namespaces use `_container` do-blocks for dotted and nested names. sloptor bans merging through `noEnumMerging` and `noNamespaceMerging`. Fixture `38_enums_namespaces.ts`.
+- [x] **Task 8. Conformance, a fourth smoke test, and merge.** Adversarial fixture `39_mixed3c.tsx` covers decorated React class components, spread props, enum-keyed Map iteration into JSX children, generators with `yield*` in try spread into JSX, async with try, await, break and continue rerouting, `??=` on class fields, and namespace components as JSX tags. It came out byte-identical on the first run. The `randomness` re-smoke reached **95/95 byte-identical, with zero divergent files, and zero blocked files**. The work updated the README and roadmap, and the final review and merge happen at branch close.
 
-## Phase 4 — Project Layer ✅
+## Phase 4, project layer ✅
 
 _Plan: `docs/superpowers/plans/2026-06-07-rotor-phase4.md`. Digest: `phase4-project-digest.md`.
-Everything that makes sloptor a usable CLI tool rather than a compile library._
+These changes turn sloptor from a compile library into a usable command-line tool._
 
-- [x] Full emit layout — write `out/` tree, `index.*` ↔ `init.*` translation, cleanup/copyFiles passes landed in 4's output pipeline; `.lua`/`.luau` output selection landed via `--luau`; include/ emission had already landed in 3c (`internal/includefiles`, `--noInclude`/`--includePath`)
-- [x] `.d.ts` emit for declaration-enabled builds — Package projects now emit declarations through tsgo's declaration pass, with the `types="types"` rewrite handled in sloptor's write callback
-- [x] Full `rbxtsc` CLI flag surface — landed in 4 Task 1: ProjectOptions merge (defaults < tsconfig `rbxts` key < argv; absent CLI booleans don't clobber `rbxts` values), `-p/--project` file-path + upward tsconfig search, `--rojo` (empty-string falls through to discovery, quirk verbatim), `--luau`, `--logTruthyChanges`, `--optimizedLoops` (transformer gate wired), `--writeOnlyChanged` (cmd-level byte-compare; moves into the compile write phase with the output-pipeline task), `--verbose` + LogService analog (`internal/logservice`: yellow `Compiler Warning:` channel — now carries the previously-dropped Rojo resolver warnings — partial-line tracking, upstream benchmark/progress line formats), `--version`, and `--allowCommentDirectives`; usage errors now exit 1 for rbxtsc parity (was 2). Parsed-but-deferred: `--writeTransformedFiles` (warned NYS; out of v1). Comment-directive hoisting (`--!strict` above header) was already landed (`transformer/sourcefile.go`); ~~`build`, `--type`, `-w`, `--usePolling`~~ landed in 3c/4
-- [x] Watch mode v1 — `sloptor build -w` landed with polling-based rebuilds (`--usePolling` semantics effectively always-on today); build execution reuses the manifest-backed changed-file selection path. Superseded by **watch v2** (June 11, 2026 — see Post-v1 Follow-up): pruned `os.ReadDir`-based snapshots, debounced batch rebuilds, mid-build edit detection, adaptive 100 ms cadence
-- [x] Incremental builds (tsbuildinfo-equivalent) — sloptor now writes its own manifest at the configured buildinfo path and recompiles only changed `.ts`/`.tsx` files plus transitive importers; declaration emit follows the same selected set and failed builds do not advance the manifest
-- [x] Transformer-plugin Node sidecar integration — plugin-configured compiles/builds run the worker from `tools/sidecar`, log `transformer-not-found` as warnings, hard-fail when Node is unavailable, and recompile/render from an overlay-backed tsgo Program. Hardened June 10, 2026: the worker is **embedded in the binary** (extracted to a content-addressed user-cache dir; `ROTOR_SIDECAR_PATH` overrides), resolves **typescript from the project's node_modules** (the same instance plugins require — upstream's shared-instance guarantee), reroutes plugin `console.log` off the stdout protocol, and sloptor keeps **one warm worker per project across builds and `-w` rebuilds** with stamp-diffed `changedFiles` overlays. Proven against real `rbxts-transformer-flamework@1.3.2` + `rbxts-transform-env@3.0.0` (`testdata/transformers/project`, identifier metadata + `Flamework.addPaths` rojo rewriting + env inlining asserted). Note: `@rbxts/transform-env` does not exist on npm; the real package is `rbxts-transform-env`. Known limitation: a warm worker's plugin-visible view of an edited ambient `.d.ts` can be stale until the watch session restarts (sloptor's own typecheck is unaffected)
-- [x] `validateCompilerOptions` full port — landed in 3c (byte-exact diagnostic texts; known gap: enforced options set only in an `extends` parent are read root-only — same root-only gap as the sanitizer; fix with extends-chain resolution here)
-- [x] Concurrency: restore checker-affined project compilation via `GetTypeCheckerForFile`; `CompileProject`/`CompileFile` no longer assume checker 0, project compilation now runs one transform worker per checker group with a per-checker `MultiState`, and the tsgo checker pool is no longer pinned to one checker
-- [x] **Performance — filesystem-stat caching** (on top of the checker-group parallelism above; measured on the 95-file acceptance project, byte-identical output): full `sloptor build` **545 ms → 355 ms**, incremental no-op rebuild (the watch case) **369 ms → 180 ms (~2×)**:
-    - **`cachedvfs` host FS** — wraps the compiler host (build + `sloptor check`) so module resolution's repeated `Stat`/`FileExists`/`Realpath`/`DirectoryExists` probes are memoized for the pass (was ~40% of warm time in `GetFileAttributesEx` syscalls; every checker group otherwise re-stats the same `node_modules/@rbxts` paths). Safe: a build never mutates its source tree mid-pass. Same wrapper tsgo's own project host uses.
-    - **Rojo `searchDirectory`** — uses `os.ReadDir` entry kinds instead of an `os.Stat` per child ×2; only reparse points (junctions/symlinks) fall back to a following stat, so pnpm installs stay correct.
-- [x] **CLI logging + DX** — new `internal/term` color/style layer (NO_COLOR/FORCE_COLOR aware, Windows VT enablement, glyphs with ASCII fallbacks) and `cmd/rotor/ui.go`: clean colored `build`/`check`/`watch` output (banner, ✓/✗ result blocks, throughput, colored failures, watch change/idle lines). `internal/logservice` left byte-stable for differential tests. One-shot diagnostics support CPU, execution trace, block, mutex, heap, and timing outputs; finite diagnostics reject watch mode.
-- [x] V1 cleanup triage — the remaining non-surface cleanup (`TransformStatement` func-var removal) is tracked as post-v1 engineering follow-up rather than a parity blocker; warmer sidecar watch sessions landed June 10, 2026
-- [x] Known cleanup: `getLastToken` block-`}` trailing-comment handling
+- [x] Full emit layout. It writes the `out/` tree and translates `index.*` to `init.*`. The cleanup and copyFiles passes went into the Phase 4 output pipeline. Output selection between `.lua` and `.luau` arrived with `--luau`, and `include/` emission came earlier in 3c through `internal/includefiles` and `--noInclude` and `--includePath`.
+- [x] `.d.ts` emit for declaration builds. Package projects now emit declarations through the tsgo declaration pass, and sloptor's write callback handles the `types="types"` rewrite.
+- [x] Full `rbxtsc` command-line flag surface. Phase 4 Task 1 added the ProjectOptions merge, where defaults come before the tsconfig `rbxts` key and argv comes last. Absent command-line booleans don't clobber `rbxts` values. The task also added `-p/--project` with a path and an upward tsconfig search. `--rojo` treats an empty string as a fall through to discovery, with the quirk kept verbatim. Next came `--luau`, `--logTruthyChanges`, `--optimizedLoops` with the transformer gate wired, and `--writeOnlyChanged`. That last flag shipped a command-level byte compare, which later moved into the compile write phase. `--verbose` gained a `LogService` analog in `internal/logservice`. It adds a yellow `Compiler Warning:` channel that now carries the Rojo resolver warnings dropped before, along with partial-line tracking and upstream benchmark and progress line formats. The task closed with `--version` and `--allowCommentDirectives`. Usage errors now exit 1 for rbxtsc parity, where they used to exit 2. `--writeTransformedFiles` parses but waits. It warns that the feature isn't supported yet, and it sits out of v1. Comment-directive hoisting of `--!strict` at the top of the file already worked in `transformer/sourcefile.go`. `build`, `--type`, `-w`, and `--usePolling` came in 3c and 4.
+- [x] Watch mode v1. `sloptor build -w` arrived with polling rebuilds, and `--usePolling` semantics run all the time today. Each build reuses the manifest-backed changed-file selection path. Watch v2 superseded it on June 11, 2026, as the Post-v1 follow-up notes: pruned snapshots from `os.ReadDir`, debounced batch rebuilds, mid-build edit detection, and an adaptive 100 ms cadence.
+- [x] Incremental builds with a tsbuildinfo equivalent. sloptor now writes its own manifest at the configured buildinfo path and recompiles only changed `.ts` and `.tsx` files plus transitive importers. Declaration emit follows the same selected set. A build that breaks doesn't advance the manifest.
+- [x] Transformer-plugin Node sidecar integration. Plugin-configured compiles and builds run the worker from `tools/sidecar`, log `transformer-not-found` as a warning, hard-fail when Node is missing, and recompile and render from an overlay-backed tsgo Program. The June 10, 2026 hardening **embedded the worker in the binary**. The worker extracts to a content-addressed user-cache dir, and `ROTOR_SIDECAR_PATH` overrides that path. It resolves **typescript from the project's node_modules**, the same instance plugins require and upstream's shared-instance guarantee. Plugin `console.log` output now goes to its own channel, away from the stdout protocol. sloptor also keeps **one warm worker per project across builds and `-w` rebuilds** with stamp-diffed `changedFiles` overlays. The test suite proves this against real `rbxts-transformer-flamework@1.3.2` and `rbxts-transform-env@3.0.0` in `testdata/transformers/project`, asserting identifier metadata, `Flamework.addPaths` rojo rewriting, and env inlining. Note that `@rbxts/transform-env` does not exist on npm, and the real package is `rbxts-transform-env`. The known limitation is that a warm worker's plugin-visible view of an edited ambient `.d.ts` can be stale until the watch session restarts. sloptor's own typecheck doesn't see that staleness.
+- [x] A full `validateCompilerOptions` port, which arrived in 3c with byte-exact diagnostic texts. One known gap: sloptor reads enforced options that appear only in an `extends` parent from the root, which matches the sanitizer gap. Fixing it needs extends-chain resolution here.
+- [x] Concurrency. `GetTypeCheckerForFile` restores checker-affined project compilation. `CompileProject` and `CompileFile` no longer assume checker 0. Project compilation now runs one transform worker per checker group with a per-checker `MultiState`, and the tsgo checker pool no longer pins to one checker.
+- [x] **Performance, filesystem-stat caching.** This builds on the checker-group parallelism preceding and keeps output byte-identical. On the 95-file acceptance project, a full `sloptor build` went from **545 ms to 355 ms**. An incremental no-op rebuild, the watch case, went from **369 ms to 180 ms, about 2×**:
+    - **`cachedvfs` host FS.** It wraps the compiler host for build and `sloptor check`, so module resolution's repeated `Stat`, `FileExists`, `Realpath`, and `DirectoryExists` probes get memoized for the pass. Those probes took about 40% of warm time in `GetFileAttributesEx` system calls, since every checker group otherwise re-stats the same `node_modules/@rbxts` paths. A build never mutates its source tree mid-pass, so this is safe. tsgo's own project host uses the same wrapper.
+    - **Rojo `searchDirectory`.** It reads `os.ReadDir` entry kinds instead of calling `os.Stat` twice per child. Only reparse points, such as junctions and symlinks, fall back to a following stat, which keeps pnpm installs correct.
+- [x] **Command-line logging and developer experience.** A new `internal/term` color and style layer respects NO_COLOR and FORCE_COLOR, enables VT on Windows, and falls back to ASCII glyphs. `cmd/rotor/ui.go` gives `build`, `check`, and `watch` clean output: a banner, ✓ and ✗ result blocks, throughput, failures in color, and watch change and idle lines. `internal/logservice` held byte-stable for the differential tests. One-shot diagnostics support CPU, trace, block, mutex, heap, and timing output. Finite diagnostics don't accept watch mode.
+- [x] V1 cleanup triage. The remaining cleanup outside the main feature set, removing the `TransformStatement` func-var, goes to post-v1 engineering follow-up instead of blocking parity. Warmer sidecar watch sessions arrived June 10, 2026.
+- [x] Known cleanup: trailing-comment handling for a block `}` in `getLastToken`.
 
-### Fork parity boundary (July 2026)
+### Fork parity boundary, July 2026
 
-The committed `roblox-ts.zip` archive is the authority for surfaces changed by the
-`@isentinel/roblox-ts@4.0.11` fork: varargs optimization, object-rest direct access,
+The committed `roblox-ts.zip` archive is the authority for features the
+`@isentinel/roblox-ts@4.0.11` fork changed: varargs optimization, object-rest direct access,
 the `rbxts` option cascade, `.luau.map` source maps, the copy-files gate, the Rojo
 resolver cache, solution builds, and solution watch. The older `reference/roblox-ts`
-tree remains the upstream parity reference for unaffected code only. User-facing
+tree covers only unaffected code as the upstream parity reference. User-facing
 schema and help must describe the fork behavior without presenting upstream-only
 diagnostic names or cache layouts as sloptor contracts.
 
-The project layer also publishes these generated build-state boundaries: `rbxts.copyfiles.json`
-in `outDir`, the fork-compatible `rbxts.rojocache.json` name protected from cleanup,
+The project layer also publishes these generated build-state paths: `rbxts.copyfiles.json`
+in `outDir`, the fork-compatible `rbxts.rojocache.json` name that cleanup protects,
 `.rotor/cache/rojo/` for sloptor's hashed resolver state, adjacent `.luau.map` files when
-source maps are enabled, and `*.rbxtsc.tsbuildinfo` for sloptor incremental state.
-`RBXTSC_WRITE_CONCURRENCY`, `ROTOR_WRITE_WORKERS`,
-and `UV_THREADPOOL_SIZE` are documented tuning and cleanup
-controls, not tsconfig options.
+source maps are enabled, and `*.rbxtsc.tsbuildinfo` for sloptor incremental state. The docs
+describe `RBXTSC_WRITE_CONCURRENCY`, `ROTOR_WRITE_WORKERS`, and `UV_THREADPOOL_SIZE` as
+tuning and cleanup controls, not tsconfig options.
 
-## Phase 5 — Conformance ✅
+## Phase 5, conformance ✅
 
 _The 1:1 proof at full scale._
 
-- [x] Behavioral suite closure: the staged Lune harness now runs the full vendored runtime suite green (`460 passed, 0 failed, 0 skipped` on June 7, 2026), including the Roact JSX/runtime coverage
-- [x] Diagnostics corpus closure: diagnostics harness now proves the full vendored expected-error corpus, including the two Rojo-topology fixtures (`noIsolatedImport.ts`, `noRojoData.ts`) via upstream-shaped temporary project staging
-- [x] Differential run harness over roblox-ts's vendored `tests/src` corpus exists — `internal/conformance` now enables **44** golden fixtures byte-for-byte with **zero** manifest holdouts
-- [x] Acceptance closure: the `randomness` acceptance runner now stages copied projects, reuses the real local dependency tree, runs sloptor and `rbxtsc`, and byte-compares normalized `out/` + `include/` artifacts against zero divergences
-- [x] Close remaining runtime and acceptance divergences to zero
+- [x] Behavioral suite closure. The staged Lune runner now passes the full vendored runtime suite: `460 passed, 0 failed, 0 skipped` on June 7, 2026, including the Roact JSX coverage, and the runtime coverage.
+- [x] Diagnostics corpus closure. The diagnostics runner now proves the full vendored expected-error corpus, including the two Rojo-topology fixtures `noIsolatedImport.ts` and `noRojoData.ts`, by staging temporary projects the way upstream does.
+- [x] A differential run harness over the vendored `tests/src` corpus in roblox-ts. `internal/conformance` now enables **44** golden fixtures byte for byte, with **zero** manifest holdouts.
+- [x] Acceptance closure. The `randomness` acceptance runner now stages copied projects, reuses the real local dependency tree, runs sloptor and `rbxtsc`, and compares normalized `out/` and `include/` artifacts byte for byte, with zero divergences.
+- [x] Close remaining runtime and acceptance divergences to zero.
 
-## v1.0 — Drop-in replacement ✅
+## Version 1.0, drop-in replacement ✅
 
-Verified locally on June 7, 2026 with:
+Local verification on June 7, 2026 used:
 
 - `go test ./... -count=1`
 - `go test ./internal/conformance -count=1` with `ROTOR_ROJO_PATH`, `ROTOR_LUNE_PATH`, and `ROTOR_RANDOMNESS_PATH`
-- `bun test` in `tools/sidecar` (after `bun install --no-save`; `npm test` remains available as a fallback)
-- `go test ./internal/compile -run TestTransformersFixture -count=1` — real-package transformer coverage (Flamework + rbxts-transform-env; requires `bun install --no-save` in `testdata/transformers/project`)
+- `bun test` in `tools/sidecar`, after `bun install --no-save`. `npm test` still works as a fallback.
+- `go test ./internal/compile -run TestTransformersFixture -count=1` for real-package transformer coverage of Flamework and rbxts-transform-env. It needs `bun install --no-save` in `testdata/transformers/project`.
 
-Continuously verified in CI (June 8, 2026): `.github/workflows/ci.yml` runs gofmt +
-`go vet` + `go build ./...` + full `go test ./...` on every push to `master` and PR via
-the shared `.github/actions/setup` composite action — which provisions Go, **Bun** (the
-canonical fixture installer; npm fallback was the source of flaky installs) and Node (for
-the transformer sidecar). CI also runs the sidecar JS suite (`node --test` in
-`tools/sidecar`) and installs `testdata/transformers/project` so the real-package
-transformer test runs. CI and `release.yml` set `ROTOR_REQUIRE_TRANSFORMERS_FIXTURE=1`
-so a missing fixture install fails the run instead of silently skipping the
-real-package test. rojo/lune are intentionally not installed in CI, so the
-lune-executed runtime suite skips there; it runs locally via `aftman install` and is
-exercised by the byte-parity differential/diagnostics tests regardless. `release.yml`
-reuses the same setup, runs the tests, then publishes CLI binaries via GoReleaser.
+CI has covered this continuously since June 8, 2026. `.github/workflows/ci.yml` runs gofmt,
+`go vet`, `go build ./...`, and the full `go test ./...` on every push to `master` and every
+PR. It uses the shared `.github/actions/setup` composite action, which provisions Go,
+**Bun**, and Node for the transformer sidecar. Bun is the canonical fixture installer, and
+the npm fallback caused flaky installs. CI also runs the sidecar JS suite through
+`node --test` in `tools/sidecar` and installs `testdata/transformers/project` so the
+real-package transformer test runs. CI and `release.yml` set
+`ROTOR_REQUIRE_TRANSFORMERS_FIXTURE=1`, so a missing fixture install breaks the run instead of
+skipping the real-package test without a word. rojo and lune are intentionally absent from
+CI, so the lune runtime suite skips there. That suite runs locally through `aftman install`,
+and the byte-parity differential and diagnostics tests exercise it either way. `release.yml`
+reuses the same setup, runs the tests, and then publishes command-line binaries through
+`GoReleaser`.
 
-Linux validation (June 10, 2026, golang:1.26-bookworm container + Node 22 + npm
-installs from a clean clone): sidecar JS suite, `go vet`, full `go test ./...`,
-sidecar/transformer tests under `-race`, and a release-style
-(`CGO_ENABLED=0 -trimpath -ldflags "-s -w -X main.version=..."`) `sloptor build` of the
-transformers fixture — including embedded-sidecar extraction to `~/.cache/rotor` —
-all green. All six GoReleaser targets cross-compile; `goreleaser check` validates the
-config. Note: releases up to **v1.0.2 predate the embedded sidecar** — their
-transformer-plugin support only worked from a repo checkout; the first release after
-June 10, 2026 carries the fix.
+Linux validation ran on June 10, 2026 in a golang:1.26-bookworm container with Node 22 and
+npm installs from a clean clone. It covered the sidecar JS suite, `go vet`, the full
+`go test ./...`, and the sidecar and transformer tests under `-race`. It also ran a
+release-style `sloptor build` of the transformers fixture with
+`CGO_ENABLED=0 -trimpath -ldflags "-s -w -X main.version=..."`, including extraction of the
+embedded sidecar to `~/.cache/rotor`. Everything passed. All six `GoReleaser` targets
+cross-compile, and `goreleaser check` validates the config. Note that releases up to
+**v1.0.2 predate the embedded sidecar**. Their transformer-plugin support only worked from a
+repo checkout, and the first release after June 10, 2026 carries the fix.
 
-Success criteria (from the design spec):
+Success criteria from the design spec:
 
-1. Byte-identical output (header-normalized) vs rbxtsc 3.0.0 on the upstream corpus and `randomness`
-2. The vendored behavioral suite passes under Lune and the vendored diagnostics corpus matches upstream expectations
+1. Output identical byte for byte to rbxtsc 3.0.0, after header normalization, on the upstream corpus and `randomness`
+2. The vendored behavioral suite passes under Lune, and the vendored diagnostics corpus matches upstream expectations
 3. `sloptor build` and `sloptor build -w` work as drop-in `rbxtsc` replacements with the same npm packages
 4. Measured wins: ≥5x cold build, near-instant watch rebuilds
 
-**Out of scope for v1:** Playground/VirtualProject, `--writeTransformedFiles`, `devlink`
+**Out of scope for v1:** the playground and `VirtualProject`, `--writeTransformedFiles`, and `devlink`
 
-## Post-v1 Follow-up
+## Post-v1 follow-up
 
-**Watch v2 + QOL + hardening (June 11, 2026; spec: `docs/superpowers/specs/2026-06-11-rotor-watch-v2-qol-design.md`):**
+**Watch v2, quality of life, and hardening, June 11, 2026.** Spec: `docs/superpowers/specs/2026-06-11-rotor-watch-v2-qol-design.md`.
 
-- [x] **Watch engine v2** — pruned snapshot walks (`os.ReadDir` + `entry.Info()`; `node_modules`, dot-dirs, and the build-written `out`/`include` trees never walked — v1 stat'ed every `node_modules` file every 250 ms), editor-junk ignore (vim swap/backup probes, emacs locks, `.DS_Store`, `Thumbs.db`), debounced batch rebuilds (50 ms quiet timer, 500 ms cap — a "save all" burst lands as one rebuild reporting every file), pre-build baseline snapshots (fixes the v1 lost-update bug where a save during a build was silently absorbed), adaptive poll cadence (10× walk cost, clamped 100 ms–1 s; v1 was a fixed 250 ms). Applies to both `build -w` and `check -w`. Smoke-verified end to end: 43-file fixture, single-file edit → 1-file incremental rebuild in 64 ms
-- [x] **Watch/CLI logging QOL** — batched change lines (`3 files changed · a.ts, b.ts, +1 more`), rebuild counter, last-build duration, and a build-time history sparkline (`term.Spark`, interactive terminals only) on the idle line
-- [x] **Security hardening** — output-path containment guard (`filepath.IsLocal` on every compiled output's project-relative path before writing), sidecar cache extraction tightened to `0o700`/`0o600`, and a `vuln` CI job running pinned `govulncheck@v1.3.0 ./...` (validated locally: "No vulnerabilities found")
-- [x] **`$getModuleTree` folder support (June 12, 2026 — sloptor extension, first deliberate superset of rbxtsc)** — upstream requires the macro's specifier to resolve as a module (a folder needs `index.ts`; upstream declared folder support "more work than worth it"). sloptor now resolves folder specifiers directly (`getFolderImportParts` in `internal/transformer/importexpr.go`): relative specifiers against the importing file's dir, non-relative through tsconfig `paths` (covers the baseUrl rewrite) then project-root-relative (`"src/shared/systems"` style). Regular imports unchanged — only `$getModuleTree` opts in; everything that compiles under rbxtsc stays byte-identical. End-to-end fixture `internal/compile/testdata/gmtree_folder_model` pins all three specifier forms; verified the real-world failing case (baseUrl `src` + `$getModuleTree("src/shared/systems")`, no index.ts) compiles and rbxtsc 3.0.0 rejects it
-- [x] **Loop label support (August 6, 2026 — sloptor extension, second deliberate superset of rbxtsc after `$getModuleTree` folders)** — rbxtsc 3.0.0 bans every labeled statement (`noLabeledStatement`); sloptor compiles `outer: for (...) { break outer; continue outer; }`. Luau has neither labels nor `goto`, so a label that a plain `break`/`continue` cannot satisfy lowers to a `"none" | "break" | "continue"` flag temp plus unwinding checks after each enclosing break boundary (`internal/transformer/labeledstatement.go` + `State.LabelChecks`/`LabelResets`). Design follows roblox-ts PR [#2928](https://github.com/roblox-ts/roblox-ts/pull/2928) but fixes five defects in it locally: the depth/index heuristic that breaks an _unlabeled_ enclosing loop, `switch` not counted as a break boundary (sloptor lowers it to `repeat ... until true`, which a bare `break` exits), labeled non-loop statements emitting a bare `break`, no function/`try` barrier (a check inside a closure would break the wrong loop), and only the first of two labels on one loop getting a continue check. Rejected with clear diagnostics rather than wrong output: labels crossing `try`/`catch` (`noLabeledStatementsWithinTryCatch`, message byte-exact with the PR), unknown labels behind `// @ts-ignore` (`rotorUnknownLabel`), a labeled non-loop statement whose body also holds an unlabeled `break`/`continue` bound to an enclosing loop (`rotorLabeledStatementFlowControl`), and a labeled `continue` targeting a `do`/`while` whose condition needs temporaries (`rotorLabeledContinueInDoWhile` — Luau forbids `continue` before those locals; the identical _unlabeled_ hole is an rbxtsc bug sloptor reproduces for parity). Byte parity is untouched: no label program compiles under rbxtsc, so `testdata/diff` and `testdata/conformance` goldens are unchanged. Pinned by `internal/transformer/labels_test.go` (authored expectations, not rbxtsc-derived), the rotor-owned Lune spec `testdata/conformance/rotor/label.spec.ts` (21 runtime cases), and the end-to-end fixture `internal/compile/testdata/labels_model`
-- [x] **`--!native` type annotations (October 29, 2026 — sloptor extension, emitted Luau differs from rbxtsc)** — opt-in via `"rbxts": { "nativeTypes": true }` in tsconfig.json or `nativeTypes = true` in rotor.toml (tsconfig wins when both are set; default off, where `//!native` files compile exactly like rbxtsc). When enabled, a file whose leading comments include `//!native` now emits Luau parameter and return annotations taken from the TypeScript types (`number`, `string`, `vector`/`Vector3`, and table types spelled structurally: `{ T }` for arrays, `{ A | B }` for tuples, `{ [K]: V }` for `Map`/`Record`/index signatures, `{ [K]: true }` for `Set`, and `{ a: number, b: string? }` for anonymous object types, followed into nested members), so Luau's native compiler can specialize those parameters. A named interface or non-generic object type alias is emitted once as a Luau `type Node<K, V> = { ... }` (readonly dropped, optional members `T?`, self references kept), at the declaration when that declaration is a top-level statement of the file and hoisted next to the header otherwise (a namespace-, function-, or block-scoped declaration, or one imported from another module); a merged interface emits one alias, at its first declaration, with every merged member. String and boolean literal types mirror as Luau singletons (`there: "there"`, `flag: true`, with `true | false` spelled `boolean`), while an enum member and a number literal stay `string`/`number`; a top-level parameter keeps its `"a" | "b"` annotation, which Luau's compiler tags `string`, but a boolean literal there stays unannotated like `boolean`. Function types are spelled `(key: K, other: T?) -> V`, `void` returns `()`, a function's own type parameters are declared (`local function f<K, V>(`), and nested positions mirror `boolean` and allowlisted Roblox types by name. Top-level parameters are what Luau tags, so their policy is narrower: `boolean`, Roblox types/`Instance`s, class instances, mixed unions, and a bare generic from an _enclosing_ function stay unannotated (an outer generic would be tagged userdata and fail the native entry guard on every call). A shape that cannot be written out (deeper than four levels or two index signatures) falls back to `{ [any]: any }`. Files without the directive are byte-identical to rbxtsc, and a bare `table` is never emitted because Luau's compiler would tag it userdata and the native entry guard would fail on every call
-- [x] **`luauTypes` full Luau type annotations, October 29, 2026. An experimental sloptor extension whose emitted Luau differs from rbxtsc.** Opt-in via `--luauTypes`, `"rbxts": { "luauTypes": true }` in tsconfig.json, or `luauTypes = true` in rotor.toml. The command line overrides tsconfig, and tsconfig overrides rotor.toml. Default off. Toggling it moves the incremental salt, and the manifest of a project that never opts in is byte-identical. When enabled, one shared TS-to-Luau builder annotates every file at full fidelity from the TypeScript types over a typed Luau syntax tree: `internal/transformer/luautypes*.go`, `internal/luau/types.go`, and a renderer that decides parenthesization. Parameters get `a: number`, optional and defaulted `string?`, rest `...: string`, a destructured `_param: { x: number, y: number }`, and `this` as `self`. Returns get `: boolean`, `LuaTuple` packs `(number, string?)`, `()` for void, and `...nil` for a void body with an explicit `return`. A function declares its own generics, `function<T>(value: T): T`. The shadow `local c = c :: number` follows a parameter default and a `??`/`||`/`&&` temp, because neither Luau solver refines through rbxtsc's `if c == nil` chain. `TS.async` locals get the type `(n: number) -> Promise<number>`. Other locals read like hand-written Luau: an initialized local is inferred from its value, and only a local with no initializer or a written type that differs from its initializer's, such as an upcast, gets an annotation. Every top-level interface, type alias, enum and class emits `type` / `export type` at its declaration. That covers merged interfaces once, generic aliases with trailing defaults, `readonly` as `read`, `[A, B]` as `{ A | B }`, `Map`/`Set` as `{ [K]: V }` / `{ [K]: true }`, overloads as `((A) -> B) & ((C) -> D)`, `keyof T` / `T[K]` as `keyof<T>` / `index<T, K>`, and recursion by name when the arguments match. Nested, ambient, imported and library types appear as hoisted aliases named from the local import name, where `Box as Container` gives `type Container<T>`. A collision with a Luau builtin, a Roblox extern type or one of the file's type parameters takes `_2`. Classes become a structural instance alias plus a class table initialized on its declaration line, because rbxtsc's `local Foo` + `do Foo = ... end` types `Foo` as `T?` inside every method. `Foo.new(x: number): Foo` goes through the double cast `(setmetatable({}, Foo) :: any) :: Foo` and `Foo.constructor(self, x) or self`. Methods are dot-form functions with an explicit annotated `self`, since a colon-form `self` is an unrelated inferred table. Inherited and overridden methods keep the `self` of the class that first declared them, which makes `Derived <: Base` hold. Every function re-declares the class generics, and statics take `self: typeof(Foo)`. A string enum becomes `"up" | "down"` plus a `{ read Up: "up", ... }` map, and a numeric enum becomes `number` plus the inverse-indexed table. A generic alias whose body is a mapped, conditional or template literal type becomes a Luau `type function` over the `types` library. `Partial2<T>` copies the table and makes every property optional, `T extends (infer U)[] ? U : T` distributes over a union, and `` `on${K}` `` keys build a new table. Every parameter gets the annotation `T: type`. The built-in helpers used generically go through a hoisted prelude: `__Partial`, `__Required`, `__Readonly`, `__Pick`, `__Omit`, `__Record`, `__Exclude`, `__Extract`, `__NonNullable`, `__ReturnType`, `__Parameters`. Closed uses expand exactly from the resolved type. A body the translator can't express falls back to `any` under a `-- luauTypes:` comment. Number literals widen to `number`, template literals to `string`, and tuples to the element union, and sloptor records every substitution as a fidelity loss that the tests assert. The output targets Luau's new solver, the only place `keyof<>`, `index<>` and type functions exist. `TestLuauTypesFixturesAnalyzeClean` renders every fixture under `internal/transformer/testdata/luautypes` and requires `luau-lsp analyze --flag:LuauSolverV2=true` with the stub definitions to pass each one in strict mode with zero type or syntax errors. `TestLuauTypesClassIdiomProbes` pins the exact error lines of the probes that settled the class, enum and type-function layouts. With the option off every file is byte-identical to before. When both modes are on in a `//!native` file, the native policy annotates the signatures and `luauTypes` annotates the locals, enums and aliases. Design record: `docs/superpowers/specs/2026-10-29-luau-types-design.md`
+- [x] **Watch engine v2.** It prunes the snapshot walks. `os.ReadDir` and `entry.Info()` skip `node_modules`, dot-dirs, and the build-written `out` and `include` trees. v1 called stat on every `node_modules` file every 250 ms. It ignores editor junk: vim swap and backup probes, emacs locks, `.DS_Store`, and `Thumbs.db`. It debounces batch rebuilds with a 50 ms quiet timer and a 500 ms cap, so a "save all" burst becomes one rebuild that reports every file. Baseline snapshots run before each build, which fixes the v1 lost-update bug where a save during a build disappeared without a trace. The poll cadence adapts at 10× the walk cost, clamped between 100 ms and 1 s, where v1 used a fixed 250 ms. This applies to both `build -w` and `check -w`. A smoke test verified it end to end: a 43-file fixture rebuilt one file in 64 ms after a single-file edit.
+- [x] **Watch and command-line logging quality of life.** Batched change lines such as `3 files changed · a.ts, b.ts, +1 more`, a rebuild counter, the last-build duration, and a build-time history sparkline from `term.Spark` on interactive terminals only, all on the idle line.
+- [x] **Security hardening.** An output-path containment guard calls `filepath.IsLocal` on every compiled output's project-relative path before writing. Sidecar cache extraction is tightened to `0o700` and `0o600`. A `vuln` CI job runs pinned `govulncheck@v1.3.0 ./...`, and local validation found zero vulnerabilities.
+- [x] **`$getModuleTree` folder support, June 12, 2026. A sloptor extension and the first deliberate superset of rbxtsc.** Upstream requires the macro's specifier to resolve as a module, so a folder needs `index.ts`, and upstream called folder support too expensive to build. sloptor now resolves folder specifiers directly through `getFolderImportParts` in `internal/transformer/importexpr.go`. It resolves relative specifiers against the importing file's dir, and non-relative specifiers through tsconfig `paths` first, which covers the `baseUrl` rewrite, then relative to the project root in the `"src/shared/systems"` style. Regular imports are unchanged, and only `$getModuleTree` opts in, so everything that compiles under rbxtsc stays byte-identical. The end-to-end fixture `internal/compile/testdata/gmtree_folder_model` pins all three specifier forms. The real-world case that used to break now compiles: `baseUrl` set to `src` with `$getModuleTree("src/shared/systems")` and a folder that holds no `index.ts`. rbxtsc 3.0.0 still turns that case down.
+- [x] **Loop label support, August 6, 2026. A sloptor extension and the second deliberate superset of rbxtsc after `$getModuleTree` folders.** rbxtsc 3.0.0 bans every labeled statement through `noLabeledStatement`. sloptor compiles `outer: for (...) { break outer; continue outer; }`. Luau has neither labels nor `goto`. A plain `break` or `continue` can't satisfy every label, so the rest lower to a `"none" | "break" | "continue"` flag temp, with unwinding checks after each enclosing break boundary. That work lives in `internal/transformer/labeledstatement.go` with `State.LabelChecks` and `LabelResets`. The design follows roblox-ts PR [#2928](https://github.com/roblox-ts/roblox-ts/pull/2928) but fixes five defects in it locally. The depth and index heuristic broke an _unlabeled_ enclosing loop. `switch` was not counted as a break boundary, and sloptor lowers it to `repeat ... until true`, which a bare `break` exits. Labeled non-loop statements emitted a bare `break`. There was no function or `try` barrier, so a check inside a closure would break the wrong loop. Only the first of two labels on one loop got a continue check. sloptor turns these cases down with clear diagnostics instead of wrong output. Labels crossing `try` or `catch` report `noLabeledStatementsWithinTryCatch`, with a message byte-exact with the PR. Unknown labels behind `// @ts-ignore` report `rotorUnknownLabel`. A labeled non-loop statement whose body also holds an unlabeled `break` or `continue` bound to an enclosing loop reports `rotorLabeledStatementFlowControl`. A labeled `continue` targeting a `do` or `while` whose condition needs temporaries reports `rotorLabeledContinueInDoWhile`. Luau forbids `continue` before those locals, and the identical _unlabeled_ gap is an rbxtsc bug that sloptor reproduces for parity. Byte parity holds, because no label program compiles under rbxtsc, so the `testdata/diff` and `testdata/conformance` goldens didn't change. `internal/transformer/labels_test.go` pins this with authored expectations, not rbxtsc-derived ones. The rotor-owned Lune spec `testdata/conformance/rotor/label.spec.ts` adds 21 runtime cases, and the end-to-end fixture `internal/compile/testdata/labels_model` covers the rest.
+- [x] **`--!native` type annotations, October 29, 2026. A sloptor extension, with emitted Luau that differs from rbxtsc.** Opt in through `"rbxts": { "nativeTypes": true }` in tsconfig.json or `nativeTypes = true` in rotor.toml. tsconfig wins when both are set. The default is off, where `//!native` files compile exactly like rbxtsc. When enabled, a file whose leading comments include `//!native` now emits Luau parameter and return annotations taken from the TypeScript types. Those types include `number`, `string`, `vector`, and `Vector3`. Table types appear structurally: `{ T }` for arrays, `{ A | B }` for tuples, `{ [K]: V }` for `Map`, `Record`, and index signatures, `{ [K]: true }` for `Set`, and `{ a: number, b: string? }` for anonymous object types, followed into nested members. Luau's native compiler can then specialize those parameters. A named interface or non-generic object type alias is emitted once as a Luau `type Node<K, V> = { ... }`, with readonly dropped, optional members as `T?`, and self references kept. That alias goes at the declaration when the declaration is a top-level statement of the file. Otherwise it is hoisted next to the header, which covers a namespace-, function-, or block-scoped declaration, or one imported from another module. A merged interface emits one alias at its first declaration, with every merged member. String and boolean literal types mirror as Luau singletons: `there: "there"`, `flag: true`, and `true | false` spelled `boolean`. An enum member and a number literal stay `string` or `number`. A top-level parameter keeps its `"a" | "b"` annotation, which Luau's compiler tags `string`, but a boolean literal there stays unannotated like `boolean`. Function types take the form `(key: K, other: T?) -> V`, and `void` returns `()`. A function's own type parameters are declared, as in `local function f<K, V>(`, and nested positions mirror `boolean` and allowlisted Roblox types by name. Top-level parameters are what Luau tags, so their policy is narrower. `boolean`, Roblox types and `Instance`s, class instances, mixed unions, and a bare generic from an _enclosing_ function stay unannotated. An outer generic would be tagged userdata and break the native entry guard on every call. A form that cannot be written out, such as one deeper than four levels or one with two index signatures, falls back to `{ [any]: any }`. Files without the directive are byte-identical to rbxtsc. sloptor never emits a bare `table`, because Luau's compiler would tag it userdata and the native entry guard would break on every call.
+- [x] **`luauTypes` full Luau type annotations, October 29, 2026. An experimental sloptor extension whose emitted Luau differs from rbxtsc.** Opt in through `--luauTypes`, through `"rbxts": { "luauTypes": true }` in tsconfig.json, or through `luauTypes = true` in rotor.toml. The command line overrides tsconfig, and tsconfig overrides rotor.toml. It's off by default. Toggling it moves the incremental salt. A project that never opts in keeps a byte-identical manifest. When enabled, one shared TS-to-Luau builder annotates every file at full fidelity. It works from the TypeScript types over a typed Luau syntax tree. The builder spans `internal/transformer/luautypes*.go` and `internal/luau/types.go`, with a renderer that decides parenthesization. Parameters get `a: number`, optional and defaulted `string?`, rest `...: string`, a destructured `_param: { x: number, y: number }`, and `this` as `self`. Returns get `: boolean`, `LuaTuple` packs `(number, string?)`, `()` for void, and `...nil` for a void body with an explicit `return`. A function declares its own generics, as in `function<T>(value: T): T`. The shadow `local c = c :: number` follows a parameter default and a `??`/`||`/`&&` temp. Neither Luau solver refines through rbxtsc's `if c == nil` chain. `TS.async` locals get the type `(n: number) -> Promise<number>`. Other locals read like hand-written Luau. A local with an initializer takes its type from the value. A local with no initializer, or with a written type that differs from its initializer's, such as an upcast, gets an annotation instead. Every top-level interface, type alias, enum, and class emits `type` or `export type` at its declaration. That covers merged interfaces once, generic aliases with trailing defaults, `readonly` as `read`, and `[A, B]` as `{ A | B }`. `Map` and `Set` become `{ [K]: V }` and `{ [K]: true }`. Overloads become `((A) -> B) & ((C) -> D)`, `keyof T` and `T[K]` become `keyof<T>` and `index<T, K>`, and recursion resolves by name when the arguments match. Nested, ambient, imported, and library types appear as hoisted aliases named from the local import name, where `Box as Container` gives `type Container<T>`. A collision with a Luau builtin, a Roblox extern type, or one of the file's type parameters takes `_2`. Classes become a structural instance alias plus a class table initialized on its declaration line, because rbxtsc's `local Foo` plus `do Foo = ... end` types `Foo` as `T?` inside every method. `Foo.new(x: number): Foo` goes through the double cast `(setmetatable({}, Foo) :: any) :: Foo` and `Foo.constructor(self, x) or self`. Methods are dot-form functions with an explicit annotated `self`, since a colon-form `self` is an unrelated inferred table. Inherited and overridden methods keep the `self` of the class that first declared them, which makes `Derived <: Base` hold. Every function re-declares the class generics, and statics take `self: typeof(Foo)`. A string enum becomes `"up" | "down"` plus a `{ read Up: "up", ... }` map, and a numeric enum becomes `number` plus the inverse-indexed table. A generic alias whose body is a mapped, conditional, or template literal type becomes a Luau `type function` over the `types` library. `Partial2<T>` copies the table and makes every property optional. `T extends (infer U)[] ? U : T` distributes over a union, and `` `on${K}` `` keys build a new table. Every parameter gets the annotation `T: type`. The built-in helpers used generically go through a hoisted prelude: `__Partial`, `__Required`, `__Readonly`, `__Pick`, `__Omit`, `__Record`, `__Exclude`, `__Extract`, `__NonNullable`, `__ReturnType`, and `__Parameters`. Closed uses expand exactly from the resolved type. A body the translator can't express falls back to `any` under a `-- luauTypes:` comment. Number literals widen to `number`, template literals to `string`, and tuples to the element union. sloptor records every substitution as a fidelity loss that the tests assert. The output targets Luau's new solver, the only place `keyof<>`, `index<>`, and type functions exist. The `TestLuauTypesFixturesAnalyzeClean` test renders every fixture under `internal/transformer/testdata/luautypes`. It requires `luau-lsp analyze --flag:LuauSolverV2=true` with the stub definitions to pass each one in strict mode with zero type or syntax errors. `TestLuauTypesClassIdiomProbes` pins the exact error lines of the probes that settled the class, enum, and type-function layouts. With the option off every file is byte-identical to before. When both modes are on in a `//!native` file, the native policy annotates the signatures, and `luauTypes` annotates the locals, enums, and aliases. Design record: `docs/superpowers/specs/2026-10-29-luau-types-design.md`
 
-**v1.2.1 — transformer/render/resolution fixes (June 12, 2026):**
+**v1.2.1, transformer, render, and resolution fixes, June 12, 2026:**
 
-- [x] **Void expressions** — port `transformVoidExpression`: the operand is transformed in statement form (prereq'd for its side effects) and the expression evaluates to `nil`; byte-identical to rbxtsc v3.0.0 in both statement position (`void f()` → `f()` plus the discarded temp) and value position (`const x = void f()` → prereq `f()`, `local x = nil`)
-- [x] **Empty-return render** — `return $tuple()` lowers to a `ReturnStatement` with an empty expression list; render it byte-exactly like upstream luau-ast (`return` with trailing space) instead of treating it as an invariant violation and panicking with an internal compiler error. Other `renderExprOrList` callers (assignments, declarations) keep the invariant
-- [x] **Symlink-cache resolution fix (tsgo)** — stop fabricating symlink cache entries for packages that resolved without a symlink (any plain npm/bun install). The bogus entries rebased every import of the affected package onto a nonexistent project-root path, surfacing as intermittent, map-iteration-order-dependent `noRojoData` failures; now matches the strada guard on `resolution.originalPath` truthiness
+- [x] **Void expressions.** Port `transformVoidExpression`: the transform runs the operand in statement form, prereq'd for its side effects, and the expression evaluates to `nil`. The output is byte-identical to rbxtsc v3.0.0 in statement position, where `void f()` becomes `f()` plus the discarded temp, and in value position, where `const x = void f()` becomes the prereq `f()` and `local x = nil`.
+- [x] **Empty-return render.** `return $tuple()` lowers to a `ReturnStatement` with an empty expression list. The renderer now writes it byte-exactly like upstream luau-ast, as `return` with a trailing space, instead of treating it as an invariant violation and panicking with an internal compiler error. Other `renderExprOrList` callers, in assignments and declarations, keep the invariant.
+- [x] **Symlink-cache resolution fix in tsgo.** sloptor no longer invents fake entries in the symlink cache for packages that resolved without a symlink, which covers any plain npm or bun install. Those bogus entries rebased every import of the affected package onto a nonexistent project-root path. That produced intermittent `noRojoData` errors that depended on map iteration order. The code now matches the strada guard on `resolution.originalPath` truthiness.
 
 **Remaining:**
 
-- ~~Keep one warm Node sidecar session across `build -w` rebuilds instead of respawning per polling cycle~~ — landed June 10, 2026 (transformer-plugin hardening; see Phase 4 sidecar entry)
-- Retire the package-level `TransformStatement` func var now that the transform surface is feature-complete
-- Fold the remaining root-only `extends`-chain validation/sanitizer limitation into the project-options pipeline
-- Warm sidecar `.d.ts` staleness: stamp-diffed `changedFiles` cover the `.ts`/`.tsx` compile surface; an edited ambient `.d.ts` is invisible to _plugins_ (not to sloptor) until the watch session restarts
+- ~~Keep one warm Node sidecar session across `build -w` rebuilds instead of respawning per polling cycle~~, done June 10, 2026 as part of the transformer-plugin hardening. See the Phase 4 sidecar entry.
+- Retire the package-level `TransformStatement` func var now that the transform handles the full language.
+- Fold the remaining root-only `extends`-chain validation and sanitizer limitation into the project-options pipeline.
+- Warm sidecar `.d.ts` staleness. Stamp-diffed `changedFiles` cover the `.ts` and `.tsx` compile set. An edited ambient `.d.ts` is invisible to _plugins_, though not to sloptor, until the watch session restarts.
 
 ---

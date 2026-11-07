@@ -5,7 +5,7 @@ description: "Install sloptor from npm, a toolchain manager, a release archive, 
 
 import PackageManagerTabs from "$components/package-manager-tabs.astro";
 
-sloptor ships as one native binary for macOS on ARM64, Linux on x64 and ARM64, and Windows on x64. Pick whichever way your project already installs tools.
+sloptor is one native binary for macOS on ARM64, Linux on x64 and ARM64, and Windows on x64. Pick whichever way your project already installs tools.
 
 ## From npm
 
@@ -13,15 +13,15 @@ For rbxts projects that already live in the JavaScript ecosystem, add [`@rotor-r
 
 <PackageManagerTabs />
 
-Then run it through your package manager. The npm package names its binary `rotor`; release archives and toolchain managers name it `sloptor`. They are the same program, and the rest of these docs write `sloptor`.
+Then run it through your package manager. The npm package calls the binary `rotor`, while release archives and toolchain managers call it `sloptor`. They're the same program, and the rest of these docs write `sloptor`.
 
 <PackageManagerTabs preset="run" />
 
-Optional dependencies must stay enabled. A lockfile or install created with `--no-optional` gives an actionable missing-package error; reinstall without that flag, or install the error's `@rotor-rbx/rotor-<platform>-<architecture>` package at exactly the same version as `@rotor-rbx/rotor`.
+Optional dependencies must stay enabled. A lockfile or install created with `--no-optional` gives an actionable missing-package error. Reinstall without that flag, or install the error's `@rotor-rbx/rotor-<platform>-<architecture>` package at exactly the same version as `@rotor-rbx/rotor`.
 
 Coming from the old download-based package? Remove any `trustedDependencies` entry or pnpm build-script approval that was only there for sloptor, then reinstall normally. The `@rotor-rbx/rotor/scripts/install.js` subpath still resolves the installed binary, but it no longer downloads anything.
 
-### The JavaScript client
+### Client API
 
 The package also exports an asynchronous client for tools that drive builds:
 
@@ -69,4 +69,4 @@ The executable is `target/release/sloptor`.
 
 ## Check the project
 
-Run `sloptor check` for TypeScript diagnostics and `sloptor build` to validate the compiler's Rojo import layout. Native builds do not require Node.js; external transformer plugins require Node.js and the project's own `typescript` package.
+Run `sloptor check` for TypeScript diagnostics and `sloptor build` to validate the compiler's Rojo import layout. Native builds run without Node.js. Only external transformer plugins need it, along with the project's own `typescript` package.

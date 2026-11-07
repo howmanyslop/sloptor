@@ -1,43 +1,130 @@
-// oxlint-disable small-rules/prevent-abbreviations -- the shorthand table names them.
-
+// oxlint-disable small-rules/prevent-abbreviations -- not here, lol.
 import nodePath from "node:path";
-import { fileURLToPath } from "node:url";
 import { GLOB_DTS, GLOB_SRC, GLOB_SRC_EXT, GLOB_TESTS } from "@isentinel/eslint-config";
 import { isentinel } from "@isentinel/eslint-config/oxlint";
+import { ALL_REACT_DOCTOR_RULES } from "oxlint-plugin-react-doctor";
 
 import { baseIgnores, projectType } from "./constants.ts";
-import { getOxfmtConfigurationAsync } from "./get-oxfmt-configuration-async.ts";
 
-import type { OxlintConfig, OxlintRules } from "@isentinel/eslint-config/oxlint";
+import type { OxlintConfig, OxlintFactoryOptions } from "@isentinel/eslint-config/oxlint";
 
 const CONFIGURATION_FILES = `**/*.config.${GLOB_SRC_EXT}`;
 const SCRIPT_FILES = `scripts/${GLOB_SRC}`;
-// Resolved here: this package depends on it, the root does not.
-const REGEXP_PLUGIN = {
-	name: "regexp-js",
-	specifier: fileURLToPath(import.meta.resolve("eslint-plugin-regexp")),
-};
+const REACT_DOCTOR_PLUGIN = { name: "react-doctor", specifier: "oxlint-plugin-react-doctor" };
+
+const MANUAL_BANNED = "Manual React memoization is banned. Let React Compiler derive it.";
+
+const REACT_COMPILER_RESTRICTED_SYNTAX = [
+	{
+		message: MANUAL_BANNED,
+		selector: "ImportDeclaration[source.value='react'] > ImportSpecifier[imported.name='memo']",
+	},
+	{
+		message: MANUAL_BANNED,
+		selector: "ImportDeclaration[source.value='react'] > ImportSpecifier[imported.name='useCallback']",
+	},
+	{
+		message: MANUAL_BANNED,
+		selector: "ImportDeclaration[source.value='react'] > ImportSpecifier[imported.name='useMemo']",
+	},
+	{
+		message: MANUAL_BANNED,
+		selector: "CallExpression[callee.object.name='React'][callee.property.name='memo']",
+	},
+	{
+		message: MANUAL_BANNED,
+		selector: "CallExpression[callee.object.name='React'][callee.property.name='useCallback']",
+	},
+	{
+		message: MANUAL_BANNED,
+		selector: "CallExpression[callee.object.name='React'][callee.property.name='useMemo']",
+	},
+	{
+		message: "Function defaults are not stabilized by React Compiler. Hoist the function instead.",
+		selector:
+			":matches(FunctionDeclaration, FunctionExpression)[id.name=/^(?:[A-Z]|use[A-Z])/] > ObjectPattern.params > Property > AssignmentPattern > :matches(ArrowFunctionExpression, FunctionExpression).right",
+	},
+	{
+		message: "Function defaults are not stabilized by React Compiler. Hoist the function instead.",
+		selector:
+			"VariableDeclarator[id.name=/^(?:[A-Z]|use[A-Z])/] > :matches(ArrowFunctionExpression, FunctionExpression).init > ObjectPattern.params > Property > AssignmentPattern > :matches(ArrowFunctionExpression, FunctionExpression).right",
+	},
+] as const;
+
+const REACT_EFFECT_RESTRICTED_SYNTAX = [
+	{
+		message: "useEffect is banned. Use the `no-use-effect` skill for more information.",
+		selector: "CallExpression[callee.name='useEffect']",
+	},
+	{
+		message: "useLayoutEffect is banned. Use the `no-use-effect` skill for more information.",
+		selector: "CallExpression[callee.name='useLayoutEffect']",
+	},
+] as const;
+
+// Rule families for libraries no workspace uses. Every enabled JS plugin rule
+// costs time on every file, whether or not the library is imported.
+const UNUSED_REACT_DOCTOR_FAMILIES = [
+	"expo-",
+	"ink-",
+	"jotai-",
+	"mobx-",
+	"motion-",
+	"nextjs-",
+	"preact-",
+	"r3f-",
+	"radix-",
+	"react-router-",
+	"redux-",
+	"remotion-",
+	"rn-",
+	"styled-components-",
+	"three-",
+	"valtio-",
+	"zod-",
+	"zustand-",
+];
+
+const reactDoctorRules = Object.fromEntries(
+	Object.entries(ALL_REACT_DOCTOR_RULES).map(([key, value]) => {
+		const name = key.slice("react-doctor/".length);
+		if (UNUSED_REACT_DOCTOR_FAMILIES.some((family) => name.startsWith(family)) || name.startsWith("jsx-no-new-")) {
+			return [key, "off" as const];
+		}
+
+		return [key, value];
+	}),
+);
+
+type NoRestrictedSyntax = NonNullable<NonNullable<OxlintFactoryOptions["rules"]>["eslint-js/no-restricted-syntax"]>;
 
 interface ConfigurationOptions {
 	readonly argv?: ReadonlyArray<string> | undefined;
+	readonly banUseEffect?: boolean | undefined;
+	readonly rootDirectory: string;
 	readonly tsconfigPath: string;
 }
 
-const reactTestRules: OxlintRules = {
-	"react-perf/jsx-no-new-array-as-prop": "off",
-	"react-perf/jsx-no-new-function-as-prop": "off",
-	"react-perf/jsx-no-new-object-as-prop": "off",
-	"react/no-multi-comp": "off",
-	"react/no-unknown-property": "off",
-	"react/only-export-components": "off",
-};
+export async function getOxlintAsync({
+	argv,
+	banUseEffect = true,
+	rootDirectory,
+	tsconfigPath,
+}: ConfigurationOptions): Promise<OxlintConfig> {
+	const oxfmtOptions = await import("@rotor-rbx/linter-utilities/configuration").then(
+		async ({ getOxfmtConfigurationAsync }) => getOxfmtConfigurationAsync(),
+	);
 
-export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOptions): Promise<OxlintConfig> {
-	const oxfmtOptions = await getOxfmtConfigurationAsync();
+	const noRestrictedSyntax: NoRestrictedSyntax = ["error", ...REACT_COMPILER_RESTRICTED_SYNTAX];
+	if (banUseEffect) {
+		for (const effectSyntax of REACT_EFFECT_RESTRICTED_SYNTAX) {
+			noRestrictedSyntax.push(effectSyntax);
+		}
+	}
 
 	return isentinel(
 		{
-			name: "rotor",
+			name: "sloptor",
 			categories: {
 				correctness: "error",
 				nursery: "error",
@@ -59,6 +146,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				typeAware: true,
 				typeCheck: argv === undefined ? true : !argv.includes("--lsp"),
 			},
+			oxc: true,
 			react: {
 				reactCompiler: true,
 				version: "19.3.1",
@@ -95,7 +183,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 					},
 				],
 				complexity: ["error", { max: 20 }],
-				curly: ["error", "multi-line"],
+				curly: "off",
 				"default-case": "off",
 				// this is literally not true -- it just worsens performance!
 				"e18e/prefer-static-collator": "off",
@@ -157,14 +245,8 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						],
 					},
 				],
-				"jsdoc/check-tag-names": [
-					"error",
-					{
-						definedTags: ["expected-unused", "rejects"],
-						jsxTags: false,
-						typed: false,
-					},
-				],
+				"jsdoc/check-tag-names": ["error", { definedTags: ["rejects"] }],
+				"jsdoc/require-param": "off",
 				"jsdoc/require-param-type": "off",
 				"jsdoc/require-property-type": "off",
 				"jsdoc/require-returns-type": "off",
@@ -181,6 +263,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"no-magic-numbers": "off",
 				"no-nested-ternary": "off",
 				"no-plusplus": "off",
+				"no-restricted-syntax": noRestrictedSyntax,
 				"no-ternary": "off",
 				"no-undefined": "off",
 				"no-underscore-dangle": "off",
@@ -212,19 +295,13 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						ignoreFilesWithoutCode: true,
 					},
 				],
-				"react/jsx-max-depth": ["error", { max: 4 }],
+				"react/jsx-max-depth": ["error", { max: 3 }],
 				"react/react-in-jsx-scope": "off",
 				"small-rules/array-type-generic": "error",
 				"small-rules/ban-instances": "off",
 				"small-rules/ban-react-fc": "error",
-				"small-rules/ban-types": [
-					"off",
-					{
-						bannedTypes: {
-							Omit: "Except",
-						},
-					},
-				],
+				// Biome's native noRestrictedTypes covers this and is far faster.
+				"small-rules/ban-types": "off",
 				"small-rules/consistent-compound-words": [
 					"error",
 					{
@@ -236,6 +313,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						replacements: {},
 					},
 				],
+				"small-rules/curly": "error",
 				"small-rules/directive-disable-enable-pair": "error",
 				"small-rules/directive-no-aggregating-enable": "error",
 				"small-rules/directive-no-duplicate-disable": "error",
@@ -259,8 +337,8 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						selectors: [],
 					},
 				],
-				"small-rules/memoized-effect-dependencies": "error",
-				"small-rules/no-adjust-state-on-prop-change": "error",
+				"small-rules/memoized-effect-dependencies": ["error", { environment: "standard" }],
+				"small-rules/no-adjust-state-on-prop-change": ["error", { environment: "standard" }],
 				"small-rules/no-array-constructor-elements": [
 					"error",
 					{
@@ -272,8 +350,9 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-array-size-assignment": ["error", { allowAutofix: false }],
 				"small-rules/no-async-in-system": "off",
 				"small-rules/no-cascading-set-state": "error",
-				"small-rules/no-chain-state-updates": "error",
+				"small-rules/no-chain-state-updates": ["error", { environment: "standard" }],
 				"small-rules/no-chained-type-assertions": "error",
+				"small-rules/no-cliffy-action-wrapper": "error",
 				"small-rules/no-color3-constructor": "off",
 				"small-rules/no-conditional-empty-object-spread": "error",
 				"small-rules/no-constant-condition-with-break": [
@@ -283,7 +362,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 					},
 				],
 				"small-rules/no-dead-store": "error",
-				"small-rules/no-derived-state": "error",
+				"small-rules/no-derived-state": ["error", { environment: "standard" }],
 				"small-rules/no-discarded-rejection": "warn",
 				"small-rules/no-error": "off",
 				"small-rules/no-event-handler": ["error", { environment: "standard" }],
@@ -300,11 +379,22 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-increment-decrement": ["error", { allowAutofix: true }],
 				"small-rules/no-initialize-state": ["error", { environment: "standard" }],
 				"small-rules/no-inline-property-on-memo-component": "error",
+				"small-rules/no-inline-signature-types": [
+					"error",
+					{
+						functions: "all",
+						position: "anywhere",
+						returnTypes: true,
+					},
+				],
 				"small-rules/no-instance-methods-without-this": "off",
+				"small-rules/no-jsx-spread-child": "error",
 				"small-rules/no-known-value-widening": "error",
 				"small-rules/no-module-mocking": "error",
+				"small-rules/no-multiple-cliffy-commands": "error",
 				"small-rules/no-native-properties-spread": "off",
-				"small-rules/no-new-instance-in-use-memo": "off",
+				"small-rules/no-nested-hook-calls": "error",
+				"small-rules/no-new-instance-in-use-memo": "error",
 				"small-rules/no-object-parameters": "error",
 				"small-rules/no-pass-data-to-parent": ["error", { environment: "standard" }],
 				"small-rules/no-pass-live-state-to-parent": ["error", { environment: "standard" }],
@@ -316,6 +406,7 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-render-helper-functions": "error",
 				"small-rules/no-reset-all-state-on-prop-change": ["error", { environment: "standard" }],
 				"small-rules/no-restricted-property-assignment": "error",
+				"small-rules/no-runtime-in-type-files": "error",
 				"small-rules/no-runtime-typeof": ["error", { allowInTypeGuards: true }],
 				"small-rules/no-shape-in-symbol-names": "error",
 				"small-rules/no-spec-file-extension": "error",
@@ -329,11 +420,16 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/no-unknown-type-aliases": "error",
 				"small-rules/no-unsafe-dictionary-type": "error",
 				"small-rules/no-unused-imports": "error",
-				"small-rules/no-unused-use-memo": "error",
+				"small-rules/no-unused-use-memo": ["error", { environment: "standard" }],
 				"small-rules/no-use-memo-simple-expression": "error",
 				"small-rules/no-useless-constants": "error",
-				"small-rules/no-useless-default": "off",
-				"small-rules/no-useless-empty-string-comparison": "error",
+				"small-rules/no-useless-default": "error",
+				"small-rules/no-useless-empty-string-comparison": [
+					"error",
+					{
+						allowAutofix: true,
+					},
+				],
 				"small-rules/no-useless-use-effect": ["error", { environment: "standard" }],
 				"small-rules/no-useless-use-memo": ["error", { environment: "standard" }],
 				"small-rules/no-useless-use-spring": "off",
@@ -346,7 +442,12 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/prefer-direct-hook-imports": ["error", { environment: "standard" }],
 				"small-rules/prefer-early-return": "error",
 				"small-rules/prefer-expect-assertions": "off",
-				"small-rules/prefer-hoisted-jsx-elements": "off",
+				"small-rules/prefer-hoisted-jsx-elements": [
+					"off",
+					{
+						environment: "standard",
+					},
+				],
 				"small-rules/prefer-hoisted-jsx-object-properties": "off",
 				"small-rules/prefer-idiv": "off",
 				"small-rules/prefer-local-portal-component": "off",
@@ -355,13 +456,14 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/prefer-modding-inspect": "off",
 				"small-rules/prefer-module-scope-constants": "off",
 				"small-rules/prefer-native-collection-copy": "off",
+				"small-rules/prefer-optional-parameter": "error",
 				"small-rules/prefer-padding-components": "off",
 				"small-rules/prefer-pascal-case-enums": "error",
 				"small-rules/prefer-sequence-overloads": "off",
 				"small-rules/prefer-single-world-query-in-jecs": "off",
 				"small-rules/prefer-ternary-conditional-rendering": "error",
 				"small-rules/prefer-udim2-shorthand": "off",
-				"small-rules/prefer-use-reducer": "off",
+				"small-rules/prefer-use-reducer": "error",
 				"small-rules/prevent-abbreviations": [
 					"error",
 					{
@@ -392,10 +494,22 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"small-rules/react-hooks-strict-return": "error",
 				"small-rules/require-async-suffix": "error",
 				"small-rules/require-module-level-instantiation": "off",
-				"small-rules/require-named-effect-functions": "off",
+				"small-rules/require-named-effect-functions": "error",
 				"small-rules/require-paired-calls": "error",
 				"small-rules/require-react-component-keys": "off",
 				"small-rules/require-react-display-names": ["error", { environment: "standard" }],
+				"small-rules/require-readable-spacing": [
+					"error",
+					{
+						allowAttachedUses: true,
+						allowGuardClauseRuns: true,
+						allowMultilineBindingRuns: true,
+						overrides: [
+							{ blankLine: "any", next: "return", previous: "expression" },
+							{ blankLine: "any", next: "binding", previous: "enum", usesPrevious: true },
+						],
+					},
+				],
 				"small-rules/require-safety-comment-for-type-assertion": "error",
 				"small-rules/require-switch-case-braces": [
 					"error",
@@ -409,12 +523,14 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						allow: [{ name: "ValidationError", from: "package", package: "@cliffy/command" }],
 					},
 				],
+				"small-rules/require-tsx-for-hooks": "error",
 				"small-rules/require-unicode-regex": "error",
 				"small-rules/rerender-memo-with-default-value": "error",
 				"small-rules/starts-with-verb": [
 					"error",
 					{
-						allowList: ["increment", "decrement"],
+						allowList: [],
+						denyList: [],
 					},
 				],
 				"small-rules/strict-component-boundaries": ["error", { allow: [] }],
@@ -482,13 +598,8 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"vue/no-dupe-keys": "off",
 			},
 			settings: {
-				jsdoc: {
-					tagNamePreference: {
-						"expected-unused": "expected-unused",
-					},
-				},
-				react: { version: "19.3.1" },
-				"small-rules": { tsgolintVersion: "7.0.2004" },
+				react: { version: "19.2.8" },
+				"small-rules": { tsgolintVersion: "7.0.2002" },
 				vitest: { typecheck: true },
 			},
 			spellCheck: false,
@@ -507,14 +618,14 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 			},
 		},
 		{
-			name: "rotor/disable-slop-rules",
+			name: "sloptor/disable-slop-rules",
 			files: [GLOB_SRC],
 			rules: {
 				"jsdoc/require-param": "off",
 			},
 		},
 		{
-			name: "rotor/native-id-length",
+			name: "sloptor/use-native-rules",
 			files: [GLOB_SRC],
 			rules: {
 				"eslint-js/id-length": "off",
@@ -526,19 +637,68 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 						max: 45,
 					},
 				],
+				"jsdoc/require-param": "off",
 			},
 		},
 		{
-			name: "rotor/documentation",
+			name: "sloptor/astro-env",
+			env: {
+				astro: true,
+				browser: true,
+			},
+			files: [`documentation/src/${GLOB_SRC}`],
+		},
+		{
+			name: "sloptor/react-doctor",
+			files: [`documentation/${GLOB_SRC}`],
+			jsPlugins: [REACT_DOCTOR_PLUGIN],
+			rules: {
+				...reactDoctorRules,
+				// STOP DUPLICATING NATIVE RULES!!!
+				"react-doctor/exhaustive-deps": "off",
+				"react-doctor/forbid-component-props": "off",
+				"react-doctor/jsx-boolean-value": "off",
+				"react-doctor/jsx-curly-brace-presence": "off",
+				"react-doctor/jsx-max-depth": "off",
+				"react-doctor/jsx-no-new-array-as-prop": "off",
+				"react-doctor/jsx-no-new-function-as-prop": "off",
+				"react-doctor/jsx-no-new-object-as-prop": "off",
+				"react-doctor/jsx-props-no-spreading": "off",
+				"react-doctor/no-danger": "off",
+				"react-doctor/no-multi-comp": "off",
+				"react-doctor/no-unknown-property": "off",
+				"react-doctor/only-export-components": "off",
+				// not enabled because Astro
+				"react-doctor/prefer-dynamic-import": "off",
+				"react-doctor/react-in-jsx-scope": "off",
+			},
+			settings: {
+				"react-doctor": { rootDirectory },
+			},
+		},
+		{
+			name: "sloptor/documentation",
 			env: {
 				astro: true,
 				browser: true,
 				node: true,
 			},
-			files: ["documentation/**/*"],
+			files: ["documentation"],
 		},
 		{
-			name: "rotor/vitest",
+			name: "sloptor/astro-files",
+			files: ["documentation/src/**/*.astro"],
+			rules: {
+				"import/unambiguous": "off",
+				"small-rules/no-unused-imports": "off",
+				"small-rules/prevent-abbreviations": "off",
+				"sonar/unused-import": "off",
+				"unicorn/prefer-module": "off",
+				"unused-imports/no-unused-imports": "off",
+			},
+		},
+		{
+			name: "sloptor/vitest",
 			files: GLOB_TESTS.filter((glob) => !glob.includes(".bench.")),
 			plugins: ["vitest"],
 			rules: {
@@ -547,8 +707,15 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"max-lines": "off",
 				"max-lines-per-function": "off",
 				"no-console": "error",
+				"no-non-null-assertion": "off",
 				"small-rules/no-filter-map-chain": "off",
-				"small-rules/prefer-expect-assertions": "error",
+				"small-rules/prefer-expect-assertions": [
+					"error",
+					{
+						additionalAssertionFunctions: ["expectRecord", "expectArray", "expectPresent"],
+						additionalExpectCallNames: ["expectRecord", "expectArray", "expectPresent"],
+					},
+				],
 				"small-rules/prevent-abbreviations": "off",
 				"typescript/no-non-null-assertion": "off",
 				"unicorn-js/no-incorrect-template-string-interpolation": "off",
@@ -602,63 +769,57 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 			},
 		},
 		{
-			name: "rotor/allow-top-level-await",
-			files: ["documentation/**/*.astro", SCRIPT_FILES, CONFIGURATION_FILES],
-			rules: { "node/no-top-level-await": "off" },
-		},
-		{
-			name: "rotor/astro",
-			files: ["documentation/**/*.astro"],
+			name: "sloptor/unit-tests",
+			excludeFiles: ["**/*.integration.test.{ts,tsx}"],
+			files: GLOB_TESTS.filter((glob) => !glob.includes(".bench.")),
 			rules: {
-				"import/unambiguous": "off",
-				"small-rules/no-unused-imports": "off",
-				"small-rules/prevent-abbreviations": "off",
-				"sonar/unused-import": "off",
-				"unused-imports/no-unused-imports": "off",
+				"small-rules/no-real-temporary-directory": "error",
+				"small-rules/no-test-timeout": "error",
 			},
 		},
 		{
-			name: "rotor/allow-console",
+			name: "sloptor/allow-top-level-await",
 			files: [SCRIPT_FILES, CONFIGURATION_FILES],
-			rules: { "no-console": "off" },
-		},
-		{
-			name: "rotor/these-are-fine",
-			files: [CONFIGURATION_FILES],
 			rules: {
-				"small-rules/no-unsafe-dictionary-type": "off",
+				"antfu/no-top-level-await": "off",
+				"node/no-top-level-await": "off",
 			},
 		},
 		{
-			name: "rotor/allow-default-export",
+			name: "sloptor/not-browser",
+			files: [SCRIPT_FILES, CONFIGURATION_FILES],
+			rules: {
+				"import/no-nodejs-modules": "off",
+				"no-console": "off",
+			},
+		},
+		{
+			name: "sloptor/configuration-files",
 			files: [CONFIGURATION_FILES],
-			rules: { "import/no-default-export": "off" },
+			rules: { "small-rules/prevent-abbreviations": "off" },
 		},
 		{
-			name: "rotor/allow-null",
-			files: [
-				"vitest*.config.ts",
-				...GLOB_TESTS.filter((glob) => !glob.includes(".bench.")),
-				"**/*.tsx",
-			] satisfies ReadonlyArray<string>,
-			rules: { "unicorn/no-null": "off" },
-		},
-		{
-			name: "rotor/documentation-react-tests",
-			files: ["documentation/tests/**/*.test.tsx"],
-			rules: reactTestRules,
-		},
-		{
-			name: "rotor/allow-unambiguous-import",
-			files: [GLOB_DTS],
-			rules: { "import/unambiguous": "off" },
-		},
-		{
-			name: "rotor/react",
-			files: ["documentation/src/**/*.{ts,tsx}"],
+			name: "sloptor/react",
+			files: [`documentation/${GLOB_SRC}`],
 			plugins: ["react", "react-perf", "jsx-a11y"],
 			rules: {
+				"react-perf/jsx-no-new-array-as-prop": "off",
 				"react-perf/jsx-no-new-function-as-prop": "off",
+				"react-perf/jsx-no-new-object-as-prop": "off",
+				"react-x/exhaustive-deps": "off",
+				"react/forbid-component-props": [
+					"off",
+					{
+						forbid: [
+							{
+								allowedForPatterns: ["^Select"],
+								disallowedFor: [],
+								propName: "className",
+							},
+							"style",
+						],
+					},
+				],
 				"react/jsx-curly-brace-presence": [
 					"error",
 					{
@@ -668,41 +829,14 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 				"react/jsx-filename-extension": [
 					"error",
 					{
-						extensions: ["jsx", "tsx"],
+						extensions: ["tsx"],
 						ignoreFilesWithoutCode: true,
 					},
 				],
-				"react/jsx-max-depth": ["error", { max: 3 }],
+				"react/react-in-jsx-scope": "off",
 				"small-rules/ban-react-fc": "error",
 				"small-rules/memoized-effect-dependencies": ["error", { environment: "standard" }],
-				"small-rules/no-adjust-state-on-prop-change": ["error", { environment: "standard" }],
-				"small-rules/no-cascading-set-state": "error",
-				"small-rules/no-chain-state-updates": ["error", { environment: "standard" }],
-				"small-rules/no-derived-state": ["error", { environment: "standard" }],
-				"small-rules/no-event-handler": ["error", { environment: "standard" }],
-				"small-rules/no-external-store-subscription": ["error", { environment: "standard" }],
-				"small-rules/no-giant-component": "error",
-				"small-rules/no-god-components": "off",
-				"small-rules/no-initialize-state": ["error", { environment: "standard" }],
-				"small-rules/no-inline-property-on-memo-component": "error",
-				"small-rules/no-pass-data-to-parent": ["error", { environment: "standard" }],
-				"small-rules/no-pass-live-state-to-parent": ["error", { environment: "standard" }],
-				"small-rules/no-render-helper-functions": "error",
-				"small-rules/no-reset-all-state-on-prop-change": ["error", { environment: "standard" }],
 				"small-rules/no-static-react-create-element": ["error", { environment: "standard" }],
-				"small-rules/no-underscore-react-props": "error",
-				"small-rules/no-unused-use-memo": [
-					"error",
-					{
-						environment: "standard",
-					},
-				],
-				"small-rules/no-use-memo-simple-expression": "error",
-				"small-rules/no-useless-default": "error",
-				"small-rules/no-useless-use-effect": ["error", { environment: "standard" }],
-				"small-rules/no-useless-use-memo": ["error", { environment: "standard" }],
-				"small-rules/prefer-constant-dispatch": "error",
-				"small-rules/prefer-direct-hook-imports": ["error", { environment: "standard" }],
 				"small-rules/prefer-hoisted-jsx-elements": [
 					"off",
 					{
@@ -712,8 +846,6 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 					},
 				],
 				"small-rules/prefer-hoisted-jsx-object-properties": "off",
-				"small-rules/prefer-use-reducer": "error",
-				"small-rules/react-hooks-strict-return": "error",
 				"small-rules/require-named-effect-functions": [
 					"error",
 					{
@@ -722,88 +854,27 @@ export async function getOxlintAsync({ argv, tsconfigPath }: ConfigurationOption
 							{ name: "useEffect", allowAsync: false },
 							{ name: "useLayoutEffect", allowAsync: false },
 							{ name: "useInsertionEffect", allowAsync: false },
+							{ name: "useMountEffect", allowAsync: false },
 						],
 					},
 				],
 				"small-rules/require-react-display-names": ["error", { environment: "standard" }],
-				"small-rules/rerender-memo-with-default-value": "error",
-				"small-rules/use-exhaustive-dependencies": "error",
-				"small-rules/use-hook-at-top-level": "error",
 			},
 		},
 		{
-			name: "rotor/regexp",
-			files: [GLOB_SRC],
-			jsPlugins: [REGEXP_PLUGIN],
-			rules: {
-				"regexp-js/confusing-quantifier": "warn",
-				"regexp-js/control-character-escape": "error",
-				"regexp-js/match-any": "error",
-				"regexp-js/negation": "error",
-				"regexp-js/no-contradiction-with-assertion": "error",
-				"regexp-js/no-dupe-characters-character-class": "error",
-				"regexp-js/no-dupe-disjunctions": "error",
-				"regexp-js/no-empty-alternative": "warn",
-				"regexp-js/no-empty-capturing-group": "error",
-				"regexp-js/no-empty-character-class": "error",
-				"regexp-js/no-empty-group": "error",
-				"regexp-js/no-empty-lookarounds-assertion": "error",
-				"regexp-js/no-empty-string-literal": "error",
-				"regexp-js/no-escape-backspace": "error",
-				"regexp-js/no-extra-lookaround-assertions": "error",
-				"regexp-js/no-invalid-regexp": "error",
-				"regexp-js/no-invisible-character": "error",
-				"regexp-js/no-lazy-ends": "warn",
-				"regexp-js/no-legacy-features": "error",
-				"regexp-js/no-misleading-capturing-group": "error",
-				"regexp-js/no-misleading-unicode-character": "error",
-				"regexp-js/no-missing-g-flag": "error",
-				"regexp-js/no-non-standard-flag": "error",
-				"regexp-js/no-obscure-range": "error",
-				"regexp-js/no-optional-assertion": "error",
-				"regexp-js/no-potentially-useless-backreference": "warn",
-				"regexp-js/no-super-linear-backtracking": "error",
-				"regexp-js/no-trivially-nested-assertion": "error",
-				"regexp-js/no-trivially-nested-quantifier": "error",
-				"regexp-js/no-unused-capturing-group": "error",
-				"regexp-js/no-useless-assertions": "error",
-				"regexp-js/no-useless-backreference": "error",
-				"regexp-js/no-useless-character-class": "error",
-				"regexp-js/no-useless-dollar-replacements": "error",
-				"regexp-js/no-useless-escape": "error",
-				"regexp-js/no-useless-flag": "warn",
-				"regexp-js/no-useless-lazy": "error",
-				"regexp-js/no-useless-non-capturing-group": "error",
-				"regexp-js/no-useless-quantifier": "error",
-				"regexp-js/no-useless-range": "error",
-				"regexp-js/no-useless-set-operand": "error",
-				"regexp-js/no-useless-string-literal": "error",
-				"regexp-js/no-useless-two-nums-quantifier": "error",
-				"regexp-js/no-zero-quantifier": "error",
-				"regexp-js/optimal-lookaround-quantifier": "warn",
-				"regexp-js/optimal-quantifier-concatenation": "error",
-				"regexp-js/prefer-character-class": "error",
-				"regexp-js/prefer-d": "error",
-				"regexp-js/prefer-plus-quantifier": "error",
-				"regexp-js/prefer-predefined-assertion": "error",
-				"regexp-js/prefer-question-quantifier": "error",
-				"regexp-js/prefer-range": "error",
-				"regexp-js/prefer-set-operation": "error",
-				"regexp-js/prefer-star-quantifier": "error",
-				"regexp-js/prefer-unicode-codepoint-escapes": "error",
-				"regexp-js/prefer-w": "error",
-				"regexp-js/simplify-set-operations": "error",
-				"regexp-js/sort-flags": "error",
-				"regexp-js/strict": "error",
-				"regexp-js/use-ignore-case": "error",
-			},
+			name: "sloptor/allow-null",
+			files: [...GLOB_TESTS.filter((glob) => !glob.includes(".bench.")), "**/*.tsx"],
+			rules: { "unicorn/no-null": "off" },
 		},
 		{
-			name: "rotor/slop-rule",
+			name: "sloptor/import-slop",
+			files: [GLOB_DTS],
+			rules: { "import/unambiguous": "off" },
+		},
+		{
+			name: "sloptor/block-useless-rule",
 			files: ["documentation/src/integrations/contextual-menu.ts"],
-			rules: {
-				"sonar/file-name-differ-from-class": "off",
-			},
+			rules: { "sonar/file-name-differ-from-class": "off" },
 		},
 	);
 }

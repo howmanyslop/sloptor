@@ -1,0 +1,29 @@
+{
+	"globIgnorePaths": ["**/package.json", "**/tsconfig.json"],
+	"name": "obby",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"TS": { "$path": "out/shared" },
+			"rbxts_include": {
+				"$path": "include",
+				"node_modules": {
+					"$className": "Folder",
+					"@rbxts": { "$path": "node_modules/@rbxts" }
+				}
+			}
+		},
+		"ServerScriptService": {
+			"$className": "ServerScriptService",
+			"TS": { "$path": "out/server" }
+		},
+		"StarterPlayer": {
+			"$className": "StarterPlayer",
+			"StarterPlayerScripts": {
+				"$className": "StarterPlayerScripts",
+				"TS": { "$path": "out/client" }
+			}
+		}
+	}
+}

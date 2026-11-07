@@ -1,0 +1,61 @@
+---
+title: "Why sloptor"
+description: "How sloptor compares with rbxtsc and rbxtsgo: benchmark numbers and extra features, plus the cases where rbxtsgo is the better pick."
+---
+
+import BenchmarkSummary from "$components/benchmark-summary.astro";
+import { getAverage, METRICS } from "$data/benchmark-metrics";
+import { formatMilliseconds, formatRatio, getReport, getRival, getToolVersion } from "$data/benchmark-results";
+
+export const mean = (scenario, metric, rival) => `${formatRatio(getAverage(scenario, METRICS[metric], rival).mean)}×`;
+export const helloCold = getReport("cold").comparisons.find(({ project }) => project === "hello");
+export const helloGap = formatMilliseconds(getRival(helloCold, "rbxtsgo").median - helloCold.sloptor.median);
+export const wideCold = getReport("cold").comparisons.find(({ project }) => project === "wide");
+export const wideGap = formatMilliseconds(getRival(wideCold, "rbxtsgo").median - wideCold.sloptor.median);
+export const version = getToolVersion("sloptor");
+
+There are already two other ways to build a roblox-ts project. One is `rbxtsc` itself. The other is [rbxtsgo](https://github.com/plasma-node/rbxtsgo), a Go rewrite on top of the same native TypeScript compiler. rbxtsgo already makes the case that a native compiler outruns the JS one, so this page doesn't spend time on that. It covers what sloptor does beyond that, and where rbxtsgo is still the better pick.
+
+## The numbers
+
+On the [benchmark projects](/sloptor/benchmarks/), a cold sloptor build is {mean("cold", "time", "rbxtsgo")} faster than rbxtsgo and {mean("cold", "time", "rbxtsc")} faster than rbxtsc. A no-op rebuild is {mean("incremental", "time", "rbxtsgo")} and {mean("incremental", "time", "rbxtsc")} faster. Those are geometric means over seven projects, from one file to 401.
+
+<BenchmarkSummary />
+
+- **CPU and instructions differ more than wall time does:** against rbxtsgo, a cold sloptor build uses {mean("cold", "cpu", "rbxtsgo")} less CPU time and {mean("cold", "instructions", "rbxtsgo")} fewer instructions. Wall time improves by {mean("cold", "time", "rbxtsgo")}. Both tools check in parallel, so the lead isn't only a matter of more threads.
+- **The rbxtsgo gap is small in milliseconds:** it's {helloGap} ms on the one-file `hello` project and {wideGap} ms on the 401-file `wide` project, and the ratio doesn't grow steadily with size, so don't extrapolate it to your game.
+- **The rbxtsc gap is the structural one:** rbxtsc boots Node and typechecks on one JS thread, and no amount of tuning changes that. Production games measure nearer 10× than {mean("cold", "time", "rbxtsc")}. Booting Node is a fixed cost, and it's a larger share of rbxtsc's time on a small project. [The home page](/sloptor/) shows the production timings, so keep the two sets apart.
+- **Scope:** every number came from sloptor {version} on an Apple M4 Pro. rbxtsgo publishes its own figures on a Windows desktop and a closed-source game, so you can't compare those with these. The [benchmarks page](/sloptor/benchmarks/) has the method and the command to rerun it on your own project.
+
+## What sloptor does that a faster rbxtsc doesn't
+
+A native build of the same emit isn't unique to sloptor. These are the reasons to pick it beyond that.
+
+- **Fixes for output rbxtsc gets wrong:** a `switch` with a `case` after `default` selects the first matching case, so `pick("b")` returns `2` in sloptor and `0` under `rbxtsc` 3.0.0, which drops the case. Cases also compare against the original operand, and numeric `for` loops re-read bounds that change. These are deliberate divergences, so the Luau won't be byte-identical to `rbxtsc` for every file.
+- **Native Flamework and jecs:** rbxtsgo's README says builds using a transformer plugin other than setget go to the JS compiler and run at JS speed, with Flamework as its example. sloptor runs Flamework natively when you [opt in](/sloptor/guide/migrate/#move-flamework-to-the-native-pipeline), and runs `rbxts-transformer-jecs` natively when the installed package matches the build the port targets. Other plugins go through an embedded Node sidecar.
+- **Syntax rbxtsc rejects:** [loop labels and named function expressions](/sloptor/macros/#extensions) compile instead of failing with `labels are not supported!`. The ones sloptor can't lower give a diagnostic, never wrong output.
+- **Compile-time macros:** `$env`, `$keys`, `$nameof`, `$file`, and `$getModuleTree` are built in. `$env` and `$keys` do the jobs of `rbxts-transform-env` and `rbxts-transformer-keys`, so those two plugins can leave `compilerOptions.plugins`. Node is only needed if you still use some other external plugin. See [Macros](/sloptor/macros/).
+- **Diagnostics that fit a toolchain:** errors render as code frames, `--json` gives one result object per build, and `build -w --json` streams NDJSON for tools that supervise the watcher. [`sloptor diagnostics`](/sloptor/guide/diagnostics/) reports every file's outcome instead of stopping at the first type error, which matters because a single type error hides every transformer diagnostic in a normal `build`.
+- **Editor support for what TypeScript can't see:** [`sloptor lsp`](/sloptor/guide/editors/) publishes transformer diagnostics such as `noAny` and unsupported-construct errors for unsaved buffers, next to your normal TypeScript server.
+- **A programmatic API:** the typed JavaScript `createBuildSession()` client lets other tools drive builds. See [Install](/sloptor/guide/install/#client-api).
+- **Opt-in output tuning:** `--optimized-array-appends` turns eligible `Array.push` calls in loops into indexed writes, `//!native` files get Luau type annotations behind the `nativeTypes` option, and `--luau-types` is an experimental full-annotation mode. All are off by default. See [Building](/sloptor/guide/building/).
+- **Prebuilt binaries.** The [install page](/sloptor/guide/install/) lists the supported platforms. rbxtsgo's README says its author has only run it on Windows x64 so far, though it builds binaries for other platforms.
+
+sloptor aims to match `rbxtsc` 3.0.0 everywhere else, and the differential tests in the repo check that. Treat the [changelog](/sloptor/changelog/) as the list of known exceptions.
+
+## Where rbxtsgo is the better pick
+
+- **You use setget:** rbxtsgo has `rbxts-transformer-setget` built in, with diagnostics pointing at the right line of your source. sloptor has no native setget, so it would run as an external plugin through the Node sidecar.
+- **You want its emit fixes:** rbxtsgo's optional `--fix-emit` repairs a few known `rbxtsc` bugs. sloptor has no equivalent flag.
+- **You can't feel the gap:** on a project without plugins, rbxtsgo may already build in a few dozen milliseconds. Moving over then changes little you would notice.
+
+And `rbxtsc` stays the reference. The numbers and byte-comparisons on this page all use it as the baseline. If your project depends on something sloptor hasn't ported, the roadmap and the "not yet supported" diagnostics say so up front.
+
+## Prior work
+
+- [**roblox-ts**](https://github.com/roblox-ts/roblox-ts) is the compiler whose emit sloptor ports, and the oracle for its output.
+- [**@isentinel/roblox-ts**](https://www.npmjs.com/package/@isentinel/roblox-ts) is the fork whose changed behavior sloptor follows where it differs from upstream.
+- [**typescript-go**](https://github.com/microsoft/typescript-go) and [**tsrs**](https://github.com/oxc-project/tsrs) are the native TypeScript compiler and its Rust port that sloptor type-checks with.
+- [**rbxtsgo**](https://github.com/plasma-node/rbxtsgo) is the other native roblox-ts compiler, written in Go on TypeScript 7's Go compiler. It's the other tool in the benchmarks.
+
+See [Architecture](/sloptor/architecture/) for how the pieces fit, and [Migrate from rbxtsc](/sloptor/guide/migrate/) when you're ready to switch.

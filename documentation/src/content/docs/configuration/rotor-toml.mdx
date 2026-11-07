@@ -6,7 +6,7 @@ description: "Every key in rotor.toml, generated from rotor.schema.json."
 import SchemaReference from "$components/schema-reference.astro";
 import schema from "../../../../../rotor.schema.json";
 
-`rotor.toml` at the project root configures optional rotor settings: the `//!native` type-annotation opt-in (`nativeTypes`), the experimental full Luau type-annotation opt-in (`luauTypes`), native Flamework, and experimental parallel external transformers. Add a schema directive for editor validation and completion:
+`rotor.toml` at the project root holds the optional rotor settings. It sets the `//!native` type-annotation opt-in with `nativeTypes`. It also sets the experimental Luau opt-in with `luauTypes`, native Flamework, and parallel external transformers. Add a schema directive for editor validation and completion:
 
 ```toml
 #:schema https://raw.githubusercontent.com/howmanyslop/sloptor/main/rotor.schema.json
@@ -14,6 +14,6 @@ import schema from "../../../../../rotor.schema.json";
 
 Need the schema offline? `sloptor schema > rotor.schema.json`.
 
-This page is generated from `rotor.schema.json` when the site builds. A `<name>` segment is a table you name yourself, such as `[flamework.profiles.production]`.
+The site build generates this page from `rotor.schema.json`. A `<name>` segment is a table you name yourself, such as `[flamework.profiles.production]`.
 
 <SchemaReference schema={schema} />

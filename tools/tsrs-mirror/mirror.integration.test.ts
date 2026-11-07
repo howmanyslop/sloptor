@@ -38,6 +38,7 @@ function createManifest(
 	function formatDependencies(names: ReadonlyArray<string>): string {
 		return names.map((dependency) => `${dependency} = { workspace = true }`).join("\n");
 	}
+
 	return `[package]
 name = "${name}"
 version.workspace = true
@@ -150,6 +151,7 @@ describe("mirror", () => {
 				source,
 				tag: "v9.9.9",
 			});
+
 			return {
 				crates: mirrored.crates,
 				hasCrateC: existsSync(path.join(out, "crates/tsrs_c")),

@@ -3,7 +3,7 @@ title: "Building"
 description: "Build options, project references, source maps, incremental rebuilds, and concurrency."
 ---
 
-`sloptor build` compiles every file in the project, writes the `.luau` outputs to your tsconfig's `outDir` exactly where `rbxtsc` would put them, runs the cleanup/copy pipeline, emits `.d.ts` files when `compilerOptions.declaration` is enabled, and copies `include/` (RuntimeLib.lua, Promise.lua — verbatim from roblox-ts). Try it on the test fixture project in the sloptor repository:
+`sloptor build` compiles every file in the project and writes the `.luau` outputs to your tsconfig's `outDir`, exactly where `rbxtsc` would put them. It also runs the cleanup and copy pipeline and emits `.d.ts` files when `compilerOptions.declaration` is on. It copies `include/`, which holds `RuntimeLib.lua` and `Promise.lua` verbatim from roblox-ts. Try it on the test fixture project in the sloptor repository:
 
 ```powershell
 bun install --cwd testdata/diff/project --no-save
@@ -13,34 +13,69 @@ sloptor build testdata/diff/project
 # compiled 43 files in 189 ms
 ```
 
-A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`). The fixture project above is a minimal working example of that setup.
+Like `rbxtsc`, sloptor can't compile a standalone `.ts` file. It needs the rbxts project around it: `package.json` with `@rbxts/compiler-types` and `@rbxts/types` installed, `tsconfig.json`, and `default.project.json`. The fixture project is a minimal working example of that setup.
 
-`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--luauTypes` (experimental), `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+`sloptor build` accepts the rbxtsc-compatible flags. Booleans accept `--flag`, `--flag=false`, and `--no-flag`.
 
-TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
+- `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`
+- `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`
+- `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--optimizedLoops`
+- `--writeTransformedFiles`, which sloptor parses and ignores
+- `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, `--luau`
 
-Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
+Sloptor adds `--optimizedArrayAppends`, the experimental `--luauTypes`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`.
 
-**sloptor DX extensions** (not in rbxtsc; safe to ignore for parity):
+A few rules apply to these flags:
 
-- **`--minify`** — pass every emitted `.luau`/`.lua` source through the Luau minifier (comment/whitespace stripping + `t["x"]` → `t.x`) before writing. It is opt-in; declaration and `include/` files are never minified.
-- **Code-frame diagnostics** — TypeScript, transformer, and macro errors render as grouped code frames (source line + caret/underline, keyword highlighting, OSC 8 file links, an `✗ N errors in M files` footer). `--max-errors <n>` caps the rendered frames (default 50; `0` = all). In watch mode the screen clears before each rebuild (opt out with `--no-clear`), a `✗ N errors` banner persists on the idle line until the next green build, and `--bell` rings the terminal on a fail↔pass transition.
-- **`--json`** — emit one machine-readable result object (version, ok, files, durationMs, diagnostics with `file`/`line`/`col`/`code`/`severity`/`message`) instead of styled output. `file` is relative to the project directory (the solution tsconfig directory with `--build`). `code` is `TS####` for a TypeScript diagnostic and the upstream factory name for a transformer one, and is omitted when the diagnostic has none. Also available on `sloptor check`.
-  With `-w/--watch`, stdout is an NDJSON stream (one object per line, no styled output) for tools that supervise the watcher. Each build (the initial one too) prints a `buildStart` event (`at`, `changed` paths relative to the project) and then exactly one `buildEnd` event (`at` plus the one-shot result fields). Pairs never nest, so "build in progress" is a toggle. The first event carries `version`, and one `watching` event (`at`, `files`: the watched file count) follows the initial `buildEnd`. Compiler warnings go to stderr. Works with `--build --watch` too.
+- `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes. It defaults to off.
+- `--builders` requires `--build`.
+- `--singleThreaded` is the tsgo flag of the same name. When effective, it forces one solution builder and one checker per program, even if `--builders` or `--checkers` are larger. There is no `--parallel` flag.
+- `--emitDeclarationOnly` requires `--build`. You can't combine `--build --watch` with declaration-only emit.
+- You can't combine the finite profiling and timing flags with `--watch`.
 
-    ```jsonc
-    {"event":"buildStart","at":"2026-09-25T17:59:59.000Z","version":"2.7.1","changed":[]}
-    {"event":"buildEnd","at":"2026-09-25T17:59:59.300Z","version":"2.7.1","ok":true,"files":222,"durationMs":300,"diagnostics":[]}
-    {"event":"watching","at":"2026-09-25T17:59:59.310Z","files":240}
-    {"event":"buildStart","at":"2026-09-25T18:00:00.000Z","changed":["src/a.ts"]}
-    {"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.7.1","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
-    ```
+Run `sloptor build --help` for the rendered descriptions.
 
-- **One-shot diagnostics** — `--timings` writes schema version 2: `totalMs` is elapsed wall time for the whole command (including deferred solution persistence); `stages` are aggregate work milliseconds and may exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order. `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile` and `--heapprofile` are Go profiler flags kept for compatibility: they fail with a clear error before building, so use a sampling profiler on the process instead. `--verbose` prints per-phase timings.
+TypeScript build integrations may use the `sloptor --build [path]` form, or `sloptor -b [path]`, which matches the TypeScript compiler's own invocation. Both are compatibility aliases for `sloptor build --build [path]`. The `build` subcommand is still the normal entry point.
+
+You can also set options under the top-level `"rbxts"` key of `tsconfig.json`. The merge order is defaults, then `rbxts`, then the command line.
+
+## Sloptor extensions
+
+These extensions aren't in rbxtsc. You can ignore them for parity.
+
+### Code-frame diagnostics
+
+TypeScript, transformer, and macro errors render as grouped code frames. Each frame has the source line with a caret or underline, keyword highlighting, and clickable file links. A footer reads `✗ N errors in M files`.
+
+`--max-errors <n>` caps the rendered frames. The default is 50, and `0` shows all. In watch mode, the screen clears before each rebuild. Opt out with `--no-clear`. A `✗ N errors` banner stays on the idle line until the next green build. `--bell` rings the terminal when a build flips between failing and passing.
+
+### JSON output
+
+`--json` emits one machine-readable result object instead of styled output. The object holds the version, `ok`, `files`, `durationMs`, and `diagnostics`. Each diagnostic has `file`, `line`, `col`, `code`, `severity`, and `message`.
+
+- `file` is relative to the project directory. With `--build`, it's relative to the solution tsconfig directory.
+- `code` is `TS####` for a TypeScript diagnostic and the upstream factory name for a transformer one. Sloptor omits it when the diagnostic has none.
+- `sloptor check` accepts `--json` too.
+
+With `-w/--watch`, stdout is an NDJSON stream for tools that supervise the watcher. It has one object per line and no styled output. Each build, including the initial one, prints a `buildStart` event and then exactly one `buildEnd` event. The `buildStart` event has `at` and `changed`, the changed paths relative to the project. The `buildEnd` event has `at` and the one-shot result fields. Pairs never nest, so "build in progress" is a toggle. The first event includes `version`. One `watching` event follows the initial `buildEnd`, with `at` and `files`, the watched file count. Compiler warnings go to stderr. This works with `--build --watch` too.
+
+```jsonc
+{"event":"buildStart","at":"2026-09-25T17:59:59.000Z","version":"2.7.1","changed":[]}
+{"event":"buildEnd","at":"2026-09-25T17:59:59.300Z","version":"2.7.1","ok":true,"files":222,"durationMs":300,"diagnostics":[]}
+{"event":"watching","at":"2026-09-25T17:59:59.310Z","files":240}
+{"event":"buildStart","at":"2026-09-25T18:00:00.000Z","changed":["src/a.ts"]}
+{"event":"buildEnd","at":"2026-09-25T18:00:00.142Z","version":"2.7.1","ok":false,"files":0,"durationMs":142,"diagnostics":[{"file":"src/a.ts","line":3,"col":7,"code":"TS2322","severity":"error","message":"..."}]}
+```
+
+### One-shot diagnostics
+
+`--timings` writes schema version 2. `totalMs` is the wall time for the whole command, including deferred solution persistence. `stages` are aggregate work milliseconds and can exceed `totalMs` when projects overlap. Solution builds also emit `projects[]` in graph order.
+
+`--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, and `--heapprofile` are Go profiler flags that sloptor keeps for compatibility. They give a clear error before building. Use a sampling profiler on the process instead. `--verbose` prints per-phase timings.
 
 ## Native code generation annotations
 
-This is an opt-in rotor extension and off by default. Enable it in either project file — `tsconfig.json`:
+This is an opt-in rotor extension, off by default. Enable it in either project file. In `tsconfig.json`:
 
 ```json
 {
@@ -48,15 +83,15 @@ This is an opt-in rotor extension and off by default. Enable it in either projec
 }
 ```
 
-or `rotor.toml`:
+Or in `rotor.toml`:
 
 ```toml
 nativeTypes = true
 ```
 
-`rbxts.nativeTypes` wins when both are set; `rotor.toml`'s value applies only when the tsconfig does not declare the key. With the option off, a `//!native` file compiles exactly like rbxtsc: the directive comment is still emitted as `--!native`, but no annotations, type aliases, or generic declarations are added.
+`rbxts.nativeTypes` takes precedence when both are set. The `rotor.toml` value applies only when the tsconfig doesn't declare the key. With the option off, a `//!native` file compiles exactly like rbxtsc. Sloptor still emits the directive comment as `--!native`, but doesn't add annotations, type aliases, or generic declarations.
 
-With it on, a file whose leading comments include `//!native` gets Luau type annotations on its function parameters and return types, which is what Luau's native compiler specializes on. sloptor emits the directive as `--!native` and annotates every function in the file. Files without the directive produce the same Luau as rbxtsc.
+With the option on, a file whose leading comments include `//!native` gets Luau type annotations on its function parameters and return types. Luau's native compiler specializes on those. Sloptor emits the directive as `--!native` and annotates every function in the file. Files without the directive give the same Luau as rbxtsc.
 
 ```ts
 //!native
@@ -72,50 +107,70 @@ local function scale(x: number, factor: number?, label: string?): number
 
 Annotations follow the TypeScript type:
 
-| TypeScript type                                                        | Emitted                         |
-| ---------------------------------------------------------------------- | ------------------------------- |
-| `number`, numeric literals and enums, generics constrained to `number` | `number`                        |
-| `string`, template literals like `a${string}`                          | `string`                        |
-| `"there"`, `"a" \| "b"`                                                | `"there"`, `"a" \| "b"`         |
-| `true`, `false`                                                        | `true`, `false`                 |
-| `true \| false` (the whole boolean)                                    | `boolean`, or `boolean?`        |
-| `vector`, `Vector3`                                                    | `vector`, `Vector3`             |
-| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`           |
-| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }`   |
-| named interfaces and non-generic object type aliases                   | a `type` alias (where declared) |
-| anonymous object types                                                 | `{ a: number, b: string? }`     |
-| function types                                                         | `(key: K, other: T?) -> V`      |
-| a `LuaTuple<[A, B]>` return                                            | `(A, B)`, a return pack         |
-| `new (x: number) => T`, `typeof Class`                                 | `{ new: (x: number) -> T }`     |
-| a generic call signature                                               | `<T>(value: T) -> T`            |
-| several call signatures                                                | `((A) -> B) & ((C) -> D)`       |
-| a `void` return                                                        | `()`, so a function gets `: ()` |
-| a shape that cannot be written out                                     | `{ [any]: any }`, or none       |
-| anything else                                                          | none                            |
+| TypeScript type                                                        | Emitted                               |
+| ---------------------------------------------------------------------- | ------------------------------------- |
+| `number`, numeric literals and enums, generics constrained to `number` | `number`                              |
+| `string`, template literals like `a${string}`                          | `string`                              |
+| `"there"`, `"a" \| "b"`                                                | `"there"`, `"a" \| "b"`               |
+| `true`, `false`                                                        | `true`, `false`                       |
+| `true \| false`, the whole boolean                                     | `boolean`, or `boolean?`              |
+| `vector`, `Vector3`                                                    | `vector`, `Vector3`                   |
+| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`                 |
+| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }`         |
+| named interfaces and non-generic object type aliases                   | a `type` alias at the declaration     |
+| anonymous object types                                                 | `{ a: number, b: string? }`           |
+| function types                                                         | `(key: K, other: T?) -> V`            |
+| a `LuaTuple<[A, B]>` return                                            | `(A, B)`, a return pack               |
+| `new (x: number) => T`, `typeof Class`                                 | `{ new: (x: number) -> T }`           |
+| a generic call signature                                               | `<T>(value: T) -> T`                  |
+| multiple call signatures                                               | `((A) -> B) & ((C) -> D)`             |
+| a `void` return                                                        | `()`, written as `: ()` on a function |
+| a type that Luau can't spell                                           | `{ [any]: any }`, or none             |
+| anything else                                                          | none                                  |
 
-A named interface — and a non-generic `type X = { ... }` alias — is emitted once as a Luau type alias, and every reference uses it, so a recursive type stays recursive instead of collapsing to `{ [any]: any }`. A declaration that is a top-level statement of the compiled file emits its alias at the declaration, after that declaration's leading comments, so the alias reads next to the TypeScript it describes. Luau resolves an alias declared later in the same block, so a use that appears above the declaration still works. A merged interface (`interface Hi { ... }` declared several times) emits one alias, at its first declaration, with every merged member.
+Sloptor emits a named interface, or a non-generic `type X = { ... }` alias, once as a Luau type alias, and every reference uses it. A recursive type stays recursive and doesn't collapse to `{ [any]: any }`. For a declaration at the top level of the compiled file, the alias goes at the declaration, after its leading comments, so it reads next to the TypeScript it describes. Luau resolves an alias declared later in the same block, so a use that comes first still works. A merged interface, such as `interface Hi { ... }` declared more than once, emits one alias at its first declaration with every merged member.
 
 ```lua
 type Node<K, V> = { key: K, nextNode: Node<K, V>?, value: V }
 ```
 
-Anything that is not a top-level declaration of this file — an interface or alias inside a namespace, function, or block, a type imported from another module, or an ambient/library type — is hoisted next to the header instead, where it cannot fall out of scope. The name-collision suffix (`Node_2`) is the same in either position.
+Sloptor hoists any other type next to the header, where it can't leave scope. That covers an interface or alias inside a namespace, function, or block, a type imported from another module, and an ambient or library type. The name-collision suffix, such as `Node_2`, is the same in either position.
 
-`readonly` is dropped because `read` is illegal inside a Luau table type; optional members are spelled `T?`. A function's own type parameters are declared and used by name (`local function f<K, V>(callback: (key: K) -> V): (key: K) -> V`). Constraints are dropped, because Luau has no `extends` clause, and a class type parameter maps to `any` — Luau cannot declare one.
+Sloptor drops `readonly` because Luau doesn't allow `read` inside a table type. Optional members become `T?`. A function's own type parameters are declared and used by name, as in `local function f<K, V>(callback: (key: K) -> V): (key: K) -> V`. Sloptor drops constraints because Luau has no `extends` clause. A class type parameter maps to `any` because Luau can't declare one.
 
-Table shapes are followed into nested members, so `Map<string, number[]>` becomes `{ [string]: { number } }`; names that are not Luau identifiers are quoted (`["kebab-case"]: number`), and a shape that recurses or nests past four levels falls back to `{ [any]: any }`. Nested positions — alias bodies, members, elements, keys and values, and function parameters and returns — mirror in full: `boolean`, string and boolean literals (`there: "there"`, `flag: false`; `true | false` is just `boolean`, and `true | false | undefined` is `boolean?`), function types, and Roblox types by name from a fixed allowlist (`CFrame`, `Color3`, `TweenInfo`, `Vector3`, …) plus interfaces that extend `Instance`.
+Sloptor follows table types into nested members, so `Map<string, number[]>` becomes `{ [string]: { number } }`. Names that aren't Luau identifiers get quotes, as in `["kebab-case"]: number`. A type that recurses or nests past four levels falls back to `{ [any]: any }`. Nested positions mirror in full. These positions are alias bodies, members, elements, keys and values, and function parameters and returns. They cover:
 
-Callable shapes are spelled in full too. A function returning `LuaTuple<[A, B]>` gets the return pack `: (A, B)`, and the same pack appears inside a callback type (`cb: () -> (number, string)`); `[A, B?]` becomes `(A, B?)`, `[A, ...C[]]` becomes `(A, ...C)`, and an empty tuple becomes `()`. A `LuaTuple` whose argument is not one fixed tuple — a plain array, a generic, a union of tuples — keeps the parameters and loses the pack: `() -> ...any` in a function type, and no annotation at all on a declared function, because `?` after a pack would mean "optional function" rather than an optional return. Outside a return position a `LuaTuple` is `any`: a pack is not a type, so it is never aliased. A construct signature (`new (x: number) => T`, or `typeof SomeClass`) is the table roblox-ts emits at runtime, `{ new: (x: number) -> T }` followed by the class's statics, with the instance widened to `any` when it cannot be spelled. A generic call signature keeps its parameters (`<T>(value: T) -> T`), and several call signatures become an intersection, `((A) -> B) & ((C) -> D)` — everywhere except a tagged top-level parameter, where an intersection is not tagged at all and `(...any) -> ...any` keeps the `function` tag.
+- `boolean`, plus string and boolean literals such as `there: "there"` and `flag: false`. `true | false` is just `boolean`, and `true | false | undefined` is `boolean?`.
+- function types
+- Roblox types by name from a fixed allowlist, such as `CFrame`, `Color3`, `TweenInfo`, and `Vector3`, plus interfaces that extend `Instance`
 
-Top-level parameters are what Luau actually tags, so their policy is narrower. Only `number`, `string` (a single string literal or a union of them too — Luau's compiler tags both as `string`), `vector`/`Vector3`, table types, function types, and the function's own generics are annotated. `boolean` and boolean literals, Roblox datatypes and `Instance`s, class instances, unions that mix a table with a non-table, and a bare generic from an enclosing function stay unannotated. The last one matters: Luau only tags a bare generic name as `any` when the annotated function declares that generic. An outer function's generic is tagged userdata, so the native entry guard would fail on every call.
+Sloptor writes callable types out in full too:
 
-A parameter that callers may omit becomes optional: a `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest, and destructured parameters stay unannotated, as do async functions and generators. An overloaded callable passed as a parameter keeps the `(...any) -> ...any` fallback, so the argument still gets an entry guard.
+- A function returning `LuaTuple<[A, B]>` gets the return pack `: (A, B)`. The same pack appears inside a callback type, as in `cb: () -> (number, string)`.
+- `[A, B?]` becomes `(A, B?)`, `[A, ...C[]]` becomes `(A, ...C)`, and an empty tuple becomes `()`.
+- A `LuaTuple` whose argument isn't one fixed tuple, such as a plain array, a generic, or a union of tuples, keeps the parameters and loses the pack. It gives `() -> ...any` in a function type. A declared function gets nothing, because `?` after a pack would mean "optional function" and not an optional return.
+- Outside a return position, a `LuaTuple` is `any`. A pack isn't a type, so sloptor never aliases it.
+- A construct signature, such as `new (x: number) => T` or `typeof SomeClass`, is the table that roblox-ts emits at runtime, `{ new: (x: number) -> T }`, followed by the statics of the class. The instance widens to `any` when sloptor can't spell it.
+- A generic call signature keeps its parameters, as in `<T>(value: T) -> T`. Multiple call signatures become an intersection, `((A) -> B) & ((C) -> D)`. The exception is a tagged top-level parameter. There an intersection has no tag, and `(...any) -> ...any` keeps the `function` tag.
 
-sloptor never emits a bare `table`. Luau's compiler tags it as userdata, so the native entry guard would fail on every call.
+Luau tags top-level parameters, so their policy is narrower. Sloptor annotates only these:
 
-Return annotations don't affect native code generation. They only help Luau's type checker. A wrong annotation costs an interpreter fallback, never a crash. Luau's analyzer may still warn that a defaulted parameter is `number?` where the body uses it in arithmetic after the `if x == nil then x = default end` check. That only affects Studio script-analysis warnings, and the `?` is required: an omitted argument arrives as `nil`, and a plain `number` annotation would send every such call back to the interpreter.
+- `number`
+- `string`, including a single string literal or a union of them, because the Luau compiler tags both as `string`
+- `vector` and `Vector3`
+- table types
+- function types
+- the function's own generics
 
-## Luau type annotations (experimental)
+It leaves these unannotated: `boolean` and boolean literals, Roblox datatypes and `Instance`s, class instances, unions that mix a table with a non-table, and a bare generic from an enclosing function. The last case matters, because Luau only tags a bare generic name as `any` when the annotated function declares that generic. Luau tags an outer function's generic as userdata, and the native entry guard would fail on every call.
+
+A parameter that callers may omit becomes optional. A `?` marker, a default value, or `undefined` in the type all emit `T?` and cost one extra nil check in native code. `self`, `this`, rest parameters, and destructured parameters stay unannotated, as do async functions and generators. An overloaded callable passed as a parameter keeps the `(...any) -> ...any` fallback, and the argument still gets an entry guard.
+
+Sloptor never emits a bare `table`. The Luau compiler tags it as userdata, and the native entry guard would fail on every call.
+
+Return annotations don't affect native code generation. They only help Luau's type checker. A wrong annotation costs an interpreter fallback and never breaks the program. Luau's analyzer may still warn that a defaulted parameter is `number?` where the body uses it in arithmetic after the `if x == nil then x = default end` check. That only affects Studio script-analysis warnings. The `?` is required: an omitted argument arrives as `nil`, and a plain `number` annotation would send every such call back to the interpreter.
+
+## Luau type annotations
 
 `luauTypes` is an experimental, opt-in rotor extension and off by default. With the option on, sloptor emits full Luau type annotations in every compiled file. That covers parameters, `...`, returns, generics, the `self` of every method, locals that Luau can't infer, class instance aliases, enum aliases, and a `type` / `export type` statement for every interface and type alias. Luau code that requires the output then gets real types instead of `any`. The emitted Luau differs from rbxtsc, and the output may change between releases. The design record is `docs/superpowers/specs/2026-10-29-luau-types-design.md`.
 
@@ -255,39 +310,44 @@ return {
 }
 ```
 
-A Luau consumer of the compiled module gets `Point`, `Direction` and `Counter` as importable types: `local M = require(path)`, then `M.Point`. It also gets a checked `M.scale(p, 3)`, a `Counter.new(1)` whose result has `count` and `step`, and an error on `M.scale("x")` or `Direction.Sideways`.
+A Luau consumer of the compiled module gets `Point`, `Direction`, and `Counter` as importable types. Use `local M = require(path)`, then `M.Point`. The consumer also gets a checked `M.scale(p, 3)` and a `Counter.new(1)` whose result has `count` and `step`. It gets an error on `M.scale("x")` or `Direction.Sideways`.
 
 What changed, line by line:
 
-- Every interface and type alias of the file becomes `type` / `export type` at its declaration. `readonly` is `read`, optional members are `T?`, `T[]` is `{ T }`, `Map`/`Set` are `{ [K]: V }` / `{ [K]: true }`, overloads are `((A) -> B) & ((C) -> D)`, and `keyof T` / `T[K]` with an unresolved `T` are `keyof<T>` / `index<T, K>`. sloptor mirrors types from a namespace, a function, another file, `node_modules` or the lib as hoisted aliases after the header, under their local import name, because `TS.import` is opaque to Luau's checker. A name that collides with a Luau builtin, a Roblox type, or a type parameter used in the file takes `_2`.
-- Parameters and returns take the TypeScript type: `?` and a default make `number?`, a rest parameter annotates `...: string`, a destructured parameter annotates its `_param` temp, and `this` is `self`. A `LuaTuple<[A, B]>` return is the pack `(A, B)`, `void` is `()`, and a void body with an explicit `return` is `...nil`. Neither Luau solver refines `factor: number?` through the `if factor == nil then` default, and the shadow `local factor = factor :: number` after it supplies the narrowing instead. A `??`, `||` or `&&` temp gets the same re-binding.
-- Locals read like hand-written Luau. An initialized local takes its type from its value, so `let count: number = 0` compiles to `local count = 0` and an imported binding to `local aNumber = _primitives.aNumber`. A local is annotated only when it has no initializer, such as `local label: string?`, or when its written type differs from what the value would give it, such as the upcast `local box: Box<number> = pair` or the narrowing `local mode: "r" | "w" = "r"`. An `async` function's local gets the type `(n: number) -> Promise<number>`, since that annotation is its only signature, while the callback inside `TS.async` returns the settled type.
-- A class becomes a structural instance alias and a class table initialized on its declaration line. The alias leaves `constructor` out and re-lists inherited members, with an explicit `self` on every method. `new` takes the constructor's parameters and builds `self` through `(setmetatable({}, Counter) :: any) :: Counter`, then calls `Counter.constructor(self, ...) or self`. Every method is a dot-form function with an annotated `self`. Class generics appear again on every function, for example `function Box.get<T>(self: Box<T>): T`, and statics take `self: typeof(Counter)`. The colon form never appears: a colon-form `self` is an inferred table unrelated to the alias, and `self.nope` passes without an error.
-- A string enum is a union alias plus a `read` map, and a numeric enum is `number` plus the inverse-indexed table. A `const enum` is the alias alone.
-- A generic alias whose body is a mapped, conditional or template literal type becomes a Luau `type function`. It computes the same type at analysis time, and `Partial2<T>`, `T extends (infer U)[] ? U : T` and ``{ [K in T as `on${K}`]: () => void }`` all translate this way. `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `Exclude`, `Extract`, `NonNullable`, `ReturnType` and `Parameters` used with a free type parameter go through a hoisted prelude such as `__Partial<T>`. Used with concrete arguments they expand to the exact resolved type.
+- Every interface and type alias of the file becomes `type` or `export type` at its declaration. `readonly` becomes `read`, optional members become `T?`, and `T[]` becomes `{ T }`. `Map` and `Set` become `{ [K]: V }` and `{ [K]: true }`. Overloads become `((A) -> B) & ((C) -> D)`. `keyof T` and `T[K]` with an unresolved `T` become `keyof<T>` and `index<T, K>`. Sloptor mirrors types from a namespace, a function, another file, `node_modules`, or the lib as hoisted aliases after the header. They use their local import name, because `TS.import` is opaque to Luau's checker. A name that collides with a Luau builtin, a Roblox type, or a type parameter used in the file takes `_2`.
+- Parameters and returns take the TypeScript type. `?` and a default make `number?`. A rest parameter annotates `...: string`. A destructured parameter annotates its `_param` temp, and `this` is `self`. A `LuaTuple<[A, B]>` return is the pack `(A, B)`, `void` is `()`, and a void body with an explicit `return` is `...nil`. Neither Luau solver refines `factor: number?` through the `if factor == nil then` default. The shadow `local factor = factor :: number` after it supplies the narrowing instead. A `??`, `||`, or `&&` temp gets the same re-binding.
+- Locals read like hand-written Luau. An initialized local takes its type from its value, so `let count: number = 0` compiles to `local count = 0`, and an imported binding compiles to `local aNumber = _primitives.aNumber`. A local gets an annotation only when it has no initializer, such as `local label: string?`. It also gets one when its written type differs from what the value would give it, such as the upcast `local box: Box<number> = pair` or the narrowing `local mode: "r" | "w" = "r"`. An `async` function's local gets the type `(n: number) -> Promise<number>`, since that annotation is its only signature, while the callback inside `TS.async` returns the settled type.
+- A class becomes a structural instance alias and a class table initialized on its declaration line. The alias leaves out `constructor` and re-lists inherited members, with an explicit `self` on every method. `new` takes the parameters of the constructor and builds `self` through `(setmetatable({}, Counter) :: any) :: Counter`. It then calls `Counter.constructor(self, ...) or self`. Every method is a dot-form function with an annotated `self`. Class generics appear again on every function, such as `function Box.get<T>(self: Box<T>): T`, and statics take `self: typeof(Counter)`. The colon form never appears. A colon-form `self` is an inferred table unrelated to the alias, and `self.nope` passes without an error.
+- A string enum is a union alias plus a `read` map. A numeric enum is `number` plus the inverse-indexed table. A `const enum` is the alias alone.
+- A generic alias whose body is a mapped, conditional, or template literal type becomes a Luau `type function`. It computes the same type at analysis time. `Partial2<T>`, `T extends (infer U)[] ? U : T`, and ``{ [K in T as `on${K}`]: () => void }`` all translate this way. `Partial`, `Required`, `Readonly`, `Pick`, `Omit`, `Record`, `Exclude`, `Extract`, `NonNullable`, `ReturnType`, and `Parameters` used with a free type parameter go through a hoisted prelude such as `__Partial<T>`. Used with concrete arguments, they expand to the exact resolved type.
 
 ### Luau's new solver
 
-`keyof<T>`, `index<T, K>` and user-defined `type function`s exist only under Luau's new type solver, and the class idiom relies on its subtyping. That's `luau-analyze`'s default since 0.721, `luau-lsp analyze --flag:LuauSolverV2=true` on the command line or `luau-lsp.fflags.enableNewSolver` in the editor, and the new type solver in Roblox Studio. sloptor doesn't add a mode directive. A `//!strict` comment at the top of the TypeScript file passes through as `--!strict` as before, and sloptor's own tests check the output in strict mode.
+`keyof<T>`, `index<T, K>`, and user-defined `type function`s exist only under Luau's new type solver, and the class idiom relies on its subtyping. The new solver is the default of `luau-analyze` since 0.721. On the command line, use `luau-lsp analyze --flag:LuauSolverV2=true`. In the editor, use `luau-lsp.fflags.enableNewSolver`. Roblox Studio has it as the new type solver. Sloptor doesn't add a mode directive. A `//!strict` comment at the top of the TypeScript file passes through as `--!strict` as before, and sloptor's own tests check the output in strict mode.
 
-### What is lossy
+### Lossy conversions
 
-Luau can't say everything TypeScript can. sloptor records each substitution below as a fidelity loss. Only the alias-level ones get a `-- luauTypes: <type> spelled as <Luau>: <reason>` comment before the statement. The full list and policy are in `docs/superpowers/specs/2026-10-29-luau-types-design.md`.
+Luau can't say everything TypeScript can. Sloptor records each substitution below as a fidelity loss. Only the alias-level ones get a `-- luauTypes: <type> spelled as <Luau>: <reason>` comment before the statement. The full list and policy are in `docs/superpowers/specs/2026-10-29-luau-types-design.md`.
 
-- A tuple used as a value type, `[A, B]`, is `{ A | B }` and loses its positions, because Luau has packs only in parameter and return positions. A rest parameter typed by a tuple or a bare type parameter is `...any`.
-- Number literal types such as `1 | 2` and numeric enum members are `number`, because Luau has no number singletons. Template literal types are `string`, `bigint` is `number`, and `symbol` is `any`.
-- `LuaTuple<[A, B?]>` is `(A, B?)`. A Luau pack requires every element, which means a short return must pass `undefined` explicitly. `LuaTuple<...> | undefined` is `...any`, and a `LuaTuple` outside a return position is `any`.
-- sloptor drops generic constraints, because Luau has no `extends`. On class instances it drops `readonly` and exposes private members, because the constructor writes through `self`.
-- sloptor emits a type function only for what the translator can express. An `infer` outside `T extends (infer U)[]` and `T extends (...args: any) => infer R`, an `as` clause, a member type naming another alias such as `Uppercase<K>`, `Box<T[K]>` or `Promise<infer U>`, or a self reference makes the whole alias `any` under a loss comment. Uses of such an alias with concrete arguments still expand exactly. Only generic uses get the `any`.
+- A tuple used as a value type, `[A, B]`, becomes `{ A | B }` and loses its positions, because Luau has packs only in parameter and return positions. A rest parameter typed by a tuple or a bare type parameter becomes `...any`.
+- Number literal types such as `1 | 2` and numeric enum members become `number`, because Luau has no number singletons. Template literal types become `string`, `bigint` becomes `number`, and `symbol` becomes `any`.
+- `LuaTuple<[A, B?]>` becomes `(A, B?)`. A Luau pack requires every element, so a short return must pass `undefined` explicitly. `LuaTuple<...> | undefined` becomes `...any`, and a `LuaTuple` outside a return position becomes `any`.
+- Sloptor drops generic constraints, because Luau has no `extends`. On class instances, it drops `readonly` and exposes private members, because the constructor writes through `self`.
+- Sloptor emits a type function only for what the translator can express. These constructs make the whole alias `any` under a loss comment:
+    - an `infer` outside `T extends (infer U)[]` and `T extends (...args: any) => infer R`
+    - an `as` clause
+    - a member type that names another alias, such as `Uppercase<K>`, `Box<T[K]>`, or `Promise<infer U>`
+    - a self reference
+
+    Uses of such an alias with concrete arguments still expand exactly. Only generic uses get the `any`.
+
 - A recursive alias referenced with different arguments, such as `Weird<T[]>` inside `Weird<T>` or the lib's `Promise<T>`, spells that member `any`, as Luau's recursion rule requires.
 - A class referenced before its declaration keeps the hoisted `local Late: any`. A class value, `typeof Foo`, is the structural `{ new: ..., statics }` table with no `self` on the statics. The new solver can't instantiate a generic method called through a subtype receiver, such as `pair.map(...)` where `Box<T>` declares `map`. Call it through the base type instead.
-- `typeof x` stays `typeof(x)` only for a top-level `const`, function or class that the same file declares before the use. Anything else takes its spelling from the resolved type. `export { X as Y }` keeps `X` as the alias name.
+- `typeof x` stays `typeof(x)` only for a top-level `const`, function, or class that the same file declares before the use. Anything else takes its spelling from the resolved type. `export { X as Y }` keeps `X` as the alias name.
 
 ## Shell completion
 
-`sloptor completion <bash|zsh|fish|powershell>` writes a native completion
-script to stdout — no installation side effects, so redirection works
-unchanged:
+`sloptor completion <bash|zsh|fish|powershell>` writes a native completion script to stdout. It has no installation side effects, so redirection works unchanged:
 
 ```sh
 sloptor completion bash > /etc/bash_completion.d/sloptor
@@ -296,81 +356,90 @@ sloptor completion fish > ~/.config/fish/completions/sloptor.fish
 sloptor completion powershell | Out-String | Invoke-Expression
 ```
 
-The scripts are generated from the live command tree, so they stay in sync
-with the flags and subcommands above.
+Sloptor generates the scripts from the live command tree, so they match the flags and subcommands in this guide.
 
 ## Tsconfig schema publication
 
-The `rotor.toml` schema and the tsconfig `rbxts` schema are separate documents. `sloptor schema` prints the hosted `rotor.toml` schema; `sloptor schema --rbxts` prints the eight-key tsconfig extension schema. Publish the latter where your project editors can read it:
+The `rotor.toml` schema and the tsconfig `rbxts` schema are separate documents. `sloptor schema` prints the hosted `rotor.toml` schema. `sloptor schema --rbxts` prints the eight-key tsconfig extension schema. Publish the latter where your project editors can read it:
 
 ```sh
 sloptor schema --rbxts > rbxts-tsconfig.schema.json
 ```
 
-Use `"$schema": "./rbxts-tsconfig.schema.json"` in `tsconfig.json`. The `rbxts` values merge through the `extends` chain from parent to child, path values resolve relative to the file that declares them, and command-line values win over tsconfig values. CLI-only values such as `watch`, `verbose`, and `usePolling` are warned about and ignored when placed under `rbxts`.
+Use `"$schema": "./rbxts-tsconfig.schema.json"` in `tsconfig.json`. The `rbxts` values merge through the `extends` chain from parent to child. Path values resolve relative to the file that declares them. Command-line values override tsconfig values. Sloptor warns about command-line-only values such as `watch`, `verbose`, and `usePolling` under `rbxts` and ignores them.
 
 ## Project references, source maps, plugins, and build state
 
-`sloptor build --build` drains project references in dependency order. A coordinator tsconfig with only `references` is not compiled as a project of its own. Each referenced project gets the options its own direct build would: defaults, then its `rbxts` key, then the command line. The entry project's `rbxts` key does not reach its references. A coordinator's `rbxts` key applies to every project, below each project's own key. `type` and `rojo` are the exception: `--type`, `--rojo` and the coordinator's values reach only projects that have no `rbxts` key, and only under a coordinator. `--emitDeclarationOnly` applies to the solution build and cannot be watched. `--build --watch` watches the solution's tsconfig extends chain and Rojo topology, invalidating dependent projects when a referenced project changes.
+`sloptor build --build` drains project references in dependency order. A coordinator tsconfig with only `references` isn't compiled as a project of its own. Each referenced project gets the options its own direct build would: defaults, then its `rbxts` key, then the command line.
 
-With `compilerOptions.sourceMap: true`, sloptor writes an adjacent `.luau.map` for each Luau output. The map's `sourcesContent` is the original pre-transformer TypeScript, and source-map files are not counted as emitted Luau files. Declaration maps are kept while their corresponding source exists.
+- The `rbxts` key of the entry project doesn't reach its references.
+- The `rbxts` key of a coordinator applies to every project, below each project's own key.
+- `type` and `rojo` are the exception. `--type`, `--rojo`, and coordinator values reach only projects that have no `rbxts` key, and only under a coordinator.
+- `--emitDeclarationOnly` applies to the solution build, and you can't watch it.
+- `--build --watch` watches the extends chain and Rojo topology of the solution's tsconfig. It invalidates dependent projects when a referenced project changes.
 
-External transformer plugins remain compatible with the fork's `compilerOptions.plugins` shape and run through sloptor's Node sidecar. `before` transformers run before `after` transformers; custom `afterDeclarations` transformers are unsupported, warned about, and skipped. Declaration emit and declaration maps run natively. A plugin's `shouldTransformSourceFile` hook can skip a file, and plugin loading failures are build diagnostics. Builds that resolve external plugins require Node.js and the project's own `typescript` package.
+With `compilerOptions.sourceMap: true`, sloptor writes an adjacent `.luau.map` for each Luau output. The `sourcesContent` of the map is the original pre-transformer TypeScript. Source-map files don't count as emitted Luau files. Sloptor keeps declaration maps while their corresponding source exists.
 
-Native `[flamework]` builds do not require Node.js.
+External transformer plugins remain compatible with the `compilerOptions.plugins` shape of the fork and run through sloptor's Node sidecar. `before` transformers run before `after` transformers. Sloptor doesn't support custom `afterDeclarations` transformers. It warns about them and skips them. Declaration emit and declaration maps run natively. A plugin's `shouldTransformSourceFile` hook can skip a file, and plugin loading errors are build diagnostics. Builds that resolve external plugins need Node.js and the project's own `typescript` package. Native `[flamework]` builds don't need Node.js.
 
-On an incremental rebuild sloptor narrows the sidecar's `LanguageService` root set to the files it is recompiling plus every file that can reach them without being imported — declaration files, global scripts, and modules that open `declare global` — instead of handing the worker the whole project. TypeScript pulls each root's import closure into the program, so a transformer that asks the checker about a file it was handed gets the same answers. **A transformer that instead enumerates `program.getSourceFiles()` to build program-wide state sees only the narrowed program on an incremental rebuild, and can go stale.** `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React-compiler applier and native Flamework are all per-file and unaffected. A full build is never narrowed, so deleting the project's `*.rbxtsc.tsbuildinfo` is the escape hatch for a transformer that needs the whole program.
+On an incremental rebuild, sloptor narrows the sidecar's `LanguageService` root set. The set holds the files sloptor is recompiling plus every file that can reach them without an import: declaration files, global scripts, and modules that open `declare global`. Sloptor doesn't hand the worker the whole project. TypeScript pulls the import closure of each root into the program, so a transformer that queries the checker about a file it received gets the same answers.
 
-Successful builds may leave these generated or cached files. They are build state, not source files:
+**A transformer that enumerates `program.getSourceFiles()` to build program-wide state sees only the narrowed program on an incremental rebuild, and can go stale.** `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React compiler plugin, and native Flamework all work per file and are safe. A full build is never narrowed. Delete the project's `*.rbxtsc.tsbuildinfo` to get the whole program for a transformer that needs it.
 
-| File or directory      | Purpose                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `rbxts.copyfiles.json` | `outDir` copy-files gate manifest; lets an unchanged build skip cleanup and copy work                               |
-| `rbxts.rojocache.json` | Fork-compatible Rojo cache name protected from cleanup; sloptor's active hashed cache is under `.rotor/cache/rojo/` |
-| `.rotor/cache/rojo/`   | sloptor's hashed Rojo resolver cache directory                                                                      |
-| `.luau.map`            | Adjacent Luau source map when `sourceMap` is enabled                                                                |
-| `*.rbxtsc.tsbuildinfo` | sloptor incremental build state; sloptor inserts `.rbxtsc` before `.tsbuildinfo` to avoid collisions                |
+Successful builds may leave these generated or cached files, which are build state and not source files:
+
+| File or directory      | Purpose                                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `rbxts.copyfiles.json` | `outDir` copy-files gate manifest, which lets an unchanged build skip cleanup and copy work                      |
+| `rbxts.rojocache.json` | Fork-compatible Rojo cache name protected from cleanup. Sloptor's active hashed cache is in `.rotor/cache/rojo/` |
+| `.rotor/cache/rojo/`   | Sloptor's hashed Rojo resolver cache directory                                                                   |
+| `.luau.map`            | Adjacent Luau source map when `sourceMap` is on                                                                  |
+| `*.rbxtsc.tsbuildinfo` | Sloptor incremental build state, with `.rbxtsc` inserted before `.tsbuildinfo` to avoid collisions               |
 
 ## Incremental rebuild selection
 
-sloptor records a manifest of every source file's content hash, its resolved references, and the content hash of every output it wrote. An incremental build starts from the files whose own text moved and walks the importer graph outwards.
+Sloptor records a manifest of the content hash of every source file, its resolved references, and the content hash of every output it wrote. An incremental build starts from the files whose own text changed and walks the importer graph outwards.
 
-It does not walk the whole importer closure. A file's importers can only observe that file through its declaration output, so sloptor emits the `.d.ts` for each wave of the walk with its own emitter — the same one that writes them, off the untransformed program — compares it against the hash the previous build recorded for that same file, and pulls in the importers **only** of the files whose declaration moved. A comment edit, a renamed local, a changed function body — anything that leaves the declaration byte-identical — recompiles that one file and stops.
+It doesn't walk the whole importer closure. A file's importers can only observe that file through its declaration output. For each wave of the walk, sloptor emits the `.d.ts` with its own emitter, the same one that writes them, off the untransformed program. It compares the result against the hash that the previous build recorded for that file. It pulls in the importers **only** of files whose declaration changed. A comment edit, a renamed local, or a changed function body leaves the declaration byte-identical. That recompiles the one file and stops.
 
-**This is TypeScript's rule, not rbxtsc's.** It is the shape-signature reasoning `tsc --incremental` and the `BuilderProgram` behind it use to decide what an edit invalidates. rbxtsc has no equivalent and always rebuilds the whole importer closure, so sloptor selects strictly fewer files than rbxtsc for the same edit and writes the same bytes. Anything the rule cannot establish — a file that emits no declaration, a declaration with no recorded hash, a deleted file — propagates to the importers as before, so an incomplete manifest costs a wider rebuild and never a stale one.
+**This is TypeScript's rule, not rbxtsc's.** It's the signature reasoning that `tsc --incremental` and the `BuilderProgram` behind it use to decide what an edit invalidates. rbxtsc has no equivalent and always rebuilds the whole importer closure. Sloptor selects fewer files than rbxtsc for the same edit and writes the same bytes. Sloptor propagates to the importers anything the rule can't establish, such as a file without a declaration, a declaration with no recorded hash, or a deleted file. An incomplete manifest costs a wider rebuild and never a stale one.
 
-A resolved `.json` module is hashed into the manifest as an input even though nothing compiles it: its value never reaches an importer's Luau (that becomes a runtime require of the copied file), but its inferred type does reach the importer's `.d.ts`, so a change to it rebuilds whoever imported it.
+Sloptor hashes a resolved `.json` module into the manifest as an input, even though nothing compiles it. Its value never reaches the Luau of an importer, because that becomes a runtime require of the copied file. But its inferred type does reach the `.d.ts` of the importer, so a change to it rebuilds whoever imported it.
 
-The manifest is invalidated wholesale by a salt over the compiler options, the Rojo and include topology, the native Flamework inputs, and each effective transformer plugin's tsconfig entry, resolved package version, and entry-file hash. **Upgrading or editing a transformer therefore forces one full rebuild**, which is the point: a transformer rewrites the output of every file it sees, and nothing else in the manifest would notice.
+A salt invalidates the whole manifest. It covers the compiler options, the Rojo and include topology, the native Flamework inputs, and the tsconfig entry, resolved package version, and entry-file hash of each effective transformer plugin. **Upgrading or editing a transformer forces one full rebuild.** The salt exists for this reason. A transformer rewrites the output of every file it handles. Only the salt can catch that.
 
-Package imports discover `default.project.json` layouts, including nested defaults, but ignore other `*.project.json` files unless a selected layout explicitly references them. This deliberately differs from rbxtsc's package resolver: a generated test project in a dependency's cache or examples folder must not redirect ordinary package imports. Normal project resolvers keep their existing discovery rules. Nested defaults retain their existing behavior, including mounts outside their containing directory; such a default can still redirect an import.
+Package imports discover `default.project.json` layouts, including nested defaults. They ignore other `*.project.json` files unless a selected layout explicitly references them. This differs from the rbxtsc package resolver by design. A generated test project in the cache or examples folder of a dependency must not redirect ordinary package imports. Normal project resolvers keep their existing discovery rules. Nested defaults keep their existing behavior, including mounts outside their containing directory. Such a default can still redirect an import.
 
-Package builds fingerprint their effective package layouts and declaration-to-runtime mappings, including `main` and `exports` targets, and reuse those inputs for emission. `--build --watch` watches package layout inputs through a separate route that invalidates the owning package project without copying dependency assets. The new route ignores unrelated named projects; a main Rojo config that independently mounts those directories can still trigger its existing reload behavior. Single-project `build --watch` still prunes `node_modules`, so dependency-metadata-only edits require another build trigger or a restart. Game/model `main` and `exports` invalidation and the package's own output resolver are unchanged.
+Package builds fingerprint their effective package layouts and declaration-to-runtime mappings, including `main` and `exports` targets, and reuse those inputs for emission. `--build --watch` watches package layout inputs through a separate route. That route invalidates the owning package project without copying dependency assets. It ignores unrelated named projects. A main Rojo config that independently mounts those directories can still trigger its existing reload behavior. Single-project `build --watch` still prunes `node_modules`, so an edit to dependency metadata alone needs another build trigger or a restart. Game and model `main` and `exports` invalidation and the package's own output resolver work as before.
 
-**Hazard.** The rule assumes a transformer's output for a file is a function of that file and the types it can reach. A transformer that carries program-wide state — one that scans every source file to build a registry, and emits different code depending on what else it saw — can go stale, because the files it is handed on an incremental rebuild are only the selected ones. `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React-compiler applier and native Flamework are all per-file and unaffected. Delete the project's `*.rbxtsc.tsbuildinfo` to force a full rebuild for a transformer that is not.
+**Hazard.** The rule assumes that a transformer's output for a file depends on that file and the types it can use. A transformer with program-wide state can go stale. An example is one that scans every source file to build a registry and emits different code depending on what else it found. On an incremental rebuild it receives only the selected files. `rbxts-transformer-jecs`, `rbxts-transformer-jest`, the React compiler plugin, and native Flamework all work per file and are safe. For a transformer that doesn't, delete the project's `*.rbxtsc.tsbuildinfo` to force a full rebuild.
 
 ## Concurrency controls
 
-`--checkers <n>` sets the number of type-checker workers per project. The default is 4, matching TypeScript 7. It applies to `sloptor build`, `sloptor check`, and both watch modes. A CLI value overrides each project's `compilerOptions.checkers`; omitting the flag leaves the project's own config in place. If a project sets `compilerOptions.singleThreaded: true`, it still forces one effective checker regardless of the CLI.
+`--checkers <n>` sets the number of type-checker workers per project. The default is 4, matching TypeScript 7. It applies to `sloptor build`, `sloptor check`, and both watch modes. A command-line value overrides the `compilerOptions.checkers` of each project. Omitting the flag leaves the project's own config in place. If a project sets `compilerOptions.singleThreaded: true`, it still forces one effective checker whatever the command line says.
 
-`--builders <n>` sets the number of project-reference builders that run concurrently during solution builds (`--build`). The default is 4; `--builders 1` makes the solution build serial. It is only valid with `--build` — passing it without `--build` is a usage error (exit 1). `sloptor check` does not accept `--builders`.
+`--builders <n>` sets the number of project-reference builders that run concurrently during solution builds with `--build`. The default is 4, and `--builders 1` makes the solution build serial. The flag is valid only with `--build`. Passing it without `--build` is a usage error with exit code 1. `sloptor check` doesn't accept `--builders`.
 
 Both flags accept positive integers only. Missing, zero, negative, or non-integer values are usage errors.
 
-The two flags multiply: `--builders 4 --checkers 4` can run up to 16 checker workers at once, plus parsing, emit, and write work. CPU and memory use grow with the product. Find the right balance for the machine — CI runners with limited cores or memory may want smaller values. For large watch builds, `--build --builders 1 --checkers 1` reduces concurrent compiler state at the cost of potential rebuild latency. The default checker and builder counts remain 4 in watch mode.
+Together, the flags multiply. `--builders 4 --checkers 4` can run up to 16 checker workers at once, plus parsing, emit, and write work. CPU and memory use grow with the product. Find the right balance for the machine. CI runners with limited cores or memory may want smaller values. For large watch builds, `--build --builders 1 --checkers 1` reduces concurrent compiler state at the cost of possible rebuild latency. The default checker and builder counts are still 4 in watch mode.
 
-**Result guarantees.** Varying `--builders` never changes build results: dependencies always build first, and output, diagnostics, and caching stay deterministic. TypeScript 7 notes that in rare cases varying `--checkers` can surface order-dependent results. Teams that need perfectly stable diagnostics across environments may want to pin `--checkers` to a fixed value.
+**Result stability.** Varying `--builders` never changes build results. Dependencies always build first, and output, diagnostics, and caching are deterministic. TypeScript 7 notes that in rare cases varying `--checkers` can produce order-dependent results. Teams that need stable diagnostics across environments may want to pin `--checkers` to a fixed value.
 
-**Real-world limits.** Even with high concurrency, some work stays serialized. External transformer-plugin sidecars run through Node and may bottleneck a project. Projects whose output or include directories overlap are serialized for safety. And the dependency graph itself bounds how many projects can build in parallel — leaf projects run first, and dependents wait.
+Even with high concurrency, sloptor serializes some work:
 
-These flags control checker and builder parallelism. They are separate from the write-worker environment variables below, which only tune disk-write parallelism.
+- External transformer-plugin sidecars run through Node and may bottleneck a project.
+- Projects whose output or include directories overlap build one at a time for safety.
+- The dependency graph itself bounds how many projects can build in parallel. Leaf projects run first, and dependents wait.
+
+These flags control checker and builder parallelism. They're separate from the write-worker environment variables that follow, which only tune disk-write parallelism.
 
 The write-worker controls are:
 
-- `RBXTSC_WRITE_CONCURRENCY` directly overrides output-write workers and takes precedence over sloptor's setting; values are capped at 256.
-- `ROTOR_WRITE_WORKERS` is sloptor's own output-write override.
-- Without either override, sloptor uses 8 output-write workers. Positive fractional overrides are rounded down; invalid values fall through to the next setting or this default.
+- `RBXTSC_WRITE_CONCURRENCY` directly overrides output-write workers and takes precedence over the sloptor setting. It caps values at 256.
+- `ROTOR_WRITE_WORKERS` is the output-write override of sloptor.
+- Without either override, sloptor uses 8 output-write workers. It rounds positive fractional overrides down. It skips values it can't parse and uses the next setting or this default.
 
-`UV_THREADPOOL_SIZE` may still affect the Node sidecar's libuv thread pool, but it does not select sloptor's output-write worker count.
+`UV_THREADPOOL_SIZE` can still change the libuv thread pool of the Node sidecar, but it doesn't set the output-write worker count of sloptor.
 
-Rust has no garbage collector, so there is no `GOGC` or `GOMEMLIMIT`. Each build instead takes one of a few machine-wide build slots (one per 6 GiB of memory, at most one per two CPUs), so concurrent builds such as an `nx` run or a CI matrix split the machine. `ROTOR_MAX_BUILDS` changes the slot count, and `0` turns the queue off. The build's share sizes the checker worker pool and the Node sidecar's shard count; `RAYON_NUM_THREADS` overrides the pool size. Lower `--checkers` and `--builders` counts reduce live compiler state when memory is tight.
+Rust has no garbage collector, so there is no `GOGC` or `GOMEMLIMIT`. Each build instead takes one of a few machine-wide build slots, one per 6 GiB of memory and at most one per two CPUs. Concurrent builds, such as an `nx` run or a CI matrix, split the machine. `ROTOR_MAX_BUILDS` changes the slot count, and `0` turns the queue off. The build's share sizes the checker worker pool and the Node sidecar's shard count. `RAYON_NUM_THREADS` overrides the pool size. Lower `--checkers` and `--builders` counts reduce live compiler state when memory is tight.
