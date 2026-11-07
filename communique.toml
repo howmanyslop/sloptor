@@ -159,7 +159,7 @@ the copy-files gate, the Rojo resolver cache, solution builds, and solution watc
 
 Repository layout worth reading when researching a change:
 - `crates/rotor_cli/` is the whole CLI: one file per command (`build.rs`, `check.rs`,
-  `clean.rs`, `diagnostics.rs`, `lsp.rs`, and so on), the clap command tree in `cli.rs`,
+  `clean.rs`, `diagnostics.rs`, `lsp.rs`, and so on), the usage-rs command tree in `cli.rs`,
   and diagnostic rendering for the terminal and `--json` in `diagnostics.rs` and `report.rs`.
 - `crates/rotor_compile/` handles project builds, incremental state, watch mode, solution
   (project-reference) builds and watch, the manifest system, the copy-files gate, the

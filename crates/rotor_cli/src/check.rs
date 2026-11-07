@@ -12,7 +12,7 @@ use rotor_tsrs::diagnostics::Category;
 use rotor_tsrs::{Context, P, tspath};
 
 use crate::app::Failure;
-use crate::cli::CheckCommand;
+use crate::cli::{CheckCommand, Positive};
 use crate::frames::{self, Frame, Location, Related, Severity};
 use crate::json::{JsonDiagnostic, JsonResult};
 use crate::term::Streams;
@@ -294,7 +294,8 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 	if std::fs::metadata(gopath::join(&[&dir, "tsconfig.json"])).is_err() {
 		return Err(Failure::Runtime(format!("no tsconfig.json found in {dir}")));
 	}
-	let watch = command.watch == Some(true);
+	let watch = command.watch;
+	let checkers = command.checkers.map(Positive::get);
 	rotor_tsrs::project::set_long_lived(watch);
 	// A watch session takes no build slot, as in Go.
 	let _lease = (!watch).then(|| crate::build::admit(streams));
@@ -306,7 +307,7 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		ui::rel_for_display(&dir)
 	);
 
-	if watch && command.json == Some(true) {
+	if watch && command.json {
 		if missing_modules {
 			let err = streams.err_paint();
 			ui::warn(streams.err, err, &modules_warning);
@@ -317,19 +318,19 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		let mut reporter =
 			crate::watch_json::JsonCheckReporter(crate::watch_json::WatchEventWriter::new(streams.out, &dir));
 		rotor_tsrs::with_large_stack(|| {
-			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, command.checkers, &mut reporter);
+			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, checkers, &mut reporter);
 		});
 		return Ok(());
 	}
 
-	if command.json == Some(true) {
+	if command.json {
 		// stdout carries exactly one JSON object, so compiler warnings move to stderr.
 		if missing_modules {
 			let err = streams.err_paint();
 			ui::warn(streams.err, err, &modules_warning);
 		}
 		let previous = logservice::set_output_stderr(true);
-		let pass = check_pass(&dir, command.checkers, Render::Json, None, streams.err);
+		let pass = check_pass(&dir, checkers, Render::Json, None, streams.err);
 		logservice::set_output_stderr(previous);
 		let result = JsonResult {
 			version: VERSION.to_owned(),
@@ -356,7 +357,7 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		crate::watch::exit_on_interrupt(streams.err_color && crate::term::process_terminals().1);
 		let mut reporter = crate::watch::StyledCheckReporter::new(streams, &dir);
 		rotor_tsrs::with_large_stack(|| {
-			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, command.checkers, &mut reporter);
+			crate::watch::run_check_watch_loop(&crate::watch::Stop::default(), &dir, checkers, &mut reporter);
 		});
 		return Ok(());
 	}
@@ -367,7 +368,6 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		solution: false,
 		out,
 	};
-	let checkers = command.checkers;
 	let mut warnings = Vec::new();
 	let pass = live::run(streams, &progress, view, || {
 		check_pass(&dir, checkers, Render::Frames, Some(&progress), &mut warnings)

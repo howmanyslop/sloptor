@@ -14,7 +14,7 @@
 # inputs are the files in this repo. `noLib` and `types: []` keep a benchmark
 # from silently measuring whichever node_modules happened to be installed.
 #
-# The startup control is `version`: process start, dynamic linking and clap
+# The startup control is `version`: process start, dynamic linking and usage
 # parsing with no compiler work. Reading `check` and `build` against it
 # separates "sloptor got slower to start" from "this path got slower".
 #
@@ -44,8 +44,8 @@ warmup = 2
 # from the host. NO_COLOR=1 keeps styled diagnostics byte-stable.
 env = { ROTOR_MAX_BUILDS = "0", RAYON_NUM_THREADS = "1", NO_COLOR = "1" }
 
-# Fixed cost of every invocation. Deliberately not `--help`: rendering the
-# clap command tree is extra work that real commands do not pay.
+# Fixed cost of every invocation. Deliberately not `--help`: rendering the help
+# page is extra work that real commands do not pay.
 [bench.startup]
 cmd = ["{{ env.SLOPTOR_BIN | default(value='./target/release/sloptor') }}", "version"]
 

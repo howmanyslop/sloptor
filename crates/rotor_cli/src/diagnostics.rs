@@ -16,7 +16,7 @@ use serde_json::Value;
 
 use crate::VERSION;
 use crate::app::{Failure, usage};
-use crate::cli::DiagnosticsCommand;
+use crate::cli::{DiagnosticsCommand, Positive};
 use crate::frames::{self, Sources};
 use crate::json::write_string;
 use crate::options::{
@@ -144,11 +144,11 @@ pub fn run(command: DiagnosticsCommand, streams: &mut Streams) -> Result<(), Fai
 	let ts_config_path = find_ts_config_path(&project_path).map_err(Failure::Runtime)?;
 	let dir = gopath::dir(&ts_config_path);
 	let mut options = compile_options(&ts_config_path).map_err(Failure::Runtime)?;
-	options.checkers = command.checkers;
-	options.builders = command.builders;
+	options.checkers = command.checkers.map(Positive::get);
+	options.builders = command.builders.map(Positive::get);
 	options.overlays.clone_from(&overlays);
 
-	let json = command.json == Some(true);
+	let json = command.json;
 	let out = streams.out_paint();
 	if !json {
 		ui::header(

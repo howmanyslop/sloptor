@@ -170,7 +170,7 @@ pub fn run(command: CleanCommand, streams: &mut Streams) -> Result<(), Failure> 
 	// The header names the project, so the tsconfig is found first.
 	let dir = gopath::dir(&find_ts_config_path(&path).map_err(Failure::Runtime)?);
 	let out = streams.out_paint();
-	let dry_run = command.dry_run == Some(true);
+	let dry_run = command.dry_run;
 	ui::header(
 		streams.out,
 		out,
@@ -179,7 +179,7 @@ pub fn run(command: CleanCommand, streams: &mut Streams) -> Result<(), Failure> 
 			&ui::project_name(&gopath::join(&[&dir, "tsconfig.json"])),
 		],
 	);
-	let report = clean(&path, command.types == Some(true), dry_run).map_err(Failure::Runtime)?;
+	let report = clean(&path, command.types, dry_run).map_err(Failure::Runtime)?;
 	let width = report
 		.events
 		.iter()

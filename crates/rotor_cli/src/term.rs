@@ -118,8 +118,8 @@ pub fn color_enabled(choice: ColorChoice, terminal: bool) -> bool {
 	}
 }
 
-/// The `--color` choice of `args`, read before clap parses so a usage error is coloured by it too.
-/// The last occurrence wins; an invalid value is `auto` (clap reports it).
+/// The `--color` choice of `args`, read before usage parses so a usage error is coloured by it too.
+/// The last occurrence wins; an invalid value is `auto` (usage reports it).
 #[must_use]
 pub fn color_choice(args: &[OsString]) -> ColorChoice {
 	let mut choice = ColorChoice::Auto;

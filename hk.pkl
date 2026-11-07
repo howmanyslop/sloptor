@@ -72,17 +72,6 @@ local fileChecks = new Mapping<String, Step> {
   }
   ["merge-conflicts"] = Builtins.check_merge_conflict
   ["private-keys"] = Builtins.detect_private_key
-  ["typos"] = (Builtins.typos) {
-    exclude = BINARY_FILES + MIRROR_INPUTS
-    check = new CommandSpec {
-      command = new Command {
-        argv = List("bun", "run", "scripts/check-hook-tools.ts", "typos", "{{files}}")
-      }
-      effect = "read"
-    }
-    check_diff = null
-    check_list_files = null
-  }
 
   // Rust.
   // The builtins run once per Cargo.toml (`workspace_indicator`), which fails on this

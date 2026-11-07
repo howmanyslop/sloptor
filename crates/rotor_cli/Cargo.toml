@@ -11,8 +11,6 @@ name = "sloptor"
 path = "src/main.rs"
 
 [dependencies]
-clap.workspace = true
-clap_complete.workspace = true
 ctrlc.workspace = true
 icu_normalizer.workspace = true
 jiff.workspace = true
@@ -28,6 +26,10 @@ serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
 terminal_size.workspace = true
+usage-rs.workspace = true
+
+[dev-dependencies]
+usage-parser.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc.workspace = true

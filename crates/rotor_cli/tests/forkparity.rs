@@ -24,8 +24,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use clap as _;
-use clap_complete as _;
 use ctrlc as _;
 use icu_normalizer as _;
 use jiff as _;
@@ -37,6 +35,8 @@ use notify as _;
 use rotor_config as _;
 use rotor_lsp as _;
 use terminal_size as _;
+use usage_parser as _;
+use usage_rs as _;
 
 /// The repository root.
 fn repo_root() -> PathBuf {

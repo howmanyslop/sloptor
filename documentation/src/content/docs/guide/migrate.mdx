@@ -34,7 +34,7 @@ sloptor build -p tsconfig.json -w
 - `--writeTransformedFiles`, which sloptor parses and ignores
 - `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, `--luau`
 
-Sloptor adds `--optimizedArrayAppends`, the experimental `--luauTypes`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`.
+Sloptor adds `--optimizedArrayAppends`, the experimental `--luauTypes`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`.
 
 A few rules apply to these flags:
 
@@ -42,7 +42,7 @@ A few rules apply to these flags:
 - `--builders` requires `--build`.
 - `--singleThreaded` is the tsgo flag of the same name. When effective, it forces one solution builder and one checker per program, even if `--builders` or `--checkers` are larger. There is no `--parallel` flag.
 - `--emitDeclarationOnly` requires `--build`. You can't combine `--build --watch` with declaration-only emit.
-- You can't combine the finite profiling and timing flags with `--watch`.
+- You can't combine `--timings` with `--watch`.
 
 Run `sloptor build --help` for the rendered descriptions.
 
@@ -54,7 +54,7 @@ You can also set options under the top-level `"rbxts"` key of `tsconfig.json`. T
 
 - `path` is a project directory containing a `tsconfig.json`. It defaults to the current directory.
 - Your project needs `node_modules` installed, because sloptor reads the same `@rbxts` types.
-- Exit code `0` means success. Exit code `1` means any problem: diagnostics, config, or usage errors. This matches upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports instead of gating. See [Diagnostics census](/sloptor/guide/diagnostics/).
+- Exit code `0` means success, and exit code `1` means a build problem: diagnostics or config errors. A usage error, such as an unknown flag or a bad value, exits `2`. Upstream `rbxtsc` exits `1` for usage errors too, so update a script that checks for exactly `1`. The one exception is `sloptor diagnostics`, which reports instead of gating. See [Diagnostics census](/sloptor/guide/diagnostics/).
 - Builds with external tsconfig transformer plugins need Node.js at runtime for the transformer sidecar.
 
 Like `rbxtsc`, sloptor can't compile a standalone `.ts` file. It needs the rbxts project around it: `package.json` with `@rbxts/compiler-types` and `@rbxts/types` installed, `tsconfig.json`, and `default.project.json`.

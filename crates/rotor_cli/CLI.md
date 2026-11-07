@@ -1,48 +1,25 @@
 # rotor_cli
 
-The `sloptor` binary: the Rust port of `cmd/rotor`, on clap. The command tree, flags, exit
-codes and every `--json` byte match Go; help, errors, completions and human output are
-redesigned. Stage 7a wires `build`, `check`, `clean`, `diagnostics`, `schema`, `completion`,
-`gen-docs` and `version`, and the runtime policy. Stage 7b adds `build --watch`,
-`check --watch`, `lsp` (crate `rotor_lsp`) and the hidden `api-server`.
+The `sloptor` binary. The command tree is declared once in `src/cli.rs` with
+[usage-rs](https://usage.jdx.dev/rust/)'s derive API; parsing, help, errors, shell completions,
+the docs pages (`gen-docs`) and the [usage spec](https://usage.jdx.dev/spec/) all come from it.
 
-## Go file to Rust module
-
-| Go (`cmd/rotor`) | Rust (`src/`) | Status |
-| --- | --- | --- |
-| `main.go` | `main.rs` | ported |
-| `cli.go` (Cobra tree, help, error policy) | `cli.rs` (clap derive tree), `app.rs` (exit codes, dispatch, help and error rendering) | ported; help redesigned |
-| `cli.go` (`normalizeCompilerInvocation`, `normalizeLegacyArgs`) | `argv.rs` | ported; clap reads the optional values itself |
-| `options.go` | `options.rs` | ported |
-| `build.go` | `build.rs`, `json.rs` | ported |
-| `check.go` | `check.rs`, plus `rotor_tsrs::project::load_check_program` | ported |
-| `clean.go` | `clean.rs` | ported; output redesigned |
-| `diagnostics.go` | `diagnostics.rs` | ported; JSON byte-identical, text output redesigned |
-| `gen_docs.go` | `gen_docs.rs` | ported; pages come from the clap tree |
-| `schema.go` | `app.rs` | ported |
-| `completion.go` | `app.rs` (`clap_complete`) | redesigned |
-| `ui.go` | `ui.rs` (verbs, header, formatters), `frames.rs` (diagnostic frames), `live.rs` (progress line, project lines), `report.rs` (result block, `--verbose` report) | redesigned |
-| — | `term.rs` | the one writer edge and the colour policy |
-| — | `rotor_compile::progress` | the atomics the live view samples |
-| `profiles.go` | `build.rs` | flags kept; they report a clear error |
-| `runtime_policy*.go`, `internal/admission` | `runtime.rs` | ported where Rust has an equivalent |
-| `watch.go` | `watch.rs` | ported; output redesigned |
-| `watch_json.go` | `watch_json.rs` | ported; NDJSON byte-identical |
-| `solution_watch.go` | `solution_watch.rs` | ported |
-| `solution_watch_coverage.go` | `solution_watch_coverage.rs` | ported |
-| `lsp.go` | `lsp.rs` | ported |
-| `api_server.go` | `api_server.rs` | ported |
-| `internal/buildapi` | `buildapi.rs` | ported; responses byte-identical |
-| `internal/lsp` | crate `rotor_lsp` | ported; messages byte-identical |
-| `tsgo/fswatch` (the surface the solution watch uses) | `fswatch.rs`, on `notify` | ported |
-| — | `memory.rs` | gives a pass's freed heap back after each watch rebuild and census |
+| Module | Role |
+| --- | --- |
+| `cli.rs` | the command tree: every command, flag, default, example and help text |
+| `argv.rs` | the one rewrite before parsing: a leading `--build` or `-b` selects `build` |
+| `app.rs` | the exit-code owner: completion and spec requests, parsing, help, usage errors, dispatch |
+| `term.rs` | the one writer edge and the colour policy |
+| `gen_docs.rs` | the CLI reference as Starlight MDX, read from the spec |
+| `build.rs`, `check.rs`, `clean.rs`, `diagnostics.rs`, `lsp.rs`, `api_server.rs` | the commands |
+| `options.rs` | the merge of the defaults, tsconfig's `rbxts` key and the command line |
 
 ## Flag names
 
-Each flag's primary name is kebab-case. Go's camelCase name stays as a hidden alias, so scripts
-keep working. Short flags and names that were already kebab-case or one word are unchanged.
+Each flag is kebab-case. rbxtsc's camelCase spelling stays as a hidden alias, so roblox-ts build
+scripts keep working; help and completions show only the kebab name.
 
-| Kebab name (primary) | Go name (hidden alias) | Command |
+| Flag | Hidden alias | Command |
 | --- | --- | --- |
 | `--include-path`, `-i` | `--includePath` | build |
 | `--no-include` | `--noInclude` | build |
@@ -57,35 +34,90 @@ keep working. Short flags and names that were already kebab-case or one word are
 | `--use-polling` | `--usePolling` | build |
 | `--single-threaded` | `--singleThreaded` | build |
 
-These are unchanged: `-p/--project`, `-b/--build`, `--builders`, `--checkers`, `-w/--watch`,
-`--verbose`, `--type`, `--rojo`, `--luau`, `--json`, `--bell`, `--clear`, `--max-errors`,
-`--timings`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`,
-`-v/--version`, `--types`, `-n/--dry-run`, `--rbxts` and `--stdio`.
+A leading `--build` or `-b` selects `build` (`sloptor --build tsconfig.json`), the shape Nx and
+other TypeScript build integrations use.
 
-A boolean takes pflag's forms: `--flag`, `--flag=<bool>` (any `strconv.ParseBool` spelling) and
-`--no-flag[=<bool>]`, under either name (`--no-optimizedLoops` works). `--flag value` never
-consumes the value. Every flag may repeat, and the last value wins. `--build`, `--rojo` and
-`--max-errors` take an optional value, as in Go: a bare `--build` builds the project's
-references, a bare `--rojo` discovers the Rojo project, and a bare `--max-errors` means 0. A bare
-`--project` or `--include-path` is the empty path, as in Go.
+### Booleans
+
+A boolean takes `--flag`, `--flag=true`, `--flag=false` and `--no-flag`, and the last one given
+wins. `--flag value` never consumes the value: `value` is the positional. Other spellings
+(`--flag=1`, `--flag=TRUE`) are usage errors.
+
+The booleans that layer over tsconfig's `rbxts` key (`--watch`, `--use-polling`, `--verbose`,
+`--no-include`, `--luau`, `--luau-types`, `--optimized-loops`, `--optimized-array-appends`,
+`--allow-comment-directives`, `--log-truthy-changes`, `--write-only-changed`,
+`--write-transformed-files`) and `--single-threaded` need a third state, "not given", so the
+config's value stands. usage's native negation only fits a plain `bool`, so each of these is an
+`Option<bool>` (`--flag[=BOOL]` in help) with a hidden `--no-flag` partner, the two overriding
+each other; `build::collect` folds the pair back into one `Option<bool>`. `--no-include` has no
+partner. Every other boolean is a plain `bool`. Those worth turning off (`--json`, `--bell`, `--clear`,
+`check --watch`, `--types`, `--dry-run`, `--rbxts`) have a native `--no-flag`, shown in help as
+`--flag / --no-flag`; `--emit-declaration-only` and `lsp --stdio` take `=false` only.
+
+### Values
+
+`--build`, `--rojo`, `--project`, `--include-path` and `--max-errors` take an optional value: a
+bare `--build` builds the project's references, a bare `--rojo` discovers the Rojo project, a
+bare `--max-errors` means 0 (render every frame), and a bare `--project` or `--include-path` is
+the empty path. `--builders` and `--checkers` take a positive integer and `--max-errors` a
+non-negative one (`cli::Positive`, `cli::NonNegative`): `invalid value '0' for '--checkers':
+must be a positive integer`. Every flag may repeat, and the last value wins.
 
 ## Exit codes
 
 | Code | When |
 | --- | --- |
-| 0 | success, `--help`, `-h`, `--version`, `version` |
-| 1 | any failure: compile and type errors, config errors, usage errors (clap's included) |
+| 0 | success, `-h`, `--help`, `help`, `-v`, `-V`, `--version`, `version` |
+| 1 | an operational failure: compile and type errors, config errors, a missing project |
+| 2 | a usage error: an unknown command or flag, a bad or missing value, a broken implication (`--use-polling requires --watch`), no command at all |
 | 130 | a watch session ended by Ctrl+C (or SIGTERM, SIGHUP) |
 
-clap's own usage errors exit 2 by default; `app.rs` maps them to 1, as Go does.
+`diagnostics` exits 0 whenever it produced a census. A bare `sloptor` prints the root help on
+stderr and exits 2. The usage errors a command finds after parsing (`app::usage`) render like
+usage's own: the message, the command's `Usage:` line, and `For more information, try
+'--help'.`
 
 ## Colour
 
-`--color auto|always|never` is global and read before clap parses, so usage errors follow it
-too. Under `auto`, `NO_COLOR` turns colour off, then `CLICOLOR_FORCE` or `FORCE_COLOR` (other
-than `0`) turns it on, then `CLICOLOR=0` turns it off; otherwise a stream is coloured when it is
-a terminal and `TERM` is not `dumb`. stdout and stderr are decided separately. `--json` output
-and completion scripts never contain escapes.
+`--color auto|always|never` is global and read before usage parses (`term::color_choice`), so
+usage errors follow it too. Under `auto`, `NO_COLOR` turns colour off, then `CLICOLOR_FORCE` or
+`FORCE_COLOR` (other than `0`) turns it on, then `CLICOLOR=0` turns it off; otherwise a stream
+is coloured when it is a terminal and `TERM` is not `dumb`. stdout and stderr are decided
+separately. Help is rendered in cargo's colours, which sloptor's own output uses too. `--json`
+output and completion scripts never contain escapes.
+
+## Help and errors
+
+Every help page opens with a banner (`sloptor vX  ·  <about>` at the root, `sloptor <command>  ·
+<about>` below it), then usage's sections in the compact layout (`help_template` in `cli.rs`):
+the usage line, the commands, the arguments, the flags under their headings, and the global
+`-v`, `--color` and `-h`. `-h` stops there, apart from the root's pointer to `--help`; `--help`
+adds the command's `after_long_help` (examples, and at the root the environment and exit codes),
+written as authored so its columns survive. `app::help_page` assembles the page.
+`sloptor help <command>` is the same as `sloptor <command> --help`.
+
+Usage lines, `tip:` suggestions and error text are usage's. A misspelt flag's tip names every
+close spelling the parser accepts, the camelCase aliases included.
+
+## Completions
+
+`sloptor completion <shell>` (alias `completions`) is usage's built-in command, for bash, zsh,
+fish, elvish, nu and powershell. The script holds no command tree: on every Tab it calls
+`sloptor __complete_word__`, which `app.rs` answers before parsing, so a script never goes stale
+when sloptor is upgraded. `--install` writes the script where the shell looks for it. Path
+arguments carry `ValueHint::AnyPath`, `FilePath` or `DirPath`, so shells complete files and
+directories. Hidden flags and the camelCase aliases are not offered.
+
+## The spec and gen-docs
+
+`sloptor __usage_spec__` prints the CLI as a usage KDL spec, for `usage` tooling (`usage lint`,
+generated man pages and Markdown). `cli::tests::the_spec_round_trips_through_usage` keeps it
+parseable by `usage-lib`.
+
+The hidden `sloptor gen-docs <dir>` writes the Starlight pages under
+`documentation/src/content/docs/commands/` (`mise run docs:generate`; the pages are generated,
+not committed). Each page has the usage line, the arguments, the flags under their help headings
+with the camelCase aliases in their own column, the global flags, and the command's examples.
 
 ## Human output
 
@@ -171,100 +203,28 @@ The pieces (`ui::header`, `ui::verb_line`, `frames::render_all`, `live::project_
 - **No mid-build refresh.** Go re-reads the active slot count while it runs; Rust sizes the pool
   once at admission, because rayon's global pool cannot be resized.
 
-## Completions
+## Behaviour notes
 
-`sloptor completion <shell>` (alias `completions`) generates a static script with
-`clap_complete` for bash, zsh, fish, elvish and powershell. Path arguments carry
-`ValueHint::AnyPath`, `FilePath` or `DirPath`, so zsh and fish complete files and directories.
-Booleans complete as plain flags, and the camelCase aliases are not offered.
-
-Dynamic completion of `tsconfig*.json` paths through `clap_complete::CompleteEnv` is not used.
-It sits behind clap_complete's `unstable-dynamic` feature, which also turns on
-`clap/unstable-ext`. Neither is covered by semver, and both replace the static script with
-`COMPLETE=<shell> sloptor`, a different install step from Go's.
-
-## Intentional differences from Go
-
-- **Help and usage errors** come from clap: grouped headings (Input, Output, Emit, Optimization,
-  Watch, Diagnostics, Runtime, Advanced, General), `-h` short and `--help` long with examples,
-  value names and possible values, and `tip:` suggestions. A misspelt or unaliased camelCase flag
-  suggests the kebab name (`--maxErrors` gives `--max-errors`), never a hidden alias. A usage
-  error prints clap's `Usage:` line and `For more information, try '--help'.` rather than Go's
-  `Run 'sloptor build --help' for usage.`.
-- **Error wording.** The implication errors name the kebab flags: `--use-polling requires
-  --watch` and `--emit-declaration-only requires --build` replace yargs' `Implications failed:`
-  text. Value errors are clap's (`invalid value '0' for '--checkers <N>': must be a positive
-  integer`, `a value is required for '--checkers <N>'`). Unknown commands and flags are clap's
-  `unrecognized subcommand` and `unexpected argument`.
-- **`--type` without a value** is a usage error from clap, where Go reported the invalid empty
-  choice. Both exit 1.
-- **Profiles.** `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile` and
-  `--heapprofile` keep their parsing, their `requires a path` and `cannot be used with --watch`
-  checks, and the duplicate-path check (symlinks and hard links included). Go runtime profiles
-  have no Rust equivalent, so a build given one then fails with an error naming a sampling
-  profiler, before it builds. `--timings` is fully supported.
-- **Completion scripts** are `clap_complete`'s static scripts, not Cobra's `__complete`
-  protocol, and add elvish. `completions` is an alias of `completion`.
-- **The root command** prints `error: a command is required` when given no command, where Go
-  printed `no command given`. Both exit 1.
-- **`diagnostics` stack traces.** stdin works as in Go: unless it is a terminal, the overlay
-  request is read to EOF and its first JSON value decoded, so a script with no request must pass
-  `< /dev/null`. In the JSON output an internal compiler error's `stack` is `""`, since a Rust
-  panic carries no Go stack.
-- **`gen-docs`** writes the same Starlight MDX layout as Go, built from the clap tree: options
-  are grouped by help heading and the camelCase aliases get their own column.
-- **Ctrl+C in a watch session** exits 130, the code a shell reports for Go's default signal
-  exit, after clearing a progress line that may be on screen. Nothing else needs restoring: a
-  session never changes the terminal's modes.
-- **`--use-polling` with `-b`** polls through `notify`'s `PollWatcher` (100 ms). Go accepts the
-  flag (it only checks that `--watch` is given) but always uses OS events.
-- **Watch human output** is redesigned (above). A solution rebuild prints the same compact lines
-  as a single-project one, and `unchanged` is left out when it is 0.
-- **The divider's clock** is local time from `jiff`.
-- **The language server's typed decoding.** Go decodes each request's params into typed structs
-  through go-json-experiment; the Rust server decodes the fields it reads with serde_json. A
-  request whose params do not decode gets the same error codes for `initialize` and `shutdown`,
-  but a malformed params object of another method can differ in the error's message text.
+- **`diagnostics` reads stdin.** Unless stdin is a terminal, the overlay request is read to EOF
+  and its first JSON value decoded, so a script with no request must pass `< /dev/null`. An
+  internal compiler error's `stack` is `""`.
+- **`--use-polling` with `-b`** polls through `notify`'s `PollWatcher` (100 ms).
+- **Ctrl+C in a watch session** exits 130 after clearing a progress line that may be on screen.
+  Nothing else needs restoring: a session never changes the terminal's modes.
 - **The `Object` collision check.** rotor's tsgo removed the CommonJS top-level `Object`
-  collision check (`12f44893`). The tsrs mirror patch
-  `0010-rotor-fork-object-collision.patch` removes it too, so neither `build` nor `check`
-  reports TS2441 for a top-level `Object` binding.
+  collision check (`12f44893`). The tsrs mirror patch `0010-rotor-fork-object-collision.patch`
+  removes it too, so neither `build` nor `check` reports TS2441 for a top-level `Object`
+  binding.
 
 ## Tests
 
-`src/*` unit tests cover argv normalization, the option merge, the JSON encoder and the build
-flag semantics, the frames, the formatters, gen-docs, the runtime policy, the watch loops
-(`watch_test.go`, `watch_flamework_test.go`, `watch_json_test.go`, `solution_watch_test.go`,
-`solution_watch_coverage_test.go`, `package_watch_test.go`, over a fake watcher where Go uses
-one), the build API (`server_test.go`, `timing_schema_contract_test.go`) and `lsp_test.go`.
-`rotor_lsp/tests/server.rs` ports `internal/lsp`'s server tests. `tests/cli.rs`
-runs the binary end to end, including `diagnostics`, `gen-docs` and the `Object` binding under
-`build` and `check`. `tests/go_parity.rs` compares
-`--json` (`build`, `check` and `diagnostics`, with stdin overlays), `schema` and `version` output byte for byte, and exit codes, with a Go build. It is
-ignored by default:
-
-```sh
-go build -trimpath -o /tmp/rotor-go ./cmd/rotor
-ROTOR_GO_BIN=/tmp/rotor-go mise x -- cargo nextest run -p rotor_cli --run-ignored only -E 'binary(go_parity)'
-```
-
-These `cmd/rotor` tests were dropped or rewritten in Stage 7a:
-
-| Go test | Why |
-| --- | --- |
-| `TestRootHelpRendersCargoStyleLayout`, `TestBuildHelpShowsOptionsOrder`, `TestBuildHelpShowsConcurrencyControls` | pinned Cobra help text; rewritten as `help_is_grouped_and_shows_kebab_names_only` |
-| `TestInvalidCommandRendersCompactError`, `TestSubcommandUsageErrorNamesTheCommand` | pinned Go's error hint; rewritten against clap's `Usage:` line |
-| `TestCompletionGeneratesNativeScripts`, `TestCompletionHelpShowsInstallExamples` | pinned Cobra's `__complete` protocol and help; rewritten for `clap_complete` |
-| `TestNoColorHelpAndEvents` | rewritten as `colour_follows_the_flag_and_the_environment` |
-| `TestBuildWritesCombinedProfiles`, `TestFailedBuildFinalizesCombinedProfiles`, `TestBuildProfilesStopReportsFinalizationErrors` | Go pprof; rewritten as `go_profiles_fail_clearly_before_building` |
-| `TestBuildSuccessStructure`, `TestUIEvents*`, `TestRenderDiagFrames` | pinned Go's chrome, which Phase 2 replaces; code frames stay covered by `styled_build_failure_renders_code_frames_on_stderr` and `rotor_support::diagframe` |
-| `TestJSONDiagnostics_prefersConcreteStringCodeAndMessage` | tsrs has no string-code diagnostics |
-| `TestCheckProgramCheckerOverride`, `TestCmdCheckJSONKeepsCompilerWarningsOffStdout`, `TestBuildTimingsNormalOutputUnchanged`, `TestBuildSolutionPropagatesCheckers` | not ported yet: they need program or coordinator internals, or a compiler-warning source |
-| `runtime_policy*_test.go` | rewritten as `runtime.rs` unit tests; the `GOGC`/`GOMEMLIMIT` cases have no equivalent |
-| `diagnostics*_test.go`, `task7_diag_preconditions_test.go`, `gen_docs_test.go` | rewritten as `diagnostics_*` and `gen_docs_*` tests in `tests/cli.rs`, and the diagnostics cases in `tests/go_parity.rs` |
-| `TestStderrWriter` | Go's `stderrWriter` type has no counterpart; the solution watch writes its errors to `std::io::stderr` |
-| `TestCmdBuildJSONDiagnosticPathIsProjectRelative` | covered by `build_json_reports_success_and_diagnostics` in `tests/cli.rs` |
-| `parallel_transformer_test.go`, `concurrency_system_test.go`, `build_solution_reuse_test.go` | compile-level behaviour that needs the Node sidecar or fixtures; not ported in Stage 7a |
+`src/*` unit tests cover the build flag semantics (parsed through the real command tree), the
+spec round trip, argv normalization, the option merge, the JSON encoder, the frames, the
+formatters, gen-docs, the runtime policy, the watch loops (over a fake watcher), the build API
+and the language server. `rotor_lsp/tests/server.rs` covers the server end to end.
+`tests/cli.rs` runs the binary end to end: exit codes, help, usage errors and their tips,
+colour, completion scripts and requests, the spec, `--json`, `check`, `clean`, `schema`,
+`diagnostics` and `gen-docs`.
 
 ### Fork parity and the runtime suites
 
