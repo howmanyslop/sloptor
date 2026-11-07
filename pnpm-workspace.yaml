@@ -89,6 +89,7 @@ catalogs:
     "@biomejs/biome": 2.6.6
     "@isentinel/eslint-config": 6.3.0
     "@pobammer-ts/small-rules": 3.11.0
+    "@typescript-eslint/parser": 8.65.0
     "@vitest/eslint-plugin": 1.6.28
     eslint: 10.14.0
     eslint-plugin-antfu: 3.3.1

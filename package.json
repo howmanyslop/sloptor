@@ -74,6 +74,7 @@
 		"@total-typescript/ts-reset": "catalog:types",
 		"@types/bun": "catalog:types",
 		"@types/node": "catalog:types",
+		"@typescript-eslint/parser": "catalog:lint",
 		"@vitest/eslint-plugin": "catalog:lint",
 		"bumpp": "catalog:tooling",
 		"eslint": "catalog:lint",

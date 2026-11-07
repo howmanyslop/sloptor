@@ -241,6 +241,9 @@ catalogs:
     '@pobammer-ts/small-rules':
       specifier: 3.11.0
       version: 3.11.0
+    '@typescript-eslint/parser':
+      specifier: 8.65.0
+      version: 8.65.0
     '@vitest/eslint-plugin':
       specifier: 1.6.28
       version: 1.6.28
@@ -415,6 +418,9 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 26.6.6
+      '@typescript-eslint/parser':
+        specifier: catalog:lint
+        version: 8.65.0(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.2)
       '@vitest/eslint-plugin':
         specifier: catalog:lint
         version: 1.6.28(@typescript-eslint/eslint-plugin@8.65.0(@typescript-eslint/parser@8.65.0(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.2))(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.2))(eslint@10.14.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@6.0.2)(vitest@5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(jsdom@29.1.1)(vite@8.3.4(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1)))
@@ -14754,6 +14760,7 @@ time:
   '@types/node@26.6.6': '2026-10-28T18:36:36.455Z'
   '@types/react-dom@19.3.0': '2026-09-09T18:07:51.886Z'
   '@types/react@19.3.0': '2026-09-09T18:08:49.750Z'
+  '@typescript-eslint/parser@8.65.0': '2026-07-20T17:39:03.395Z'
   '@vitest/eslint-plugin@1.6.28': '2026-10-22T20:30:16.005Z'
   ansis@4.5.0: '2026-11-01T21:05:38.561Z'
   arktype@2.2.8: '2026-10-07T22:53:53.585Z'
