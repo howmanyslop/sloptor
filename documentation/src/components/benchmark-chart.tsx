@@ -4,7 +4,6 @@ import {
 	BarChart,
 	CartesianGrid,
 	LabelList,
-	ReferenceLine,
 	ResponsiveContainer,
 	Tooltip,
 	XAxis,
@@ -20,7 +19,6 @@ import type { ReactNode } from "react";
 import type { RenderableText } from "recharts";
 
 import type { ChartRow } from "$data/benchmark-metrics";
-import type { RivalName } from "$data/benchmark-results";
 
 interface BenchmarkChartProperties {
 	animate: boolean;
@@ -28,34 +26,27 @@ interface BenchmarkChartProperties {
 }
 
 interface Series {
-	readonly name: RivalName;
+	readonly name: "rbxtsc" | "rbxtsgo" | "sloptor";
 	readonly color: string;
-	readonly dash: string;
+	readonly dash: string | undefined;
 	readonly delay: number;
 }
 
 const SERIES: ReadonlyArray<Series> = [
-	{ name: "rbxtsgo", color: "var(--data-3)", dash: "0.5 3.5", delay: 0 },
-	{ name: "rbxtsc", color: "var(--data-2)", dash: "6 3", delay: 60 },
+	{ name: "sloptor", color: "var(--data-1)", dash: undefined, delay: 0 },
+	{ name: "rbxtsgo", color: "var(--data-3)", dash: "0.5 3.5", delay: 60 },
+	{ name: "rbxtsc", color: "var(--data-2)", dash: "6 3", delay: 120 },
 ];
 
-const AXIS_DOMAIN: [number, number] = [1, 32];
-const AXIS_TICKS = [1, 2, 4, 8, 16, 32];
-const ROW_HEIGHT = 56;
+const NICE_STEPS = [1, 2, 5, 10, 20, 50];
+const TARGET_TICKS = 6;
+const ROW_HEIGHT = 64;
 const AXIS_HEIGHT = 56;
 const ANIMATION_DURATION = 320;
 const MONO = "var(--font-mono)";
 
-const CHART_MARGIN = { bottom: 4, left: 0, right: 48, top: 28 };
+const CHART_MARGIN = { bottom: 4, left: 0, right: 48, top: 8 };
 const AXIS_TICK = { fill: "var(--ink-3)", fontFamily: MONO, fontSize: 12 };
-const BASELINE_LABEL = {
-	dy: -22,
-	fill: "var(--data-1)",
-	fontFamily: MONO,
-	fontSize: 12,
-	position: "insideTopLeft",
-	value: "sloptor",
-} as const;
 const HOVER_CURSOR = { fill: "var(--marker)", opacity: 0.6 };
 const PROJECT_TICK = <BenchmarkProjectTick />;
 
@@ -64,18 +55,30 @@ function formatAxisTick(value: number): string {
 }
 
 function formatBarLabel(value: RenderableText): string {
-	return Predicate.isNumber(value) ? `${formatRatio(value)}×` : "";
+	if (!Predicate.isNumber(value)) return "";
+	return value === 1 ? "1×" : `${formatRatio(value)}×`;
+}
+
+function getAxisTicks(rows: ReadonlyArray<ChartRow>): Array<number> {
+	let largest = 1;
+	for (const row of rows) largest = Math.max(largest, row.rbxtsc, row.rbxtsgo);
+
+	const step = NICE_STEPS.find((candidate) => candidate * TARGET_TICKS >= largest) ?? NICE_STEPS.at(-1) ?? 1;
+	const ticks = new Array<number>();
+	for (let tick = 0; tick < largest + step; tick += step) ticks.push(tick);
+	return ticks;
 }
 
 export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartProperties>): ReactNode {
 	const height = rows.length * ROW_HEIGHT + AXIS_HEIGHT;
+	const ticks = getAxisTicks(rows);
 	const series = SERIES.map(({ name, color, dash, delay }) => (
 		<Bar
 			key={name}
 			animationBegin={delay}
 			animationDuration={ANIMATION_DURATION}
 			animationEasing="ease-out"
-			barSize={14}
+			barSize={12}
 			dataKey={name}
 			fill={color}
 			fillOpacity={0.16}
@@ -109,12 +112,11 @@ export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartPropert
 				<CartesianGrid horizontal={false} stroke="var(--rule)" />
 				<XAxis
 					axisLine={false}
-					domain={AXIS_DOMAIN}
-					scale="log"
+					domain={[0, ticks.at(-1) ?? 1]}
 					tick={AXIS_TICK}
 					tickFormatter={formatAxisTick}
 					tickLine={false}
-					ticks={AXIS_TICKS}
+					ticks={ticks}
 					type="number"
 				/>
 				<YAxis
@@ -124,13 +126,6 @@ export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartPropert
 					tickLine={false}
 					type="category"
 					width={112}
-				/>
-				<ReferenceLine
-					ifOverflow="visible"
-					label={BASELINE_LABEL}
-					stroke="var(--data-1)"
-					strokeWidth={2}
-					x={1}
 				/>
 				<Tooltip content={BenchmarkTooltip} cursor={HOVER_CURSOR} isAnimationActive={false} />
 				{series}

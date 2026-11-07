@@ -31,6 +31,7 @@ export interface ChartRow {
 	readonly rbxtsc: number;
 	readonly rbxtsgo: number;
 	readonly size: string;
+	readonly sloptor: number;
 }
 
 export interface Average {
@@ -101,11 +102,10 @@ export function getRows(scenario: ScenarioName, metric: Metric): Array<ChartRow>
 				{ name: "rbxtsc", ratio: rbxtsc / baseline, value: metric.format(rbxtsc) },
 			],
 			meta: label.meta,
-			// The axis starts at 1×, so a tool that beat sloptor would draw
-			// nothing.
-			rbxtsc: Math.max(1, rbxtsc / baseline),
-			rbxtsgo: Math.max(1, rbxtsgo / baseline),
+			rbxtsc: rbxtsc / baseline,
+			rbxtsgo: rbxtsgo / baseline,
 			size: label.size,
+			sloptor: 1,
 		};
 	});
 }
