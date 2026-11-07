@@ -1,87 +1,153 @@
-//! `execute`: the single exit-code owner. argv is normalized, parsed by clap, and dispatched;
-//! every failure, from clap's usage errors to a failed build, exits 1 (rbxtsc's policy), and
-//! success, help and `--version` exit 0.
+//! `execute`: the single exit-code owner. argv is parsed by usage and dispatched. Success, help and
+//! `--version` exit 0; an operational failure exits 1; a usage error exits 2, whether usage found
+//! it while parsing or a command found it afterwards ([`usage`]). Watch mode's Ctrl+C exits 130
+//! on its own.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Display;
 
-use clap::error::{ContextKind, ContextValue, ErrorKind};
+use usage_rs::{Error, diagnostic, help};
 
-use crate::cli::{self, Cli, Command, Shell};
+use crate::cli::{Cli, Command};
 use crate::term::Streams;
 use crate::{VERSION, argv, build, check, clean, diagnostics, gen_docs};
 
-/// A failure that ends the command with exit code 1.
+/// Help in cargo's colours, which sloptor's own output uses too.
+const PALETTE: help::Palette = help::Palette::DEFAULT
+	.heading("bright-green+bold")
+	.option("bright-cyan+bold")
+	.metavar("cyan")
+	.command("bright-cyan+bold");
+
+/// The exit code of an operational failure.
+const FAILED: u8 = 1;
+
+/// The exit code of a usage error.
+const MISUSED: u8 = 2;
+
+/// Why a command did not succeed.
 #[derive(Debug)]
 pub enum Failure {
-	/// A usage error, rendered by clap.
-	Usage(Box<clap::Error>),
+	/// A usage error found after parsing: the command it belongs to (`""` for the root) and what
+	/// is wrong with the command line.
+	Usage {
+		/// The subcommand whose usage line the error shows.
+		command: &'static str,
+		/// What is wrong.
+		message: String,
+	},
 	/// An operational failure: one `error:` line.
 	Runtime(String),
 	/// Already rendered by the command.
 	Reported,
 }
 
-/// A usage error of `subcommand` (or the root, for `""`), rendered with its usage line.
+/// A usage error of `command` (or the root, for `""`).
 #[must_use]
-pub fn usage(subcommand: &str, message: impl Display) -> Failure {
-	let mut display = cli::display_command();
-	let error = match display.find_subcommand_mut(subcommand) {
-		Some(found) => found.error(ErrorKind::ArgumentConflict, message),
-		None => display.error(ErrorKind::ArgumentConflict, message),
+pub fn usage(command: &'static str, message: impl Display) -> Failure {
+	Failure::Usage {
+		command,
+		message: message.to_string(),
+	}
+}
+
+/// A usage error found after parsing, laid out and coloured the way usage lays out its own: the
+/// message, the command's usage line, and where to look next.
+#[must_use]
+pub fn render_usage(command: &str, message: &str, coloured: bool) -> String {
+	let paint = |ink: &str, text: &str| {
+		if coloured {
+			format!("{ink}{text}\x1b[0m")
+		} else {
+			text.to_owned()
+		}
 	};
-	Failure::Usage(Box::new(error))
+	let root = Cli::spec().root;
+	let line = root
+		.subcommands()
+		.iter()
+		.find(|meta| meta.cmd().name == command)
+		.map_or_else(
+			|| help::usage_line(&["sloptor"], root),
+			|meta| help::usage_line(&["sloptor", command], meta),
+		);
+	format!(
+		"{} {message}\n\n{} {}\n\nFor more information, try '{}'.\n",
+		paint("\x1b[1m\x1b[31m", "error:"),
+		paint("\x1b[1m\x1b[4m", "Usage:"),
+		paint("\x1b[1m", &line),
+		paint("\x1b[1m", "--help"),
+	)
 }
 
 /// Runs the CLI over `args` (without the program name) and returns the exit code.
 pub fn execute(args: Vec<OsString>, streams: &mut Streams) -> u8 {
-	// A bare `sloptor` shows the root help on stderr and fails, keeping Go's exit code 1 for
-	// "no command given".
-	if args.is_empty() {
-		let help = cli::display_command().render_help();
-		let _ = streams
-			.err
-			.write_all(render_styled(&help, streams.err_color).as_bytes());
-		return 1;
+	if let Some(answer) = Cli::completion_request(&args) {
+		let _ = streams.out.write_all(answer.as_bytes());
+		return 0;
 	}
-	let root = cli::command();
-	let args = argv::normalize_negations(
-		&root,
-		argv::normalize_compiler_invocation(argv::normalize_help_command(args)),
-	);
-	let subcommand = argv::resolve_subcommand(&root, &args);
-	let long_help = wants_long_help(&args);
-	let parsed = match cli::parse(args) {
+	let args = argv::normalize_compiler_invocation(args);
+	let tokens: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+	if let Some(spec) = Cli::spec_request(&tokens) {
+		let _ = streams.out.write_all(spec.as_bytes());
+		return 0;
+	}
+	let parsed = match Cli::parse_from(&tokens) {
 		Ok(parsed) => parsed,
-		Err(error) => return clap_error(error, subcommand.as_deref(), long_help, streams),
+		Err(error) => return answer(&tokens, &error, streams),
 	};
 	match dispatch(parsed, streams) {
 		Ok(()) => 0,
-		Err(failure) => {
-			report(failure, streams);
-			1
+		Err(failure) => report(failure, streams),
+	}
+}
+
+/// What parsing stopped on: a help or version request, or a usage error.
+fn answer(tokens: &[&OsStr], error: &Error<'_, '_>, streams: &mut Streams) -> u8 {
+	let help_style = |coloured: bool| {
+		if coloured {
+			help::Style::COLOURED.palette(PALETTE)
+		} else {
+			help::Style::PLAIN
+		}
+	};
+	match error {
+		Error::Help { cmd, long } => {
+			let page = Cli::render_help_styled(cmd, *long, help_style(streams.out_color));
+			let _ = streams.out.write_all(page.unwrap_or_default().as_bytes());
+			0
+		}
+		Error::HelpAll { cmd } => {
+			let page = Cli::render_help_styled(cmd, true, help_style(streams.out_color));
+			let _ = streams.out.write_all(page.unwrap_or_default().as_bytes());
+			0
+		}
+		Error::Version { .. } => {
+			let _ = writeln!(streams.out, "{VERSION}");
+			0
+		}
+		// A bare `sloptor`: the help, on stderr, as the failure it is.
+		Error::MissingArgsHelp { cmd } => {
+			let page = Cli::render_help_styled(cmd, false, help_style(streams.err_color));
+			let _ = streams.err.write_all(page.unwrap_or_default().as_bytes());
+			MISUSED
+		}
+		_ => {
+			let style = if streams.err_color {
+				diagnostic::Style::COLOURED
+			} else {
+				diagnostic::Style::PLAIN
+			};
+			let text = diagnostic::render(Cli::spec(), tokens, error, style);
+			let _ = streams.err.write_all(text.as_bytes());
+			MISUSED
 		}
 	}
 }
 
-/// Whether `--help` (long help) rather than `-h` was asked for.
-fn wants_long_help(args: &[OsString]) -> bool {
-	args.iter()
-		.filter_map(|arg| arg.to_str())
-		.take_while(|arg| *arg != "--")
-		.any(|arg| arg == "--help")
-}
-
 fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
-	if parsed.version == Some(true) {
-		let _ = writeln!(streams.out, "{VERSION}");
-		return Ok(());
-	}
 	let Some(command) = parsed.command else {
-		let mut display = cli::display_command();
-		return Err(Failure::Usage(Box::new(
-			display.error(ErrorKind::MissingSubcommand, "a command is required"),
-		)));
+		return Err(usage("", "a command is required"));
 	};
 	match command {
 		Command::Build(command) => build::run(*command, streams),
@@ -92,7 +158,7 @@ fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
 		Command::ApiServer => crate::api_server::run(),
 		Command::GenDocs(command) => gen_docs::write(&command.dir).map_err(Failure::Runtime),
 		Command::Schema(command) => {
-			let schema = if command.rbxts == Some(true) {
+			let schema = if command.rbxts {
 				rotor_compile::rbxts_schema::RBXTS_TS_CONFIG_SCHEMA
 			} else {
 				rotor_config::config::SCHEMA
@@ -102,17 +168,9 @@ fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
 				.write_all(schema.as_bytes())
 				.map_err(|error| Failure::Runtime(format!("schema write failed: {error}")))
 		}
-		Command::Completion(command) => {
-			let shell = match command.shell {
-				Shell::Bash => clap_complete::Shell::Bash,
-				Shell::Zsh => clap_complete::Shell::Zsh,
-				Shell::Fish => clap_complete::Shell::Fish,
-				Shell::Elvish => clap_complete::Shell::Elvish,
-				Shell::Powershell => clap_complete::Shell::PowerShell,
-			};
-			clap_complete::generate(shell, &mut cli::display_command(), "sloptor", streams.out);
-			Ok(())
-		}
+		Command::Completion(command) => command
+			.run("sloptor", &mut streams.out)
+			.map_err(|error| Failure::Runtime(error.to_string())),
 		Command::Version => {
 			let _ = writeln!(streams.out, "{VERSION}");
 			Ok(())
@@ -120,81 +178,19 @@ fn dispatch(parsed: Cli, streams: &mut Streams) -> Result<(), Failure> {
 	}
 }
 
-/// Renders a failure on stderr.
-fn report(failure: Failure, streams: &mut Streams) {
+/// Renders a failure on stderr and returns its exit code.
+fn report(failure: Failure, streams: &mut Streams) -> u8 {
 	match failure {
-		Failure::Usage(error) => {
-			let text = render_styled(&error.render(), streams.err_color);
+		Failure::Usage { command, message } => {
+			let text = render_usage(command, &message, streams.err_color);
 			let _ = streams.err.write_all(text.as_bytes());
+			MISUSED
 		}
 		Failure::Runtime(message) => {
 			let err = streams.err_paint();
 			let _ = writeln!(streams.err, "{} {message}", err.red("error:"));
+			FAILED
 		}
-		Failure::Reported => {}
+		Failure::Reported => FAILED,
 	}
-}
-
-fn render_styled(text: &clap::builder::StyledStr, color: bool) -> String {
-	if color {
-		text.ansi().to_string()
-	} else {
-		text.to_string()
-	}
-}
-
-/// Help, version requests and usage errors from clap.
-fn clap_error(mut error: clap::Error, subcommand: Option<&str>, long_help: bool, streams: &mut Streams) -> u8 {
-	let display = cli::display_command();
-	let mut target = subcommand
-		.and_then(|name| display.find_subcommand(name).cloned())
-		.unwrap_or(display);
-	match error.kind() {
-		ErrorKind::DisplayHelp => {
-			// `--help` keeps `-h`'s compact layout and adds the examples, environment and exit
-			// codes; clap's long layout puts every description on its own line.
-			let help = match target.get_after_long_help().filter(|_| long_help).cloned() {
-				Some(after) => target.after_help(after).render_help(),
-				None => target.render_help(),
-			};
-			let _ = streams
-				.out
-				.write_all(render_styled(&help, streams.out_color).as_bytes());
-			0
-		}
-		ErrorKind::DisplayVersion => {
-			let _ = writeln!(streams.out, "{VERSION}");
-			0
-		}
-		_ => {
-			// The parse command shows booleans as `--flag[=<BOOL>]`; the usage line comes from
-			// the display command, and a suggestion names the kebab flag rather than an alias.
-			error.insert(ContextKind::Usage, ContextValue::StyledStr(target.render_usage()));
-			if let Some(ContextValue::String(invalid)) = error.get(ContextKind::InvalidArg).cloned()
-				&& let Some(plain) = invalid.strip_suffix("[=<BOOL>]")
-			{
-				error.insert(ContextKind::InvalidArg, ContextValue::String(plain.to_owned()));
-			}
-			if let Some(ContextValue::String(suggested)) = error.get(ContextKind::SuggestedArg).cloned()
-				&& let Some(primary) = primary_long(&target, &suggested)
-			{
-				error.insert(ContextKind::SuggestedArg, ContextValue::String(primary));
-			}
-			let text = render_styled(&error.render(), streams.err_color);
-			let _ = streams.err.write_all(text.as_bytes());
-			1
-		}
-	}
-}
-
-/// The primary `--long` of the flag `spelling` (`--optimizedLoops`) names, by any of its names.
-fn primary_long(command: &clap::Command, spelling: &str) -> Option<String> {
-	let name = spelling.strip_prefix("--")?;
-	command
-		.get_arguments()
-		.find(|arg| {
-			arg.get_long() == Some(name) || arg.get_all_aliases().into_iter().flatten().any(|alias| alias == name)
-		})
-		.and_then(clap::Arg::get_long)
-		.map(|long| format!("--{long}"))
 }

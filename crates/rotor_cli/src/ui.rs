@@ -8,28 +8,27 @@
 use std::io::Write;
 use std::time::Duration;
 
-use clap::builder::styling::{Ansi256Color, AnsiColor, Color, Style};
 use rotor_support::gopath;
 
 use crate::VERSION;
 
-const fn fg(color: AnsiColor) -> Style {
-	Style::new().fg_color(Some(Color::Ansi(color)))
-}
+/// An SGR sequence: what goes between `ESC [` and `m`.
+type Style = &'static str;
 
-const BRAND: Style = Style::new().bold().fg_color(Some(Color::Ansi256(Ansi256Color(205))));
-const PINK: Style = Style::new().fg_color(Some(Color::Ansi256(Ansi256Color(205))));
-const BOLD: Style = Style::new().bold();
-const MUTED: Style = fg(AnsiColor::BrightBlack);
-const GREEN: Style = fg(AnsiColor::BrightGreen).bold();
-const RED: Style = fg(AnsiColor::BrightRed).bold();
-const RED_PLAIN: Style = fg(AnsiColor::BrightRed);
-const YELLOW: Style = fg(AnsiColor::BrightYellow).bold();
-const YELLOW_PLAIN: Style = fg(AnsiColor::BrightYellow);
-const CYAN: Style = fg(AnsiColor::BrightCyan).bold();
-const CYAN_PLAIN: Style = fg(AnsiColor::BrightCyan);
-const BLUE: Style = fg(AnsiColor::BrightBlue).bold();
-const BLUE_PLAIN: Style = fg(AnsiColor::BrightBlue);
+const BRAND: Style = "1;38;5;205";
+const PINK: Style = "38;5;205";
+const BOLD: Style = "1";
+const MUTED: Style = "90";
+const BOLD_MUTED: Style = "1;90";
+const GREEN: Style = "1;92";
+const RED: Style = "1;91";
+const RED_PLAIN: Style = "91";
+const YELLOW: Style = "1;93";
+const YELLOW_PLAIN: Style = "93";
+const CYAN: Style = "1;96";
+const CYAN_PLAIN: Style = "96";
+const BLUE: Style = "1;94";
+const BLUE_PLAIN: Style = "94";
 
 /// Styles text for one stream: ANSI when `color`, the bare text otherwise.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,7 +54,7 @@ impl Paint {
 		if !self.color || text.is_empty() {
 			return text.to_owned();
 		}
-		format!("{style}{text}{style:#}")
+		format!("\x1b[{style}m{text}\x1b[0m")
 	}
 
 	paints! {
@@ -118,7 +117,7 @@ pub fn verb(paint: Paint, tone: Tone, word: &str) -> String {
 	let padded = format!("{word:>VERB_WIDTH$}");
 	match tone {
 		Tone::Success => paint.green(&padded),
-		Tone::Quiet => paint.paint(BOLD.fg_color(Some(Color::Ansi(AnsiColor::BrightBlack))), &padded),
+		Tone::Quiet => paint.paint(BOLD_MUTED, &padded),
 		Tone::Failure => paint.red(&padded),
 		Tone::Info => paint.cyan(&padded),
 		Tone::Warning => paint.yellow(&padded),

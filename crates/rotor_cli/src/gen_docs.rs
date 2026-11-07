@@ -1,12 +1,15 @@
-//! `sloptor gen-docs <dir>` (`cmd/rotor/gen_docs.go`): the CLI reference as Starlight MDX pages,
-//! one per visible command plus an `index.mdx` table, built from the same clap tree as `--help` so
-//! the docs cannot drift from it.
+//! `sloptor gen-docs <dir>`: the CLI reference as Starlight MDX pages, one per visible command
+//! plus an `index.mdx` table, read from the same usage spec as `--help` so the docs cannot drift
+//! from it.
 
 use std::fmt::Write as _;
 
-use crate::cli;
+use usage_rs::help;
+use usage_rs::spec::{ArgMeta, CommandMeta, FlagMeta};
 
-/// `sentence`: a capital first letter and a closing period.
+use crate::cli::Cli;
+
+/// A capital first letter and a closing period.
 fn sentence(summary: &str) -> String {
 	let summary = summary.trim();
 	let mut characters = summary.chars();
@@ -20,7 +23,7 @@ fn sentence(summary: &str) -> String {
 	out
 }
 
-/// `escapeMDX`: JSX and expression syntax escaped outside inline code spans.
+/// JSX and expression syntax escaped outside inline code spans.
 #[must_use]
 pub fn escape_mdx(text: &str) -> String {
 	let escape = |segment: &str| {
@@ -47,7 +50,7 @@ pub fn escape_mdx(text: &str) -> String {
 		.join("`")
 }
 
-/// `docsCell`: safe inside a Markdown table cell.
+/// Safe inside a Markdown table cell.
 fn cell(text: &str) -> String {
 	escape_mdx(text)
 		.replace('|', "\\|")
@@ -56,112 +59,176 @@ fn cell(text: &str) -> String {
 		.join(" ")
 }
 
-fn about(command: &clap::Command) -> String {
-	command.get_about().map(ToString::to_string).unwrap_or_default()
+/// One option row: a positional or a flag, its description and its hidden spellings.
+struct Row {
+	syntax: String,
+	help: String,
+	aliases: String,
 }
 
-fn flag_syntax(arg: &clap::Arg) -> String {
-	let mut parts = Vec::new();
-	if let Some(short) = arg.get_short() {
-		parts.push(format!("-{short}"));
-	}
-	if let Some(long) = arg.get_long() {
-		parts.push(format!("--{long}"));
-	}
-	let mut syntax = if parts.is_empty() {
-		arg.get_value_names()
-			.and_then(|names| names.first())
-			.map_or_else(|| arg.get_id().to_string(), |name| format!("[{name}]"))
-	} else {
-		parts.join(", ")
-	};
-	let takes_value = arg.get_num_args().is_some_and(|range| range.takes_values()) && arg.get_long().is_some();
-	if takes_value && let Some(name) = arg.get_value_names().and_then(|names| names.first()) {
-		if arg.get_num_args().is_some_and(|range| range.min_values() == 0) {
-			let _ = write!(syntax, " [<{name}>]");
-		} else {
-			let _ = write!(syntax, " <{name}>");
-		}
-	}
-	syntax
-}
-
-fn options_table(out: &mut String, args: &[&clap::Arg]) {
+fn options_table(out: &mut String, rows: &[Row]) {
 	out.push_str("| Flag | Description | Aliases |\n| --- | --- | --- |\n");
-	for arg in args {
-		let help = arg.get_help().map(ToString::to_string).unwrap_or_default();
-		let aliases = arg
-			.get_all_aliases()
-			.unwrap_or_default()
-			.iter()
-			.map(|alias| format!("`--{alias}`"))
-			.collect::<Vec<_>>()
-			.join(", ");
+	for row in rows {
 		let _ = writeln!(
 			out,
 			"| {} | {} | {} |",
-			cell(&format!("`{}`", flag_syntax(arg))),
-			cell(&help),
-			aliases
+			cell(&format!("`{}`", row.syntax)),
+			cell(&row.help),
+			row.aliases
 		);
 	}
 	out.push('\n');
 }
 
-fn page(command: &clap::Command) -> String {
+fn arguments_table(out: &mut String, rows: &[Row]) {
+	out.push_str("| Argument | Description |\n| --- | --- |\n");
+	for row in rows {
+		let _ = writeln!(out, "| {} | {} |", cell(&format!("`{}`", row.syntax)), cell(&row.help));
+	}
+	out.push('\n');
+}
+
+/// The help text with what help appends to it: the possible values and the default.
+fn described(help: Option<&str>, choices: &[&str], hide_choices: bool, default: &[&str], hide_default: bool) -> String {
+	let mut text = help.unwrap_or_default().to_owned();
+	if !choices.is_empty() && !hide_choices {
+		let _ = write!(text, " [{}]", choices.join(", "));
+	}
+	if !default.is_empty() && !hide_default {
+		let _ = write!(text, " (default: {})", default.join(", "));
+	}
+	text
+}
+
+fn arg_row(meta: &ArgMeta<'_>) -> Row {
+	let name = meta.arg().name;
+	let mut syntax = if meta.required() {
+		format!("<{name}>")
+	} else {
+		format!("[{name}]")
+	};
+	if meta.arg().var {
+		syntax.push_str("...");
+	}
+	Row {
+		syntax,
+		help: described(
+			meta.help(),
+			meta.choices(),
+			meta.hide_possible_values(),
+			meta.default(),
+			meta.hide_default_value(),
+		),
+		aliases: String::new(),
+	}
+}
+
+fn flag_row(meta: &FlagMeta<'_>) -> Row {
+	let flag = meta.flag();
+	let mut names: Vec<String> = flag
+		.shorts
+		.iter()
+		.filter(|short| !meta.hidden_shorts().contains(short))
+		.map(|short| format!("-{}", char::from(*short)))
+		.collect();
+	names.extend(
+		flag.longs
+			.iter()
+			.filter(|long| !meta.hidden_longs().contains(long))
+			.map(|long| format!("--{long}")),
+	);
+	let mut syntax = names.join(", ");
+	if let Some(negation) = flag.negate {
+		let _ = write!(syntax, " / --{negation}");
+	}
+	if flag.takes_value {
+		let name = meta.value_name().unwrap_or(flag.name);
+		let _ = match (meta.value_optional(), flag.require_equals) {
+			(true, true) => write!(syntax, "[=<{name}>]"),
+			(true, false) => write!(syntax, " [<{name}>]"),
+			(false, _) => write!(syntax, " <{name}>"),
+		};
+	}
+	Row {
+		syntax,
+		help: described(
+			meta.help(),
+			meta.choices(),
+			meta.hide_possible_values(),
+			meta.default(),
+			meta.hide_default_value(),
+		),
+		aliases: meta
+			.hidden_longs()
+			.iter()
+			.map(|alias| format!("`--{alias}`"))
+			.collect::<Vec<_>>()
+			.join(", "),
+	}
+}
+
+/// The flags a page lists: visible, and not the parser's own `--help`.
+fn listed<'a>(flags: &'a [FlagMeta<'a>]) -> impl Iterator<Item = &'a FlagMeta<'a>> {
+	flags.iter().filter(|meta| !meta.hide() && !meta.builtin())
+}
+
+fn page(root: &CommandMeta<'_>, command: &CommandMeta<'_>) -> String {
+	let name = command.cmd().name;
+	let about = command.about().unwrap_or_default();
 	let mut out = String::new();
 	let _ = write!(
 		out,
-		"---\ntitle: {}\ndescription: {}\n---\n\n",
-		command.get_name(),
-		serde_json::Value::String(sentence(&about(command)))
+		"---\ntitle: {name}\ndescription: {}\n---\n\n",
+		serde_json::Value::String(sentence(about))
 	);
-	let usage = command.clone().render_usage().to_string();
-	let usage = usage.strip_prefix("Usage: ").unwrap_or(&usage);
 	let _ = write!(
 		out,
-		"```sh\n{usage}\n```\n\n{}\n\n",
-		escape_mdx(&sentence(&about(command)))
+		"```sh\n{}\n```\n\n{}\n\n",
+		help::usage_line(&["sloptor", name], command),
+		escape_mdx(&sentence(about))
 	);
-	let args: Vec<&clap::Arg> = command.get_arguments().filter(|arg| !arg.is_hide_set()).collect();
-	let mut headings: Vec<Option<&str>> = Vec::new();
-	for arg in &args {
-		if !headings.contains(&arg.get_help_heading()) {
-			headings.push(arg.get_help_heading());
+	let args: Vec<Row> = command.args().iter().filter(|meta| !meta.hide()).map(arg_row).collect();
+	let mut sections: Vec<(Option<&str>, Vec<Row>)> = Vec::new();
+	for meta in listed(command.flags()) {
+		let heading = meta.help_heading();
+		match sections.iter_mut().find(|(seen, _)| *seen == heading) {
+			Some((_, rows)) => rows.push(flag_row(meta)),
+			None => sections.push((heading, vec![flag_row(meta)])),
 		}
 	}
+	let globals: Vec<Row> = listed(root.flags())
+		.filter(|meta| meta.flag().global)
+		.map(flag_row)
+		.collect();
+	out.push_str("## Options\n\n");
 	if !args.is_empty() {
-		out.push_str("## Options\n\n");
+		out.push_str("### Arguments\n\n");
+		arguments_table(&mut out, &args);
 	}
-	for heading in headings {
-		let group: Vec<&clap::Arg> = args
-			.iter()
-			.copied()
-			.filter(|arg| arg.get_help_heading() == heading)
-			.collect();
-		if let Some(heading) = heading {
-			let _ = write!(out, "### {heading}\n\n");
-		}
-		options_table(&mut out, &group);
+	for (heading, rows) in &sections {
+		let _ = write!(out, "### {}\n\n", heading.unwrap_or("Flags"));
+		options_table(&mut out, rows);
 	}
-	if let Some(examples) = command.get_after_long_help() {
-		let examples = examples.to_string();
+	out.push_str("### Global flags\n\n");
+	options_table(&mut out, &globals);
+	if !command.examples().is_empty() {
 		out.push_str("## Examples\n\n```sh\n");
-		for line in examples.lines().filter(|line| line.starts_with("  sloptor ")) {
-			let line = line.trim();
-			// The comment column of the help text becomes a shell comment.
-			let line = line.find("   ").map_or_else(
-				|| line.to_owned(),
-				|split| format!("{}  # {}", line[..split].trim_end(), line[split..].trim()),
-			);
-			let _ = writeln!(out, "{line}");
+		for example in command.examples() {
+			match example.help {
+				Some(help) => {
+					let _ = writeln!(out, "# {help}\n{}", example.code);
+				}
+				None => {
+					let _ = writeln!(out, "{}", example.code);
+				}
+			}
 		}
 		out.push_str("```\n");
 	}
 	out.trim_end().to_owned() + "\n"
 }
 
-fn index(commands: &[&clap::Command]) -> String {
+fn index(commands: &[&CommandMeta<'_>]) -> String {
 	let mut out = String::from(
 		"---\ntitle: Commands\ndescription: Every sloptor command, generated from the CLI.\nsidebar:\n  order: 0\n  label: \
 		 Overview\n---\n\n| Command | Summary |\n| --- | --- |\n",
@@ -170,30 +237,32 @@ fn index(commands: &[&clap::Command]) -> String {
 		let _ = writeln!(
 			out,
 			"| [`{name}`](./{name}/) | {} |",
-			cell(&about(command)),
-			name = command.get_name()
+			cell(command.about().unwrap_or_default()),
+			name = command.cmd().name
 		);
 	}
 	out
 }
 
-/// `writeCommandDocs`: writes `index.mdx` and one page per visible command into `dir`.
+/// Writes `index.mdx` and one page per visible command into `dir`.
 ///
 /// # Errors
 ///
 /// The directory or a page cannot be written.
 pub fn write(dir: &str) -> Result<(), String> {
 	std::fs::create_dir_all(dir).map_err(|error| format!("create {dir}: {error}"))?;
-	let root = cli::display_command();
-	let commands: Vec<&clap::Command> = root
-		.get_subcommands()
-		.filter(|command| !command.is_hide_set() && command.get_name() != "help")
+	let root = Cli::spec().root;
+	let commands: Vec<&CommandMeta<'_>> = root
+		.subcommands()
+		.iter()
+		.copied()
+		.filter(|command| !command.hide() && command.cmd().name != "help")
 		.collect();
 	let mut pages = vec![("index.mdx".to_owned(), index(&commands))];
 	pages.extend(
 		commands
 			.iter()
-			.map(|command| (format!("{}.mdx", command.get_name()), page(command))),
+			.map(|command| (format!("{}.mdx", command.cmd().name), page(root, command))),
 	);
 	for (name, content) in pages {
 		let path = std::path::Path::new(dir).join(&name);
@@ -242,13 +311,22 @@ mod tests {
 			"title: build",
 			"## Options",
 			"### Input",
-			"`--optimized-loops`",
+			"### Arguments",
+			"`--optimized-loops[=<BOOL>]`",
 			"`--optimizedLoops`",
+			"`--clear / --no-clear`",
+			"### Global flags",
+			"`--color <WHEN>`",
 			"## Examples",
 			"sloptor build",
 		] {
 			assert!(build.contains(want), "build.mdx lacks {want}:\n{build}");
 		}
-		assert!(!build.contains("[=<BOOL>]"));
+		for hidden in ["--no-luau", "--help"] {
+			assert!(
+				!build.contains(&format!("`{hidden}")),
+				"build.mdx lists {hidden}:\n{build}"
+			);
+		}
 	}
 }

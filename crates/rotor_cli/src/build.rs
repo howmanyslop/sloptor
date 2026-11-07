@@ -1,5 +1,5 @@
-//! `sloptor build` (`cmd/rotor/build.go`): the rbxtsc build flag surface, its implication checks,
-//! and the styled or `--json` one-shot build.
+//! `sloptor build`: the rbxtsc build flag surface, its implication checks, and the styled or
+//! `--json` one-shot build.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ use rotor_compile::{ProjectOptions, build_project_with_options, build_solution_w
 use rotor_support::{gopath, logservice};
 
 use crate::app::{Failure, usage};
-use crate::cli::BuildCommand;
+use crate::cli::{BuildCommand, NonNegative, Positive};
 use crate::json::{JsonDiagnostic, JsonResult};
 use crate::options::{
 	MergedOptions, PartialOptions, find_ts_config_path, merge_project_options, project_compile_options,
@@ -21,10 +21,10 @@ use crate::options::{
 use crate::term::Streams;
 use crate::{VERSION, live, report, ui};
 
-/// `buildArgs`: the project path, the argv layer (exactly the flags passed), and the rest of the
-/// build surface.
+/// The project path, the argv layer (exactly the flags passed), and the rest of the build
+/// surface.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[expect(clippy::struct_excessive_bools, reason = "Go's buildArgs fields")]
+#[expect(clippy::struct_excessive_bools, reason = "one field per boolean flag")]
 pub struct BuildArgs {
 	pub project: String,
 	pub opts: PartialOptions,
@@ -35,11 +35,7 @@ pub struct BuildArgs {
 	pub checkers: Option<i64>,
 	pub single_threaded: Option<bool>,
 	pub json: bool,
-	pub version: bool,
-	/// Whether `--use-polling` was passed (Go's implication reads presence, not the value).
-	pub use_polling_passed: bool,
-	/// The finite diagnostic outputs, by flag, in Go's order.
-	pub outputs: Vec<(&'static str, String)>,
+	/// Where `--timings` writes its report; empty when it was not given.
 	pub timings: String,
 	/// 0 renders every frame.
 	pub max_errors: usize,
@@ -47,21 +43,17 @@ pub struct BuildArgs {
 	pub clear_screen: bool,
 }
 
-/// The finite diagnostic output flags, in Go's order.
-const OUTPUT_FLAGS: [&str; 6] = [
-	"--cpuprofile",
-	"--trace-out",
-	"--blockprofile",
-	"--mutexprofile",
-	"--heapprofile",
-	"--timings",
-];
+/// A three-state boolean from its two flags. They override each other, so at most one was given.
+const fn either(value: Option<bool>, negated: bool) -> Option<bool> {
+	if negated { Some(false) } else { value }
+}
 
-/// `collectBuildArgs`: the parsed flags as Go's `buildArgs`.
+/// The parsed flags as [`BuildArgs`].
 ///
 /// # Errors
 ///
-/// A usage error when both the positional path and `--project` are given.
+/// A usage error when both the positional path and `--project` are given, or `--timings` has no
+/// path.
 pub fn collect(command: BuildCommand) -> Result<BuildArgs, Failure> {
 	if let (Some(path), Some(_)) = (&command.path, &command.project) {
 		return Err(usage(
@@ -69,68 +61,54 @@ pub fn collect(command: BuildCommand) -> Result<BuildArgs, Failure> {
 			format!("unexpected extra argument '{path}' (the project is already set by --project)"),
 		));
 	}
+	if command.timings.as_deref() == Some("") {
+		return Err(usage("build", "--timings requires a path"));
+	}
 	let project = command.path.or(command.project).unwrap_or_else(|| ".".to_owned());
-	let outputs: Vec<(&'static str, String)> = OUTPUT_FLAGS
-		.into_iter()
-		.zip([
-			command.cpuprofile,
-			command.trace_out,
-			command.blockprofile,
-			command.mutexprofile,
-			command.heapprofile,
-			command.timings.clone(),
-		])
-		.filter_map(|(flag, path)| path.map(|path| (flag, path)))
-		.collect();
 	Ok(BuildArgs {
 		project,
 		opts: PartialOptions {
 			include_path: command.include_path,
 			rojo: command.rojo,
 			type_name: command.project_type.map(|kind| kind.name().to_owned()),
-			watch: command.watch,
-			use_polling: command.use_polling,
-			verbose: command.verbose,
+			watch: either(command.watch, command.no_watch),
+			use_polling: either(command.use_polling, command.no_use_polling),
+			verbose: either(command.verbose, command.no_verbose),
 			no_include: command.no_include,
-			log_truthy_changes: command.log_truthy_changes,
-			write_only_changed: command.write_only_changed,
-			write_transformed_files: command.write_transformed_files,
-			optimized_array_appends: command.optimized_array_appends,
-			optimized_loops: command.optimized_loops,
-			allow_comment_directives: command.allow_comment_directives,
-			luau: command.luau,
-			luau_types: command.luau_types,
+			log_truthy_changes: either(command.log_truthy_changes, command.no_log_truthy_changes),
+			write_only_changed: either(command.write_only_changed, command.no_write_only_changed),
+			write_transformed_files: either(command.write_transformed_files, command.no_write_transformed_files),
+			optimized_array_appends: either(command.optimized_array_appends, command.no_optimized_array_appends),
+			optimized_loops: either(command.optimized_loops, command.no_optimized_loops),
+			allow_comment_directives: either(command.allow_comment_directives, command.no_allow_comment_directives),
+			luau: either(command.luau, command.no_luau),
+			luau_types: either(command.luau_types, command.no_luau_types),
 		},
 		build: command.build.is_some(),
 		build_path: command.build.unwrap_or_default(),
-		emit_declaration_only: command.emit_declaration_only.unwrap_or(false),
-		builders: command.builders,
-		checkers: command.checkers,
-		single_threaded: command.single_threaded,
-		json: command.json.unwrap_or(false),
-		version: command.version.unwrap_or(false),
-		use_polling_passed: command.use_polling.is_some(),
-		outputs,
+		emit_declaration_only: command.emit_declaration_only,
+		builders: command.builders.map(Positive::get),
+		checkers: command.checkers.map(Positive::get),
+		single_threaded: either(command.single_threaded, command.no_single_threaded),
+		json: command.json,
 		timings: command.timings.unwrap_or_default(),
-		max_errors: command.max_errors.unwrap_or(50),
-		bell: command.bell.unwrap_or(false),
-		clear_screen: command.clear.unwrap_or(true),
+		max_errors: command.max_errors.map_or(50, NonNegative::get),
+		bell: command.bell,
+		clear_screen: command.clear,
 	})
 }
 
-/// `runBuildCommand` before the build: the option implications, in Go's order.
+/// The option implications, checked before anything is built.
 ///
 /// # Errors
 ///
 /// The usage error of the first implication that fails.
 pub fn check_implications(args: &BuildArgs) -> Result<(), Failure> {
-	if let Some((flag, _)) = args.outputs.iter().find(|(_, path)| path.is_empty()) {
-		return Err(usage("build", format!("{flag} requires a path")));
-	}
 	if args.builders.is_some() && !args.build {
 		return Err(usage("build", "--builders requires --build"));
 	}
-	if args.use_polling_passed && args.opts.watch.is_none() {
+	// Presence, not the value: `--use-polling=false` without `--watch` is as confused as `--use-polling`.
+	if args.opts.use_polling.is_some() && args.opts.watch.is_none() {
 		return Err(usage("build", "--use-polling requires --watch"));
 	}
 	if args.emit_declaration_only && !args.build {
@@ -143,8 +121,8 @@ pub fn check_implications(args: &BuildArgs) -> Result<(), Failure> {
 			"--build --watch is incompatible with --emit-declaration-only (no Luau emit to incrementally watch)",
 		));
 	}
-	if watch && let Some((flag, _)) = args.outputs.first() {
-		return Err(usage("build", format!("{flag} cannot be used with --watch")));
+	if watch && !args.timings.is_empty() {
+		return Err(usage("build", "--timings cannot be used with --watch"));
 	}
 	Ok(())
 }
@@ -156,18 +134,7 @@ pub fn check_implications(args: &BuildArgs) -> Result<(), Failure> {
 /// A usage error, a setup failure, or a build failure already reported.
 pub fn run(command: BuildCommand, streams: &mut Streams) -> Result<(), Failure> {
 	let args = collect(command)?;
-	if args.version {
-		let _ = writeln!(streams.out, "{VERSION}");
-		return Ok(());
-	}
 	check_implications(&args)?;
-	validate_diagnostic_paths(&args.outputs).map_err(Failure::Runtime)?;
-	if let Some((flag, _)) = args.outputs.iter().find(|(flag, _)| *flag != "--timings") {
-		return Err(Failure::Runtime(format!(
-			"{flag} writes a Go runtime profile, which the Rust build of sloptor cannot produce; profile it \
-			 with a sampling profiler instead (for example `samply record sloptor build`)"
-		)));
-	}
 	run_body(&args, streams)
 }
 
@@ -612,105 +579,36 @@ fn finish_timings(timings: Option<&BuildTimings>, path: &str, ok: bool) -> Resul
 	rotor_compile::envdecl::atomic_write_file(path, data.as_bytes()).map_err(|error| error.to_string())
 }
 
-/// A diagnostic output path, resolved through symlinks (even dangling ones), with its metadata
-/// when it exists.
-fn resolve_output_path(path: &str) -> Result<(String, Option<std::fs::Metadata>), String> {
-	let mut path = gopath::clean(&gopath::abs(path).map_err(|error| error.to_string())?);
-	for _ in 0..255 {
-		match std::fs::metadata(&path) {
-			Ok(metadata) => {
-				let resolved = rotor_support::fsutil::eval_symlinks(&path).map_err(|error| error.to_string())?;
-				return Ok((resolved, Some(metadata)));
-			}
-			Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
-			Err(_) => {}
-		}
-		match std::fs::symlink_metadata(&path) {
-			Ok(link) if link.file_type().is_symlink() => {
-				let target = std::fs::read_link(&path).map_err(|error| error.to_string())?;
-				let target = target.to_string_lossy();
-				path = if gopath::is_abs(&target) {
-					gopath::clean(&target)
-				} else {
-					gopath::clean(&gopath::join(&[&gopath::dir(&path), &target]))
-				};
-				continue;
-			}
-			Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.to_string()),
-			_ => {}
-		}
-		if let Ok(parent) = rotor_support::fsutil::eval_symlinks(&gopath::dir(&path)) {
-			path = gopath::join(&[&parent, &gopath::base(&path)]);
-		}
-		return Ok((path, None));
-	}
-	Err("too many symbolic links in diagnostic output path".to_owned())
-}
-
-/// `os.SameFile`
-#[cfg(unix)]
-fn same_file(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-	use std::os::unix::fs::MetadataExt as _;
-	left.dev() == right.dev() && left.ino() == right.ino()
-}
-
-/// `os.SameFile`: Windows aliases are caught by their resolved paths only.
-#[cfg(not(unix))]
-const fn same_file(_: &std::fs::Metadata, _: &std::fs::Metadata) -> bool {
-	false
-}
-
-/// `validateBuildDiagnosticPaths`: no two finite diagnostic outputs may name the same file, by
-/// path, symlink or hard link.
-///
-/// # Errors
-///
-/// The first collision, or a path that cannot be resolved.
-pub fn validate_diagnostic_paths(outputs: &[(&'static str, String)]) -> Result<(), String> {
-	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
-	let mut seen: Vec<(&str, String, Option<std::fs::Metadata>)> = Vec::new();
-	for (flag, path) in outputs {
-		let (mut resolved, metadata) =
-			resolve_output_path(path).map_err(|error| format!("resolve {flag} output path: {error}"))?;
-		if !case_sensitive {
-			resolved = resolved.to_lowercase();
-		}
-		for (previous, previous_path, previous_metadata) in &seen {
-			let aliased = matches!((previous_metadata, &metadata), (Some(left), Some(right)) if same_file(left, right));
-			if *previous_path == resolved || aliased {
-				return Err(format!("{previous} and {flag} cannot write to the same path"));
-			}
-		}
-		seen.push((flag, resolved, metadata));
-	}
-	Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-	//! The flag-semantics half of `build_test.go`, parsed through the real command tree.
+	//! The flag semantics of `build`, parsed through the real command tree.
 
-	use std::ffi::OsString;
+	use std::ffi::OsStr;
 
-	use super::{BuildArgs, check_implications, collect, validate_diagnostic_paths};
-	use crate::app::Failure;
-	use crate::cli::{self, Command};
-	use crate::options::{MergedOptions, PartialOptions, project_compile_options};
-	use crate::{argv, options};
+	use usage_rs::diagnostic;
+
+	use super::{BuildArgs, check_implications, collect};
+	use crate::app::{Failure, render_usage};
+	use crate::cli::{Cli, Command};
+	use crate::options::{self, MergedOptions, PartialOptions, project_compile_options};
+
+	fn describe(failure: Failure) -> String {
+		match failure {
+			Failure::Usage { command, message } => render_usage(command, &message, false),
+			other => format!("{other:?}"),
+		}
+	}
 
 	fn parse(args: &[&str]) -> Result<BuildArgs, String> {
-		let mut tokens: Vec<OsString> = vec!["build".into()];
-		tokens.extend(args.iter().map(OsString::from));
-		let tokens = argv::normalize_negations(&cli::command(), tokens);
-		let parsed = cli::parse(tokens).map_err(|error| error.to_string())?;
+		let mut tokens = vec![OsStr::new("build")];
+		tokens.extend(args.iter().map(OsStr::new));
+		let parsed = Cli::parse_from(&tokens)
+			.map_err(|error| diagnostic::render(Cli::spec(), &tokens, &error, diagnostic::Style::PLAIN))?;
 		let Some(Command::Build(command)) = parsed.command else {
 			return Err("not a build".to_owned());
 		};
-		let args = collect(*command).map_err(|failure| format!("{failure:?}"))?;
-		check_implications(&args).map_err(|failure| match failure {
-			Failure::Usage(error) => error.to_string(),
-			other => format!("{other:?}"),
-		})?;
+		let args = collect(*command).map_err(describe)?;
+		check_implications(&args).map_err(describe)?;
 		Ok(args)
 	}
 
@@ -733,9 +631,11 @@ mod tests {
 		assert_eq!(got.max_errors, 50);
 		assert!(!got.bell);
 		assert!(got.clear_screen);
+		assert!(!got.json);
 		assert_eq!(got.builders, None);
 		assert_eq!(got.checkers, None);
 		assert_eq!(got.single_threaded, None);
+		assert_eq!(got.timings, "");
 	}
 
 	#[test]
@@ -743,17 +643,16 @@ mod tests {
 		for args in [
 			&["--no-luau"][..],
 			&["--luau=false"],
-			&["--luau=0"],
 			&["--luau", "--no-luau"],
+			&["--no-luau", "--luau=false"],
 		] {
 			assert_eq!(parsed(args).opts.luau, Some(false), "{args:?}");
 		}
 		for args in [
 			&["--luau"][..],
 			&["--luau=true"],
-			&["--luau=T"],
-			&["--no-luau=false"],
 			&["--no-luau", "--luau"],
+			&["--luau=false", "--luau"],
 		] {
 			assert_eq!(parsed(args).opts.luau, Some(true), "{args:?}");
 		}
@@ -768,11 +667,58 @@ mod tests {
 		// `--flag value` never takes the value: it is the positional path.
 		let got = parsed(&["--luau", "false"]);
 		assert_eq!((got.opts.luau, got.project.as_str()), (Some(true), "false"));
-		rejected(&["--luau=maybe"], "invalid value 'maybe'");
+		for spelling in ["maybe", "1", "TRUE"] {
+			rejected(
+				&[&format!("--luau={spelling}")],
+				&format!("invalid value '{spelling}' for '--luau'"),
+			);
+		}
 	}
 
 	#[test]
-	fn kebab_names_and_go_camel_aliases_are_the_same_flag() {
+	fn every_tri_state_boolean_has_a_negation() {
+		type Read = fn(&BuildArgs) -> Option<bool>;
+		let negations: [(&str, Read); 12] = [
+			("watch", |args| args.opts.watch),
+			("use-polling", |args| args.opts.use_polling),
+			("verbose", |args| args.opts.verbose),
+			("log-truthy-changes", |args| args.opts.log_truthy_changes),
+			("write-only-changed", |args| args.opts.write_only_changed),
+			("write-transformed-files", |args| args.opts.write_transformed_files),
+			("optimized-array-appends", |args| args.opts.optimized_array_appends),
+			("optimized-loops", |args| args.opts.optimized_loops),
+			("allow-comment-directives", |args| args.opts.allow_comment_directives),
+			("luau", |args| args.opts.luau),
+			("luau-types", |args| args.opts.luau_types),
+			("single-threaded", |args| args.single_threaded),
+		];
+		for (name, read) in negations {
+			let extra: &[&str] = if name == "use-polling" { &["--watch"] } else { &[] };
+			let negated = format!("--no-{name}");
+			let positive = format!("--{name}");
+			assert_eq!(read(&parsed(&[extra, &[&negated]].concat())), Some(false), "{negated}");
+			assert_eq!(
+				read(&parsed(&[extra, &[&negated, &positive]].concat())),
+				Some(true),
+				"{negated} {positive}"
+			);
+			assert_eq!(read(&parsed(extra)), None, "--{name} absent");
+		}
+	}
+
+	#[test]
+	fn plain_booleans_negate_natively() {
+		assert!(!parsed(&["--json", "--no-json"]).json);
+		assert!(parsed(&["--json=true"]).json);
+		assert!(!parsed(&["--bell=false"]).bell);
+		assert!(!parsed(&["--no-clear"]).clear_screen);
+		assert!(!parsed(&["--clear=false"]).clear_screen);
+		assert!(parsed(&["--no-clear", "--clear"]).clear_screen);
+		assert!(!parsed(&["--build", "--emit-declaration-only=false"]).emit_declaration_only);
+	}
+
+	#[test]
+	fn kebab_names_and_rbxtsc_camel_aliases_are_the_same_flag() {
 		let pairs: [(&str, &str); 11] = [
 			("--no-include", "--noInclude"),
 			("--log-truthy-changes", "--logTruthyChanges"),
@@ -793,32 +739,14 @@ mod tests {
 				_ => &[],
 			};
 			for value in ["", "=false", "=true"] {
-				let kebab_args: Vec<String> = extra
-					.iter()
-					.map(|arg| (*arg).to_owned())
-					.chain([format!("{kebab}{value}")])
-					.collect();
-				let camel_args: Vec<String> = extra
-					.iter()
-					.map(|arg| (*arg).to_owned())
-					.chain([format!("{camel}{value}")])
-					.collect();
-				let kebab_args: Vec<&str> = kebab_args.iter().map(String::as_str).collect();
-				let camel_args: Vec<&str> = camel_args.iter().map(String::as_str).collect();
+				let kebab_arg = format!("{kebab}{value}");
+				let camel_arg = format!("{camel}{value}");
 				assert_eq!(
-					parsed(&kebab_args),
-					parsed(&camel_args),
-					"{kebab}{value} vs {camel}{value}"
+					parsed(&[extra, &[&kebab_arg]].concat()),
+					parsed(&[extra, &[&camel_arg]].concat()),
+					"{kebab_arg} vs {camel_arg}"
 				);
 			}
-			let negated = format!("--no-{}", camel.trim_start_matches("--"));
-			let mut args: Vec<&str> = extra.to_vec();
-			args.push(&negated);
-			assert_eq!(
-				parsed(&args),
-				parsed(&[extra, &[&format!("{kebab}=false")]].concat()),
-				"{negated}"
-			);
 		}
 		assert_eq!(parsed(&["--includePath", "inc"]), parsed(&["--include-path", "inc"]));
 		assert_eq!(parsed(&["-i", "inc"]).opts.include_path.as_deref(), Some("inc"));
@@ -839,13 +767,13 @@ mod tests {
 		let opts = got.opts;
 		for (name, value) in [
 			("verbose", opts.verbose),
-			("noInclude", opts.no_include),
-			("logTruthyChanges", opts.log_truthy_changes),
-			("writeOnlyChanged", opts.write_only_changed),
-			("writeTransformedFiles", opts.write_transformed_files),
-			("allowCommentDirectives", opts.allow_comment_directives),
-			("optimizedArrayAppends", opts.optimized_array_appends),
-			("luauTypes", opts.luau_types),
+			("no-include", opts.no_include),
+			("log-truthy-changes", opts.log_truthy_changes),
+			("write-only-changed", opts.write_only_changed),
+			("write-transformed-files", opts.write_transformed_files),
+			("allow-comment-directives", opts.allow_comment_directives),
+			("optimized-array-appends", opts.optimized_array_appends),
+			("luau-types", opts.luau_types),
 		] {
 			assert_eq!(value, Some(true), "--{name}");
 		}
@@ -855,7 +783,7 @@ mod tests {
 	fn type_and_string_flags() {
 		assert_eq!(parsed(&["--type", "model"]).opts.type_name.as_deref(), Some("model"));
 		rejected(&["--type", "bogus"], "invalid value 'bogus'");
-		rejected(&["--type"], "a value is required");
+		rejected(&["--type"], "a value is required for '--type <KIND>'");
 		let got = parsed(&["-p", "proj", "-i", "inc", "--rojo=custom.project.json"]);
 		assert_eq!(got.project, "proj");
 		assert_eq!(got.opts.include_path.as_deref(), Some("inc"));
@@ -866,6 +794,7 @@ mod tests {
 		assert_eq!(got.opts.verbose, Some(true));
 		assert_eq!(parsed(&["some/dir", "--verbose"]).project, "some/dir");
 		rejected(&["a", "-p", "b"], "already set by --project");
+		rejected(&["a", "-p", "b"], "Usage: sloptor build");
 		rejected(&["--bogus"], "unexpected argument '--bogus'");
 		rejected(&["--minify"], "unexpected argument '--minify'");
 	}
@@ -879,7 +808,9 @@ mod tests {
 	#[test]
 	fn implications_fail_as_usage_errors() {
 		rejected(&["--use-polling"], "--use-polling requires --watch");
+		rejected(&["--no-use-polling"], "--use-polling requires --watch");
 		assert_eq!(parsed(&["--use-polling", "-w"]).opts.use_polling, Some(true));
+		assert_eq!(parsed(&["--use-polling", "--no-watch"]).opts.watch, Some(false));
 		rejected(&["--emit-declaration-only"], "--emit-declaration-only requires --build");
 		assert!(parsed(&["--emit-declaration-only=false"]).opts.watch.is_none());
 		rejected(
@@ -887,20 +818,11 @@ mod tests {
 			"--build --watch is incompatible with --emit-declaration-only",
 		);
 		rejected(&["--builders", "2"], "--builders requires --build");
-		for flag in [
-			"--cpuprofile",
-			"--trace-out",
-			"--blockprofile",
-			"--mutexprofile",
-			"--heapprofile",
-			"--timings",
-		] {
-			rejected(
-				&["--watch", flag, "profile.out"],
-				&format!("{flag} cannot be used with --watch"),
-			);
-			rejected(&[&format!("{flag}=")], &format!("{flag} requires a path"));
-		}
+		rejected(
+			&["--watch", "--timings", "t.json"],
+			"--timings cannot be used with --watch",
+		);
+		rejected(&["--timings="], "--timings requires a path");
 	}
 
 	#[test]
@@ -920,7 +842,7 @@ mod tests {
 		assert_eq!(parsed(&["--single-threaded"]).single_threaded, Some(true));
 		assert_eq!(parsed(&["--single-threaded=true"]).single_threaded, Some(true));
 		assert_eq!(parsed(&["--single-threaded=false"]).single_threaded, Some(false));
-		assert_eq!(parsed(&["--no-singleThreaded"]).single_threaded, Some(false));
+		assert_eq!(parsed(&["--no-single-threaded"]).single_threaded, Some(false));
 	}
 
 	#[test]
@@ -937,9 +859,9 @@ mod tests {
 		for value in ["0", "-1", "many"] {
 			rejected(
 				&["--build", &format!("--builders={value}")],
-				"must be a positive integer",
+				&format!("invalid value '{value}' for '--builders': must be a positive integer"),
 			);
-			rejected(&[&format!("--checkers={value}")], "must be a positive integer");
+			rejected(&["--checkers", value], "must be a positive integer");
 		}
 	}
 
@@ -951,67 +873,28 @@ mod tests {
 		// A valueless --max-errors means 0, unlimited.
 		assert_eq!(parsed(&["--max-errors", "--verbose"]).max_errors, 0);
 		rejected(&["--max-errors=-1"], "must be a non-negative integer");
+		rejected(&["--max-errors", "-1"], "must be a non-negative integer");
 		assert!(parsed(&["--bell"]).bell);
-		assert!(!parsed(&["--no-clear"]).clear_screen);
-		assert!(!parsed(&["--clear=false"]).clear_screen);
 	}
 
 	#[test]
-	fn timings_and_profile_paths_are_collected_in_go_order() {
+	fn timings_take_a_path() {
 		for args in [&["--timings", "report.json"][..], &["--timings=report.json"]] {
 			assert_eq!(parsed(args).timings, "report.json");
 		}
-		let got = parsed(&[
-			"--heapprofile",
-			"heap.prof",
-			"--trace-out",
-			"trace.out",
-			"--blockprofile",
-			"block.prof",
-			"--mutexprofile",
-			"mutex.prof",
-		]);
-		assert_eq!(
-			got.outputs,
-			[
-				("--trace-out", "trace.out".to_owned()),
-				("--blockprofile", "block.prof".to_owned()),
-				("--mutexprofile", "mutex.prof".to_owned()),
-				("--heapprofile", "heap.prof".to_owned()),
-			]
-		);
 	}
 
 	#[test]
-	fn diagnostic_outputs_reject_duplicate_and_aliased_paths() {
-		for args in [
-			&["--cpuprofile", "profile.out", "--trace-out", "./profile.out"][..],
-			&["--heapprofile", "profile.out", "--timings", "profile.out"],
+	fn removed_go_profile_flags_are_unknown() {
+		for flag in [
+			"--cpuprofile",
+			"--trace-out",
+			"--blockprofile",
+			"--mutexprofile",
+			"--heapprofile",
 		] {
-			assert!(validate_diagnostic_paths(&parsed(args).outputs).is_err(), "{args:?}");
+			rejected(&[flag, "p.out"], &format!("unexpected argument '{flag}'"));
 		}
-		let dir = tempfile::tempdir().expect("temp dir");
-		let target = dir.path().join("target.prof");
-		let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
-		// `same_file` only knows inodes, so links are only caught on Unix.
-		#[cfg(unix)]
-		{
-			let dangling = dir.path().join("dangling.prof");
-			std::os::unix::fs::symlink(&target, &dangling).expect("symlink");
-			assert!(
-				validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&dangling))])
-					.is_err()
-			);
-			assert!(!target.exists());
-			std::fs::write(&target, "sentinel").expect("write");
-			let hard = dir.path().join("hard.prof");
-			std::fs::hard_link(&target, &hard).expect("hard link");
-			assert!(
-				validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&hard))]).is_err()
-			);
-		}
-		let other = dir.path().join("other.prof");
-		assert!(validate_diagnostic_paths(&[("--cpuprofile", text(&target)), ("--trace-out", text(&other))]).is_ok());
 	}
 
 	#[test]

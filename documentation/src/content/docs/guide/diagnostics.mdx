@@ -40,7 +40,7 @@ The cost is a divergence. A project that sets `allowCommentDirectives: true` on 
 
 ### Exit code
 
-Unlike `build` and `check`, `diagnostics` exits **0 whenever it produced a census**, even a census full of diagnostics. It exits 1 only when it could not produce one. The command reports and doesn't gate. Read `ok` and the per-file outcomes to judge the contents.
+Unlike `build` and `check`, `diagnostics` exits **0 whenever it produced a census**, even a census full of diagnostics. It exits 1 only when it could not produce one, and 2 for a usage error such as an unknown flag. The command reports and doesn't gate. Read `ok` and the per-file outcomes to judge the contents.
 
 ## Overlays
 

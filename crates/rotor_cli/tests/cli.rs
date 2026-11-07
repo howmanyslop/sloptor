@@ -1,12 +1,10 @@
 //! End-to-end tests of the `sloptor` binary: exit codes, the flag surface, `--json`, `check`,
-//! `clean`, `schema` and completions (the behavioural half of `cmd/rotor/*_test.go`).
+//! `clean`, `schema` and completions.
 
 #![cfg(test)]
 
 mod support;
 
-use clap as _;
-use clap_complete as _;
 use ctrlc as _;
 use icu_normalizer as _;
 use jiff as _;
@@ -25,6 +23,8 @@ use support::{
 	run_with_stdin, rust_binary, temp, write,
 };
 use terminal_size as _;
+use usage_parser as _;
+use usage_rs as _;
 
 const VERSION: &str = rotor_support::version::VERSION;
 
@@ -38,9 +38,11 @@ fn version_surfaces_print_the_bare_version() {
 	for args in [
 		&["--version"][..],
 		&["-v"],
+		&["-V"],
 		&["version"],
 		&["build", "-v"],
 		&["build", "--version"],
+		&["check", "-V"],
 	] {
 		let got = run(&dir.path, args);
 		assert_eq!(
@@ -53,7 +55,7 @@ fn version_surfaces_print_the_bare_version() {
 }
 
 #[test]
-fn help_exits_zero_and_failures_exit_one() {
+fn help_exits_zero_failures_one_and_usage_errors_two() {
 	let dir = temp();
 	for args in [
 		&["--help"][..],
@@ -62,15 +64,17 @@ fn help_exits_zero_and_failures_exit_one() {
 		&["build", "--help"],
 		&["check", "--help"],
 		&["schema", "--help"],
+		&["help"],
+		&["help", "build"],
 	] {
 		let got = run(&dir.path, args);
 		assert_eq!(got.code, 0, "{args:?}: {}", got.stderr);
 		assert!(got.stdout.contains("Usage: sloptor"), "{args:?}:\n{}", got.stdout);
 		assert!(got.stderr.is_empty(), "{args:?}: {}", got.stderr);
 	}
-	// A bare `sloptor` prints the help on stderr and exits 1, as Go's "no command given" does.
+	// A bare `sloptor` prints the help on stderr and fails as a usage error.
 	let got = run(&dir.path, &[]);
-	assert_eq!(got.code, 1);
+	assert_eq!(got.code, 2);
 	assert!(got.stderr.contains("Usage: sloptor"), "{}", got.stderr);
 	assert!(got.stdout.is_empty(), "wrote to stdout: {}", got.stdout);
 	for args in [
@@ -81,10 +85,12 @@ fn help_exits_zero_and_failures_exit_one() {
 		&["schema", "--bogus"],
 		&["build", "--use-polling"],
 		&["build", "--checkers=0"],
+		&["build", "--luau=1"],
 		&["completion", "tcsh"],
+		&["--color", "never"],
 	] {
 		let got = run(&dir.path, args);
-		assert_eq!(got.code, 1, "{args:?}");
+		assert_eq!(got.code, 2, "{args:?}");
 		assert!(got.stderr.starts_with("error: "), "{args:?}: {}", got.stderr);
 		assert!(got.stdout.is_empty(), "{args:?} wrote to stdout: {}", got.stdout);
 	}
@@ -112,18 +118,27 @@ fn removed_commands_and_flags_are_unknown() {
 		"migrate",
 	] {
 		let got = run(&dir.path, &[name]);
-		assert_eq!(got.code, 1, "{name}");
+		assert_eq!(got.code, 2, "{name}");
 		assert_eq!(got.stdout, "");
 		assert!(got.stderr.contains("unrecognized subcommand"), "{name}: {}", got.stderr);
 	}
-	let got = run(&dir.path, &["build", "--minify"]);
-	assert_eq!(got.code, 1);
-	assert!(got.stderr.contains("unexpected argument '--minify'"), "{}", got.stderr);
-	assert!(
-		got.stderr.contains("Usage: sloptor build [OPTIONS] [PATH]"),
-		"{}",
-		got.stderr
-	);
+	for flag in [
+		"--minify",
+		"--cpuprofile",
+		"--trace-out",
+		"--blockprofile",
+		"--mutexprofile",
+		"--heapprofile",
+	] {
+		let got = run(&dir.path, &["build", flag, "profile.out"]);
+		assert_eq!(got.code, 2, "{flag}");
+		assert!(
+			got.stderr.contains(&format!("unexpected argument '{flag}'")),
+			"{flag}: {}",
+			got.stderr
+		);
+		assert!(got.stderr.contains("Usage: sloptor build "), "{}", got.stderr);
+	}
 }
 
 #[test]
@@ -133,16 +148,16 @@ fn camel_case_and_misspelled_flags_suggest_the_kebab_name() {
 		("--optimizedLop", "--optimized-loops"),
 		("--maxErrors", "--max-errors"),
 		("--singlethreaded", "--single-threaded"),
+		("--no-clea", "--no-clear"),
 	] {
 		let got = run(&dir.path, &["build", typo]);
-		assert_eq!(got.code, 1);
-		assert!(
-			got.stderr
-				.contains(&format!("tip: a similar argument exists: '{want}'")),
-			"{typo}: {}",
-			got.stderr
-		);
-		assert!(!got.stderr.contains("[=<BOOL>]"), "{}", got.stderr);
+		assert_eq!(got.code, 2);
+		let tip = got
+			.stderr
+			.lines()
+			.find(|line| line.trim_start().starts_with("tip: "))
+			.unwrap_or_else(|| panic!("{typo}: no tip in {}", got.stderr));
+		assert!(tip.contains(&format!("'{want}'")), "{typo}: {tip}");
 	}
 }
 
@@ -170,6 +185,7 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 	let dir = temp();
 	let got = run(&dir.path, &["build", "--help"]);
 	for heading in [
+		"Arguments:",
 		"Input:",
 		"Output:",
 		"Emit:",
@@ -178,7 +194,8 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		"Diagnostics:",
 		"Runtime:",
 		"Advanced:",
-		"General:",
+		"Global flags:",
+		"Examples:",
 	] {
 		assert!(
 			got.stdout.contains(heading),
@@ -187,27 +204,36 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		);
 	}
 	for flag in [
-		"--optimized-loops",
-		"--include-path [<DIR>]",
+		"--optimized-loops[=BOOL]",
+		"--include-path [DIR]",
 		"--builders <N>",
 		"--checkers <N>",
-		"--single-threaded",
-		"Examples:",
+		"--clear / --no-clear",
+		"$ sloptor build --no-luau",
+		"Emit .lua instead of .luau",
 	] {
-		assert!(got.stdout.contains(flag), "build help lacks {flag}");
+		assert!(got.stdout.contains(flag), "build help lacks {flag}:\n{}", got.stdout);
 	}
 	let short = run(&dir.path, &["build", "-h"]);
-	for hidden in ["optimizedLoops", "includePath", "[=<BOOL>]", "--no-luau  "] {
-		assert!(!short.stdout.contains(hidden), "build help shows {hidden}");
+	for hidden in [
+		"optimizedLoops",
+		"includePath",
+		"\n      --no-luau",
+		"--no-verbose",
+		"Emit .lua instead of .luau",
+	] {
+		assert!(
+			!short.stdout.contains(hidden),
+			"build -h shows {hidden}:\n{}",
+			short.stdout
+		);
 	}
-	assert!(!got.stdout.contains("[=<BOOL>]"));
 	let project = got.stdout.find("--project").expect("--project");
 	let watch = got.stdout.find("--watch").expect("--watch");
 	let max_errors = got.stdout.find("--max-errors").expect("--max-errors");
 	assert!(project < watch && watch < max_errors);
-	assert!(!short.stdout.contains("Examples:"));
 	let root = run(&dir.path, &["--help"]);
-	let banner = format!("sloptor v{VERSION}");
+	let banner = format!("sloptor {VERSION}");
 	for want in [
 		banner.as_str(),
 		"build",
@@ -216,9 +242,11 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		"Environment:",
 		"UV_THREADPOOL_SIZE",
 		"Exit codes:",
+		"130  Interrupted",
 	] {
-		assert!(root.stdout.contains(want), "root help lacks {want}");
+		assert!(root.stdout.contains(want), "root help lacks {want}:\n{}", root.stdout);
 	}
+	assert!(!run(&dir.path, &["-h"]).stdout.contains("Exit codes:"));
 }
 
 #[test]
@@ -357,16 +385,17 @@ fn styled_build_failure_renders_code_frames_on_stderr() {
 #[test]
 fn negated_booleans_reach_the_build() {
 	let dir = temp();
-	for (name, flag, lua) in [
-		("negated", "--no-luau", true),
-		("equals", "--luau=false", true),
-		("zero", "--luau=0", true),
-		("negated-true", "--no-luau=true", true),
-		("negated-false", "--no-luau=false", false),
-		("plain", "--luau", false),
+	for (name, flags, lua) in [
+		("negated", &["--no-luau"][..], true),
+		("equals", &["--luau=false"], true),
+		("last-negated", &["--luau", "--no-luau"], true),
+		("last-plain", &["--no-luau", "--luau"], false),
+		("plain", &["--luau"], false),
 	] {
 		let project = buildable_project(&dir.path.join(name), "");
-		let got = run(&dir.path, &["build", flag, &arg(&project)]);
+		let project_arg = arg(&project);
+		let got = run(&dir.path, &[&["build"], flags, &[project_arg.as_str()]].concat());
+		let flag = flags.join(" ");
 		assert_eq!(got.code, 0, "{flag}: {}", got.stderr);
 		assert_eq!(project.join("out/main.lua").is_file(), lua, "{flag}");
 		assert_eq!(project.join("out/main.luau").is_file(), !lua, "{flag}");
@@ -419,42 +448,13 @@ fn timings_write_a_report_for_successful_and_failed_builds() {
 		&dir.path,
 		&["build", "--watch", "--timings", &arg(&report), &arg(&project)],
 	);
-	assert_eq!(got.code, 1);
+	assert_eq!(got.code, 2);
 	assert!(
 		got.stderr.contains("--timings cannot be used with --watch"),
 		"{}",
 		got.stderr
 	);
 	assert!(!report.exists());
-}
-
-#[test]
-fn go_profiles_fail_clearly_before_building() {
-	let dir = temp();
-	let project = buildable_project(&dir.path, "");
-	for flag in [
-		"--cpuprofile",
-		"--trace-out",
-		"--blockprofile",
-		"--mutexprofile",
-		"--heapprofile",
-	] {
-		let got = run(&dir.path, &["build", flag, "profile.out", &arg(&project)]);
-		assert_eq!(got.code, 1, "{flag}");
-		assert!(
-			got.stderr.contains(&format!("{flag} writes a Go runtime profile")),
-			"{flag}: {}",
-			got.stderr
-		);
-	}
-	assert!(!project.join("out").exists());
-	let got = run(&dir.path, &["build", "--heapprofile", "p.out", "--timings", "p.out"]);
-	assert!(
-		got.stderr
-			.contains("--heapprofile and --timings cannot write to the same path"),
-		"{}",
-		got.stderr
-	);
 }
 
 #[test]
@@ -502,12 +502,18 @@ fn check_honours_checkers_and_rejects_build_only_flags() {
 	assert_eq!(result["ok"], true);
 	for (args, want) in [
 		(&["check", "--checkers"][..], "a value is required for '--checkers <N>'"),
-		(&["check", "--checkers=0"], "must be a positive integer"),
-		(&["check", "--checkers", "-1"], "must be a positive integer"),
+		(
+			&["check", "--checkers=0"],
+			"invalid value '0' for '--checkers': must be a positive integer",
+		),
+		(
+			&["check", "--checkers", "-1"],
+			"invalid value '-1' for '--checkers': must be a positive integer",
+		),
 		(&["check", "--builders", "2"], "unexpected argument '--builders'"),
 	] {
 		let got = run(&dir.path, args);
-		assert_eq!(got.code, 1, "{args:?}");
+		assert_eq!(got.code, 2, "{args:?}");
 		assert!(got.stderr.contains(want), "{args:?}: {}", got.stderr);
 	}
 }
@@ -628,22 +634,50 @@ fn schema_prints_the_schemas_verbatim() {
 }
 
 #[test]
-fn completion_scripts_are_plain_and_name_the_commands() {
+fn completion_scripts_are_plain_and_call_back_into_sloptor() {
 	let dir = temp();
-	for shell in ["bash", "zsh", "fish", "elvish", "powershell"] {
+	for shell in ["bash", "zsh", "fish", "elvish", "powershell", "nu"] {
 		for command in ["completion", "completions"] {
 			let got = run_binary(&rust_binary(), &dir.path, &[command, shell], &[("CLICOLOR_FORCE", "1")]);
 			assert_eq!(got.code, 0, "{shell}: {}", got.stderr);
 			assert_eq!(got.stderr, "");
 			assert!(!got.stdout.contains("\x1b["), "{shell} script has ANSI");
-			for want in ["sloptor", "build", "optimized-loops"] {
-				assert!(got.stdout.contains(want), "{shell} script lacks {want}");
-			}
 			assert!(
-				!got.stdout.contains("optimizedLoops"),
-				"{shell} script offers the alias"
+				got.stdout.contains("sloptor") && got.stdout.contains("__complete_word__"),
+				"{shell} script does not call back:\n{}",
+				got.stdout
 			);
 		}
+	}
+}
+
+#[test]
+fn completion_requests_answer_with_candidates() {
+	let dir = temp();
+	let complete = |line: &str| {
+		let got = run(&dir.path, &["__complete_word__", "--shell", "fish", "--line", line]);
+		assert_eq!(got.code, 0, "{line}: {}", got.stderr);
+		got.stdout
+	};
+	let commands = complete("sloptor bu");
+	assert!(commands.lines().any(|line| line.starts_with("build\t")), "{commands}");
+	let flags = complete("sloptor build --optimi");
+	assert!(flags.contains("--optimized-loops"), "{flags}");
+	assert!(
+		!flags.contains("optimizedLoops"),
+		"completions offer the alias: {flags}"
+	);
+	let negations = complete("sloptor build --no-cl");
+	assert!(negations.contains("--no-clear"), "{negations}");
+}
+
+#[test]
+fn the_usage_spec_is_printed_on_request() {
+	let dir = temp();
+	let got = run(&dir.path, &["__usage_spec__"]);
+	assert_eq!(got.code, 0, "{}", got.stderr);
+	for want in ["bin sloptor", "cmd build", "--optimized-loops", "--optimizedLoops"] {
+		assert!(got.stdout.contains(want), "spec lacks {want}");
 	}
 }
 
@@ -674,7 +708,7 @@ fn stdio_servers_end_cleanly_at_end_of_input_and_reject_bad_flags() {
 		&["diagnostics", "--builders", "2"],
 	] {
 		let got = run(&dir.path, args);
-		assert_eq!(got.code, 1, "{args:?}");
+		assert_eq!(got.code, 2, "{args:?}");
 		assert!(!got.stderr.is_empty(), "{args:?} is a usage error");
 	}
 }
@@ -821,7 +855,7 @@ fn diagnostics_text_and_setup_failures() {
 	assert_eq!(got.code, 1);
 	assert!(got.stderr.contains("Unable to find tsconfig.json!"), "{}", got.stderr);
 	let got = run(&dir.path, &["diagnostics", "--builders", "2"]);
-	assert_eq!(got.code, 1);
+	assert_eq!(got.code, 2);
 	assert!(got.stderr.contains("--builders requires --build"), "{}", got.stderr);
 }
 
