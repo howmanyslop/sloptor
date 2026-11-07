@@ -117,6 +117,7 @@ export default defineConfig({
 					{
 						items: [
 							{ label: "Introduction", slug: "guide/introduction" },
+							{ label: "Why sloptor", slug: "guide/why" },
 							{ label: "Install", slug: "guide/install" },
 							{ label: "Migrate from rbxtsc", slug: "guide/migrate" },
 							{ label: "Editors", slug: "guide/editors" },

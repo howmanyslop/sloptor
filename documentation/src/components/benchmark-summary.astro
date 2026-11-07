@@ -1,0 +1,52 @@
+---
+import { getAverage, METRICS } from "$data/benchmark-metrics";
+import { formatRatio, getReport, RIVAL_NAMES, SCENARIO_LABELS, SCENARIO_NAMES } from "$data/benchmark-results";
+
+const COLUMNS = ["time", "cpu", "memory", "instructions"] as const;
+
+const groups = SCENARIO_NAMES.map((scenario) => ({
+	label: SCENARIO_LABELS[scenario],
+	projects: getReport(scenario).comparisons.length,
+	rows: RIVAL_NAMES.map((rival) => {
+		const time = getAverage(scenario, METRICS.time, rival);
+		return {
+			cells: COLUMNS.map((metric) => `${formatRatio(getAverage(scenario, METRICS[metric], rival).mean)}×`),
+			range: `${formatRatio(time.low)}× to ${formatRatio(time.high)}×`,
+			rival,
+		};
+	}),
+}));
+---
+
+<figure class="bench-table-figure">
+	<figcaption class="figure-legend">{"How many times as much each tool needs as sloptor, geometric mean over every project"}</figcaption>
+	<div class="bench-scroll">
+		<table class="bench-table bench-table--summary">
+			<thead>
+				<tr>
+					<th scope="col">Scenario</th>
+					<th scope="col">Against</th>
+					<th scope="col">Time</th>
+					<th scope="col">CPU</th>
+					<th scope="col">Memory</th>
+					<th scope="col">Instructions</th>
+					<th scope="col">Time, per project</th>
+				</tr>
+			</thead>
+			<tbody>
+				{groups.map(({ label, rows }) =>
+					rows.map(({ cells, range, rival }) => (
+						<tr>
+							<th scope="row">{label}</th>
+							<td>{rival}</td>
+							{cells.map((cell) => (
+								<td>{cell}</td>
+							))}
+							<td>{range}</td>
+						</tr>
+					)),
+				)}
+			</tbody>
+		</table>
+	</div>
+</figure>
