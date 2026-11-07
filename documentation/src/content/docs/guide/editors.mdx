@@ -1,11 +1,14 @@
 ---
 title: "Editors"
-description: "Show sloptor's transformer diagnostics in Neovim, Helix and Zed with sloptor lsp."
+description: "Run sloptor lsp, configure Neovim, Helix and Zed, and fix the project errors the server reports."
 ---
 
-`sloptor lsp` is a language server over stdio. It runs the same census as the
-[diagnostics command](/sloptor/guide/diagnostics/) over your unsaved buffers
-and publishes the result as editor diagnostics with the source `sloptor`.
+`sloptor lsp` is a language server over stdio. stdio is the only transport.
+Editors pass `--stdio` for compatibility and the flag changes nothing. The
+server runs the same [census](/sloptor/guide/diagnostics/) as the diagnostics
+command over your unsaved buffers and publishes the result as editor
+diagnostics with the source `sloptor`. The
+[`lsp` command reference](/sloptor/commands/lsp/) lists its flags.
 
 It reports what your TypeScript server can't: transformer diagnostics such as
 `noAny`, unsupported Luau constructs, macro failures, comment-directive
@@ -13,15 +16,69 @@ refusals and internal compiler errors. The editor's own TypeScript server
 reports TypeScript errors (`TS####`), so nothing shows up twice. Run it next to
 that server, not instead of it.
 
-The server checks edits shortly after you stop typing, and immediately on open
-and save. Each check is a full compile of the project. It finds the project by
-walking up from the file to the nearest `tsconfig.json`. A project without
-`node_modules/@rbxts` there or in a parent directory isn't a roblox-ts
-project. The server ignores its files.
+The server checks immediately on open and save, and 250 ms after you stop
+typing. Each check is a full compile of the project.
 
-To also show TypeScript errors, for an editor without a TypeScript server,
-pass `initializationOptions: { typeErrors: true }`. The following snippets show
-the option in its default, off state.
+## Project setup
+
+The server finds a project by walking up from the open file to the nearest
+`tsconfig.json`. If `node_modules/@rbxts` is not beside that config or in one
+of its parent directories, the server treats the file as outside a roblox-ts
+project and ignores it silently. There is no setting for the project path.
+Workspace roots, `rotor.toml` and environment variables do not take part in
+finding the project.
+
+A project that the server accepts still has to pass the compiler's
+`tsconfig.json` validation. These `compilerOptions` are required:
+
+| Option                         | Required value                                                                |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `noLib`                        | `true`                                                                        |
+| `strict`                       | `true`                                                                        |
+| `module`                       | `commonjs`, or `preserve` with `moduleResolution: bundler`                    |
+| `moduleDetection`              | `force`                                                                       |
+| `moduleResolution`             | set explicitly to `Node` or `Node10`, or to `bundler` with `module: preserve` |
+| `allowSyntheticDefaultImports` | `true`                                                                        |
+| `typeRoots`                    | must contain `node_modules/@rbxts`                                            |
+| `rootDir` or `rootDirs`        | one of the two must be set                                                    |
+| `outDir`                       | must be set                                                                   |
+| `importsNotUsedAsValues`       | must be absent, use `verbatimModuleSyntax`                                    |
+
+Every entry in `types` must resolve under one of the `typeRoots`. This config
+satisfies the checks:
+
+```json
+{
+	"compilerOptions": {
+		"allowSyntheticDefaultImports": true,
+		"module": "commonjs",
+		"moduleDetection": "force",
+		"moduleResolution": "Node",
+		"noLib": true,
+		"outDir": "out",
+		"rootDir": "src",
+		"strict": true,
+		"typeRoots": ["node_modules/@rbxts"],
+		"types": []
+	},
+	"include": ["src"]
+}
+```
+
+The top-level `rbxts` key holds build options, not these compiler options. See
+[tsconfig rbxts](/sloptor/configuration/tsconfig/) and
+[rotor.toml](/sloptor/configuration/rotor-toml/).
+
+## Settings
+
+The server has one setting: `initializationOptions.typeErrors`, a boolean that
+is off by default. With it off, the server drops diagnostics whose code is
+`TS####`. Turn it on only for an editor that has no TypeScript server, or those
+errors show up twice. `typeErrors` is an initialization option, not a
+command-line flag. `sloptor lsp` accepts only `--stdio` and the global flags.
+
+Each editor passes it differently. The snippets below show the default, off
+state.
 
 ## Neovim
 
@@ -36,6 +93,10 @@ vim.lsp.config("sloptor", {
 })
 vim.lsp.enable("sloptor")
 ```
+
+`cmd` needs the binary on your `PATH`. The npm package installs it as `rotor`,
+so npm users need `{ "rotor", "lsp", "--stdio" }` or an absolute path. See
+[Install](/sloptor/guide/install/).
 
 ## Helix
 
@@ -56,28 +117,82 @@ name = "tsx"
 language-servers = ["typescript-language-server", "sloptor"]
 ```
 
+Keep `typescript-language-server` in the list. The two servers report
+different families of diagnostics.
+
 ## Zed
 
 Zed only launches language servers that an extension registers. The sloptor
 repository has one in `editors/zed`. Open the command palette, run
-`zed: install dev extension` and select that directory. It needs a Rust
-toolchain installed through `rustup`, since Zed builds the extension itself.
+`zed: install dev extension` and select that directory. Zed builds the
+extension itself, so it needs a Rust toolchain installed through `rustup`.
 
-The extension finds `sloptor` on your `PATH`. To point it elsewhere, or to turn
-on TypeScript errors, add this to `settings.json`:
+The extension looks for `sloptor` on your `PATH` and runs
+`sloptor lsp --stdio`. All of these keys are optional in Zed's
+`settings.json`:
 
 ```json
 {
 	"lsp": {
 		"sloptor": {
 			"binary": { "path": "/path/to/sloptor" },
-			"initialization_options": { "typeErrors": true }
+			"initialization_options": { "typeErrors": false }
 		}
 	}
 }
 ```
 
-## Other editors
+`binary.path` replaces the `PATH` lookup, which is also how you use an npm
+install that named the binary `rotor`. `binary.arguments` replaces the default
+`["lsp", "--stdio"]`. `initialization_options` passes through to the server.
 
-VS Code only launches language servers that an extension registers, and sloptor
-has no extension yet.
+To turn the server off for one language, add `"!sloptor"` to that language's
+`language_servers` array.
+
+## VS Code
+
+VS Code only launches language servers that an extension registers, and
+sloptor has no extension yet. There is no supported setup for VS Code yet. Run
+[`sloptor diagnostics`](/sloptor/commands/diagnostics/) from the terminal for
+the same checks.
+
+## Troubleshooting
+
+### `compile: invalid tsconfig.json configuration`
+
+The editor shows this as two notifications. One carries the short error above,
+the other carries the compiler's validation text:
+
+```
+Invalid "tsconfig.json" configuration!
+https://roblox-ts.com/docs/quick-start#project-folder-setup
+
+- "rootDir" or "rootDirs" must be defined
+- "outDir" must be defined
+```
+
+Neither is an LSP setting. Both come from the compiler rejecting the project's
+`tsconfig.json`. The server forwards census errors and project-level
+diagnostics through `window/showMessage`, so these are notifications rather
+than diagnostics on a line. It shows each error once, then again only after the
+error went away and came back. A broken config does not raise a popup per
+keystroke.
+
+Add `rootDir` or `rootDirs` and `outDir` to `compilerOptions`, then check the
+rest of the list in [Project setup](#project-setup). The message names only the
+options that are missing, so fixing these two can uncover another. Save the
+file, since the server runs a new census on save. The same validation applies
+to [`sloptor build`](/sloptor/commands/build/) and
+[`sloptor check`](/sloptor/commands/check/).
+
+### No diagnostics appear
+
+The server ignores a file when it cannot find a `tsconfig.json` above it, or
+when `node_modules/@rbxts` is absent beside that config and its parents. Both
+failures are silent. Open a file inside the project, install its `@rbxts`
+packages, and check that the nearest `tsconfig.json` is the one you expect. A
+plain TypeScript project has no sloptor diagnostics by design.
+
+If the server does not start at all, check the binary name on your `PATH` and
+the editor's LSP log. The server writes its protocol to stdout and everything
+else to stderr.

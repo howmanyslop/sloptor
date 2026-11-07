@@ -172,6 +172,19 @@ fn listed<'a>(flags: &'a [FlagMeta<'a>]) -> impl Iterator<Item = &'a FlagMeta<'a
 	flags.iter().filter(|meta| !meta.hide() && !meta.builtin())
 }
 
+/// Links to the hand-written pages that expand on a command. The CLI spec carries no site URLs,
+/// so the generated reference points at them here instead of leaving a bare flag table.
+fn see_also(name: &str) -> Option<&'static str> {
+	match name {
+		"lsp" => Some(
+			"[Editor setup](/sloptor/guide/editors/) covers client configuration, the project shape \
+			 the server needs, and the errors it reports. [Diagnostics census](/sloptor/guide/diagnostics/) \
+			 describes the checks each census runs.",
+		),
+		_ => None,
+	}
+}
+
 fn page(root: &CommandMeta<'_>, command: &CommandMeta<'_>) -> String {
 	let name = command.cmd().name;
 	let about = command.about().unwrap_or_default();
@@ -227,6 +240,9 @@ fn page(root: &CommandMeta<'_>, command: &CommandMeta<'_>) -> String {
 		.collect();
 	if !examples.is_empty() {
 		let _ = write!(out, "## Examples\n\n```sh\n{}\n```\n", examples.join("\n"));
+	}
+	if let Some(see_also) = see_also(name) {
+		let _ = write!(out, "\n## See also\n\n{see_also}\n");
 	}
 	out.trim_end().to_owned() + "\n"
 }
@@ -331,5 +347,26 @@ mod tests {
 				"build.mdx lists {hidden}:\n{build}"
 			);
 		}
+	}
+
+	#[test]
+	fn a_command_links_to_its_hand_written_guide() {
+		let dir = tempfile::tempdir().expect("temp dir");
+		let path = dir.path().to_string_lossy().into_owned();
+		write(&path).expect("write");
+		let lsp = std::fs::read_to_string(dir.path().join("lsp.mdx")).expect("read");
+		assert!(
+			lsp.contains("## See also"),
+			"lsp.mdx lacks the See also section:\n{lsp}"
+		);
+		assert!(
+			lsp.contains("/sloptor/guide/editors/"),
+			"lsp.mdx lacks the editor guide link:\n{lsp}"
+		);
+		let build = std::fs::read_to_string(dir.path().join("build.mdx")).expect("read");
+		assert!(
+			!build.contains("## See also"),
+			"build.mdx gained an unrelated section:\n{build}"
+		);
 	}
 }
