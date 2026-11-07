@@ -37,7 +37,7 @@ export const tableNote = `fig. 2 — the median of each run, in milliseconds, fo
 	<div class="note-margin">
 		<h2>Against the others</h2>
 		<p>
-			fig. 1 — how many times as much each tool needs as sloptor, one project per row, on a log scale. A bar that
+			fig. 1 - how many times as much each tool needs as sloptor, one project per row, on a log scale. A bar that
 			ends at 2× means that tool needs twice what sloptor does. Hover a row for the exact numbers.
 		</p>
 	</div>
@@ -58,16 +58,16 @@ export const tableNote = `fig. 2 — the median of each run, in milliseconds, fo
 	<div class="note-margin">
 		<h2>Run it yourself</h2>
 		<p>
-			fig. 3 — the script behind every figure here. It needs mise for sloptor, rbxtsgo, and hyperfine, and each
+			fig. 3 - the script behind every figure here. It needs mise for sloptor, rbxtsgo, and hyperfine, and each
 			fixture needs one install.
 		</p>
 	</div>
 	<div class="note-body">
 
 ```sh
-mise exec -- bun scripts/benchmark-compare.ts
-mise exec -- bun scripts/benchmark-compare.ts --projects obby,wide --runs 100
-mise exec -- bun scripts/benchmark-compare.ts --against rbxtsgo
+bun run scripts/benchmark-compare.ts
+bun run scripts/benchmark-compare.ts --projects obby,wide --runs 100
+bun run scripts/benchmark-compare.ts --against rbxtsgo
 ```
 
     </div>
