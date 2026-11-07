@@ -4,39 +4,25 @@
 		"actions": {
 			"source": {
 				"noDuplicateClasses": "on",
+				// ESLint sorts imports.
 				"organizeImports": "off",
 				"preset": "recommended",
 				"useSortedAttributes": "off",
 				"useSortedEnumMembers": "on",
 				"useSortedInterfaceMembers": "off",
-				"useSortedKeys": {
-					"level": "off",
-					"options": {
-						"groupByNesting": false,
-						"sortOrder": "lexicographic"
-					}
-				},
 				"useSortedPackageJson": "off",
 				"useSortedProperties": "on",
 				"useSortedSelectionSet": "on",
 				"useSortedTypeFields": "on"
 			}
-		},
-		"enabled": true,
-		"includes": ["**", "!**/*.js", "!**/*-lock.{json,yaml}"]
+		}
 	},
 
 	"css": {
-		"assist": { "enabled": true },
-		"formatter": {
-			"enabled": true,
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"lineWidth": 120,
-			"quoteStyle": "double"
-		},
-		"globals": [],
-		"linter": { "enabled": true }
+		"parser": {
+			"cssModules": true,
+			"tailwindDirectives": true
+		}
 	},
 
 	"files": {
@@ -53,174 +39,92 @@
 			"!reference",
 			"!rbxts-tsconfig.schema.json",
 			"!rotor.schema.json",
-			"!benchmarks/compare"
+			"!benchmarks/compare",
+			"!third_party",
+			"!documentation/src/data/benchmark-results.json"
 		]
 	},
 
 	"formatter": {
-		"attributePosition": "auto",
-		"bracketSameLine": false,
-		"bracketSpacing": true,
-		"enabled": true,
-		"expand": "auto",
 		"formatWithErrors": true,
-		"includes": [
-			"**",
-			"!**/*.js",
-			"!**/{dist,do-not-sync-ever,garbage,node_modules}/**",
-			"!documentation/src/components/rule-index-data.ts",
-			"!tests/fixtures/tsgolint-version/**/*.yaml"
-		],
-		"indentStyle": "tab",
 		"indentWidth": 4,
-		"lineEnding": "lf",
 		"lineWidth": 120,
 		"useEditorconfig": false
 	},
 
-	"graphql": {
-		"assist": { "enabled": true },
-		"formatter": {
-			"bracketSpacing": true,
-			"enabled": true,
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"lineWidth": 120,
-			"quoteStyle": "double"
-		},
-		"linter": { "enabled": true }
-	},
-
-	"grit": {
-		"assist": { "enabled": true },
-		"formatter": {
-			"enabled": true,
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"lineWidth": 120
-		},
-		"linter": { "enabled": true }
-	},
-
 	"html": {
-		"assist": { "enabled": true },
 		"experimentalFullSupportEnabled": true,
 		"formatter": {
-			"attributePosition": "auto",
 			"bracketSameLine": true,
-			"enabled": true,
 			"indentScriptAndStyle": true,
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"lineEnding": "lf",
-			"lineWidth": 120,
 			"selfCloseVoidElements": "always",
 			"whitespaceSensitivity": "strict"
 		},
-		"linter": { "enabled": true },
 		"parser": {
-			"interpolation": true,
-			"vue": false
+			"interpolation": true
 		}
 	},
 
 	"javascript": {
-		"formatter": {
-			"arrowParentheses": "always",
-			"attributePosition": "auto",
-			"bracketSameLine": false,
-			"bracketSpacing": true,
-			"enabled": true,
-			"expand": "auto",
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"jsxQuoteStyle": "double",
-			"lineEnding": "lf",
-			"lineWidth": 120,
-			"quoteProperties": "asNeeded",
-			"quoteStyle": "double",
-			"semicolons": "always",
-			"trailingCommas": "all"
-		},
-		"globals": ["Bun"],
-		"linter": { "enabled": true }
-	},
-
-	"json": {
-		"assist": { "enabled": true },
-		"formatter": {
-			"bracketSpacing": true,
-			"enabled": true,
-			"expand": "auto",
-			"indentStyle": "tab",
-			"indentWidth": 4,
-			"lineWidth": 120,
-			"trailingCommas": "none"
-		},
-		"linter": { "enabled": true },
-		"parser": {}
+		// The Workers runtime's handler types come from the generated
+		// worker-configuration.d.ts, which Biome does not read.
+		"globals": []
 	},
 
 	"linter": {
+		// Framework domains are scoped to the apps in `overrides`.
 		"domains": {
 			"project": "all",
-			"react": "all",
+			"test": "all",
+			"turborepo": "all",
 			"types": "all"
 		},
-		"enabled": true,
-		"includes": ["**", "!**/{dist,do-not-sync-ever,garbage,node_modules}/**"],
 		"rules": {
-			"a11y": { "preset": "none" },
+			"a11y": {
+				"noLabelWithoutControl": {
+					"level": "error",
+					"options": { "inputComponents": ["Input"] }
+				}
+			},
 
 			"complexity": {
 				"noDivRegex": "error",
 				"noExcessiveCognitiveComplexity": {
 					"level": "error",
-					"options": {
-						"maxAllowedComplexity": 15
-					}
+					"options": { "maxAllowedComplexity": 15 }
 				},
-				"noExcessiveNestedTestSuites": "error",
-				"noForEach": "error",
-				"noImplicitCoercions": "error",
-				"noRedundantDefaultExport": "error",
-				"noUselessCatchBinding": "error",
-				"noUselessReturn": "error",
-				"noUselessStringConcat": "error",
-				"noUselessSwitchCase": "off",
-				"preset": "none",
-				"useArrayFind": "error",
-				"useArrowFunction": "off",
-				"useDateNow": "error",
-				"useFlatMap": "error",
-				"useLiteralKeys": "error",
-				"useMaxParams": {
-					"level": "off",
-					"options": { "max": 7 }
-				},
-				"useOptionalChain": "error",
-				"useSimpleNumberKeys": "error",
-				"useSimplifiedLogicExpression": "off",
-				"useWhile": "error",
+				// Temporarily disabled.
 				"noExcessiveNestedCallbacks": {
-					// temporarily disabled
 					"level": "off",
 					"options": { "max": 5 }
 				},
+				"noExcessiveNestedTestSuites": "error",
 				"noExcessiveSelectorClasses": "error",
+				"noForEach": "error",
+				"noImplicitCoercions": "error",
+				"noRedundantDefaultExport": "error",
 				"noUnnecessaryTemplateExpression": "error",
+				"noUselessCatchBinding": "error",
+				"noUselessReturn": "error",
+				"noUselessStringConcat": "error",
+				"preset": "none",
+				"useArrayFind": "error",
 				"useArraySome": "error",
+				"useDateNow": "error",
+				"useFlatMap": "error",
+				"useLiteralKeys": "error",
 				"useMathMinMax": "error",
-				"useRegexpTest": "error"
+				"useOptionalChain": "error",
+				"useRegexpTest": "error",
+				"useSimpleNumberKeys": "error",
+				"useWhile": "error"
 			},
 
 			"correctness": {
+				"noComponentHookFactories": "error",
 				"noGlobalDirnameFilename": "error",
-				"noNodejsModules": "off",
-				"noUndeclaredDependencies": {
-					"level": "error",
-					"options": {}
-				},
+				"noJsxNamespace": "error",
+				"noUndeclaredDependencies": "off",
 				"noUndeclaredVariables": {
 					"level": "error",
 					"options": { "checkTypes": true }
@@ -230,22 +134,15 @@
 				"noUnusedInstantiation": "error",
 				"noUnusedPrivateClassMembers": "error",
 				"noUnusedVariables": "error",
-				"preset": "recommended",
 				"useImportExtensions": "off",
 				"useInlineScriptId": "error",
 				"useJsonImportAttributes": "off",
-				"useSingleJsDocAsterisk": "error",
-				"noComponentHookFactories": "error",
-				"noDuplicateFieldDefinitionNames": "error",
-				"noJsxNamespace": "error",
-				"noVueImportCompilerMacros": "error",
-				"noVueRefAsOperand": "error",
-				"noVueVOnNumberValues": "error"
+				"useSingleJsDocAsterisk": "error"
 			},
 
 			"nursery": {
 				"noAstroSetHtmlDirective": "error",
-				"noBaseToString": "off",
+				"noBaseToString": "error",
 				"noBunModules": "error",
 				"noExtendNative": "error",
 				"noFloatingPromises": "error",
@@ -261,27 +158,18 @@
 				"noObsoleteTags": "error",
 				"noRestrictedDependencies": "error",
 				"noReturnInFinally": "error",
-				"noSvelteAtDebugTags": "error",
-				"noSvelteAtHtmlTags": "error",
-				"noSvelteLegacyConst": "error",
-				"noSvelteUnnecessaryStateWrap": "error",
-				"noTailwindArbitraryValue": "error",
+				"noTailwindArbitraryValue": "off",
 				"noThisOutsideOfClass": "error",
-				// does not play nicely with Astro
+				// Does not understand classes used from Astro files.
 				"noUndeclaredClasses": "off",
-				// what is this lol
 				"noUndeclaredCustomProperties": "off",
 				"noUnmodifiedLoopCondition": "error",
 				"noUnsafeIframeSandbox": "error",
 				"noUnsafePlusOperands": "error",
-				"noUnsafeTypeAssertion": "off",
-				// does NOT work with mdx
+				// Does not see classes used from MDX.
 				"noUnusedClasses": "off",
 				"noUselessTypeConversion": "off",
-				"noVueDeprecatedScopedSlots": "error",
-				"noVueUndeclaredDirectives": "error",
 				"noXorAsExponentiation": "error",
-				"preset": "recommended",
 				"useAstroClientOnlyDirectiveValue": "error",
 				"useAwaitThenable": "error",
 				"useBetterDomTraversing": "error",
@@ -296,71 +184,50 @@
 				"useControlLabel": "error",
 				"useDisposables": "error",
 				"useExhaustiveSwitchCases": "error",
-				"useExplicitReturnType": "error",
-				"useExplicitType": "off",
 				"useFlatMathMinMax": "error",
 				"useIncludes": "error",
-				// i do not know what this is
-				"useLayeredStyles": "off",
 				"useModernMathApis": "error",
 				"useNamedLayer": "error",
 				"useNullishCoalescing": "error",
 				"useReactCompiler": {
 					"level": "error",
-					"options": {
-						"compilationMode": "infer"
-					}
+					"options": { "compilationMode": "infer" }
 				},
 				"useReactNamingConvention": "error",
 				"useRegexpExec": "error",
 				"useStringStartsEndsWith": "error",
 				"useTailwindShorthandClasses": "error",
-				"useValidTestTitle": "error",
-				"useTailwindSortedClasses": "error"
+				"useTailwindSortedClasses": "off",
+				"useValidTestTitle": "error"
 			},
 
 			"performance": {
 				"noAccumulatingSpread": "error",
-				"noAwaitInLoops": "off",
 				"noDelete": "error",
 				"noJsxPropsBind": "off",
 				"noSyncScripts": "error",
-				"preset": "recommended",
-				"useSolidForComponent": "off",
-				"useTopLevelRegex": "error",
-				"useDomNodeTextContent": "error"
+				"useDomNodeTextContent": "error",
+				"useTopLevelRegex": "error"
 			},
 
 			"security": {
 				"noDangerouslySetInnerHtml": "off",
-				"noScriptUrl": "error",
-				"preset": "recommended",
 				"useIframeSandbox": "error"
 			},
 
 			"style": {
 				"noCommonJs": "error",
-				"noDefaultExport": "off",
 				"noDescendingSpecificity": "error",
 				"noDoneCallback": "error",
-				"noEnum": "off",
 				"noExcessiveClassesPerFile": {
 					"level": "error",
 					"options": { "maxClasses": 3 }
-				},
-				"noExcessiveLinesPerFile": {
-					"level": "off",
-					"options": {
-						"maxLines": 200,
-						"skipBlankLines": true
-					}
 				},
 				"noExportedImports": "error",
 				"noHeadElement": "error",
 				"noImplicitBoolean": "error",
 				"noInferrableTypes": "error",
 				"noJsxLiterals": "error",
-				"noMagicNumbers": "off",
 				"noMultiAssign": "error",
 				"noMultilineString": "error",
 				"noNamespace": "error",
@@ -369,7 +236,6 @@
 				"noNonNullAssertion": "off",
 				"noParameterAssign": "error",
 				"noParameterProperties": "error",
-				"noProcessEnv": "error",
 				"noRestrictedGlobals": "error",
 				"noRestrictedImports": "error",
 				"noRestrictedTypes": {
@@ -383,35 +249,21 @@
 						}
 					}
 				},
-				"preset": "recommended",
+				"noTopLevelLiterals": "error",
 				"useArrayLiterals": "off",
-				"useBlockStatements": "off",
+				"useComponentExportOnlyModules": "off",
 				"useConsistentEnumValueType": "error",
-				"useConsistentMemberAccessibility": "off",
-				"useConsistentMethodSignatures": "off",
+				"useConsistentTestIt": "error",
 				"useConst": {
 					"fix": "safe",
 					"level": "error"
 				},
 				"useDefaultParameterLast": "error",
-				"useDestructuring": "off",
-				"useErrorCause": "error",
-				"useFilenamingConvention": {
-					"level": "error",
-					"options": {
-						"filenameCases": ["kebab-case"],
-						"requireAscii": true
-					}
-				},
-				"useGlobalThis": "error",
-				"useSpreadOverApply": "error",
-				"noInlineStyles": "error",
-				"noTopLevelLiterals": "error",
-				"useConsistentTestIt": "error",
 				"useDomQuerySelector": "error",
-				"useImportsFirst": "off",
+				"useErrorCause": "error",
 				"useNamedCaptureGroup": "error",
 				"useReduceTypeParameter": "error",
+				"useSpreadOverApply": "error",
 				"useTestHooksInOrder": "error",
 				"useTestHooksOnTop": "error",
 				"useThisInClassMethods": "error",
@@ -420,76 +272,77 @@
 			},
 
 			"suspicious": {
-				"noAlert": "error",
 				"noApproximativeNumericConstant": "error",
 				"noArrayIndexKey": "error",
+				"noConditionalExpect": "off",
 				"noConfusingVoidType": "off",
 				"noConstEnum": "off",
 				"noControlCharactersInRegex": "off",
-				"noDuplicateEnumValues": "error",
-				"noEmptyBlockStatements": "error",
-				"noEqualsToNull": "error",
-				"noForIn": "error",
-				"noNestedPromises": "error",
-				"noParametersOnlyUsedInRecursion": "error",
-				"noProto": "error",
-				"noReturnAssign": "error",
-				"noShadow": {
-					"level": "off",
-					"options": {
-						"ignoreFunctionTypeParameterNameValueShadow": false,
-						"ignoreTypeValueShadow": false
-					}
-				},
-				"noTemplateCurlyInString": "off",
-				"noUndeclaredEnvVars": "error",
-				"noUnnecessaryConditions": "off",
-				"preset": "recommended",
-				"useArraySortCompare": "error",
-				"noConditionalExpect": "off",
 				"noDrizzleDeleteWithoutWhere": "error",
 				"noDrizzleUpdateWithoutWhere": "error",
+				"noDuplicateEnumValues": "error",
 				"noDuplicateSelectors": "error",
+				"noEmptyBlockStatements": "error",
 				"noEmptyObjectKeys": "error",
+				"noEqualsToNull": "error",
+				"noForIn": "error",
 				"noIdenticalTestTitle": "error",
 				"noJsxLeakedDollar": "error",
 				"noLoopFunc": "error",
-
+				"noNestedPromises": "error",
+				"noParametersOnlyUsedInRecursion": "error",
+				"noProto": "error",
 				"noReactStringRefs": "error",
+				"noReturnAssign": "error",
+				"noTemplateCurlyInString": "off",
+				// Vite inlines these. They are not process environment variables.
+				"noUndeclaredEnvVars": {
+					"level": "error",
+					"options": {
+						"allowedEnvVars": ["BASE_URL", "DEV", "MODE", "PROD", "SSR"]
+					}
+				},
+				"noUnnecessaryConditions": "off",
 				"noUntrustedLicenses": "error",
+				"useArraySortCompare": "error",
+				// Allowed features are enhancements that browsers without them
+				// ignore. `user-select` sits beside `-webkit-user-select` for Safari.
 				"useBaseline": {
 					"level": "error",
 					"options": {
+						"allowAtRules": ["view-transition"],
+						"allowProperties": ["user-select"],
+						"allowPropertyValues": { "text-wrap": ["pretty"] },
 						"allowSelectors": ["selection", "marker"],
 						"available": "newly"
 					}
 				},
-				"useExpect": "off",
+				"useExpect": "error",
 				"useScopedStyles": "error"
 			}
 		}
 	},
 
+	"markdown": {
+		"analyzeEmbeds": false,
+		"formatter": { "enabled": false }
+	},
+
 	"overrides": [
-		// JSONC Files
+		// Languages and formatting.
 		{
+			"formatter": { "enabled": false },
+			"includes": ["**/*.{ts,tsx}"]
+		},
+		{
+			// oxfmt formats biome.jsonc without trailing commas, so Biome must too
+			// (tools/linter-utilities/src/configuration-utilities.ts).
 			"includes": ["**/*.jsonc", "!**/biome.jsonc"],
 			"json": {
-				"formatter": {
-					"enabled": true,
-					"indentStyle": "tab",
-					"indentWidth": 4,
-					"lineWidth": 120,
-					"trailingCommas": "all"
-				},
-				"linter": { "enabled": true },
-				"parser": {
-					"allowComments": true,
-					"allowTrailingCommas": true
-				}
+				"formatter": { "trailingCommas": "all" },
+				"parser": { "allowTrailingCommas": true }
 			}
 		},
-
 		// JSON Files
 		{
 			"includes": [],
@@ -522,232 +375,100 @@
 				}
 			}
 		},
-
-		{
-			"includes": ["tests/fixtures/**/*"],
-			"linter": {
-				"rules": {
-					"correctness": {
-						"noUndeclaredDependencies": "off"
-					},
-					"style": {
-						"useImportType": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"includes": ["*.config.{ts,mjs}"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noProcessEnv": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"assist": {
-				"actions": {
-					"source": {
-						"useSortedAttributes": "off"
-					}
-				}
-			},
-			"includes": [
-				"documentation/src/components/badge.astro",
-				"documentation/src/components/icon.astro",
-				"documentation/src/components/rule-example.astro"
-			]
-		},
-
-		{
-			"includes": [
-				"documentation/src/components/related-rules.astro",
-				"documentation/src/components/release-history.astro",
-				"documentation/src/components/rule-diagnostics.astro",
-				"documentation/src/components/rule-examples.astro",
-				"documentation/src/components/rule-options.astro",
-				"documentation/src/components/rule-options-table.tsx"
-			],
-			"linter": {
-				"rules": {
-					"performance": {
-						"useSolidForComponent": "off"
-					},
-					"style": {
-						"noJsxLiterals": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"assist": {
-				"actions": {
-					"source": {
-						"useSortedAttributes": "off"
-					}
-				}
-			},
-			"includes": ["documentation/src/components/rule-page.astro"]
-		},
-
-		{
-			"includes": ["documentation/src/**/*.astro", "tests/fixtures/**/*.tsx"],
-			"linter": {
-				"domains": {
-					"react": "none"
-				}
-			}
-		},
-
-		{
-			// Theme stylesheet uses component-scoped selectors across disjoint
-			// subtrees (code resets, badges, cards); specificity ordering between
-			// unrelated components is intentional and has no cascade effect.
-			"includes": ["documentation/src/styles/custom.css"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noDescendingSpecificity": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"includes": [
-				"**/*.test.ts",
-				"scripts/**/*.{ts,tsx}",
-				"tests/**/*.{ts,tsx}"
-			],
-			"linter": {
-				"rules": {
-					"complexity": {
-						"noExcessiveCognitiveComplexity": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"includes": ["scripts/**/*.{ts,tsx}"],
-			"linter": {
-				"rules": {
-					"nursery": {
-						"noBunModules": "off"
-					}
-				}
-			}
-		},
-
-		{
-			"includes": ["documentation/src/components/**/*.tsx"],
-			"linter": {
-				"rules": {
-					"nursery": {
-						"useReactFunctionComponentDefinition": {
-							"level": "error",
-							"options": {
-								"namedComponents": "functionDeclaration"
-							}
-						}
-					}
-				}
-			}
-		},
-
-		{
-			"includes": ["documentation/tests/browser/**/*.test.ts"],
-			"linter": {
-				"rules": {
-					"nursery": {},
-					"style": {
-						"noPlaywrightElementHandle": "error",
-						"noPlaywrightEval": "error",
-						"noPlaywrightWaitForSelector": "error"
-					},
-					"suspicious": {
-						"noPlaywrightForceOption": "error",
-						"noPlaywrightNetworkidle": "error",
-						"noPlaywrightPagePause": "error",
-						"noPlaywrightWaitForNavigation": "error",
-						"noPlaywrightWaitForTimeout": "error"
-					},
-					"correctness": {
-						"noPlaywrightMissingAwait": "error",
-						"usePlaywrightValidDescribeCallback": "error"
-					},
-					"complexity": {
-						"noPlaywrightUselessAwait": "error"
-					}
-				}
-			}
-		},
-
 		{
 			"assist": {
 				"actions": {
 					"source": {
 						"useSortedKeys": {
 							"level": "on",
-							"options": {
-								"groupByNesting": false,
-								"sortOrder": "lexicographic"
-							}
+							"options": { "sortOrder": "lexicographic" }
 						}
 					}
-				},
-				"enabled": true
+				}
 			},
-			"includes": [
-				"**/*.{jsonc,json}",
-				"!**/package.json",
-				"!**/tsconfig*.json",
-				"!src/default-properties.json"
-			]
+			"includes": ["**/*.{json,jsonc}", "!**/tsconfig*.json"]
+		},
+
+		// Framework domains.
+		{
+			"includes": ["apps/**"],
+			"linter": {
+				"domains": {
+					"astro": "all",
+					"react": "all",
+					"tailwind": "all",
+					"tanstackQuery": "all"
+				}
+			}
+		},
+		{
+			"includes": ["apps/*/tests/**/*.e2e.ts"],
+			"linter": {
+				"domains": { "playwright": "all" }
+			}
 		},
 
 		{
-			"includes": ["**/*.svg"],
+			"includes": ["**/*.astro"],
 			"linter": {
 				"rules": {
+					"performance": { "noSyncScripts": "off" },
+					"style": { "noDescendingSpecificity": "off" }
+				}
+			}
+		},
+		{
+			"includes": ["apps/howmanysmall/src/**/*.astro"],
+			"linter": {
+				"domains": { "react": "none" },
+				"rules": {
 					"nursery": {
-						"noUnusedClasses": "off",
-						"useLayeredStyles": "off"
+						// The structured data is JSON from our own content, never user HTML.
+						"noAstroSetHtmlDirective": "off"
 					}
 				}
 			}
 		},
 
 		{
-			"includes": ["documentation/src/components/**/*.astro"],
+			"includes": ["apps/howmanysmall/src/**/*.stories.{ts,tsx}"],
 			"linter": {
 				"rules": {
-					"nursery": {},
-					"style": {
-						"noInlineStyles": "off"
-					}
+					"correctness": { "useUniqueElementIds": "off" }
+				}
+			}
+		},
+
+		// Scripts, tests, and a few long components.
+		{
+			"includes": [
+				"scripts/**/*.{ts,tsx}",
+				"apps/howmanysmall/tests/**/*.{ts,tsx}",
+				"apps/howmanysmall/src/components/gallery/gallery-main.tsx",
+				"apps/howmanysmall/src/components/gallery/use-gallery-viewer.ts"
+			],
+			"linter": {
+				"rules": {
+					"complexity": { "noExcessiveCognitiveComplexity": "off" }
+				}
+			}
+		},
+		{
+			"includes": ["**/tests/**"],
+			"linter": {
+				"rules": {
+					"performance": { "useTopLevelRegex": "off" }
+				}
+			}
+		},
+		{
+			"includes": ["scripts/**/*.{ts,tsx}", ".claude/hooks/**/*.ts"],
+			"linter": {
+				"rules": {
+					"nursery": { "noBunModules": "off" }
 				}
 			}
 		}
-
-		// package.json exception
-		// {
-		// 	"assist": {
-		// 		"actions": {
-		// 			"source": {
-		// 				"useSortedKeys": "off",
-		// 				"useSortedPackageJson": "on"
-		// 			}
-		// 		}
-		// 	},
-		// 	"formatter": { "enabled": false },
-		// 	"includes": ["package.json"]
-		// }
 	],
 
 	"vcs": {
@@ -755,5 +476,13 @@
 		"defaultBranch": "main",
 		"enabled": true,
 		"useIgnoreFile": true
+	},
+
+	"yaml": {
+		"formatter": {
+			"bracketSpacing": false,
+			"indentWidth": 2
+		},
+		"linter": { "enabled": true }
 	}
 }

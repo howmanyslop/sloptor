@@ -9,7 +9,6 @@ const path = require("node:path");
 
 function npmCommand(parameters, options) {
 	const bundledNpm = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
-	// biome-ignore lint/style/noProcessEnv: npm exposes the active CLI through this standard environment variable.
 	const npmCli = process.env.npm_execpath || (fs.existsSync(bundledNpm) ? bundledNpm : undefined);
 	const result = spawnSync(npmCli ? process.execPath : "npm", [...(npmCli ? [npmCli] : []), ...parameters], {
 		encoding: "utf8",
