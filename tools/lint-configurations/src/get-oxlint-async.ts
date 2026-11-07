@@ -596,6 +596,8 @@ export async function getOxlintAsync({
 				"react-doctor/no-multi-comp": "off",
 				"react-doctor/no-unknown-property": "off",
 				"react-doctor/only-export-components": "off",
+				// not enabled because Astro
+				"react-doctor/prefer-dynamic-import": "off",
 				"react-doctor/react-in-jsx-scope": "off",
 			},
 			settings: {
