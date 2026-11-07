@@ -28,10 +28,14 @@ export function BenchmarkExplorer(): ReactNode {
 	const rows = useMemo(() => getRows(scenario, metric), [scenario, metric]);
 
 	const handleScenarioChange = useCallback((value: string): void => {
-		if (isScenarioName(value)) setScenario(value);
+		if (isScenarioName(value)) {
+			setScenario(value);
+		}
 	}, []);
 	const handleMetricChange = useCallback((value: string): void => {
-		if (isMetricName(value)) setMetricName(value);
+		if (isMetricName(value)) {
+			setMetricName(value);
+		}
 	}, []);
 
 	return (

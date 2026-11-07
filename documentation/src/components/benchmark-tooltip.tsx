@@ -21,7 +21,9 @@ export function BenchmarkTooltip({ active, payload }: Readonly<TooltipContentPro
 	if (!active || !isChartRow(row)) return undefined;
 
 	const details = new Array<ReactNode>();
-	for (const detail of row.details) details.push(<BenchmarkTooltipRow key={detail.name} detail={detail} />);
+	for (const detail of row.details) {
+		details.push(<BenchmarkTooltipRow key={detail.name} detail={detail} />);
+	}
 
 	return (
 		<div className="bench-tooltip">

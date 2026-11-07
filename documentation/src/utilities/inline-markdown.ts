@@ -67,12 +67,14 @@ function collectSegments(
 
 		const isCode = code[position] === true;
 		const isBold = bold[position] === true;
-		if (current?.code === isCode && current.bold === isBold) current.text += text.charAt(position);
-		else {
+		if (current?.code === isCode && current.bold === isBold) {
+			current.text += text.charAt(position);
+		} else {
 			current = { bold: isBold, code: isCode, text: text.charAt(position) };
 			segments[size++] = current;
 		}
 	}
+
 	return segments;
 }
 
@@ -85,7 +87,9 @@ function collectSegments(
  * @returns The flagged segments in source order.
  */
 export function parseInlineMarkdown(text: string): ReadonlyArray<InlineSegment> {
-	if (text.length === 0) return [];
+	if (text.length === 0) {
+		return [];
+	}
 
 	const code = createFlags(text.length);
 	const bold = createFlags(text.length);

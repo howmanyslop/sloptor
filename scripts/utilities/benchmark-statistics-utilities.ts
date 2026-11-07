@@ -12,18 +12,22 @@ const isHyperfineResult = type({
 	name: "string",
 	measurements: isMeasurement.array(),
 }).readonly();
+
 type HyperfineResult = typeof isHyperfineResult.infer;
 
 export const isHyperfineOutput = type({
 	results: isHyperfineResult.array().readonly(),
 }).readonly();
+
 export type HyperfineOutput = typeof isHyperfineOutput.infer;
 
 export const SCENARIOS = ["cold", "incremental"] as const;
+
 export type Scenario = (typeof SCENARIOS)[number];
 
 /** The tools sloptor is measured against. */
 export const RIVALS = ["rbxtsgo", "rbxtsc"] as const;
+
 export type Rival = (typeof RIVALS)[number];
 
 export interface ToolStatistics {
@@ -138,7 +142,9 @@ function getToolStatistics({ name, measurements }: HyperfineResult): ToolStatist
 
 export function getComparison(project: string, { results }: HyperfineOutput): ProjectComparison {
 	const sloptor = results.find((result) => result.name === "sloptor");
-	if (sloptor === undefined) throw new Error(`hyperfine output for ${project} is missing sloptor`);
+	if (sloptor === undefined) {
+		throw new Error(`hyperfine output for ${project} is missing sloptor`);
+	}
 
 	return {
 		project,

@@ -12,7 +12,9 @@ function isOxfmtConfiguration(value: unknown): value is OxfmtConfiguration {
 
 export async function getOxfmtConfigurationAsync(): Promise<OxfmtOptions> {
 	const parsed: unknown = JSON.parse(await readFile(OXFMT_CONFIGURATION_URL, "utf8"));
-	if (!isOxfmtConfiguration(parsed)) throw new TypeError(".oxfmtrc.json must contain an object.");
+	if (!isOxfmtConfiguration(parsed)) {
+		throw new TypeError(".oxfmtrc.json must contain an object.");
+	}
 
 	const { $schema: _, ...configuration } = parsed;
 	return configuration;

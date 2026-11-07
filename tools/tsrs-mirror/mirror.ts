@@ -83,20 +83,21 @@ export function computeClosure(packages: ReadonlyArray<MetadataPackage>, roots: 
 	const seen = new Set<string>();
 	const pending = [...roots];
 	for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
-		if (seen.has(name)) {
-			continue;
-		}
+		if (seen.has(name)) continue;
 		const package_ = byName.get(name);
 		if (package_ === undefined) {
 			throw new Error(`crate "${name}" is not a member of the tsrs workspace`);
 		}
+
 		seen.add(name);
+
 		for (const dependency of package_.dependencies) {
 			if ((dependency.path ?? "").length > 0 && byName.has(dependency.name)) {
 				pending.push(dependency.name);
 			}
 		}
 	}
+
 	return [...seen].toSorted(compareNames);
 }
 
@@ -135,11 +136,13 @@ function splitSections(text: string): Array<ManifestSection> {
 			while (current.body.at(-1)?.startsWith("#") === true) {
 				comments.unshift(current.body.pop() ?? "");
 			}
+
 			current = { body: [], comments, header: line.trim() };
 		} else {
 			current.body.push(line);
 		}
 	}
+
 	sections.push(current);
 	return sections;
 }
@@ -175,6 +178,7 @@ export function listPatches(directory: string): Array<string> {
 	if (!existsSync(directory)) {
 		return [];
 	}
+
 	return readdirSync(directory)
 		.filter((name) => name.endsWith(".patch"))
 		.toSorted(compareNames)
@@ -255,6 +259,7 @@ export function readPackages(manifestPath: string): Array<MetadataPackage> {
 	if (!isCargoMetadata(metadata)) {
 		throw new TypeError("`cargo metadata` output has no packages with names and dependencies");
 	}
+
 	return [...metadata.packages];
 }
 
@@ -269,6 +274,7 @@ function renderMirrorNotes(
 		const name = patch.slice(patch.lastIndexOf("/") + 1);
 		return `- \`${name}\` (sha256 \`${digest}\`)`;
 	});
+
 	return [
 		"# tsrs mirror",
 		"",
@@ -309,17 +315,21 @@ export function mirror(options: MirrorOptions): MirrorResult {
 				recursive: true,
 			});
 		}
+
 		for (const file of ["LICENSE", "NOTICE"]) {
 			cpSync(path.join(options.source, file), path.join(staging, file));
 		}
+
 		if (existsSync(path.join(options.source, "licenses"))) {
 			cpSync(path.join(options.source, "licenses"), path.join(staging, "licenses"), { recursive: true });
 		}
+
 		// Keep tsrs's own rustfmt settings. `cargo fmt --all` also formats path
 		// dependencies, and would otherwise apply rotor's root rustfmt.toml.
 		if (existsSync(path.join(options.source, RUSTFMT_CONFIG))) {
 			cpSync(path.join(options.source, RUSTFMT_CONFIG), path.join(staging, RUSTFMT_CONFIG));
 		}
+
 		const rootManifest = readFileSync(path.join(options.source, CARGO_MANIFEST), "utf8");
 		writeFileSync(path.join(staging, CARGO_MANIFEST), trimWorkspaceManifest(rootManifest, crates));
 
@@ -334,16 +344,19 @@ export function mirror(options: MirrorOptions): MirrorResult {
 		const typescript = TYPESCRIPT_REFERENCE.exec(rootManifest)?.groups;
 		const typescriptRef =
 			typescript === undefined ? "unknown" : `${typescript.version} (\`${typescript.commit?.slice(0, 12)}\`)`;
+
 		writeFileSync(path.join(staging, "MIRROR.md"), renderMirrorNotes(options, crates, patches, typescriptRef));
 
 		rmSync(options.out, { force: true, recursive: true });
 		mkdirSync(path.join(options.out, ".."), { recursive: true });
+
 		try {
 			renameSync(staging, options.out);
 		} catch {
 			// Cross-device rename: copy instead.
 			cpSync(staging, options.out, { recursive: true });
 		}
+
 		return { crates, patches };
 	} finally {
 		rmSync(staging, { force: true, recursive: true });
@@ -356,6 +369,7 @@ export function mirror(options: MirrorOptions): MirrorResult {
  */
 export function fetchSource(repository: string, commit: string, destination: string): void {
 	mkdirSync(destination, { recursive: true });
+
 	function git(...arguments_: Array<string>): string {
 		return execFileSync("git", arguments_, {
 			cwd: destination,
@@ -363,6 +377,7 @@ export function fetchSource(repository: string, commit: string, destination: str
 			stdio: STDIO_CAPTURE,
 		});
 	}
+
 	git("init", QUIET);
 	git("remote", "add", "origin", repository);
 	git("fetch", QUIET, "--depth", "1", "origin", commit);

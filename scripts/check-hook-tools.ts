@@ -33,13 +33,22 @@ const enum HookTool {
 
 async function runShfmtAsync(files: ReadonlyArray<string>): Promise<void> {
 	const { code, output } = await runAsync("shfmt", ["-i", "4", "-l", "--apply-ignore", ...files], true);
-	if (output) process.stdout.write(output);
-	if (code !== 0 || output.trim()) exit(1);
+	if (output) {
+		process.stdout.write(output);
+	}
+	if (code !== 0 || output.trim()) {
+		exit(1);
+	}
 }
+
 async function runTyposAsync(files: ReadonlyArray<string>): Promise<void> {
 	const { code, output } = await runAsync("typos", ["--force-exclude", "--diff", ...files], true);
-	if (output) process.stdout.write(output);
-	if (code !== 0 || output.trim()) exit(1);
+	if (output) {
+		process.stdout.write(output);
+	}
+	if (code !== 0 || output.trim()) {
+		exit(1);
+	}
 }
 
 const { command, log } = createScriptCommand("1.0.0", "Runs hooks for `hk`.");

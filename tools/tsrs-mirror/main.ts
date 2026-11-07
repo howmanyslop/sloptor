@@ -26,6 +26,7 @@ const { values } = parseArgs({
 });
 
 let fetched: string | undefined;
+
 try {
 	let { source } = values;
 	if (source === undefined) {
@@ -38,6 +39,7 @@ try {
 			throw new Error(`${source} is at ${head}, expected ${TSRS_COMMIT}`);
 		}
 	}
+
 	const result = mirror({
 		commit: TSRS_COMMIT,
 		out: path.resolve(values.out),
@@ -45,6 +47,7 @@ try {
 		source,
 		tag: TSRS_TAG,
 	});
+
 	process.stdout.write(
 		`mirrored ${result.crates.length} crates and ${result.patches.length} patches into ${values.out}\n`,
 	);

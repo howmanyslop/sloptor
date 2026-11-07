@@ -53,6 +53,7 @@ async function runAsync(command: string, parameters: ReadonlyArray<string>): Pro
 		nodeOptions: { cwd: repositoryRoot },
 		throwOnError: true,
 	});
+
 	return result.stdout.trim();
 }
 
@@ -127,6 +128,7 @@ async function readHyperfineOutputAsync(path: string): Promise<HyperfineOutput> 
 	if (parsed instanceof type.errors) {
 		throw new TypeError(`Unexpected hyperfine output in ${path}: ${parsed.summary}`);
 	}
+
 	return parsed;
 }
 
@@ -215,6 +217,7 @@ command
 
 				for (const project of projects) {
 					log.start(`${project} · ${scenario}`);
+
 					// oxlint-disable-next-line no-await-in-loop -- benchmarks must run one at a time or they skew each other
 					const output = await runBenchmarkAsync(project, {
 						checkers,
@@ -227,6 +230,7 @@ command
 						sloptor,
 						warmup,
 					});
+
 					comparisons.push(getComparison(project, output));
 				}
 

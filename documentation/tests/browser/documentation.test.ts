@@ -27,6 +27,7 @@ playwrightIt("gives Discord a component embed and a card image", async ({ page, 
 	const json = await page.evaluate(
 		() => document.querySelector(String.raw`#discord\:component-embed`)?.textContent ?? "",
 	);
+
 	playwrightExpect(JSON.parse(json)).toMatchObject({ component: { type: 17 } });
 
 	const image = await request.get(`${baseUrl}og/sloptor.png`);
@@ -65,9 +66,11 @@ playwrightIt("lists native Flamework configuration", async ({ page }) => {
 	await page.goto(`${baseUrl}configuration/rotor-toml/`);
 
 	await playwrightExpect(page.getByRole("heading", { name: "[flamework]" })).toBeVisible();
+
 	const flamework = page.locator("section.schema-table").filter({
 		has: page.getByRole("heading", { name: "[flamework]", exact: true }),
 	});
+
 	await playwrightExpect(flamework.getByRole("cell", { name: "idGenerationMode", exact: true })).toBeVisible();
 });
 

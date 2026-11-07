@@ -27,7 +27,9 @@ export function SegmentedControl({ label, onChange, options, value }: Readonly<S
 	const pressed = useMemo(() => [value], [value]);
 	const handleChange = useCallback(
 		([next]: ReadonlyArray<string>): void => {
-			if (next !== undefined) onChange(next);
+			if (next !== undefined) {
+				onChange(next);
+			}
 		},
 		[onChange],
 	);

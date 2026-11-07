@@ -2,7 +2,8 @@
 
 import nodePath from "node:path";
 import { fileURLToPath } from "node:url";
-import { GLOB_DTS, GLOB_SRC, GLOB_SRC_EXT, GLOB_TESTS, type OxfmtOptions } from "@isentinel/eslint-config";
+import { GLOB_DTS, GLOB_SRC, GLOB_SRC_EXT, GLOB_TESTS } from '@isentinel/eslint-config';
+import type { OxfmtOptions } from '@isentinel/eslint-config';
 import { isentinel } from "@isentinel/eslint-config/oxlint";
 
 import { baseIgnores, projectType } from "./constants.ts";

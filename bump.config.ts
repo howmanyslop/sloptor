@@ -20,6 +20,7 @@ async function getUnpushedTagsAsync(): Promise<ReadonlyArray<string>> {
 }
 
 const { stdout: dirtyFiles } = await exec("git", ["status", "--porcelain"], { throwOnError: true });
+
 if (dirtyFiles.trim().length > 0) {
 	throw new Error(`git working tree is not clean; commit or stash first:\n${dirtyFiles}`);
 }
@@ -27,6 +28,7 @@ if (dirtyFiles.trim().length > 0) {
 await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
 
 const strayTags = await getUnpushedTagsAsync();
+
 if (strayTags.length > 0) {
 	throw new Error(
 		`local tags missing from the remote would be pushed with the release: ${strayTags.join(", ")}\n` +

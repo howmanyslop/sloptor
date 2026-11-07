@@ -48,6 +48,7 @@ const TOOL_COLORS: ReadonlyMap<string, Paint> = new Map([
 const BAR_WIDTH = 28;
 const COLUMN_GAP = "  ";
 const TOOL_WIDTH = 7;
+
 // Fits "10.00× slower".
 const RESULT_WIDTH = 13;
 const SUMMARY_LABEL_WIDTH = "NO-OP REBUILD".length;
@@ -87,13 +88,17 @@ function formatInstructions(value: number): string {
 
 function getLargest(values: ReadonlyArray<number>): number {
 	let largest = Number.NEGATIVE_INFINITY;
-	for (const value of values) largest = Math.max(largest, value);
+	for (const value of values) {
+		largest = Math.max(largest, value);
+	}
 	return largest;
 }
 
 function getSmallest(values: ReadonlyArray<number>): number {
 	let smallest = Number.POSITIVE_INFINITY;
-	for (const value of values) smallest = Math.min(smallest, value);
+	for (const value of values) {
+		smallest = Math.min(smallest, value);
+	}
 	return smallest;
 }
 

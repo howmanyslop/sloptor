@@ -20,7 +20,9 @@ const projects = BENCHMARK_RESULTS.projects.map((size) => ({
 	name: size.name,
 	timings: SCENARIO_NAMES.map((scenario) => {
 		const comparison = getReport(scenario).comparisons.find(({ project }) => project === size.name);
-		if (comparison === undefined) throw new Error(`No ${scenario} result for ${size.name}.`);
+		if (comparison === undefined) {
+			throw new Error(`No ${scenario} result for ${size.name}.`);
+		}
 
 		return TOOLS.map((tool) =>
 			formatMilliseconds(tool === "sloptor" ? comparison.sloptor.median : getRival(comparison, tool).median),

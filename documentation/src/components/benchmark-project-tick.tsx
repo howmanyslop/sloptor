@@ -3,6 +3,7 @@ import { getSizeLabel } from "$data/benchmark-metrics";
 import type { ReactNode } from "react";
 
 type NumberOrString = number | string;
+
 interface Payload {
 	readonly value?: NumberOrString | undefined;
 }

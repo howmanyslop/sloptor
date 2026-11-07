@@ -1,14 +1,19 @@
 import summary from "./benchmark-results.json";
 
 export type BenchmarkSummary = typeof summary;
+
 export type ScenarioReport = BenchmarkSummary["scenarios"][number];
+
 export type ProjectComparison = ScenarioReport["comparisons"][number];
+
 export type ToolStatistics = ProjectComparison["sloptor"];
 
 export const RIVAL_NAMES = ["rbxtsgo", "rbxtsc"] as const;
+
 export type RivalName = (typeof RIVAL_NAMES)[number];
 
 export const SCENARIO_NAMES = ["cold", "incremental"] as const;
+
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
 export const SCENARIO_LABELS: Readonly<Record<ScenarioName, string>> = {
@@ -26,13 +31,17 @@ export const BENCHMARK_RESULTS: BenchmarkSummary = summary;
 
 export function getReport(scenario: ScenarioName): ScenarioReport {
 	const report = summary.scenarios.find((candidate) => candidate.scenario === scenario);
-	if (report === undefined) throw new Error(`benchmark-results.json has no "${scenario}" scenario.`);
+	if (report === undefined) {
+		throw new Error(`benchmark-results.json has no "${scenario}" scenario.`);
+	}
 	return report;
 }
 
 export function getRival({ project, rivals }: ProjectComparison, name: RivalName): ToolStatistics {
 	const rival = rivals.find((candidate) => candidate.name === name);
-	if (rival === undefined) throw new Error(`benchmark-results.json has no ${name} result for ${project}.`);
+	if (rival === undefined) {
+		throw new Error(`benchmark-results.json has no ${name} result for ${project}.`);
+	}
 	return rival;
 }
 

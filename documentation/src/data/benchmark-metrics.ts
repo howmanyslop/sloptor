@@ -3,6 +3,7 @@ import { BENCHMARK_RESULTS, formatMilliseconds, getReport, getRival } from "./be
 import type { RivalName, ScenarioName, ToolStatistics } from "./benchmark-results";
 
 export const METRIC_NAMES = ["time", "cpu", "memory", "instructions"] as const;
+
 export type MetricName = (typeof METRIC_NAMES)[number];
 
 export interface Metric {
@@ -77,7 +78,9 @@ function pluralizeFiles(files: number): string {
 
 export function getSizeLabel(project: string): SizeLabel {
 	const size = BENCHMARK_RESULTS.projects.find((candidate) => candidate.name === project);
-	if (size === undefined) return { meta: "", size: "" };
+	if (size === undefined) {
+		return { meta: "", size: "" };
+	}
 
 	const lines = size.lines >= 1000 ? `${(size.lines / 1000).toFixed(1)}k` : String(size.lines);
 	return { meta: pluralizeFiles(size.files), size: `${pluralizeFiles(size.files)} · ${lines} lines` };
@@ -113,7 +116,9 @@ export function getAverage(scenario: ScenarioName, metric: Metric, rival: RivalN
 		.toSorted((left, right) => left - right);
 
 	let logSum = 0;
-	for (const ratio of ratios) logSum += Math.log(ratio);
+	for (const ratio of ratios) {
+		logSum += Math.log(ratio);
+	}
 
 	return {
 		high: ratios.at(-1) ?? 1,
