@@ -317,63 +317,62 @@ url = "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-ma
 url_api = "https://api.github.com/repos/bnjbvr/cargo-machete/releases/assets/397131414"
 
 [[tools."github:howmanyslop/sloptor"]]
-version = "3.0.0-beta.3"
+version = "3.0.0-beta.4"
 backend = "github:howmanyslop/sloptor"
-specifiers = ["3.0.0-beta.3"]
+specifiers = ["3.0.0-beta.4"]
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-arm64"]
-checksum = "sha256:6a7cb69b6acd30c43d3d22dc12cf1a0ad1ee8e2022ae17ef23f53a84653d6d2c"
+checksum = "sha256:073f82200db4f80c09a133130148088c7b4d61b9741824638054d1c10b9d1b17"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901644"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443323"
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-arm64-musl"]
-checksum = "sha256:6a7cb69b6acd30c43d3d22dc12cf1a0ad1ee8e2022ae17ef23f53a84653d6d2c"
+checksum = "sha256:073f82200db4f80c09a133130148088c7b4d61b9741824638054d1c10b9d1b17"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-arm64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901644"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443323"
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-x64"]
-checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum = "sha256:595396e88b13ac3c0726993b16cd95d120372e9449c3512a40a9c1c65ad761fc"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443270"
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-x64-baseline"]
-checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum = "sha256:595396e88b13ac3c0726993b16cd95d120372e9449c3512a40a9c1c65ad761fc"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443270"
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-x64-musl"]
-checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum = "sha256:595396e88b13ac3c0726993b16cd95d120372e9449c3512a40a9c1c65ad761fc"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443270"
 
 [tools."github:howmanyslop/sloptor"."platforms.linux-x64-musl-baseline"]
-checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum = "sha256:595396e88b13ac3c0726993b16cd95d120372e9449c3512a40a9c1c65ad761fc"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443270"
 
 [tools."github:howmanyslop/sloptor"."platforms.macos-arm64"]
-checksum = "sha256:18407f5e26acaaccfaed58c6c66b0a01a619f95b36ac0baec832fff6c51f4c46"
-checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-darwin-arm64.tar.gz"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901566"
+checksum = "sha256:2c8d55b9724f90e0d9807e9a5e0931108d81eb5ac7a91db92260771e888e23d1"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443268"
 
 [tools."github:howmanyslop/sloptor"."platforms.windows-x64"]
-checksum = "sha256:d80a87e5f2b42bf0f5615834ddec013c2baf3b4b9a7d840845647789e6acf349"
+checksum = "sha256:b54bb4afb2cd6b84ec534cc6978d120912949b972339083424aec1d2de836c9f"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-windows-amd64.zip"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901674"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-windows-amd64.zip"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443345"
 
 [tools."github:howmanyslop/sloptor"."platforms.windows-x64-baseline"]
-checksum = "sha256:d80a87e5f2b42bf0f5615834ddec013c2baf3b4b9a7d840845647789e6acf349"
+checksum = "sha256:b54bb4afb2cd6b84ec534cc6978d120912949b972339083424aec1d2de836c9f"
 checksum_source = "mise-versions"
-url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-windows-amd64.zip"
-url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901674"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.4/sloptor-v3.0.0-beta.4-windows-amd64.zip"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/719443345"
 
 [[tools."github:lune-org/lune"]]
 version = "0.10.1"
