@@ -8,9 +8,9 @@ import schema from "../../../../../rbxts-tsconfig.schema.json";
 
 Build options can live under the top-level `"rbxts"` key of `tsconfig.json` instead of the command line. The merge order is defaults, then `rbxts`, then command-line flags.
 
-The `rbxts` values merge through the `extends` chain from parent to child, path values resolve relative to the file that declares them, and command-line values win over tsconfig values. CLI-only values such as `watch`, `verbose`, and `usePolling` are warned about and ignored when placed under `rbxts`.
+The `rbxts` values merge through the `extends` chain from parent to child. Path values resolve relative to the file that declares them. Command-line values override tsconfig values. Sloptor warns about command-line-only values such as `watch`, `verbose`, and `usePolling` under `rbxts` and ignores them.
 
-`nativeTypes` and the experimental `luauTypes` have a second surface: the top-level key of the same name in `rotor.toml`. The tsconfig value wins whenever it is declared (including an explicit `false`); otherwise the `rotor.toml` value applies, and both unset means off. `luauTypes` also has a command-line flag, `--luauTypes`, which wins over both files.
+`nativeTypes` and the experimental `luauTypes` also read the top-level key of the same name in `rotor.toml`. A declared tsconfig value takes precedence, even an explicit `false`. Otherwise the `rotor.toml` value applies, and both unset means off. `luauTypes` also has a command-line flag, `--luauTypes`, which overrides both files.
 
 ## Source maps
 
@@ -26,7 +26,7 @@ Enable `compilerOptions.sourceMap` to write a `.luau.map` beside each Luau outpu
 
 Source maps provide an anchor at generated column 0 on each mapped Luau line, plus segments where expressions, object fields, and source operators begin. Arithmetic, comparison, concatenation, logical, compound-assignment, and optional-chain operators point to their TypeScript tokens, including tokens on continuation lines. Generated and original columns use UTF-16 code units.
 
-Binding names in declarations and parameters, punctuation, and synthesized literals do not receive their own segments. Compiler headers stay unmapped, and the maps have no `names` field. Maps describe the unminified output, so positions in output produced with `--minify` do not match them. Expression origins are collected only when source maps are enabled.
+Binding names in declarations and parameters, punctuation, and synthesized literals don't get segments of their own. Compiler headers stay unmapped, and the maps have no `names` field. Maps describe the unminified output, so positions in `--minify` output don't match them. The compiler collects expression origins only with source maps on.
 
 ## Editor schema
 
@@ -48,6 +48,6 @@ Then point `tsconfig.json` at it:
 }
 ```
 
-This page is generated from `rbxts-tsconfig.schema.json` when the site builds.
+The site build generates this page from `rbxts-tsconfig.schema.json`.
 
 <SchemaReference schema={schema} bracketed={false} />

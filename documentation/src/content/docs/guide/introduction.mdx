@@ -3,51 +3,79 @@ title: "Introduction"
 description: "What sloptor is, why it exists, and how it stays byte-for-byte compatible with rbxtsc."
 ---
 
-sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Rust. It ports the roblox-ts emit layer onto the native TypeScript compiler.
+Sloptor is a native TypeScript-to-Luau compiler for Roblox, written in Rust. It ports the roblox-ts emit layer onto the native TypeScript compiler.
 
-sloptor targets `rbxtsc` compatibility: upstream-parity Luau output on unaffected surfaces, the same `@rbxts/*` npm ecosystem, and the same CLI shape, at roughly **10x the speed** on the native TypeScript compiler. For fork-changed surfaces, the verified `@isentinel/roblox-ts@4.0.11` archive in `roblox-ts.zip` is the authority.
+Sloptor aims for `rbxtsc` compatibility. It gives the same Luau output as upstream where the fork changed nothing. It uses the same `@rbxts/*` npm ecosystem and the same command-line interface, at about **10x the speed** on the native TypeScript compiler. Where the fork changed behavior, the verified `@isentinel/roblox-ts@4.0.11` archive in `roblox-ts.zip` is the authority.
 
 ## Why
 
-roblox-ts is a brilliant compiler with one structural problem: it runs on the JavaScript TypeScript compiler API. Every build boots Node, parses, binds, and typechecks your entire project in single-threaded JS. Watch-mode rebuilds, cold builds, startup — all of it is slow, and it gets slower as your game grows.
+roblox-ts is a brilliant compiler with one structural problem. It runs on the JavaScript TypeScript compiler API. Every build boots Node, then parses, binds, and typechecks your entire project in single-threaded JS. Watch-mode rebuilds, cold builds, and startup are all slow, and they get slower as your game grows.
 
-You can't fix that with a syntax transpiler (SWC/esbuild-style), because roblox-ts's emit is **type-directed**: `for...of` compiles differently for an `Array` vs a `Map` vs a string, `+` becomes `+` or `..` by operand type, truthiness guards depend on whether a type can be `0` or `""`, and the entire macro system resolves through the type checker. No types, no correct Luau.
+A plain syntax transpiler can't fix that, because the roblox-ts emit is **type-directed**:
 
-The unlock is [**typescript-go**](https://github.com/microsoft/typescript-go) — Microsoft's official native port of the full TypeScript compiler (shipping as TypeScript 7), ~10x faster with parallel checking and configurable concurrency controls. It's the only native implementation of the _real_ checker in existence. sloptor ports roblox-ts's emit layer to Rust on top of tsrs, a Rust port of it.
+- `for...of` compiles differently for an `Array`, a `Map`, and a string.
+- `+` becomes `+` or `..` depending on the operand types.
+- Truthiness guards depend on whether a type can be `0` or `""`.
+- The entire macro system resolves through the type checker.
+
+Without types, the Luau is wrong.
+
+The breakthrough is [**typescript-go**](https://github.com/microsoft/typescript-go), Microsoft's official native port of the full TypeScript compiler, available as TypeScript 7. It's about 10x faster, and it offers parallel checking and configurable concurrency controls. It's the only native build of the _real_ checker. Sloptor ports the roblox-ts emit layer to Rust on top of tsrs, a Rust port of that compiler.
 
 ## How sloptor stays 1:1
 
-Compatibility isn't a hope — it's enforced by construction:
+Compatibility isn't a hope. The project builds it in on purpose:
 
-- **Differential testing**: unaffected compiler surfaces remain byte-compared against `rbxtsc` 3.0.0 output. Fork-changed surfaces are compared against the verified `@isentinel/roblox-ts@4.0.11` archive, including solution builds, watch, source maps, copy-file gating, resolver caches, and the fork's optimized emit paths.
-- **Behavioral conformance**: roblox-ts's vendored runtime suite, compiled by sloptor and executed under [Lune](https://github.com/lune-org/lune). The in-repo corpus and harnesses (`testdata/conformance`, `crates/rotor_compile/tests/conformance.rs`) cover both the upstream reference and the verified fork fixtures; fork-divergent goldens are kept fork-authoritative rather than presented as upstream matches.
-- **Faithful porting**: the reference sources are vendored in-repo (`reference/`), and ports are reviewed line-by-line against them — down to quirks like ECMAScript `Number::toString` formatting and temp-identifier collision naming.
+- **Differential testing**: tests byte-compare compiler output for unchanged behavior against `rbxtsc` 3.0.0 output. They compare fork-changed surfaces against the verified `@isentinel/roblox-ts@4.0.11` archive. That covers solution builds, watch, source maps, copy-file gating, resolver caches, and the fork's optimized emit paths.
+- **Behavioral conformance**: sloptor compiles the vendored roblox-ts runtime suite and runs it under [Lune](https://github.com/lune-org/lune). The in-repo corpus and test runners cover both the upstream reference and the verified fork fixtures. They live in `testdata/conformance` and `crates/rotor_compile/tests/conformance.rs`. Goldens that diverge for the fork are fork-authoritative and don't pose as upstream matches.
+- **Faithful porting**: the reference sources live in the repo under `reference/`, and reviewers check ports line by line against them. That includes quirks like ECMAScript `Number::toString` formatting and temp-identifier collision naming.
 - **Same runtime**: `RuntimeLib.lua` and `Promise.lua` match the targeted roblox-ts compiler runtime.
 
-Your existing project — `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins — is the compatibility target, unchanged. Native Flamework is opt-in through `[flamework]` in `rotor.toml`; without an effective native configuration, the legacy tsconfig plugin runs through the Node sidecar. The compatibility oracle depends on the surface: use the fork archive for the changed surfaces above and upstream parity elsewhere.
+Your existing project is the compatibility target, unchanged. That means `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins. Native Flamework is opt-in through `[flamework]` in `rotor.toml`. Without an effective native configuration, the legacy tsconfig plugin runs through the Node sidecar. The compatibility oracle depends on the feature. Use the fork archive for the changed behavior and upstream parity elsewhere.
 
 ## What works today
 
-sloptor **compiles multi-file TypeScript projects with upstream or fork-authoritative parity** across the language surface: imports with Rojo-aware require chains, JSX (`@rbxts/react`), classes and decorators, async/generators, try/catch, enums and namespaces, spread, functions, closures, destructuring, the full macro tables (`Array.map`, `string.format`, `Map.get`, ...), optional chaining, Map/Set/string/generator iteration, switch, and `new`. It also **natively typechecks and watches real rbxts projects**.
+Sloptor **compiles multi-file TypeScript projects with upstream or fork-authoritative parity** across the language:
 
-Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests. It runs in the native pipeline.
+- imports with Rojo-aware require chains
+- JSX with `@rbxts/react`
+- classes and decorators
+- async functions and generators
+- try/catch
+- enums and namespaces
+- spread, functions, closures, and destructuring
+- the full macro tables, such as `Array.map`, `string.format`, and `Map.get`
+- optional chaining
+- Map, Set, string, and generator iteration
+- switch and `new`
 
-One intended divergence: a standalone `Flamework.addPaths(path)` or `Flamework.addPathsGlob(glob)` call becomes one immediate `TS.import` per matching module, sorted by path, at the call site. This includes calls inside functions and blocks. Bundlers can follow these imports but not Flamework's runtime requires of Instances. Scripts (`.server.ts`, `.client.ts`), declaration files, the calling file, and TypeScript files excluded by tsconfig are skipped. Calls that match a hand-written Lua module keep the runtime behavior. Added or deleted modules under plain `addPaths` directories change the incremental input without changing `flamework.build` or `globs.json`.
+It also **natively typechecks and watches real rbxts projects**.
 
-The Node sidecar remains for external tsconfig transformer plugins, including `rbxts-transformer-flamework` when native Flamework is not enabled.
+Native Flamework is an opt-in compiler pipeline. It follows the v1.3.2 transformer reference through native parity tests and runs in the native pipeline.
 
-Anything not yet ported fails loudly with a clear "not yet supported" diagnostic — sloptor **never silently emits wrong output**. On unaffected surfaces, compiled output remains byte-identical to `rbxtsc` 3.0.0; fork-changed surfaces follow the verified fork behavior instead.
+One intended divergence affects standalone `Flamework.addPaths(path)` or `Flamework.addPathsGlob(glob)` calls. Each call becomes one immediate `TS.import` per matching module, sorted by path, at the call site. This includes calls inside functions and blocks. Bundlers can follow these imports but not the runtime requires of Instances that Flamework makes. Sloptor skips these files:
+
+- scripts, such as `.server.ts` and `.client.ts`
+- declaration files
+- the calling file
+- TypeScript files that tsconfig excludes
+
+Calls that match a hand-written Lua module keep the runtime behavior. Adding or deleting modules under plain `addPaths` directories changes the incremental input, without changing `flamework.build` or `globs.json`.
+
+The Node sidecar is still there for external tsconfig transformer plugins. That includes `rbxts-transformer-flamework` when native Flamework is off.
+
+Sloptor gives anything not yet ported a clear "not yet supported" diagnostic and **never emits wrong output without a warning**. For code the fork didn't change, compiled output stays byte-identical to `rbxtsc` 3.0.0. For fork-changed code, output follows the verified fork behavior.
 
 ## Production readiness
 
-sloptor is ready for production rbxts projects that want native-speed `check`, `check -w`, `build`, and `build -w`, including declaration emit, incremental rebuild selection, and native Flamework. Flamework-only builds do not require Node.js.
+Sloptor is ready for production rbxts projects that want native-speed `check`, `check -w`, `build`, and `build -w`. That includes declaration emit, incremental rebuild selection, and native Flamework. Flamework-only builds don't need Node.js.
 
-External transformer-plugin support uses the bundled Node sidecar. Builds that resolve external plugins require Node.js on `PATH` so sloptor can launch that sidecar.
+External transformer-plugin support uses the bundled Node sidecar. Builds that resolve external plugins need Node.js on `PATH` so sloptor can launch that sidecar.
 
-Notes and current caveats (see the [roadmap](/sloptor/roadmap/)):
+Notes and current caveats are on the [roadmap](/sloptor/roadmap/):
 
-- `build -w` reuses sloptor's manifest-backed changed-file selection and runs a debounced, pruned polling watcher: `node_modules`, dot-directories, and the build-written `out`/`include` trees are never walked, editor write bursts ("save all") settle into one rebuild, edits made _during_ a build are not lost, and editor junk files never trigger rebuilds. The poll adapts to the walk cost (100 ms floor), so idle watch CPU stays near zero even on big projects. Native FS events remain a possible future refinement.
-- Declaration emit is available for declaration-enabled builds, but declaration-path alias rewriting still follows the current Phase 4 limitation called out in the roadmap.
+- `build -w` reuses the manifest-backed changed-file selection of sloptor and runs a debounced, pruned polling watcher. It never walks `node_modules`, dot-directories, or the build-written `out` and `include` trees. Editor write bursts such as "save all" settle into one rebuild. Edits made _during_ a build aren't lost, and editor junk files never trigger rebuilds. The poll adapts to the walk cost, with a floor of 100 ms, so idle watch CPU stays near zero even on big projects. Native file-system events are a possible future refinement.
+- Declaration emit works for declaration-enabled builds. Declaration-path alias rewriting still has the Phase 4 limitation described in the roadmap.
 - Native Flamework follows the v1.3.2 transformer reference through native parity tests.
-- External transformer plugins run through the Node sidecar that ships **embedded in the sloptor binary** (extracted on first plugin build); the worker uses your project's own `typescript` install — the same instance plugins `require` — and stays warm across builds and watch rebuilds.
-- The conformance harnesses are in repo and green today. The external-project acceptance proof is environment-gated because it needs a local `randomness` checkout plus Rojo/Lune on the machine running it.
+- External transformer plugins run through the Node sidecar that the sloptor binary **embeds**. Sloptor extracts it on the first plugin build. The worker uses your project's own `typescript` install, the same instance that plugins `require`, and stays warm across builds and watch rebuilds.
+- The conformance test runners are in the repo and green today. The external-project acceptance proof depends on the environment. It needs a local `randomness` checkout, plus Rojo and Lune on the machine that runs it.
