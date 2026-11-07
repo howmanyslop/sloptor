@@ -211,19 +211,22 @@ fn page(root: &CommandMeta<'_>, command: &CommandMeta<'_>) -> String {
 	}
 	out.push_str("### Global flags\n\n");
 	options_table(&mut out, &globals);
-	if !command.examples().is_empty() {
-		out.push_str("## Examples\n\n```sh\n");
-		for example in command.examples() {
-			match example.help {
-				Some(help) => {
-					let _ = writeln!(out, "# {help}\n{}", example.code);
-				}
-				None => {
-					let _ = writeln!(out, "{}", example.code);
-				}
-			}
-		}
-		out.push_str("```\n");
+	let examples: Vec<String> = command
+		.after_long_help()
+		.unwrap_or_default()
+		.lines()
+		.filter(|line| line.starts_with("  sloptor "))
+		.map(|line| {
+			let line = line.trim();
+			// The comment column of the help text becomes a shell comment.
+			line.find("   ").map_or_else(
+				|| line.to_owned(),
+				|split| format!("{}  # {}", line[..split].trim_end(), line[split..].trim()),
+			)
+		})
+		.collect();
+	if !examples.is_empty() {
+		let _ = write!(out, "## Examples\n\n```sh\n{}\n```\n", examples.join("\n"));
 	}
 	out.trim_end().to_owned() + "\n"
 }

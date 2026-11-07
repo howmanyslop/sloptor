@@ -209,8 +209,8 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		"--builders <N>",
 		"--checkers <N>",
 		"--clear / --no-clear",
-		"$ sloptor build --no-luau",
-		"Emit .lua instead of .luau",
+		"sloptor build --no-luau               emit .lua instead of .luau",
+		"Global flags:\n  -v, --version",
 	] {
 		assert!(got.stdout.contains(flag), "build help lacks {flag}:\n{}", got.stdout);
 	}
@@ -220,7 +220,7 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		"includePath",
 		"\n      --no-luau",
 		"--no-verbose",
-		"Emit .lua instead of .luau",
+		"Examples:",
 	] {
 		assert!(
 			!short.stdout.contains(hidden),
@@ -233,7 +233,7 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 	let max_errors = got.stdout.find("--max-errors").expect("--max-errors");
 	assert!(project < watch && watch < max_errors);
 	let root = run(&dir.path, &["--help"]);
-	let banner = format!("sloptor {VERSION}");
+	let banner = format!("sloptor v{VERSION}  ·  A native TypeScript-to-Luau compiler for Roblox");
 	for want in [
 		banner.as_str(),
 		"build",
@@ -242,7 +242,9 @@ fn help_is_grouped_and_shows_kebab_names_only() {
 		"Environment:",
 		"UV_THREADPOOL_SIZE",
 		"Exit codes:",
-		"130  Interrupted",
+		"130  interrupted",
+		"Usage: sloptor [FLAGS] [COMMAND]",
+		"Commands:\n  build        Compile",
 	] {
 		assert!(root.stdout.contains(want), "root help lacks {want}:\n{}", root.stdout);
 	}

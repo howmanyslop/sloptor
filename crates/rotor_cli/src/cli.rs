@@ -14,35 +14,58 @@ use std::str::FromStr;
 
 const ROOT_AFTER_HELP: &str = "Run 'sloptor <command> --help' for a command's options and examples.";
 
-/// The root's long help: what the environment changes, and what the exit codes mean. Indented
-/// rows are written as they are; usage reflows everything else.
 const ROOT_AFTER_LONG_HELP: &str = "\
+Examples:
+  sloptor build                       compile the project in the current directory
+  sloptor build -b                    build every project reference of ./tsconfig.json
+  sloptor check src/client --json     typecheck one project, one JSON result on stdout
+  sloptor clean --types --dry-run     list what clean would remove
+
 Environment:
-    NO_COLOR, CLICOLOR, CLICOLOR_FORCE, FORCE_COLOR
-        The colour policy under --color auto.
-    ROTOR_MAX_BUILDS
-        Concurrent builds per machine; 0 turns admission off.
-    RAYON_NUM_THREADS, GOMAXPROCS
-        Checker worker threads (default: the CPUs per concurrent build).
-    RBXTSC_WRITE_CONCURRENCY
-        Output-write workers (at most 256).
-    ROTOR_WRITE_WORKERS
-        Output-write workers; rotor's own override.
-    UV_THREADPOOL_SIZE
-        The Node sidecar's libuv pool (not the output writers).
+  NO_COLOR, CLICOLOR, CLICOLOR_FORCE  colour policy under --color auto (FORCE_COLOR also forces)
+  ROTOR_MAX_BUILDS                    concurrent builds per machine (0 turns admission off)
+  RAYON_NUM_THREADS, GOMAXPROCS       checker worker threads (default: CPUs per concurrent build)
+  RBXTSC_WRITE_CONCURRENCY            output-write worker override (max 256)
+  ROTOR_WRITE_WORKERS                 rotor-specific output-write worker override
+  UV_THREADPOOL_SIZE                  Node sidecar libuv pool size (not the output writers)
 
 Exit codes:
-    0    Success, help and --version.
-    1    A failure: compile, type or config errors. diagnostics exits 0
-         whenever it produced a census.
-    2    A usage error: an unknown command or flag, a bad or missing value.
-    130  Interrupted (Ctrl+C in watch mode).";
+  0    success, help and --version
+  1    a failure: compile errors, type errors, config errors
+       (`diagnostics` exits 0 whenever it produced a census)
+  2    a usage error: an unknown command or flag, a bad or missing value
+  130  interrupted (Ctrl+C in watch mode)";
 
-const BUILD_AFTER_LONG_HELP: &str = "Booleans accept --flag, --flag=true, --flag=false and --no-flag; the last one given \
-wins. rbxtsc's camelCase spellings (--optimizedLoops, --includePath, ...) are accepted as aliases.";
+const BUILD_AFTER_LONG_HELP: &str = "\
+Examples:
+  sloptor build                         compile ./tsconfig.json to Luau
+  sloptor build src/server              compile the project found from src/server upward
+  sloptor build -b tsconfig.solution.json --builders 8
+  sloptor build --json > result.json    one machine-readable result object
+  sloptor build --no-luau               emit .lua instead of .luau
 
-const COMPLETION_AFTER_LONG_HELP: &str =
-	"The script asks sloptor for candidates on every Tab, so it never goes stale when sloptor is upgraded.";
+Booleans accept --flag, --flag=true, --flag=false and --no-flag; the last one wins.
+rbxtsc's camelCase spellings (--optimizedLoops, --includePath, ...) are accepted as aliases.";
+
+const CHECK_AFTER_LONG_HELP: &str = "\
+Examples:
+  sloptor check                         typecheck ./tsconfig.json
+  sloptor check packages/core --json    one machine-readable result object
+  sloptor check --checkers 8";
+
+const CLEAN_AFTER_LONG_HELP: &str = "\
+Examples:
+  sloptor clean                         remove outDir and include/
+  sloptor clean --types                 also remove rotor.d.ts and its legacy companions
+  sloptor clean -n                      list what would be removed";
+
+const COMPLETION_AFTER_LONG_HELP: &str = "\
+Examples:
+  sloptor completion zsh --install      write the script where zsh looks for it
+  sloptor completion fish > ~/.config/fish/completions/sloptor.fish
+  sloptor completion powershell | Out-String | Invoke-Expression
+
+The script asks sloptor for candidates on every Tab, so it never goes stale on an upgrade.";
 
 /// `--color`
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, usage_rs::ValueEnum)]
@@ -140,10 +163,11 @@ impl fmt::Display for NotACount {
 	completion,
 	arg_required_else_help,
 	subcommand_value_name = "COMMAND",
-	example("sloptor build", help = "Compile the project in the current directory"),
-	example("sloptor build -b", help = "Build every project reference of ./tsconfig.json"),
-	example("sloptor check src/client --json", help = "Typecheck one project; one JSON result on stdout"),
-	example("sloptor clean --types --dry-run", help = "List what clean would remove"),
+	usage = "Usage: sloptor [FLAGS] [COMMAND]",
+	// The sections usage lays out; `app` writes the banner above them and the command's trailing
+	// text below, so neither is reflowed.
+	help_template = "{{usage}}\n\n{{commands}}\n\n{{args}}\n\n{{grouped_flags}}\n\n{{ungrouped_flags}}",
+	disable_help_flag,
 	after_help = ROOT_AFTER_HELP,
 	after_long_help = ROOT_AFTER_LONG_HELP
 )]
@@ -159,60 +183,38 @@ pub struct Cli {
 	/// When to use colour
 	#[usage(long, global, value_enum, value_name = "WHEN", default = "auto")]
 	pub color: ColorChoice,
+
+	/// Print help (see more with '--help')
+	#[usage(short = 'h', long, global, action = Help)]
+	pub help: bool,
 }
 
 /// The commands, in help order.
 #[derive(Debug, usage_rs::Subcommands)]
 pub enum Command {
 	/// Compile the project to Luau (tsconfig outDir + include/)
-	#[usage(
-		example("sloptor build", help = "Compile ./tsconfig.json to Luau"),
-		example("sloptor build src/server", help = "Compile the project found from src/server upward"),
-		example("sloptor build -b tsconfig.solution.json --builders 8", help = "Build a solution, eight projects at a time"),
-		example("sloptor build --json > result.json", help = "Write one machine-readable result object"),
-		example("sloptor build --no-luau", help = "Emit .lua instead of .luau"),
-		after_long_help = BUILD_AFTER_LONG_HELP
-	)]
+	#[usage(display_order = 1, after_long_help = BUILD_AFTER_LONG_HELP)]
 	Build(Box<BuildCommand>),
 	/// Typecheck the project (native, full strictness)
-	#[usage(
-		example("sloptor check", help = "Typecheck ./tsconfig.json"),
-		example(
-			"sloptor check packages/core --json",
-			help = "Print one machine-readable result object"
-		),
-		example("sloptor check --checkers 8", help = "Check with eight checkers")
-	)]
+	#[usage(display_order = 2, after_long_help = CHECK_AFTER_LONG_HELP)]
 	Check(CheckCommand),
 	/// Report every file's outcome instead of stopping at the first failure
+	#[usage(display_order = 3)]
 	Diagnostics(DiagnosticsCommand),
 	/// Remove build outputs; --types also removes generated editor types
-	#[usage(
-		example("sloptor clean", help = "Remove outDir and include/"),
-		example("sloptor clean --types", help = "Also remove rotor.d.ts and its legacy companions"),
-		example("sloptor clean -n", help = "List what would be removed")
-	)]
+	#[usage(display_order = 4, after_long_help = CLEAN_AFTER_LONG_HELP)]
 	Clean(CleanCommand),
 	/// Run a language server that reports sloptor diagnostics to editors
+	#[usage(display_order = 5)]
 	Lsp(LspCommand),
 	/// Print a JSON Schema to stdout (rotor.toml, or the tsconfig "rbxts" key)
+	#[usage(display_order = 6)]
 	Schema(SchemaCommand),
 	/// Generate a shell completion script
-	#[usage(
-		visible_alias = "completions",
-		example("sloptor completion zsh --install", help = "Write the script where zsh looks for it"),
-		example(
-			"sloptor completion fish > ~/.config/fish/completions/sloptor.fish",
-			help = "Write the fish script yourself"
-		),
-		example(
-			"sloptor completion powershell | Out-String | Invoke-Expression",
-			help = "Load completions into this PowerShell session"
-		),
-		after_long_help = COMPLETION_AFTER_LONG_HELP
-	)]
+	#[usage(display_order = 7, visible_alias = "completions", after_long_help = COMPLETION_AFTER_LONG_HELP)]
 	Completion(usage_rs::completion::Completion),
 	/// Print sloptor's version
+	#[usage(display_order = 8)]
 	Version,
 	/// Serve build requests over stdio (for build integrations)
 	#[usage(name = "api-server", hide)]

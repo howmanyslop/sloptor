@@ -88,10 +88,16 @@ output and completion scripts never contain escapes.
 
 ## Help and errors
 
-Help, usage lines, `tip:` suggestions and error text are usage's. `-h` is the short page; `--help`
-adds each command's example descriptions and, at the root, the environment variables and exit
-codes. `sloptor help <command>` is the same as `sloptor <command> --help`. A misspelt flag's tip
-names every close spelling the parser accepts, the camelCase aliases included.
+Every help page opens with a banner (`sloptor vX  ·  <about>` at the root, `sloptor <command>  ·
+<about>` below it), then usage's sections in the compact layout (`help_template` in `cli.rs`):
+the usage line, the commands, the arguments, the flags under their headings, and the global
+`-v`, `--color` and `-h`. `-h` stops there, apart from the root's pointer to `--help`; `--help`
+adds the command's `after_long_help` (examples, and at the root the environment and exit codes),
+written as authored so its columns survive. `app::help_page` assembles the page.
+`sloptor help <command>` is the same as `sloptor <command> --help`.
+
+Usage lines, `tip:` suggestions and error text are usage's. A misspelt flag's tip names every
+close spelling the parser accepts, the camelCase aliases included.
 
 ## Completions
 

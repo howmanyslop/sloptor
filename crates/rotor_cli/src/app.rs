@@ -10,6 +10,7 @@ use usage_rs::{Error, diagnostic, help};
 
 use crate::cli::{Cli, Command};
 use crate::term::Streams;
+use crate::ui::Paint;
 use crate::{VERSION, argv, build, check, clean, diagnostics, gen_docs};
 
 /// Help in cargo's colours, which sloptor's own output uses too.
@@ -102,24 +103,55 @@ pub fn execute(args: Vec<OsString>, streams: &mut Streams) -> u8 {
 	}
 }
 
+/// A help page: the banner, usage's sections in the compact layout, and the command's trailing
+/// text (`after_long_help` for `--help`) written as authored, its headings coloured like usage's.
+fn help_page(cmd: &usage_rs::Command<'_>, long: bool, coloured: bool) -> String {
+	let root = Cli::spec().root;
+	let meta = std::iter::once(root)
+		.chain(root.subcommands().iter().copied())
+		.find(|meta| std::ptr::eq(meta.cmd(), cmd))
+		.unwrap_or(root);
+	let paint = Paint { color: coloured };
+	let about = meta.about().unwrap_or_default();
+	let name = if std::ptr::eq(meta, root) {
+		format!("{} {}", paint.brand("sloptor"), paint.muted(&format!("v{VERSION}")))
+	} else {
+		paint.brand(&format!("sloptor {}", cmd.name))
+	};
+	let style = if coloured {
+		help::Style::COLOURED.palette(PALETTE)
+	} else {
+		help::Style::PLAIN
+	};
+	let mut page = format!("{name}  {}  {about}\n\n", paint.muted("·"));
+	page.push_str(&Cli::render_help_styled(cmd, false, style).unwrap_or_default());
+	let after = if long {
+		meta.after_long_help().or_else(|| meta.after_help())
+	} else {
+		meta.after_help()
+	};
+	if let Some(after) = after {
+		page.push('\n');
+		for line in after.lines() {
+			let heading = line.ends_with(':') && !line.starts_with(' ');
+			page.push_str(&if heading { paint.green(line) } else { line.to_owned() });
+			page.push('\n');
+		}
+	}
+	page
+}
+
 /// What parsing stopped on: a help or version request, or a usage error.
 fn answer(tokens: &[&OsStr], error: &Error<'_, '_>, streams: &mut Streams) -> u8 {
-	let help_style = |coloured: bool| {
-		if coloured {
-			help::Style::COLOURED.palette(PALETTE)
-		} else {
-			help::Style::PLAIN
-		}
-	};
 	match error {
 		Error::Help { cmd, long } => {
-			let page = Cli::render_help_styled(cmd, *long, help_style(streams.out_color));
-			let _ = streams.out.write_all(page.unwrap_or_default().as_bytes());
+			let page = help_page(cmd, *long, streams.out_color);
+			let _ = streams.out.write_all(page.as_bytes());
 			0
 		}
 		Error::HelpAll { cmd } => {
-			let page = Cli::render_help_styled(cmd, true, help_style(streams.out_color));
-			let _ = streams.out.write_all(page.unwrap_or_default().as_bytes());
+			let page = help_page(cmd, true, streams.out_color);
+			let _ = streams.out.write_all(page.as_bytes());
 			0
 		}
 		Error::Version { .. } => {
@@ -128,8 +160,8 @@ fn answer(tokens: &[&OsStr], error: &Error<'_, '_>, streams: &mut Streams) -> u8
 		}
 		// A bare `sloptor`: the help, on stderr, as the failure it is.
 		Error::MissingArgsHelp { cmd } => {
-			let page = Cli::render_help_styled(cmd, false, help_style(streams.err_color));
-			let _ = streams.err.write_all(page.unwrap_or_default().as_bytes());
+			let page = help_page(cmd, false, streams.err_color);
+			let _ = streams.err.write_all(page.as_bytes());
 			MISUSED
 		}
 		_ => {
