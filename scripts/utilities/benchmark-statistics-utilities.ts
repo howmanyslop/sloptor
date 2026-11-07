@@ -103,6 +103,16 @@ function getStandardDeviation(values: ReadonlyArray<number>): number {
 	return Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / (values.length - 1));
 }
 
+/**
+ * Rounds to three decimals, finer than the measurements and easy on the JSON.
+ *
+ * @param value - The figure to round.
+ * @returns The rounded figure.
+ */
+function roundFigure(value: number): number {
+	return Math.round(value * 1000) / 1000;
+}
+
 function getToolStatistics({ name, measurements }: HyperfineResult): ToolStatistics {
 	const wall = measurements
 		.map((measurement) => measurement.time_wall_clock.value * MILLISECONDS_PER_SECOND)
@@ -110,13 +120,19 @@ function getToolStatistics({ name, measurements }: HyperfineResult): ToolStatist
 
 	return {
 		name,
-		cpu: getMean(measurements.map((measurement) => measurement.time_cpu.value * MILLISECONDS_PER_SECOND)),
+		cpu: roundFigure(
+			getMean(measurements.map((measurement) => measurement.time_cpu.value * MILLISECONDS_PER_SECOND)),
+		),
 		failed: measurements.filter((measurement) => measurement.exit_code !== 0).length,
-		instructions: getMean(measurements.map((measurement) => (measurement.instructions?.value ?? 0) / MILLION)),
-		median: wall[Math.floor(wall.length / 2)] ?? 0,
-		memory: getMean(measurements.map((measurement) => measurement.memory_peak_resident.value / BYTES_PER_MEBIBYTE)),
+		instructions: roundFigure(
+			getMean(measurements.map((measurement) => (measurement.instructions?.value ?? 0) / MILLION)),
+		),
+		median: roundFigure(wall[Math.floor(wall.length / 2)] ?? 0),
+		memory: roundFigure(
+			getMean(measurements.map((measurement) => measurement.memory_peak_resident.value / BYTES_PER_MEBIBYTE)),
+		),
 		runs: wall.length,
-		spread: getStandardDeviation(wall),
+		spread: roundFigure(getStandardDeviation(wall)),
 	};
 }
 

@@ -1,0 +1,65 @@
+---
+import {
+	BENCHMARK_RESULTS,
+	formatMilliseconds,
+	getReport,
+	getRival,
+	SCENARIO_LABELS,
+	SCENARIO_NAMES,
+} from "$data/benchmark-results";
+
+const TOOLS = ["sloptor", "rbxtsgo", "rbxtsc"] as const;
+
+function formatLines(lines: number): string {
+	return lines.toLocaleString("en-US");
+}
+
+const projects = BENCHMARK_RESULTS.projects.map((size) => ({
+	files: size.files,
+	lines: size.lines,
+	name: size.name,
+	timings: SCENARIO_NAMES.map((scenario) => {
+		const comparison = getReport(scenario).comparisons.find(({ project }) => project === size.name);
+		if (comparison === undefined) throw new Error(`No ${scenario} result for ${size.name}.`);
+
+		return TOOLS.map((tool) =>
+			formatMilliseconds(tool === "sloptor" ? comparison.sloptor.median : getRival(comparison, tool).median),
+		);
+	}),
+}));
+---
+
+<figure class="bench-table-figure">
+	<figcaption class="figure-legend">{"Median milliseconds"}</figcaption>
+	<div class="bench-scroll">
+		<table class="bench-table">
+			<thead>
+				<tr>
+					<th rowspan="2" scope="col">Project</th>
+					<th rowspan="2" scope="col">Files</th>
+					<th rowspan="2" scope="col">Lines</th>
+					{SCENARIO_NAMES.map((scenario) => (
+						<th class="bench-group" colspan="3" scope="colgroup">
+							{SCENARIO_LABELS[scenario]}
+						</th>
+					))}
+				</tr>
+				<tr>
+					{SCENARIO_NAMES.flatMap(() => TOOLS.map((tool) => <th scope="col">{tool}</th>))}
+				</tr>
+			</thead>
+			<tbody>
+				{projects.map(({ files, lines, name, timings }) => (
+					<tr>
+						<th scope="row">{name}</th>
+						<td>{files}</td>
+						<td>{formatLines(lines)}</td>
+						{timings.flat().map((value) => (
+							<td>{value}</td>
+						))}
+					</tr>
+				))}
+			</tbody>
+		</table>
+	</div>
+</figure>

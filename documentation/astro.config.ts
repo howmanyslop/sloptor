@@ -132,6 +132,7 @@ export default defineConfig({
 						items: [
 							{ label: "Macros", slug: "macros" },
 							{ label: "Architecture", slug: "architecture" },
+							{ label: "Benchmarks", slug: "benchmarks" },
 							{ label: "Roadmap", slug: "roadmap" },
 							{ label: "Contributing", slug: "contributing" },
 							{ label: "Changelog", slug: "changelog" },

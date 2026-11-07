@@ -6,12 +6,10 @@ import { siteBasePath } from "$utilities/site-base-path";
 
 import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 
-const DOCS_ORIGIN = "https://docs.howmanysmall.com";
-const REPOSITORY_URL = "https://github.com/howmanyslop/sloptor";
 const OG_IMAGE_ALT = `A field-notebook card: a cold full build of a 95-file game takes ${FULL_BUILD_MILLISECONDS} milliseconds, printed in slime and tangerine, beside the typecheck and watch-rebuild timings.`;
 
 const route = Astro.locals.starlightRoute;
-const origin = Astro.site ?? new URL(DOCS_ORIGIN);
+const origin = Astro.site ?? new URL("https://docs.howmanysmall.com");
 const pageUrl = new URL(Astro.url.pathname, origin).href;
 const imageUrl = new URL(`${siteBasePath}og/sloptor.png`, origin).href;
 const accentColor = `#${DISCORD_EMBED_ACCENT_COLOR.toString(16).padStart(6, "0")}`;
@@ -23,7 +21,7 @@ const discordEmbed = createDiscordComponentEmbed({
 	imageAlt: `${FULL_BUILD_MILLISECONDS} ms full build of a 95-file production game.`,
 	imageUrl,
 	pageUrl,
-	repositoryUrl: REPOSITORY_URL,
+	repositoryUrl: "https://github.com/howmanyslop/sloptor",
 	title: route.entry.data.title,
 });
 ---

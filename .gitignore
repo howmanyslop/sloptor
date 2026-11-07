@@ -62,6 +62,7 @@ documentation/playwright-report/
 
 # isentinel-lint
 .eslintcache-*
+.playwright-mcp/
 
 .agents/skills/agent-ci
 .agents/skills/animate

@@ -1,0 +1,77 @@
+---
+title: "Benchmarks"
+description: "sloptor timed against rbxtsgo and rbxtsc on seven small projects: cold builds and no-op rebuilds, by time, CPU, memory, and instructions."
+template: splash
+tableOfContents: false
+editUrl: false
+---
+
+import { BenchmarkExplorer } from "$components/benchmark-explorer";
+import BenchmarkMethod from "$components/benchmark-method.astro";
+import BenchmarkTable from "$components/benchmark-table.astro";
+import { BENCHMARK_RESULTS, formatMilliseconds, getReport, getRival, getToolVersion } from "$data/benchmark-results";
+
+export const cold = getReport("cold").comparisons;
+export const smallest = cold[0];
+export const largest = cold[cold.length - 1];
+export const rbxtscFloor = formatMilliseconds(getRival(smallest, "rbxtsc").median);
+export const sloptorLargest = formatMilliseconds(largest.sloptor.median);
+export const versions = `sloptor ${getToolVersion("sloptor")}, rbxtsgo ${getToolVersion("rbxtsgo")}, and rbxtsc ${getToolVersion("rbxtsc")}, on one machine.`;
+export const tableNote = `fig. 2 — the median of each run, in milliseconds, for when you want to read the numbers off. A cold build of ${smallest.project}, the one-file project, takes rbxtsc ${rbxtscFloor} ms. sloptor builds ${largest.project}, the largest, in ${sloptorLargest} ms.`;
+
+<section class="hero-splash hero-splash--compact note-row not-content">
+	<div class="note-margin">
+		<h2>Benchmarks</h2>
+		<p>{versions}</p>
+	</div>
+	<div class="note-body">
+		<h1 class="hero-title hero-title--compact">Timed against the other two.</h1>
+		<p class="hero-subtitle hero-subtitle--compact">
+			Each project is built from scratch, then rebuilt untouched. Every figure on this page comes from one script
+			in the repository, so you can run it and check.
+		</p>
+	</div>
+</section>
+
+<section class="note-row note-row--readouts reveal not-content">
+	<div class="note-margin">
+		<h2>Against the others</h2>
+		<p>
+			fig. 1 — how many times as much each tool needs as sloptor, one project per row, on a log scale. A bar that
+			ends at 2× means that tool needs twice what sloptor does. Hover a row for the exact numbers.
+		</p>
+	</div>
+	<BenchmarkExplorer client:visible />
+</section>
+
+<section class="note-row reveal not-content">
+	<div class="note-margin">
+		<h2>Every number</h2>
+		<p>{tableNote}</p>
+	</div>
+	<div class="note-body">
+		<BenchmarkTable />
+	</div>
+</section>
+
+<section class="note-row reveal not-content">
+	<div class="note-margin">
+		<h2>Run it yourself</h2>
+		<p>
+			fig. 3 — the script behind every figure here. It needs mise for sloptor, rbxtsgo, and hyperfine, and each
+			fixture needs one install.
+		</p>
+	</div>
+	<div class="note-body">
+
+```sh
+mise exec -- bun scripts/benchmark-compare.ts
+mise exec -- bun scripts/benchmark-compare.ts --projects obby,wide --runs 100
+mise exec -- bun scripts/benchmark-compare.ts --against rbxtsgo
+```
+
+    </div>
+
+</section>
+
+<BenchmarkMethod />
