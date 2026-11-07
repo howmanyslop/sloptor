@@ -61,9 +61,7 @@ overrides:
 # Applies `componentExts` (.astro) to the options rules instead of oxfmt's file
 # list; same patch as small-rules.
 patchedDependencies:
-  "@isentinel/eslint-config@6.1.0": patches/@isentinel__eslint-config@6.1.0.patch
-  # Falls back to TypeScript's win32 compiler, since tsrs ships no Windows binary.
-  tsrs@0.18.0-ts7.1.0-dev.20260929: patches/tsrs@0.18.0-ts7.1.0-dev.20260929.patch
+  "@isentinel/eslint-config@6.3.0": patches/@isentinel__eslint-config@6.3.0.patch
 
 catalogs:
   commitlint:
@@ -91,25 +89,25 @@ catalogs:
     shiki: 4.5.0
     wrangler: 4.151.1
   lint:
-    "@biomejs/biome": 2.5.15
-    "@isentinel/eslint-config": 6.1.0
-    "@pobammer-ts/small-rules": 3.6.0
-    "@vitest/eslint-plugin": 1.6.27
-    eslint: 10.12.0
-    eslint-plugin-antfu: 3.2.3
+    "@biomejs/biome": 2.6.6
+    "@isentinel/eslint-config": 6.3.0
+    "@pobammer-ts/small-rules": 3.11.0
+    "@vitest/eslint-plugin": 1.6.28
+    eslint: 10.14.0
+    eslint-plugin-antfu: 3.3.1
     eslint-plugin-astro: 3.2.1
-    eslint-plugin-n: 18.4.1
+    eslint-plugin-n: 18.5.0
     eslint-plugin-pnpm: 1.9.1
-    eslint-plugin-react-jsx: 5.27.2
-    eslint-plugin-react-naming-convention: 5.27.2
-    eslint-plugin-react-x: 5.27.2
+    eslint-plugin-react-jsx: 5.28.8
+    eslint-plugin-react-naming-convention: 5.28.8
+    eslint-plugin-react-x: 5.28.8
     eslint-plugin-regexp: 3.1.1
     eslint-plugin-sonarjs: 4.2.2
     eslint-plugin-unused-imports: 4.4.1
-    knip: 6.31.0
-    oxfmt: 0.74.0
-    oxlint: 1.89.0
-    oxlint-tsgolint: 7.0.2004
+    knip: 6.44.1
+    oxfmt: 0.77.0
+    oxlint: 1.92.0
+    oxlint-tsgolint: 7.0.2006
   runtime:
     effect: 4.0.1
   scripts:
@@ -122,18 +120,18 @@ catalogs:
     "@playwright/test": 1.64.1
     "@testing-library/react": 16.3.3
     jsdom: 29.1.1
-    vitest: 5.0.5
+    vitest: 5.1.0
   tooling:
     bumpp: 12.3.0
     jiti: 2.7.0
-    pncat: 0.13.0
-    skills: 1.7.4
-    tsrs: 0.18.0-ts7.1.0-dev.20260929
-    typescript: 5.9.3
+    pncat: 0.13.4
+    skills: 1.7.6
+    tsrs: 0.22.0-ts7.1.0-beta
+    typescript: ^6
   types:
     "@total-typescript/ts-reset": 0.6.1
-    "@types/bun": 1.4.3
-    "@types/node": ^26.1.2
+    "@types/bun": 1.4.4
+    "@types/node": ^26.6.6
     "@types/react": 19.3.0
     "@types/react-dom": 19.3.0
     type-fest: 5.8.0
@@ -169,6 +167,7 @@ peerDependencyRules:
     "@astrojs/react>oxc-transform-react": 0.154.0
     "@emnapi/core": ">=1.0.0"
     "@emnapi/runtime": ">=1.0.0"
+    "@typescript-eslint/*>typescript": ">=6.0.0 <7.0.0"
     "@vitejs/plugin-react>oxc-transform-react": 0.154.0
 
 fetchRetries: 5
