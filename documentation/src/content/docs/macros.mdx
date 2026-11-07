@@ -5,13 +5,13 @@ description: "Compile-time macros and language extensions sloptor supports beyon
 
 Sloptor accepts all rbxtsc input and adds a few compile-time macros and language extensions. None of them change the output of code rbxtsc already accepts.
 
-| Macro                                  | Inlines                                                    |
-| -------------------------------------- | ---------------------------------------------------------- |
-| `$env("KEY", "fallback")` · `$env.KEY` | env vars from `.env` and `.env.<NODE_ENV>`                 |
-| `$keys<T>()`                           | a type's string keys, using the checker                    |
-| `$nameof(expr)`                        | the trailing identifier name as a string                   |
+| Macro                                  | Inlines                                                         |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `$env("KEY", "fallback")` · `$env.KEY` | env vars from `.env` and `.env.<NODE_ENV>`                      |
+| `$keys<T>()`                           | a type's string keys, using the checker                         |
+| `$nameof(expr)`                        | the trailing identifier name as a string                        |
 | `$file("data.json")`                   | a file's contents as a Luau table for JSON or a string for text |
-| `$getModuleTree("shared/systems")`     | a folder's module tree, with no `index.ts` required        |
+| `$getModuleTree("shared/systems")`     | a folder's module tree, with no `index.ts` required             |
 
 ## Extensions
 

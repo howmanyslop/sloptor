@@ -107,26 +107,26 @@ local function scale(x: number, factor: number?, label: string?): number
 
 Annotations follow the TypeScript type:
 
-| TypeScript type                                                        | Emitted                                  |
-| ---------------------------------------------------------------------- | ---------------------------------------- |
-| `number`, numeric literals and enums, generics constrained to `number` | `number`                                 |
-| `string`, template literals like `a${string}`                          | `string`                                 |
-| `"there"`, `"a" \| "b"`                                                | `"there"`, `"a" \| "b"`                  |
-| `true`, `false`                                                        | `true`, `false`                          |
-| `true \| false`, the whole boolean                                     | `boolean`, or `boolean?`                 |
-| `vector`, `Vector3`                                                    | `vector`, `Vector3`                      |
-| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`                    |
-| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }`            |
-| named interfaces and non-generic object type aliases                   | a `type` alias at the declaration        |
-| anonymous object types                                                 | `{ a: number, b: string? }`              |
-| function types                                                         | `(key: K, other: T?) -> V`               |
-| a `LuaTuple<[A, B]>` return                                            | `(A, B)`, a return pack                  |
-| `new (x: number) => T`, `typeof Class`                                 | `{ new: (x: number) -> T }`              |
-| a generic call signature                                               | `<T>(value: T) -> T`                     |
-| multiple call signatures                                               | `((A) -> B) & ((C) -> D)`                |
-| a `void` return                                                        | `()`, written as `: ()` on a function    |
-| a type that Luau can't spell                                           | `{ [any]: any }`, or none                |
-| anything else                                                          | none                                     |
+| TypeScript type                                                        | Emitted                               |
+| ---------------------------------------------------------------------- | ------------------------------------- |
+| `number`, numeric literals and enums, generics constrained to `number` | `number`                              |
+| `string`, template literals like `a${string}`                          | `string`                              |
+| `"there"`, `"a" \| "b"`                                                | `"there"`, `"a" \| "b"`               |
+| `true`, `false`                                                        | `true`, `false`                       |
+| `true \| false`, the whole boolean                                     | `boolean`, or `boolean?`              |
+| `vector`, `Vector3`                                                    | `vector`, `Vector3`                   |
+| `T[]`, `ReadonlyArray<T>`, `[A, B]`                                    | `{ T }`, `{ A \| B }`                 |
+| `Map<K, V>`, `Set<K>`, `Record<K, V>`, index signatures                | `{ [K]: V }`, `{ [K]: true }`         |
+| named interfaces and non-generic object type aliases                   | a `type` alias at the declaration     |
+| anonymous object types                                                 | `{ a: number, b: string? }`           |
+| function types                                                         | `(key: K, other: T?) -> V`            |
+| a `LuaTuple<[A, B]>` return                                            | `(A, B)`, a return pack               |
+| `new (x: number) => T`, `typeof Class`                                 | `{ new: (x: number) -> T }`           |
+| a generic call signature                                               | `<T>(value: T) -> T`                  |
+| multiple call signatures                                               | `((A) -> B) & ((C) -> D)`             |
+| a `void` return                                                        | `()`, written as `: ()` on a function |
+| a type that Luau can't spell                                           | `{ [any]: any }`, or none             |
+| anything else                                                          | none                                  |
 
 Sloptor emits a named interface, or a non-generic `type X = { ... }` alias, once as a Luau type alias, and every reference uses it. A recursive type stays recursive and doesn't collapse to `{ [any]: any }`. For a declaration at the top level of the compiled file, the alias goes at the declaration, after its leading comments, so it reads next to the TypeScript it describes. Luau resolves an alias declared later in the same block, so a use that comes first still works. A merged interface, such as `interface Hi { ... }` declared more than once, emits one alias at its first declaration with every merged member.
 
@@ -334,12 +334,13 @@ Luau can't say everything TypeScript can. Sloptor records each substitution belo
 - `LuaTuple<[A, B?]>` becomes `(A, B?)`. A Luau pack requires every element, so a short return must pass `undefined` explicitly. `LuaTuple<...> | undefined` becomes `...any`, and a `LuaTuple` outside a return position becomes `any`.
 - Sloptor drops generic constraints, because Luau has no `extends`. On class instances, it drops `readonly` and exposes private members, because the constructor writes through `self`.
 - Sloptor emits a type function only for what the translator can express. These constructs make the whole alias `any` under a loss comment:
-  - an `infer` outside `T extends (infer U)[]` and `T extends (...args: any) => infer R`
-  - an `as` clause
-  - a member type that names another alias, such as `Uppercase<K>`, `Box<T[K]>`, or `Promise<infer U>`
-  - a self reference
+    - an `infer` outside `T extends (infer U)[]` and `T extends (...args: any) => infer R`
+    - an `as` clause
+    - a member type that names another alias, such as `Uppercase<K>`, `Box<T[K]>`, or `Promise<infer U>`
+    - a self reference
 
-  Uses of such an alias with concrete arguments still expand exactly. Only generic uses get the `any`.
+    Uses of such an alias with concrete arguments still expand exactly. Only generic uses get the `any`.
+
 - A recursive alias referenced with different arguments, such as `Weird<T[]>` inside `Weird<T>` or the lib's `Promise<T>`, spells that member `any`, as Luau's recursion rule requires.
 - A class referenced before its declaration keeps the hoisted `local Late: any`. A class value, `typeof Foo`, is the structural `{ new: ..., statics }` table with no `self` on the statics. The new solver can't instantiate a generic method called through a subtype receiver, such as `pair.map(...)` where `Box<T>` declares `map`. Call it through the base type instead.
 - `typeof x` stays `typeof(x)` only for a top-level `const`, function, or class that the same file declares before the use. Anything else takes its spelling from the resolved type. `export { X as Y }` keeps `X` as the alias name.

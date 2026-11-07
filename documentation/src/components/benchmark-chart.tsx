@@ -1,14 +1,5 @@
 import { Predicate } from "effect";
-import {
-	Bar,
-	BarChart,
-	CartesianGrid,
-	LabelList,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { formatRatio } from "$data/benchmark-results";
 
@@ -60,7 +51,6 @@ function formatBarLabel(value: RenderableText): string {
 	if (!Predicate.isNumber(value)) return "";
 	return value === 1 ? "1×" : `${formatRatio(value)}×`;
 }
-
 
 export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartProperties>): ReactNode {
 	const height = rows.length * ROW_HEIGHT + AXIS_HEIGHT;

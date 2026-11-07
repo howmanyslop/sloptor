@@ -9,12 +9,12 @@ description: "Report every file's outcome with sloptor diagnostics, with overlay
 
 `sloptor diagnostics` runs every file and reports each one's outcome:
 
-| Outcome                 | Meaning                                                                                                                                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Outcome                 | Meaning                                                                                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ok`                    | The file transformed with no diagnostics. This doesn't prove the Luau is _correct_. Sloptor uses types for truthiness, coercion, and loop lowering, so output for a type-broken file can be wrong without a warning |
-| `typeError`             | TypeScript rejected the file. Sloptor transforms it anyway                                                                                                                                    |
-| `transformerDiagnostic` | Sloptor's transformer rejected the file, or the file uses comment directives                                                                                                                  |
-| `internalCompilerError` | A ported upstream assert fired. The output includes the panic value and stack                                                                                                                 |
+| `typeError`             | TypeScript rejected the file. Sloptor transforms it anyway                                                                                                                                                          |
+| `transformerDiagnostic` | Sloptor's transformer rejected the file, or the file uses comment directives                                                                                                                                        |
+| `internalCompilerError` | A ported upstream assert fired. The output includes the panic value and stack                                                                                                                                       |
 
 ```powershell
 sloptor diagnostics --project tsconfig.json --json
