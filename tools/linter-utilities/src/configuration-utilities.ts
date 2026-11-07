@@ -139,7 +139,6 @@ const DEFAULT_CONFIGURATION = {
 // biome-ignore lint/style/noRestrictedTypes: Except will not work here.
 function deleteSchema<TObject extends UnknownRecord>(object: TObject): Omit<TObject, "$schema"> {
 	if ("$schema" in object) {
-		// oxlint-disable-next-line no-unused-vars -- we want to remove $schema from the object.
 		const { $schema, ...rest } = object;
 		return rest;
 	}

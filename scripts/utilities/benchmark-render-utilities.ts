@@ -91,6 +91,7 @@ function getLargest(values: ReadonlyArray<number>): number {
 	for (const value of values) {
 		largest = Math.max(largest, value);
 	}
+
 	return largest;
 }
 
@@ -99,6 +100,7 @@ function getSmallest(values: ReadonlyArray<number>): number {
 	for (const value of values) {
 		smallest = Math.min(smallest, value);
 	}
+
 	return smallest;
 }
 

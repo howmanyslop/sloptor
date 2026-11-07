@@ -34,6 +34,7 @@ export function getReport(scenario: ScenarioName): ScenarioReport {
 	if (report === undefined) {
 		throw new Error(`benchmark-results.json has no "${scenario}" scenario.`);
 	}
+
 	return report;
 }
 
@@ -42,6 +43,7 @@ export function getRival({ project, rivals }: ProjectComparison, name: RivalName
 	if (rival === undefined) {
 		throw new Error(`benchmark-results.json has no ${name} result for ${project}.`);
 	}
+
 	return rival;
 }
 

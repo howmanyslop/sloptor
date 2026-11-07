@@ -9,5 +9,6 @@ export function getScriptName(trimEnd = true, scriptPath = argv[1] ?? import.met
 	if (scriptName === "index") {
 		scriptName = nodePath.basename(nodePath.dirname(scriptPath));
 	}
+
 	return trimEnd ? scriptName.replaceAll(SUFFIXES_REGEXP, "") : scriptName;
 }

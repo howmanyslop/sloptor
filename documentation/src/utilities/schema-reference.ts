@@ -33,6 +33,7 @@ function isSingular(name: string): string {
 
 function describeType(schema: JsonSchema): string {
 	if (schema.enum !== undefined) return schema.enum.map((value) => JSON.stringify(value)).join(" | ");
+
 	if (schema.type === "array") {
 		const item = schema.items?.type;
 		return item === undefined ? "array" : `${item}[]`;

@@ -36,6 +36,7 @@ async function runShfmtAsync(files: ReadonlyArray<string>): Promise<void> {
 	if (output) {
 		process.stdout.write(output);
 	}
+
 	if (code !== 0 || output.trim()) {
 		exit(1);
 	}
@@ -46,6 +47,7 @@ async function runTyposAsync(files: ReadonlyArray<string>): Promise<void> {
 	if (output) {
 		process.stdout.write(output);
 	}
+
 	if (code !== 0 || output.trim()) {
 		exit(1);
 	}

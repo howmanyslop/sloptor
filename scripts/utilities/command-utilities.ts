@@ -61,6 +61,7 @@ interface ScriptCommand {
  */
 export function createScriptCommand(version: string, description: string): ScriptCommand {
 	const name = getScriptName(true);
+	// oxlint-disable-next-line small-rules/no-multiple-cliffy-commands -- helper
 	return { command: createBaseCommand(name, version, description), log: consola.withTag(name) };
 }
 
