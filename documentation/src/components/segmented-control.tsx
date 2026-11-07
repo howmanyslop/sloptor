@@ -1,4 +1,3 @@
-import { useCallback, useMemo } from "react";
 import { Toggle } from "@base-ui/react/toggle";
 import { ToggleGroup } from "@base-ui/react/toggle-group";
 
@@ -24,15 +23,12 @@ interface SegmentedControlProperties {
  * @returns A row of outlined segments with the selected one filled.
  */
 export function SegmentedControl({ label, onChange, options, value }: Readonly<SegmentedControlProperties>): ReactNode {
-	const pressed = useMemo(() => [value], [value]);
-	const handleChange = useCallback(
-		([next]: ReadonlyArray<string>): void => {
-			if (next !== undefined) {
-				onChange(next);
-			}
-		},
-		[onChange],
-	);
+	const pressed = [value];
+
+	function handleChange([next]: ReadonlyArray<string>): void {
+		if (next === undefined) return;
+		onChange(next);
+	}
 
 	const toggles = new Array<ReactNode>();
 	for (const { label: text, value: key } of options) {

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Predicate } from "effect";
 import {
 	Bar,
@@ -68,8 +67,9 @@ function formatBarLabel(value: RenderableText): string {
 	return Predicate.isNumber(value) ? `${formatRatio(value)}×` : "";
 }
 
-function renderSeries(animate: boolean): Array<ReactNode> {
-	return SERIES.map(({ name, color, dash, delay }) => (
+export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartProperties>): ReactNode {
+	const height = rows.length * ROW_HEIGHT + AXIS_HEIGHT;
+	const series = SERIES.map(({ name, color, dash, delay }) => (
 		<Bar
 			key={name}
 			animationBegin={delay}
@@ -95,15 +95,9 @@ function renderSeries(animate: boolean): Array<ReactNode> {
 			/>
 		</Bar>
 	));
-}
-
-export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartProperties>): ReactNode {
-	const height = rows.length * ROW_HEIGHT + AXIS_HEIGHT;
-	// Gives the server render a size to draw at before the browser measures.
-	const initialDimension = useMemo(() => ({ height, width: 720 }), [height]);
 
 	return (
-		<ResponsiveContainer height={height} initialDimension={initialDimension} width="100%">
+		<ResponsiveContainer height={height} initialDimension={{ height, width: 720 }} width="100%">
 			<BarChart
 				accessibilityLayer={false}
 				barCategoryGap="26%"
@@ -139,7 +133,7 @@ export function BenchmarkChart({ animate, rows }: Readonly<BenchmarkChartPropert
 					x={1}
 				/>
 				<Tooltip content={BenchmarkTooltip} cursor={HOVER_CURSOR} isAnimationActive={false} />
-				{renderSeries(animate)}
+				{series}
 			</BarChart>
 		</ResponsiveContainer>
 	);

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useState } from "react";
 
 import { getRows, isMetricName, METRICS } from "$data/benchmark-metrics";
 import { isScenarioName } from "$data/benchmark-results";
@@ -25,18 +25,17 @@ export function BenchmarkExplorer(): ReactNode {
 	const animate = !usePrefersReducedMotion();
 
 	const metric = METRICS[metricName];
-	const rows = useMemo(() => getRows(scenario, metric), [scenario, metric]);
+	const rows = getRows(scenario, metric);
 
-	const handleScenarioChange = useCallback((value: string): void => {
-		if (isScenarioName(value)) {
-			setScenario(value);
-		}
-	}, []);
-	const handleMetricChange = useCallback((value: string): void => {
-		if (isMetricName(value)) {
-			setMetricName(value);
-		}
-	}, []);
+	function handleScenarioChange(value: string): void {
+		if (!isScenarioName(value)) return;
+		setScenario(value);
+	}
+
+	function handleMetricChange(value: string): void {
+		if (!isMetricName(value)) return;
+		setMetricName(value);
+	}
 
 	return (
 		<>
