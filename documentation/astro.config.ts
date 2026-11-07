@@ -48,10 +48,14 @@ function removeTrailingWildcard(path: string): string {
 
 function getAliases(): Record<string, string> {
 	const tsconfig = getTsconfig(fromDocumentationRoot("."), "tsconfig.json");
-	if (tsconfig === null) throw new Error("Could not load tsconfig.json.");
+	if (tsconfig === null) {
+		throw new Error("Could not load tsconfig.json.");
+	}
 
 	const paths = tsconfig.config.compilerOptions?.paths;
-	if (paths === undefined) return {};
+	if (paths === undefined) {
+		return {};
+	}
 
 	return Object.fromEntries(
 		Object.entries(paths).map(([pattern, targets]) => {
@@ -113,6 +117,7 @@ export default defineConfig({
 					{
 						items: [
 							{ label: "Introduction", slug: "guide/introduction" },
+							{ label: "Why sloptor", slug: "guide/why" },
 							{ label: "Install", slug: "guide/install" },
 							{ label: "Migrate from rbxtsc", slug: "guide/migrate" },
 							{ label: "Editors", slug: "guide/editors" },
@@ -132,6 +137,7 @@ export default defineConfig({
 						items: [
 							{ label: "Macros", slug: "macros" },
 							{ label: "Architecture", slug: "architecture" },
+							{ label: "Benchmarks", slug: "benchmarks" },
 							{ label: "Roadmap", slug: "roadmap" },
 							{ label: "Contributing", slug: "contributing" },
 							{ label: "Changelog", slug: "changelog" },

@@ -316,6 +316,65 @@ checksum = "sha256:996120ac70afe405c58fce508a476f25bb71032c6fb8013aa0123bba36429
 url = "https://github.com/bnjbvr/cargo-machete/releases/download/v0.9.2/cargo-machete-v0.9.2-x86_64-pc-windows-msvc.tar.gz"
 url_api = "https://api.github.com/repos/bnjbvr/cargo-machete/releases/assets/397131414"
 
+[[tools."github:howmanyslop/sloptor"]]
+version = "3.0.0-beta.3"
+backend = "github:howmanyslop/sloptor"
+specifiers = ["3.0.0-beta.3"]
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-arm64"]
+checksum = "sha256:6a7cb69b6acd30c43d3d22dc12cf1a0ad1ee8e2022ae17ef23f53a84653d6d2c"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901644"
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-arm64-musl"]
+checksum = "sha256:6a7cb69b6acd30c43d3d22dc12cf1a0ad1ee8e2022ae17ef23f53a84653d6d2c"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901644"
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-x64"]
+checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-x64-baseline"]
+checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-x64-musl"]
+checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+
+[tools."github:howmanyslop/sloptor"."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:44c3a5069b7e7de7ff758668cecc369a6f452aa71026d024fa2569a114c76722"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901573"
+
+[tools."github:howmanyslop/sloptor"."platforms.macos-arm64"]
+checksum = "sha256:18407f5e26acaaccfaed58c6c66b0a01a619f95b36ac0baec832fff6c51f4c46"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901566"
+
+[tools."github:howmanyslop/sloptor"."platforms.windows-x64"]
+checksum = "sha256:d80a87e5f2b42bf0f5615834ddec013c2baf3b4b9a7d840845647789e6acf349"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-windows-amd64.zip"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901674"
+
+[tools."github:howmanyslop/sloptor"."platforms.windows-x64-baseline"]
+checksum = "sha256:d80a87e5f2b42bf0f5615834ddec013c2baf3b4b9a7d840845647789e6acf349"
+checksum_source = "mise-versions"
+url = "https://github.com/howmanyslop/sloptor/releases/download/v3.0.0-beta.3/sloptor-v3.0.0-beta.3-windows-amd64.zip"
+url_api = "https://api.github.com/repos/howmanyslop/sloptor/releases/assets/711901674"
+
 [[tools."github:lune-org/lune"]]
 version = "0.10.1"
 backend = "github:lune-org/lune"
@@ -375,6 +434,76 @@ url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466248"
 checksum = "sha256:06659d284f9d5d25a565047697358204d1abc31bf1c6e5485326785205ba8b93"
 url = "https://github.com/lune-org/lune/releases/download/v0.10.1/lune-0.10.1-windows-x86_64.zip"
 url_api = "https://api.github.com/repos/lune-org/lune/releases/assets/273466248"
+
+[[tools."github:plasma-node/rbxtsgo"]]
+version = "0.1.1"
+backend = "github:plasma-node/rbxtsgo"
+specifiers = ["0.1.1"]
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-arm64"]
+checksum = "sha256:54ba1153c76153f8598ece76f2fbc61e945af1b3a3d4a5703c222d2f270cde9f"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-aarch64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165988"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-arm64-musl"]
+checksum = "sha256:54ba1153c76153f8598ece76f2fbc61e945af1b3a3d4a5703c222d2f270cde9f"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-aarch64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165988"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-x64"]
+checksum = "sha256:f86618c693f5af5cba9dade2f35f5d0565e2561e24fb5880dc578062240b8a9b"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165987"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-x64-baseline"]
+checksum = "sha256:f86618c693f5af5cba9dade2f35f5d0565e2561e24fb5880dc578062240b8a9b"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165987"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-x64-musl"]
+checksum = "sha256:f86618c693f5af5cba9dade2f35f5d0565e2561e24fb5880dc578062240b8a9b"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165987"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.linux-x64-musl-baseline"]
+checksum = "sha256:f86618c693f5af5cba9dade2f35f5d0565e2561e24fb5880dc578062240b8a9b"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-linux-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165987"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.macos-arm64"]
+checksum = "sha256:9237993518b99f4a98ff6222da7c9a6f03ae3d1d846fad660520e9800aedcc29"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-macos-aarch64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165985"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.macos-x64"]
+checksum = "sha256:caa4f291b40dbb5e81b633b42a715fb4e7d3826be11de3140d9bae7c0bdbab8e"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-macos-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165989"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.macos-x64-baseline"]
+checksum = "sha256:caa4f291b40dbb5e81b633b42a715fb4e7d3826be11de3140d9bae7c0bdbab8e"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-macos-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716165989"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.windows-x64"]
+checksum = "sha256:1c7bb8bc51d07724139437e1c1dafd84822c7014b289040254bbe317fe5b5e0c"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-windows-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716166034"
+
+[tools."github:plasma-node/rbxtsgo"."platforms.windows-x64-baseline"]
+checksum = "sha256:1c7bb8bc51d07724139437e1c1dafd84822c7014b289040254bbe317fe5b5e0c"
+checksum_source = "mise-versions"
+url = "https://github.com/plasma-node/rbxtsgo/releases/download/v0.1.1/rbxtsgo-0.1.1-windows-x86_64.zip"
+url_api = "https://api.github.com/repos/plasma-node/rbxtsgo/releases/assets/716166034"
 
 [[tools."github:rojo-rbx/rojo"]]
 version = "7.6.1"

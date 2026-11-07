@@ -140,8 +140,9 @@ fn get_fresh_array_definition(state: &mut State<'_>, statement: P<Node>) -> Opti
 	Some(name)
 }
 
-/// `isFreshEmptyArray`: `[]`, or an argument-less `new` of a constructor macro whose type is an
-/// array.
+/// `isFreshEmptyArray`: `[]`, or a `new` of a constructor macro whose type is an array, with at
+/// most a capacity argument. `new Array(n)` is `table.create(n)`, which is still empty;
+/// `new Array(n, value)` is filled, so it is not fresh.
 fn is_fresh_empty_array(state: &mut State<'_>, initializer: Option<P<Node>>) -> bool {
 	let Some(initializer) = initializer else {
 		return false;
@@ -157,7 +158,7 @@ fn is_fresh_empty_array(state: &mut State<'_>, initializer: Option<P<Node>>) -> 
 	let new_expression = initializer.as_new_expression();
 	if new_expression
 		.arguments
-		.is_some_and(|arguments| !arguments.nodes().is_empty())
+		.is_some_and(|arguments| arguments.nodes().len() > 1)
 	{
 		return false;
 	}

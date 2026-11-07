@@ -23,7 +23,6 @@ function parseArguments(arguments_) {
 
 function npmPack(packageRoot, output) {
 	const bundledNpm = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
-	// biome-ignore lint/style/noProcessEnv: npm exposes the active CLI through this standard environment variable.
 	const npmCli = process.env.npm_execpath || (fs.existsSync(bundledNpm) ? bundledNpm : undefined);
 	const command = npmCli ? process.execPath : "npm";
 	const arguments_ = [...(npmCli ? [npmCli] : []), "pack", packageRoot, "--pack-destination", output, "--json"];

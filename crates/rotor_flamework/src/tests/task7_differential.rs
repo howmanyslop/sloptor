@@ -33,13 +33,14 @@ static TASK7_ORACLE_DIAGNOSTIC: LazyLock<Regex> =
 static TASK7_SEMANTIC_DIAGNOSTIC: LazyLock<Regex> =
 	LazyLock::new(|| Regex::new(r"(?m)error TS([0-9]+): (.+)$").expect("regex"));
 
-const NPM_INSTALL: [&str; 6] = [
-	"install",
+/// A flat (npm-shaped) pnpm install outside any workspace, with no lockfile and no scripts.
+const PNPM_OPTIONS: [&str; 6] = [
+	"--ignore-workspace",
 	"--ignore-scripts",
-	"--package-lock=false",
-	"--no-audit",
-	"--no-fund",
 	"--prefer-offline",
+	"--config.node-linker=hoisted",
+	"--config.lockfile=false",
+	"--config.enable-global-virtual-store=false",
 ];
 
 /// The `task7-differential` fixture project.
@@ -85,13 +86,15 @@ pub(super) fn run_combined(mut command: Command, timeout: Duration) -> (bool, St
 
 /// `runTask7Command`: the trimmed combined output of a command that must succeed.
 pub(super) fn run_task7_command(directory: &Path, timeout: Duration, name: &str, args: &[&str]) -> String {
-	// `exec.Command` searches `PATHEXT`; `Command` only finds a `.exe` by its bare name.
-	let program = if cfg!(windows) && name == "npm" {
-		"npm.cmd"
+	// `exec.Command` searches `PATHEXT`; `Command` only finds a `.exe` by its bare name, and pnpm
+	// may be a `.exe` (standalone) or a `.cmd` (npm or corepack shim).
+	let mut command = if cfg!(windows) && name == "pnpm" {
+		let mut command = Command::new("cmd");
+		command.args(["/c", name]);
+		command
 	} else {
-		name
+		Command::new(name)
 	};
-	let mut command = Command::new(program);
 	command.args(args).current_dir(directory);
 	let (success, output, timed_out) = run_combined(command, timeout);
 	assert!(
@@ -101,12 +104,17 @@ pub(super) fn run_task7_command(directory: &Path, timeout: Duration, name: &str,
 	output.trim().to_owned()
 }
 
-/// A fresh `npm install` of the fixture, checked against the pinned transformer version.
+/// A fresh `pnpm install` of the fixture, checked against the pinned transformer version.
 pub(super) fn task7_install(fixture: &Path) -> (tempfile::TempDir, PathBuf) {
 	let (dir, install) = temp_dir();
 	let install = PathBuf::from(install);
 	copy_task7_tree(fixture, &install);
-	run_task7_command(&install, Duration::from_secs(300), "npm", &NPM_INSTALL);
+	run_task7_command(
+		&install,
+		Duration::from_secs(300),
+		"pnpm",
+		&[&["install"][..], &PNPM_OPTIONS].concat(),
+	);
 	let version = run_task7_command(
 		&install,
 		Duration::from_secs(10),
@@ -208,7 +216,7 @@ pub(super) fn task7_root_dir(files: &[P<SourceFile>]) -> &'static str {
 
 /// `runTask7Oracle`: the real `rbxtsc`, which must succeed or fail as `success` says.
 pub(super) fn run_task7_oracle(root: &Path, project: &str, success: bool) -> String {
-	// On Windows `npm install` leaves a `.cmd` launcher and `bun install` an `.exe`, and
+	// On Windows `pnpm install` leaves a `.cmd` launcher and `bun install` an `.exe`, and
 	// `exec.Command` finds either by `PATHEXT`.
 	let bin = root.join("node_modules").join(".bin");
 	let launcher = if !cfg!(windows) {
@@ -604,7 +612,7 @@ fn write(root: &Path, name: &str, contents: &str) {
 #[expect(clippy::too_many_lines, reason = "one Go test, ported whole")]
 #[test]
 fn task7_differential_matches_real_upstream_final_luau_diagnostics_and_artifacts() {
-	// A fresh real v1.3.2 npm installation and a controlled behavior/option matrix.
+	// A fresh real v1.3.2 installation and a controlled behavior/option matrix.
 	let fixture = task7_fixture();
 	let (_install_dir, install) = task7_install(&fixture);
 	let config = |salt: &str, prefix: &str, mode: &str, limit: Option<i64>| FlameworkConfig {
@@ -739,25 +747,24 @@ fn task7_diagnostic006_public_compiler_preconditions_are_executable() {
 	let install = PathBuf::from(install);
 	copy_task7_tree(&fixture, &install);
 	write(&install, "tsconfig.json", &task7_ts_config("default", "src"));
-	run_task7_command(&install, Duration::from_secs(300), "npm", &NPM_INSTALL);
+	run_task7_command(
+		&install,
+		Duration::from_secs(300),
+		"pnpm",
+		&[&["install"][..], &PNPM_OPTIONS].concat(),
+	);
 	let transformer_root = install.join("node_modules").join("rbxts-transformer-flamework");
 	let transformer_root = root_str(&transformer_root).to_owned();
 	run_task7_command(
 		&install,
 		Duration::from_secs(300),
-		"npm",
+		"pnpm",
 		&[
-			"install",
-			"--prefix",
-			&transformer_root,
-			"--no-save",
-			"--ignore-scripts",
-			"--package-lock=false",
-			"--no-audit",
-			"--no-fund",
-			"--prefer-offline",
-			"typescript@5.4.5",
-		],
+			&["add", "--dir", &transformer_root][..],
+			&PNPM_OPTIONS,
+			&["typescript@5.4.5"],
+		]
+		.concat(),
 	);
 	let versions = run_task7_command(
 		&install,

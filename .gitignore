@@ -62,32 +62,38 @@ documentation/playwright-report/
 
 # isentinel-lint
 .eslintcache-*
+.playwright-mcp/
 
-.agents/skills/golang-benchmark
-.agents/skills/golang-performance
 .agents/skills/agent-ci
-.agents/skills/golang-code-style
-.agents/skills/golang-continuous-integration
-.agents/skills/golang-error-handling
-.agents/skills/golang-testing
-.agents/skills/go-best-practices
+.agents/skills/animate
+.agents/skills/animation-performance
+.agents/skills/animation-vocabulary
+.agents/skills/apple-design
 .agents/skills/ask-matt
+.agents/skills/break-ui
 .agents/skills/chief-of-staff
+.agents/skills/choreograph
 .agents/skills/code-review
 .agents/skills/codebase-design
 .agents/skills/diagnosing-bugs
 .agents/skills/domain-modeling
+.agents/skills/emil-design-eng
+.agents/skills/find-animation-opportunities
 .agents/skills/grill-me
 .agents/skills/grill-with-docs
 .agents/skills/grilling
 .agents/skills/handoff
 .agents/skills/implement
 .agents/skills/implement-spec
+.agents/skills/improve-animations
 .agents/skills/improve-codebase-architecture
+.agents/skills/pick-ui-library
 .agents/skills/pr
 .agents/skills/prototype
+.agents/skills/remove-animations
 .agents/skills/research
 .agents/skills/retro
+.agents/skills/review-animations
 .agents/skills/setup-matt-pocock-skills
 .agents/skills/tdd
 .agents/skills/teach
@@ -102,3 +108,7 @@ documentation/playwright-report/
 
 # Rust build output
 /target
+benchmarks/compare/*/out/
+benchmarks/compare/*/include/
+benchmarks/compare/results
+testdata/conformance/project/.*

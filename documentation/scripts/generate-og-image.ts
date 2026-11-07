@@ -17,7 +17,10 @@ import { chromium } from "@playwright/test";
 import { BENCHMARKS } from "../src/data/benchmarks.ts";
 
 const fullBuild = BENCHMARKS.find(({ label }) => label === "Full build");
-if (fullBuild === undefined) throw new Error("BENCHMARKS has no full build to print.");
+
+if (fullBuild === undefined) {
+	throw new Error("BENCHMARKS has no full build to print.");
+}
 
 const WIDTH = 1200;
 const HEIGHT = 630;
@@ -49,12 +52,14 @@ const [monoMedium, monoRegular, sans, serif, serifItalic] = await Promise.all([
 ]);
 
 const readoutLines = new Array<string>();
+
 for (const { files, label, milliseconds } of BENCHMARKS) {
 	if (label === fullBuild.label) continue;
 	readoutLines.push(
 		`\t\t\t\t\t<div class="readout"><dt>${label}, ${files} files</dt><dd>${milliseconds}<small>ms</small></dd></div>`,
 	);
 }
+
 const readouts = readoutLines.join("\n");
 
 const html = `<!doctype html>
@@ -314,6 +319,7 @@ ${readouts}
 </html>`;
 
 const browser = await chromium.launch();
+
 try {
 	const page = await browser.newPage({ deviceScaleFactor: SCALE, viewport: { height: HEIGHT, width: WIDTH } });
 	await page.setContent(html, { waitUntil: "load" });

@@ -12,6 +12,11 @@ env:
   CARGO_INCREMENTAL: "0"
   # Debug info is the largest part of a test build and nothing in CI reads it.
   CARGO_PROFILE_DEV_DEBUG: "0"
+  # The release binary here only feeds forkparity and the API suites. Fat LTO
+  # with one codegen unit rebuilds it whole every run (5-7 minutes on Windows)
+  # and changes nothing they check. release.yaml keeps the real profile.
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+  CARGO_PROFILE_RELEASE_LTO: off
   CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_TERM_COLOR: always
   # mise.toml routes cargo through mbx, whose local cache starts empty on every
@@ -162,7 +167,21 @@ jobs:
         with:
           cache-key: test-${{ matrix.name }}
           fixtures: "true"
-          tools: bun node cargo:cargo-nextest
+          # pnpm: the task7 flamework tests install their pinned oracle with it.
+          tools: bun node pnpm cargo:cargo-nextest
+
+      # The task7 flamework tests hard-link a ~2,400-file node_modules into
+      # fresh temp dirs dozens of times. The default %TEMP% is on C:, the slow
+      # OS disk; RUNNER_TEMP is on D: beside the workspace.
+      # This must come after the toolchain step: mise-action extracts into
+      # %TEMP% and renames into C:\Users\...\mise, which fails with EXDEV once
+      # %TEMP% is on D:.
+      - if: runner.os == 'Windows'
+        name: Move temp directories off the OS disk
+        run: |
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+        shell: pwsh
 
       - name: Clippy
         # The same command as rust:lint, run per OS because the macOS and

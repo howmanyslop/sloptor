@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import process, { chdir, exit } from "node:process";
+import { stdin } from "bun";
 import { exec } from "tinyexec";
 
 const SHA_REGEX = /^[0-9a-f]{40,64}$/iu;
@@ -107,7 +108,7 @@ async function scanManualRunAsync(): Promise<number> {
 
 chdir(await resolveRepoRootAsync());
 
-const input = process.stdin.isTTY ? "" : await Bun.stdin.text();
+const input = process.stdin.isTTY ? "" : await stdin.text();
 const lines = input.split("\n");
 
 let exitStatus = 0;

@@ -19,8 +19,8 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 	<div class="note-body">
 		<h1 class="hero-title">TypeScript in, Roblox out, at native speed.</h1>
 		<p class="hero-subtitle">
-			sloptor compiles roblox-ts projects with the native TypeScript compiler and writes the same Luau as rbxtsc.
-			It supports incremental solution builds, native declarations, and compiler source maps.
+			sloptor compiles roblox-ts projects with the native TypeScript compiler and writes the same Luau as rbxtsc
+			for most code. It supports incremental solution builds, native declarations, and compiler source maps.
 		</p>
 		<pre class="hero-install">
 			<code>mise use github:howmanyslop/sloptor</code>
@@ -47,13 +47,19 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 
 <section class="note-row note-row--readouts reveal not-content">
 	<div class="note-margin">
-		<h2>Three workloads</h2>
-		<p>fig. 1 — three workloads on real production games, timed with sloptor. A shorter bar is a faster run.</p>
+		<h2>Real games</h2>
+		<p>fig. 1 - timings from sloptor on real production games. A shorter bar is a faster run.</p>
 	</div>
 	<div class="note-body">
 		<BenchmarkChart />
 		<a class="figure-link" href="/sloptor/guide/building/">
 			See how builds work
+		</a>
+		<a class="figure-link" href="/sloptor/benchmarks/">
+			Compare with rbxtsgo and rbxtsc
+		</a>
+		<a class="figure-link" href="/sloptor/guide/why/">
+			Why sloptor over the alternatives
 		</a>
 	</div>
 	<dl class="readouts">
@@ -69,9 +75,10 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 
 <section class="note-row note-row--readouts reveal not-content">
 	<div class="note-margin">
-		<h2>Drop-in</h2>
+		<h2>Same project</h2>
 		<p>
-			fig. 2 — one run of sloptor build. It takes the flags rbxtsc takes, and writes the files rbxtsc would write.
+			fig. 2 - one run of sloptor build. It reads the project files rbxtsc reads and writes the files rbxtsc would
+			write.
 		</p>
 	</div>
 	<div class="note-body">
@@ -79,9 +86,9 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 	</div>
 	<dl class="readouts">
 		<div class="readout readout--lead">
-			<dt>Luau lines that differ</dt>
-			<dd>0</dd>
-			<p class="readout-note">Byte-identical to rbxtsc 3.0.0 on the benchmark projects.</p>
+			<dt>Output differences from rbxtsc</dt>
+			<dd>Listed</dd>
+			<p class="readout-note">Deliberate ones, such as switch cases after default, are in the changelog.</p>
 		</div>
 		<div class="readout readout--lead">
 			<dt>Node at build time</dt>
@@ -122,6 +129,7 @@ import { FULL_BUILD_MILLISECONDS } from "../../data/benchmarks";
 <section class="footnote-band not-content">
 	<p class="footnote-label">Parity</p>
 	<p class="footnote-text">
-		sloptor's contract is rbxtsc 3.0.0: the same project in, the same Luau out. Anything else is a bug.
+		sloptor's target is rbxtsc 3.0.0: the same project in, the same Luau out. Where it differs on purpose, the
+		changelog says so. A difference that isn't listed is a bug.
 	</p>
 </section>

@@ -3,32 +3,127 @@ title: "Macros and extensions"
 description: "Compile-time macros and language extensions sloptor supports beyond rbxtsc."
 ---
 
-sloptor compiles everything rbxtsc accepts, plus a handful of compile-time macros and language extensions. None of them change the output of code rbxtsc already accepts.
+Sloptor accepts all rbxtsc input and adds a few compile-time macros and language extensions. None of them change the output of code rbxtsc already accepts.
 
-| Macro                                  | Inlines                                                     |
-| -------------------------------------- | ----------------------------------------------------------- |
-| `$env("KEY", "fallback")` · `$env.KEY` | env vars from `.env` / `.env.<NODE_ENV>`                    |
-| `$keys<T>()`                           | a type's string keys (checker-powered)                      |
-| `$nameof(expr)`                        | the trailing identifier name as a string                    |
-| `$file("data.json")`                   | a file's contents as a Luau value (JSON→table, text→string) |
-| `$getModuleTree("shared/systems")`     | a folder's module tree (no `index.ts` required)             |
+| Macro                                  | Inlines                                                         |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `$env("KEY", "fallback")` · `$env.KEY` | env vars from `.env` and `.env.<NODE_ENV>`                      |
+| `$keys<T>()`                           | a type's string keys, using the checker                         |
+| `$nameof(expr)`                        | the trailing identifier name as a string                        |
+| `$file("data.json")`                   | a file's contents as a Luau table for JSON or a string for text |
+| `$getModuleTree("shared/systems")`     | a folder's module tree, with no `index.ts` required             |
 
 ## Extensions
 
-These compile under sloptor but not under rbxtsc. Unaffected code accepted by rbxtsc remains byte-identical; fork-changed surfaces follow the verified fork archive:
+These compile under sloptor but not under rbxtsc. Output for code that rbxtsc accepts is byte-identical, except where the fork changed behavior. Those cases follow the verified fork archive.
 
-- **Loop labels (`outer: for (...) { break outer; continue outer; }`)** — rbxtsc rejects every labeled statement with `labels are not supported!`. sloptor compiles them. Luau has no labels and no `goto`, so a label that is not already satisfied by a plain `break`/`continue` lowers to a `"none" | "break" | "continue"` string flag, with `if _outer == "break" then break end` style checks emitted after each enclosing loop to unwind outwards. Labels work on `while`, `do`/`while`, both `for` shapes, every `for-of` shape (including `$range`), and on `switch`; a label on a non-loop statement (a block, an `if`) is wrapped in `repeat ... until true` so it can be broken out of. The flag variable and its per-iteration reset are emitted only when actually needed, so an unused label costs nothing. **Not supported:** a label crossing a `try`/`catch` (the `TS.TRY_BREAK`/`TRY_CONTINUE` reroute carries no label) and a labeled non-loop statement that also contains an _unlabeled_ `break`/`continue` aimed at an enclosing loop — both are clear diagnostics, never wrong output.
-- **Named function expressions (`useEffect(function onName() { ... }, [name])`)** — rbxtsc rejects every one of them with `Function expression names are not supported!`. sloptor compiles them, in **any** expression position: a call argument, an assignment right-hand side, a `const`/`let` initializer, an object-literal value, a parameter default, a ternary arm, a short-circuit operand, an IIFE callee. The name is lifted to a `local function <name>() ... end` declaration emitted immediately before the expression, and the expression becomes a reference to it — which is the only Luau form that carries a **debug name into a traceback**; a function expression assigned to anything, including a plain `local`, compiles to an unnamed closure. Recursion through the name works, because the name resolves to the lifted declaration rather than to the outer binding. A name that would collide with something already in scope is renamed (`letNamed` → `letNamed_1`), so lifting never shadows. A conditionally evaluated operand keeps its declaration _inside_ the branch, so the closure is still built only when the expression is reached. An **async** named function expression still lifts to `local function <name>()` so the traceback keeps the debug name, then assigns `name = TS.async(name)`. That is ordinary Lua (`local function name` is `local name; name = function() ... end`); the body already closes over the local, and the write points it at the wrapper so a self-call returns a Promise. A **generator** named function expression lifts like a generator declaration — `local function name() return TS.generator(function() ... end) end` — so a self-call creates a new generator instead of re-entering the iterator callback. **Not supported:** async generators (`async function*`), which already have their own diagnostic. This also matters for **transformer plugins**: one that relocates a hook argument into a `memo = function onName() {}` assignment no longer breaks the build.
-- **`$getModuleTree` on folders** — rbxtsc requires the specifier to resolve as a module, so pointing it at a folder only works if the folder has an `index.ts`. sloptor resolves folder specifiers directly: relative ones (`"./systems"`) against the importing file, non-relative ones against `baseUrl`/`paths` (`"shared/systems"`) and then the project root (`"src/shared/systems"`). The usual server-import/isolation guards still apply.
-- **`$env` compile-time environment macro** — a built-in replacement for the `rbxts-transform-env` plugin (no Node sidecar, no plugin install, no typings package). `$env("GAME_NAME")` inlines the variable's value as a Luau string literal (or `nil` when unset), `$env("GAME_NAME", "fallback")` inlines the value or the fallback, and `$env.GAME_NAME` / `$env["GAME_NAME"]` behave like the 1-arg call. Values resolve at compile time with priority **process environment > `.env.<NODE_ENV>` > `.env`** (files live next to your `tsconfig.json`; `NODE_ENV` itself resolves from the process env, then `.env`). The `.env` format is `KEY=VALUE` lines with `#` comments and optional single/double quotes; v1 inlines strings only. The type surface (`declare const $env: ...`) is injected automatically — no `.d.ts` needed — and names/fallbacks must be string literals so the value can be baked in (dynamic names get a clear diagnostic). For editors (which never see the injected declaration), sloptor writes a single on-disk **`rotor.d.ts`** companion covering every macro (see below). If you migrate from `rbxts-transform-env`, drop the plugin from your tsconfig; its modern module-export form (`import { $env } from "rbxts-transform-env"`) still works through the plugin sidecar and never collides with the built-in global.
-- **`$nameof(expr)` compile-time name macro** — inlines the _trailing_ identifier or property name of an expression as a Luau string literal: `$nameof(player.Humanoid.Health)` → `"Health"`, `$nameof(foo)` → `"foo"`. The argument's source is read but never evaluated (it produces no runtime code), so it stays in sync with refactors/renames. An expression with no statically-knowable trailing name (an index, a call, a literal) gets a clear diagnostic. Type: `declare function $nameof(item: unknown): string;`
-- **`$keys<T>()` compile-time keys macro** — inlines an array of `T`'s string keys as a Luau array literal, using the type checker (the `rbxts-transformer-keys` staple): `$keys<{ x: number; y: string }>()` → `{ "x", "y" }`. Keys come from the type's apparent/declared string properties in declaration order; number/symbol keys are skipped; a type with no enumerable string keys (e.g. `{}`) yields an empty array (a valid result, not an error). A missing type argument is a diagnostic. Type: `declare function $keys<T>(): string[];` (the generic is consumed at compile time; the macro fills the array).
-- **Native declaration emit, with `import("alias/...")` types resolved** — sloptor emits every `.d.ts` from the native compiler instead of routing declaration emit through the Node worker, and ports rbxtsc's two `afterDeclarations` transformers (the `types` triple-slash rescope and the `paths`/`baseUrl` -> relative-specifier rewrite) to Go. The rewrite is a resolution result driven by a reparse of the emitted text, never a regex, and the `.d.ts.map` generated columns are shifted to follow each spliced specifier. One **deliberate divergence** from rbxtsc comes with it: the JS transformer only ever resolved specifiers the program had already resolved for that file, so an `import("alias/...")` type the declaration emitter SYNTHESIZED for an inferred type kept its alias spelling and shipped unresolvable; sloptor falls back to a real resolver pass for those, so they are rewritten too. **Not supported:** an `afterDeclarations` transformer of your own — the native compiler has no custom-transformer hook, so a project that declares one gets a clear per-build warning rather than a silent drop (no plugin in the `@rbxts` ecosystem ships one).
+### Loop labels
+
+Example: `outer: for (...) { break outer; continue outer; }`.
+
+rbxtsc rejects every labeled statement with `labels are not supported!`. Sloptor compiles them.
+
+Luau has no labels and no `goto`. A label that a plain `break` or `continue` can't satisfy lowers to a `"none" | "break" | "continue"` string flag. Sloptor emits `if _outer == "break" then break end` style checks after each enclosing loop to unwind outwards.
+
+Labels work on these statements:
+
+- `while` and `do`/`while`
+- both `for` shapes
+- every `for-of` shape, including `$range`
+- `switch`
+
+A label on a non-loop statement, such as a block or an `if`, gets wrapped in `repeat ... until true` so code can break out of it. Sloptor emits the flag variable and its per-iteration reset only when a label needs them.
+
+Not supported:
+
+- A label crossing a `try`/`catch`. The `TS.TRY_BREAK` and `TS.TRY_CONTINUE` reroute has no label.
+- A labeled non-loop statement that also contains an _unlabeled_ `break` or `continue` aimed at an enclosing loop.
+
+Both cases give a clear diagnostic, never wrong output.
+
+### Named function expressions
+
+Example: `useEffect(function onName() { ... }, [name])`.
+
+rbxtsc rejects every one with `Function expression names are not supported!`. Sloptor compiles them in **any** expression position:
+
+- a call argument
+- the right-hand side of an assignment
+- a `const` or `let` initializer
+- an object-literal value
+- a parameter default
+- a ternary arm
+- a short-circuit operand
+- the callee of an immediately invoked function expression
+
+Sloptor lifts the name into a `local function <name>() ... end` declaration right before the expression, and the expression becomes a reference to it. This is the only Luau form that gives a **debug name in a traceback**. A function expression assigned to anything else, including a plain `local`, compiles to an unnamed closure.
+
+Recursion through the name works, because the name resolves to the lifted declaration and not to the outer binding. A name that collides with one already in scope gets a new one, such as `letNamed_1` for `letNamed`. Lifting never shadows. A conditionally evaluated operand keeps its declaration _inside_ the branch, so sloptor builds the closure only when the expression runs.
+
+An **async** named function expression still lifts to `local function <name>()`, so the traceback keeps the debug name. Sloptor then assigns `name = TS.async(name)`. This is ordinary Lua, since `local function name` is `local name; name = function() ... end`. The body already closes over the local, and the write points it at the wrapper. A self-call returns a Promise.
+
+A **generator** named function expression lifts like a generator declaration: `local function name() return TS.generator(function() ... end) end`. A self-call then creates a new generator instead of re-entering the iterator callback.
+
+Not supported: async generators. They already have their own diagnostic.
+
+This also matters for **transformer plugins**. A plugin that moves a hook argument into a `memo = function onName() {}` assignment no longer breaks the build.
+
+### Module trees on folders
+
+rbxtsc requires the specifier to resolve as a module, so pointing it at a folder only works if the folder has an `index.ts`. Sloptor resolves folder specifiers directly:
+
+- Relative ones, such as `"./systems"`, resolve against the importing file.
+- Non-relative ones, such as `"shared/systems"`, resolve against `baseUrl` and `paths`, then against the project root, such as `"src/shared/systems"`.
+
+The usual server-import and isolation guards still apply.
+
+### Compile-time environment macro
+
+`$env` replaces the `rbxts-transform-env` plugin. You don't need a Node sidecar, plugin install, or typings package.
+
+- `$env("GAME_NAME")` inlines the variable's value as a Luau string literal, or `nil` when unset.
+- `$env("GAME_NAME", "fallback")` inlines the value or the fallback.
+- `$env.GAME_NAME` and `$env["GAME_NAME"]` behave like the one-argument call.
+
+Values resolve at compile time in this priority order: **process environment, then `.env.<NODE_ENV>`, then `.env`**. Keep the files next to your `tsconfig.json`. `NODE_ENV` itself resolves from the process environment, then `.env`. The `.env` format is `KEY=VALUE` lines with `#` comments and optional single or double quotes. Version 1 inlines strings only.
+
+Sloptor injects the type declaration `declare const $env: ...` automatically, so you need no `.d.ts`. Names and fallbacks must be string literals so the compiler can inline the value. Dynamic names get a clear diagnostic. Editors never see the injected declaration, so sloptor writes an on-disk **`rotor.d.ts`** companion for the macros. See [Editor types and rebuilds](#editor-types-and-rebuilds).
+
+If you migrate from `rbxts-transform-env`, drop the plugin from your tsconfig. Its modern module-export form, `import { $env } from "rbxts-transform-env"`, still works through the plugin sidecar and never collides with the built-in global.
+
+### Compile-time name macro
+
+`$nameof` inlines the _trailing_ identifier or property name of an expression as a Luau string literal:
+
+- `$nameof(player.Humanoid.Health)` becomes `"Health"`.
+- `$nameof(foo)` becomes `"foo"`.
+
+Sloptor reads the argument's source but never evaluates it, so it doesn't exist at runtime and stays in sync with refactors and renames. An expression with no statically known trailing name, such as an index, a call, or a literal, gets a clear diagnostic.
+
+Type: `declare function $nameof(item: unknown): string;`
+
+### Compile-time keys macro
+
+`$keys` inlines an array of the string keys of `T` as a Luau array literal. It uses the type checker, like the `rbxts-transformer-keys` plugin. `$keys<{ x: number; y: string }>()` becomes `{ "x", "y" }`.
+
+Keys come from the apparent and declared string properties of the type, in declaration order. Sloptor skips number and symbol keys. A type with no enumerable string keys, such as `{}`, gives an empty array, which is a valid result. A missing type argument is a diagnostic.
+
+Type: `declare function $keys<T>(): string[];`. The compiler consumes the generic at compile time and the macro fills the array.
+
+### Native declaration emit
+
+Sloptor emits every `.d.ts` from the native compiler instead of routing declaration emit through the Node worker. It also ports the two `afterDeclarations` transformers of rbxtsc to Go. One rescopes the `types` triple-slash reference. The other rewrites `paths` and `baseUrl` specifiers to relative ones.
+
+The rewrite works from a resolution result driven by a reparse of the emitted text, never a regular expression. Sloptor shifts the `.d.ts.map` generated columns to follow each spliced specifier.
+
+One **deliberate divergence** from rbxtsc comes with this. The JS transformer only resolved specifiers that the program had already resolved for that file. An `import("alias/...")` type that the declaration emitter synthesized for an inferred type kept its alias spelling and was unresolvable when published. Sloptor falls back to a real resolver pass for those, so it rewrites them too.
+
+Not supported: an `afterDeclarations` transformer of your own. The native compiler has no custom-transformer hook. A project that declares one gets a clear per-build warning and no silent drop. No plugin in the `@rbxts` ecosystem includes one.
 
 ## Editor types and rebuilds
 
-Build and check refresh `rotor.d.ts` for `$env`, `$keys`, `$nameof`, and `$file`. Include it in your tsconfig for editor checking. `$getModuleTree` keeps the declaration supplied by `@rbxts/compiler-types`.
+Build and check refresh `rotor.d.ts` for `$env`, `$keys`, `$nameof`, and `$file`. Include it in your tsconfig for editor checking. `$getModuleTree` keeps the declaration from `@rbxts/compiler-types`.
 
-Environment values and `$file` contents participate in incremental invalidation. Watch mode tracks their files, including missing files and importer-relative paths outside the source root. Process environment changes are picked up on the next build; restart a CLI watch process to change its inherited environment.
+Environment values and `$file` contents take part in incremental invalidation. Watch mode tracks their files, including missing files and importer-relative paths outside the source root. The next build picks up process environment changes. To change the inherited environment of a command-line watch process, restart it.
 
 Supply version and build timestamps through explicit `$env` values or generated TypeScript sources.

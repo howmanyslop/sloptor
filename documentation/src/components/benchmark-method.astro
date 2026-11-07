@@ -1,0 +1,16 @@
+---
+import { BENCHMARK_RESULTS, getReport } from "$data/benchmark-results";
+
+const { checkers, hyperfine, machine, warmup } = BENCHMARK_RESULTS;
+const { runs } = getReport("cold");
+const hardware = `${machine.cpu}, ${machine.cores} cores, ${machine.memoryGiB} GB, timed with ${hyperfine}.`;
+const procedure = `Each command ran ${runs} times after ${warmup} warm-ups, and the tables show medians. A cold build deletes out/, include/, and .rotor before every run. A no-op rebuild leaves every file alone between runs.`;
+const flags = `sloptor and rbxtsgo get --checkers ${checkers}, and rbxtsc has no such flag.`;
+const scope =
+	"The projects live in benchmarks/compare and exist only for this comparison. The home page's timings come from production games, so don't mix the two.";
+---
+
+<div class="footnote-band reveal not-content">
+	<p class="footnote-label">{"How it was measured"}</p>
+	<p class="footnote-text">{`${hardware} ${procedure} ${flags} ${scope}`}</p>
+</div>

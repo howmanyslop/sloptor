@@ -67,28 +67,36 @@ function isPayload(value: unknown): value is Payload {
 
 function parse(options: DiscordComponentEmbedOptions): Payload {
 	const value = JSON.parse(createDiscordComponentEmbed(options));
-	if (!isPayload(value)) throw new Error("Expected a component embed payload.");
+	if (!isPayload(value)) {
+		throw new Error("Expected a component embed payload.");
+	}
 
 	return value;
 }
 
 function getText(payload: Payload): string {
 	const text = payload.component.components.find((component) => component.type === 10);
-	if (text?.type !== 10) throw new Error("Expected a text display component.");
+	if (text?.type !== 10) {
+		throw new Error("Expected a text display component.");
+	}
 
 	return text.content;
 }
 
 function getGallery(payload: Payload): MediaGallery {
 	const gallery = payload.component.components.find((component) => component.type === 12);
-	if (gallery?.type !== 12) throw new Error("Expected a media gallery component.");
+	if (gallery?.type !== 12) {
+		throw new Error("Expected a media gallery component.");
+	}
 
 	return gallery;
 }
 
 function getActionRow(payload: Payload): ActionRow {
 	const actionRow = payload.component.components.find((component) => component.type === 1);
-	if (actionRow?.type !== 1) throw new Error("Expected an action row component.");
+	if (actionRow?.type !== 1) {
+		throw new Error("Expected an action row component.");
+	}
 
 	return actionRow;
 }

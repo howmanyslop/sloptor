@@ -1,5 +1,17 @@
 All notable changes to sloptor are documented here.
 
+## [v3.0.0-beta.4] - 2026-11-07
+
+This release changes the Luau emitted for `new Array(n)` when `optimizedArrayAppends` is on, and fixes slow builds with `luauTypes`. Projects that leave `optimizedArrayAppends` unset see no change.
+
+### 🔧 Changed
+
+- **tsconfig.json**: With `rbxts.optimizedArrayAppends` on, a `new Array<number>(n)` declared directly before a loop that pushes into it now appends by index, as `sized[_sizedLength] = value`. Previously any constructor argument fell back to `table.insert(sized, value)`, and `new Array(n, value)` still does. - by @howmanysmall in [#190](https://github.com/howmanyslop/sloptor/pull/190)
+
+### 🐞 Fixed
+
+- **emit**: With `luauTypes` on, the free-variable check used for type-level aliases no longer takes exponential time on Roblox instance types, which reference each other through hundreds of properties. Previously compile time grew exponentially with the depth limit. - by @howmanysmall in [#188](https://github.com/howmanyslop/sloptor/pull/188)
+
 ## [v3.0.0-beta.3] - 2026-11-05
 
 This is the first release built from Rust: the compiler, CLI, watch mode, language server, and API server now ship as one `sloptor` binary, and the Go build is removed. Intel Mac and Windows ARM64 are no longer supported, the first build after upgrading recompiles every file, and `.d.ts` and terminal output change.
@@ -374,6 +386,7 @@ No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/
 
 No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/tag/v2.2.1-fork.4).
 
+[v3.0.0-beta.4]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.3...v3.0.0-beta.4
 [v3.0.0-beta.3]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.2...v3.0.0-beta.3
 [v3.0.0-beta.2]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.1...v3.0.0-beta.2
 [v3.0.0-beta.1]: https://github.com/howmanyslop/sloptor/compare/v2.9.0-beta.1...v3.0.0-beta.1

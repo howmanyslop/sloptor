@@ -1,13 +1,22 @@
 ---
 title: "Migrate from rbxtsc"
-description: "Swap rbxtsc for sloptor, move Flamework to the native pipeline, and drop plugins sloptor replaces."
+description: "What changes when you swap rbxtsc for sloptor, plus moving Flamework to the native pipeline and dropping plugins sloptor replaces."
 ---
 
-sloptor is a drop-in replacement for `rbxtsc`. Your `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins stay as they are.
+sloptor reads the same project files as `rbxtsc`: `tsconfig.json`, `default.project.json`, `node_modules/@rbxts/*`, and external transformer plugins. That makes the move short for most projects, but it isn't always a drop-in swap. Expect to change your scripts, and expect to check the first build.
+
+## What can break
+
+- **The command line:** `rbxtsc` has no subcommands and sloptor does. A script that runs `rbxtsc --verbose` has to become `sloptor build --verbose`, and tools that spawn `rbxtsc` with their own argument list need the same change.
+- **Typechecking differs:** sloptor typechecks with TypeScript 7's native checker, and `rbxtsc` bundles an older TypeScript. The two can disagree, so `sloptor build` can fail on a project that built fine before. One real 1,070-file project fails `sloptor check` with four `TS2589` errors for excessively deep type instantiation and one `TS2869` for an unreachable `??`. Run `sloptor check` before you edit your scripts.
+- **The Luau:** output is the same as `rbxtsc` 3.0.0 for most code, not all of it. A `switch` with a `case` after `default`, `switch` cases that compare against the original operand, and numeric `for` loops with changing bounds all emit differently on purpose. The [changelog](/sloptor/changelog/) lists them.
+- **Plugins:** external transformer plugins still run, but through a Node sidecar. Only native Flamework and jecs skip it.
+
+If a build fails or the output differs in a way this page doesn't cover, report it as a bug.
 
 ## Swap the compiler
 
-Install sloptor (see [Install](/sloptor/guide/install/)), then replace `rbxtsc` in your scripts:
+[Install sloptor](/sloptor/guide/install/), then replace `rbxtsc` in your scripts:
 
 ```sh
 # before
@@ -17,24 +26,42 @@ rbxtsc -p tsconfig.json -w
 sloptor build -p tsconfig.json -w
 ```
 
-`sloptor build` accepts the rbxtsc-compatible flag surface (booleans accept `--flag`, `--flag=false`, `--no-flag`): `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`, `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`, `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--writeTransformedFiles` (parsed and ignored), `--optimizedLoops`, `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, and `--luau`. sloptor adds `--optimizedArrayAppends`, `--luauTypes` (experimental), `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`. `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes and defaults to off. `--builders` requires `--build`. `--singleThreaded` is the tsgo flag of the same name: when effective it forces one solution builder and one checker per program, even if `--builders`/`--checkers` are larger. There is no `--parallel` flag. `--emitDeclarationOnly` requires `--build`; `--build --watch` cannot be combined with declaration-only emit. The finite profiling and timing flags cannot be combined with `--watch`. Run `sloptor build --help` for the rendered descriptions.
+`sloptor build` accepts the rbxtsc-compatible flags. Booleans accept `--flag`, `--flag=false`, and `--no-flag`.
 
-TypeScript build integrations may use the compiler-shaped `sloptor --build [path]` (or `sloptor -b [path]`) invocation. These are compatibility aliases for `sloptor build --build [path]`; the `build` subcommand remains the normal CLI surface.
+- `-p/--project`, `-b/--build [path]`, `--builders <n>`, `--checkers <n>`
+- `--singleThreaded`, `--emitDeclarationOnly`, `-w/--watch`, `--usePolling`, `--verbose`
+- `--noInclude`, `--logTruthyChanges`, `--writeOnlyChanged`, `--optimizedLoops`
+- `--writeTransformedFiles`, which sloptor parses and ignores
+- `--type game|model|package`, `-i/--includePath`, `--rojo`, `--allowCommentDirectives`, `--luau`
 
-Options may also be set under the top-level `"rbxts"` key of `tsconfig.json`; merge order: defaults < rbxts < command line.
+Sloptor adds `--optimizedArrayAppends`, the experimental `--luauTypes`, `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile`, `--heapprofile`, `--timings`, `--max-errors`, `--json`, `--bell`, and `--no-clear`.
 
-## What to expect
+A few rules apply to these flags:
 
-- `path` is a project directory containing a `tsconfig.json` (defaults to the current directory).
-- Your project needs `node_modules` installed (sloptor reads the same `@rbxts` types).
-- Exit codes: `0` = success, `1` = any failure (diagnostics, config, or usage) — matching upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports rather than gates: see [Diagnostics census](/sloptor/guide/diagnostics/).
+- `--optimizedArrayAppends` replaces eligible built-in `Array.push` calls in loops over fresh local arrays with loop-carried indexed writes. It defaults to off.
+- `--builders` requires `--build`.
+- `--singleThreaded` is the tsgo flag of the same name. When effective, it forces one solution builder and one checker per program, even if `--builders` or `--checkers` are larger. There is no `--parallel` flag.
+- `--emitDeclarationOnly` requires `--build`. You can't combine `--build --watch` with declaration-only emit.
+- You can't combine the finite profiling and timing flags with `--watch`.
+
+Run `sloptor build --help` for the rendered descriptions.
+
+TypeScript build integrations may use the `sloptor --build [path]` form, or `sloptor -b [path]`, which matches the TypeScript compiler's own invocation. Both are compatibility aliases for `sloptor build --build [path]`. The `build` subcommand is still the normal entry point.
+
+You can also set options under the top-level `"rbxts"` key of `tsconfig.json`. The merge order is defaults, then `rbxts`, then the command line.
+
+## Behavior to expect
+
+- `path` is a project directory containing a `tsconfig.json`. It defaults to the current directory.
+- Your project needs `node_modules` installed, because sloptor reads the same `@rbxts` types.
+- Exit code `0` means success. Exit code `1` means any problem: diagnostics, config, or usage errors. This matches upstream `rbxtsc`. The one exception is `sloptor diagnostics`, which reports instead of gating. See [Diagnostics census](/sloptor/guide/diagnostics/).
 - Builds with external tsconfig transformer plugins need Node.js at runtime for the transformer sidecar.
 
-A standalone `.ts` file isn't compilable by itself — like `rbxtsc`, sloptor needs the rbxts project around it (`package.json` with `@rbxts/compiler-types` + `@rbxts/types` installed, `tsconfig.json`, `default.project.json`).
+Like `rbxtsc`, sloptor can't compile a standalone `.ts` file. It needs the rbxts project around it: `package.json` with `@rbxts/compiler-types` and `@rbxts/types` installed, `tsconfig.json`, and `default.project.json`.
 
 ## Compatibility boundary
 
-The verified `@isentinel/roblox-ts@4.0.11` fork archive in `roblox-ts.zip` is authoritative for fork-changed surfaces: varargs optimization, object-rest direct access, the `rbxts` option cascade, `.luau.map` source maps, the copy-files gate, the Rojo resolver cache, solution builds, and solution watch. sloptor keeps upstream parity for unaffected compiler behavior.
+The verified `@isentinel/roblox-ts@4.0.11` fork archive in `roblox-ts.zip` is the reference for behavior the fork changed: varargs optimization, object-rest direct access, the `rbxts` option cascade, `.luau.map` source maps, the copy-files gate, the Rojo resolver cache, solution builds, and solution watch. sloptor matches upstream for everything else.
 
 ## Move Flamework to the native pipeline
 
@@ -42,15 +69,13 @@ Remove `rbxts-transformer-flamework` from the effective tsconfig plugin list and
 
 Native Flamework reprints and re-parses every source by default, matching the upstream transformer's fresh source-file update per file. `[flamework] skipUnchangedFiles = true` (or the same key under a `[flamework.profiles.<tsconfig>]` entry) opts back into reusing sources the transform leaves unchanged, skipping the print/overlay/reparse pass for them.
 
-Without an effective `[flamework]` configuration, sloptor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive; configuring both is a hard error. Keep `flamework.json` in either mode: it remains the runtime configuration.
+Without an effective `[flamework]` table, sloptor runs `rbxts-transformer-flamework` through the Node sidecar. Native `[flamework]` and the legacy plugin are mutually exclusive, and configuring both is a hard error. Keep `flamework.json` in either mode: it's still the runtime configuration.
 
-Remove the old transformer package with your package manager when it is no longer used. Native Flamework builds do not require Node.js.
+You can remove the old transformer package with your package manager once nothing uses it, because native Flamework builds don't need Node.js. External tsconfig transformer plugins still need Node.js, the bundled sidecar, and the project's `typescript` package.
 
-External tsconfig transformer plugins still require Node.js, the bundled sidecar, and the project's `typescript` package.
+## Drop replaced plugins
 
-## Drop plugins sloptor replaces
-
-sloptor has built-in macros for several popular transformer plugins, so you can remove them from `compilerOptions.plugins`:
+sloptor has built-in macros for two popular transformer plugins, so you can remove them from `compilerOptions.plugins`:
 
 | Plugin                   | Built-in replacement |
 | ------------------------ | -------------------- |
@@ -61,8 +86,8 @@ See [Macros and extensions](/sloptor/macros/) for the details, including how the
 
 ## Upgrading from earlier Sloptor toolchains
 
-Sloptor now exposes seven compiler commands: `build`, `check`, `diagnostics`, `clean`, `schema`, `completion`, and `version`. Bundling, minification, model packaging, project scaffolding, cloud assets, and deployment are outside the compiler. Run Rojo or deployment tools separately when your project needs them.
+Sloptor now exposes seven compiler commands: `build`, `check`, `diagnostics`, `clean`, `schema`, `completion`, and `version`. Bundling, minification, model packaging, project scaffolding, cloud assets, and deployment are outside the compiler. Run Rojo or deployment tools yourself when your project needs them.
 
-Keep only native Flamework and experimental `parallelTransformers` settings in `rotor.toml`. Executable `rotor.config.ts` and `.js` files are no longer loaded. Replace asset IDs and build/VCS stamps with explicit environment values or generated TypeScript inputs. Refresh or remove old generated editor declarations after upgrading.
+Keep only native Flamework and experimental `parallelTransformers` settings in `rotor.toml`. Executable `rotor.config.ts` and `.js` files are no longer loaded. Replace asset IDs and build or version-control stamps with explicit environment values or generated TypeScript inputs. Refresh or remove old generated editor declarations after upgrading.
 
-Compiler `.luau.map` files and declaration maps remain supported. RuntimeLib, Promise, and local Lua/JSON output copying remain part of normal builds. The JavaScript `createBuildSession()` client and external before/after transformer plugins are retained; custom `afterDeclarations` transformers warn and are skipped.
+Compiler `.luau.map` files and declaration maps still work. RuntimeLib, Promise, and local Lua/JSON output copying are still part of normal builds. Sloptor keeps the JavaScript `createBuildSession()` client and external before/after transformer plugins. Custom `afterDeclarations` transformers get a warning and sloptor skips them.

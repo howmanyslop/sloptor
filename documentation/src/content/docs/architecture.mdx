@@ -26,17 +26,17 @@ your-game/src/**/*.ts
         out/**/*.lua   (+ RuntimeLib.lua, verbatim from roblox-ts)
 ```
 
-- `third_party/tsrs` — generated mirror of [oxc-project/tsrs](https://github.com/oxc-project/tsrs), a Rust port of [microsoft/typescript-go](https://github.com/microsoft/typescript-go). Re-vendor with `mise run tsrs:mirror`. **Never edit by hand.**
-- `reference/` — pinned roblox-ts v3.0.0 + luau-ast 2.0.0 sources: the porting reference and differential-test oracle.
-- `crates/rotor_luau` — the Luau AST and renderer.
-- `crates/rotor_support` — the single source of truth for sloptor's release version (`version.rs`).
-- `crates/rotor_cli` — the CLI.
+- `third_party/tsrs`: generated mirror of [oxc-project/tsrs](https://github.com/oxc-project/tsrs), a Rust port of [microsoft/typescript-go](https://github.com/microsoft/typescript-go). Re-vendor with `mise run tsrs:mirror`. **Never edit by hand.**
+- `reference/`: pinned roblox-ts v3.0.0 and luau-ast 2.0.0 sources, the porting reference and differential-test oracle.
+- `crates/rotor_luau`: the Luau syntax tree and renderer.
+- `crates/rotor_support`: the single source of truth for sloptor's release version (`version.rs`).
+- `crates/rotor_cli`: the command-line interface.
 
 ## Credits and licenses
 
 sloptor stands on two giants:
 
-- [**roblox-ts**](https://github.com/roblox-ts/roblox-ts) (MIT) — the original compiler, whose emit semantics sloptor faithfully ports. Vendored reference sources in `reference/` retain their MIT license.
-- [**typescript-go**](https://github.com/microsoft/typescript-go) (Apache-2.0) — Microsoft's native TypeScript compiler, which tsrs ports. The vendored mirror in `third_party/tsrs` retains its license and NOTICE; see `third_party/tsrs/MIRROR.md` for provenance.
+- [**roblox-ts**](https://github.com/roblox-ts/roblox-ts) (`MIT`): the original compiler, whose emit semantics sloptor ports. Vendored reference sources in `reference/` keep their `MIT` license.
+- [**typescript-go**](https://github.com/microsoft/typescript-go), under `Apache-2.0`, is Microsoft's native TypeScript compiler, which tsrs ports. The vendored mirror in `third_party/tsrs` keeps its license and NOTICE file. See `third_party/tsrs/MIRROR.md` for provenance.
 
-sloptor itself is [MIT licensed](https://github.com/howmanyslop/sloptor/blob/main/LICENSE).
+sloptor itself is [`MIT` licensed](https://github.com/howmanyslop/sloptor/blob/main/LICENSE).

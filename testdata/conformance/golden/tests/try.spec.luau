@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.3
+-- Compiled with sloptor v3.0.0-beta.4
 local TS = require(script.Parent.Parent.include.RuntimeLib)
 return function()
 	it("should support try/catch", function()

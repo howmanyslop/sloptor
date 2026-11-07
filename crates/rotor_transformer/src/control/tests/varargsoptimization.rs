@@ -245,7 +245,7 @@ export function safeForOf(...args: Array<number>) {
 		let statements = transform_source_file(s);
 		render_list(s, statements)
 	});
-	let want = "-- Compiled with sloptor v3.0.0-beta.3
+	let want = "-- Compiled with sloptor v3.0.0-beta.4
 local function safeRead(index, ...)
 	local a = (...)
 	local b = (select(2, ...))
@@ -297,7 +297,7 @@ export function* unsafeGenerator(...args: Array<number>) {
 		let statements = transform_source_file(s);
 		render_list(s, statements)
 	});
-	let want = "-- Compiled with sloptor v3.0.0-beta.3
+	let want = "-- Compiled with sloptor v3.0.0-beta.4
 local TS = _G[script]
 local function unsafeNested(...)
 	local args = { ... }

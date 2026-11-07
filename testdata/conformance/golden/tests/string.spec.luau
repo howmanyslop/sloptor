@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.3
+-- Compiled with sloptor v3.0.0-beta.4
 return function()
 	it("should support string methods", function()
 		expect(string.sub("Hello, world", 1, 1)).to.equal("H")

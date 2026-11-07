@@ -25,6 +25,7 @@ const isReleaseSummary = type({
 	publishedAt: "string",
 	tagName: "string",
 }).readonly();
+
 type ReleaseSummary = typeof isReleaseSummary.infer;
 
 const isRelease = type({
@@ -34,6 +35,7 @@ const isRelease = type({
 	tagName: "string",
 	url: "string",
 }).readonly();
+
 type Release = typeof isRelease.infer;
 
 interface ChangelogSection {
@@ -133,19 +135,22 @@ function renderReleaseFile(release: Release): string {
 
 function renderChangelogSection(release: Release): string {
 	const date = release.publishedAt.slice(0, 10);
+
 	// Nest release headings under the version heading.
 	const body = normalize(release.body.replaceAll(FULL_CHANGELOG_PATTERN, "")).replaceAll(
 		HEADING_PATTERN,
 		"#$<hashes> ",
 	);
+
 	return `## [${release.tagName}] - ${date}\n\n${body.length > 0 ? body : emptyNotes(release)}\n`;
 }
 
-function linkReference(tag: string, previousTag: string | undefined): string {
+function linkReference(tag: string, previousTag?: string): string {
 	const url =
 		previousTag === undefined
 			? `https://github.com/${repository}/releases/tag/${tag}`
 			: `https://github.com/${repository}/compare/${previousTag}...${tag}`;
+
 	return `[${tag}]: ${url}`;
 }
 
@@ -175,6 +180,7 @@ function parseChangelog(text: string): ParsedChangelog {
 			current?.lines.push(line);
 		}
 	}
+
 	return {
 		references,
 		sections: sections.map((section) => ({ tag: section.tag, text: section.lines.join("\n").trim() })),
@@ -220,12 +226,18 @@ async function syncTagAsync(tag: string): Promise<void> {
 	const reference = linkReference(tag, previousTag);
 
 	const sectionIndex = sections.findIndex((entry) => entry.tag === tag);
-	if (sectionIndex === -1) sections.unshift(section);
-	else sections[sectionIndex] = section;
+	if (sectionIndex === -1) {
+		sections.unshift(section);
+	} else {
+		sections[sectionIndex] = section;
+	}
 
 	const referenceIndex = references.findIndex((line) => line.startsWith(`[${tag}]: `));
-	if (referenceIndex === -1) references.unshift(reference);
-	else references[referenceIndex] = reference;
+	if (referenceIndex === -1) {
+		references.unshift(reference);
+	} else {
+		references[referenceIndex] = reference;
+	}
 
 	await writeFile(
 		CHANGELOG_PATH,
@@ -238,5 +250,8 @@ async function syncTagAsync(tag: string): Promise<void> {
 }
 
 // oxlint-disable-next-line unicorn/prefer-ternary -- no.
-if (values.tag === undefined) await syncAllAsync();
-else await syncTagAsync(values.tag);
+if (values.tag === undefined) {
+	await syncAllAsync();
+} else {
+	await syncTagAsync(values.tag);
+}

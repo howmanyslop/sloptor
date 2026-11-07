@@ -1,6 +1,6 @@
 {
 	"name": "@rotor-rbx/rotor",
-	"version": "3.0.0-beta.3",
+	"version": "3.0.0-beta.4",
 	"description": "Native TypeScript-to-Luau compiler for Roblox with a typed JavaScript client.",
 	"keywords": [
 		"compiler",
@@ -76,6 +76,7 @@
 		"@total-typescript/ts-reset": "catalog:types",
 		"@types/bun": "catalog:types",
 		"@types/node": "catalog:types",
+		"@typescript-eslint/parser": "catalog:lint",
 		"@vitest/eslint-plugin": "catalog:lint",
 		"bumpp": "catalog:tooling",
 		"eslint": "catalog:lint",
@@ -91,8 +92,10 @@
 		"knip": "catalog:lint",
 		"oxfmt": "catalog:lint",
 		"oxlint": "catalog:lint",
+		"oxlint-plugin-react-doctor": "catalog:lint",
 		"oxlint-tsgolint": "catalog:lint",
 		"pncat": "catalog:tooling",
+		"react-doctor": "catalog:lint",
 		"skills": "catalog:tooling",
 		"tinyexec": "catalog:scripts",
 		"tsrs": "catalog:tooling",
@@ -100,10 +103,10 @@
 		"vitest": "catalog:test"
 	},
 	"optionalDependencies": {
-		"@rotor-rbx/rotor-darwin-arm64": "3.0.0-beta.3",
-		"@rotor-rbx/rotor-linux-arm64": "3.0.0-beta.3",
-		"@rotor-rbx/rotor-linux-x64": "3.0.0-beta.3",
-		"@rotor-rbx/rotor-win32-x64": "3.0.0-beta.3"
+		"@rotor-rbx/rotor-darwin-arm64": "3.0.0-beta.4",
+		"@rotor-rbx/rotor-linux-arm64": "3.0.0-beta.4",
+		"@rotor-rbx/rotor-linux-x64": "3.0.0-beta.4",
+		"@rotor-rbx/rotor-win32-x64": "3.0.0-beta.4"
 	},
 	"packageManager": "pnpm@12.16.1",
 	"engines": {

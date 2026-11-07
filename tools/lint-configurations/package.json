@@ -12,8 +12,10 @@
 	},
 	"dependencies": {
 		"@isentinel/eslint-config": "catalog:lint",
+		"@rotor-rbx/linter-utilities": "workspace:*",
 		"eslint-plugin-astro": "catalog:lint",
-		"eslint-plugin-regexp": "catalog:lint"
+		"eslint-plugin-regexp": "catalog:lint",
+		"oxlint-plugin-react-doctor": "catalog:lint"
 	},
 	"devDependencies": {
 		"@types/node": "catalog:types",
