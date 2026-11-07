@@ -1696,16 +1696,23 @@ impl Builder<'_, '_> {
 
 	/// `typeHasFreeVariables`: a type that mentions an uninstantiated type parameter.
 	pub fn type_has_free_variables(&mut self, t: Option<P<Type>>) -> bool {
-		self.has_free_variables(t, 0)
+		self.has_free_variables(t, 0, &mut HashMap::new())
 	}
 
-	fn has_free_variables(&mut self, t: Option<P<Type>>, depth: usize) -> bool {
+	fn has_free_variables(&mut self, t: Option<P<Type>>, depth: usize, expanded: &mut HashMap<P<Type>, usize>) -> bool {
 		let Some(t) = t else {
 			return false;
 		};
 		if depth > 16 {
 			return false;
 		}
+		// Roblox's instance types reach each other through hundreds of properties, so without this
+		// the walk is exponential in the depth limit. A type already expanded at this depth or
+		// shallower had at least as much budget left, and found nothing.
+		if expanded.get(&t).is_some_and(|&seen| seen <= depth) {
+			return false;
+		}
+		expanded.insert(t, depth);
 		let flags = t.flags();
 		if flags.intersects(TypeFlags::Instantiable) {
 			return true;
@@ -1714,7 +1721,7 @@ impl Builder<'_, '_> {
 			return t
 				.types()
 				.iter()
-				.any(|&member| self.has_free_variables(Some(member), depth + 1));
+				.any(|&member| self.has_free_variables(Some(member), depth + 1, expanded));
 		}
 		if !flags.intersects(TypeFlags::Object) {
 			return false;
@@ -1723,14 +1730,14 @@ impl Builder<'_, '_> {
 			return alias
 				.type_arguments()
 				.iter()
-				.any(|&argument| self.has_free_variables(Some(argument), depth + 1));
+				.any(|&argument| self.has_free_variables(Some(argument), depth + 1, expanded));
 		}
 		let object_flags = t.object_flags();
 		if object_flags.intersects(ObjectFlags::Reference) {
 			let arguments = get_type_arguments(self.s, t);
 			return arguments
 				.iter()
-				.any(|&argument| self.has_free_variables(Some(argument), depth + 1));
+				.any(|&argument| self.has_free_variables(Some(argument), depth + 1, expanded));
 		}
 		if object_flags.intersects(ObjectFlags::Mapped) {
 			return true;
@@ -1745,14 +1752,14 @@ impl Builder<'_, '_> {
 		let properties = self.s.ck().get_properties_of_type(t);
 		for &property in properties {
 			let property_type = self.s.ck().get_type_of_symbol(property);
-			if self.has_free_variables(Some(property_type), depth + 1) {
+			if self.has_free_variables(Some(property_type), depth + 1, expanded) {
 				return true;
 			}
 		}
 		let infos = self.s.ck().get_index_infos_of_type(t);
 		for &info in infos {
-			if self.has_free_variables(Some(info.key_type()), depth + 1)
-				|| self.has_free_variables(Some(info.value_type()), depth + 1)
+			if self.has_free_variables(Some(info.key_type()), depth + 1, expanded)
+				|| self.has_free_variables(Some(info.value_type()), depth + 1, expanded)
 			{
 				return true;
 			}
@@ -1762,12 +1769,12 @@ impl Builder<'_, '_> {
 		for signature in signatures {
 			for &parameter in signature.parameters() {
 				let parameter_type = self.s.ck().get_type_of_symbol(parameter);
-				if self.has_free_variables(Some(parameter_type), depth + 1) {
+				if self.has_free_variables(Some(parameter_type), depth + 1, expanded) {
 					return true;
 				}
 			}
 			let return_type = self.s.ck().get_return_type_of_signature(signature);
-			if self.has_free_variables(Some(return_type), depth + 1) {
+			if self.has_free_variables(Some(return_type), depth + 1, expanded) {
 				return true;
 			}
 		}
