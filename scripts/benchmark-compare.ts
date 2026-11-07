@@ -124,7 +124,9 @@ async function writeSummaryAsync(path: string, summary: BenchmarkSummary): Promi
 
 async function readHyperfineOutputAsync(path: string): Promise<HyperfineOutput> {
 	const parsed = isHyperfineOutput(JSON.parse(await readFile(path, "utf8")));
-	if (parsed instanceof type.errors) throw new Error(`Unexpected hyperfine output in ${path}: ${parsed.summary}`);
+	if (parsed instanceof type.errors) {
+		throw new TypeError(`Unexpected hyperfine output in ${path}: ${parsed.summary}`);
+	}
 	return parsed;
 }
 
