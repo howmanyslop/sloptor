@@ -268,7 +268,9 @@ jobs:
 
   deploy-documentation:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: changelog
+    needs:
+      - changelog
+      - compile
     permissions:
       contents: read
     secrets:
@@ -276,6 +278,7 @@ jobs:
     uses: ./.github/workflows/docs.yaml
     with:
       ref: main
+      sloptor-artifact: sloptor-bin-linux-amd64
 
   publish:
     permissions:

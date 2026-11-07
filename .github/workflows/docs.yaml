@@ -6,6 +6,13 @@ on:
       ref:
         required: true
         type: string
+      sloptor-artifact:
+        default: ""
+        description: >-
+          Name of a linux-x64 sloptor artifact from the calling run. When set,
+          gen-docs runs that binary instead of compiling one.
+        required: false
+        type: string
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -54,10 +61,31 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - if: inputs.sloptor-artifact != ''
+        name: Download sloptor binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: ${{ inputs.sloptor-artifact }}
+          path: ${{ runner.temp }}/sloptor
+
       # build runs gen-docs first, so the command reference matches this ref.
+      # A release passes its own binary instead: compiling one here takes most
+      # of this job, and tag runs never restore the cargo cache.
       - name: Build documentation
-        run: node --run build
+        run: |
+          set -euo pipefail
+          if [ -z "$SLOPTOR_ARTIFACT" ]; then
+            node --run build
+            exit 0
+          fi
+          bin=$(find "$RUNNER_TEMP/sloptor" -type f)
+          chmod +x "$bin"
+          "$bin" gen-docs src/content/docs/commands
+          pnpm exec astro build
+        shell: bash
         working-directory: documentation
+        env:
+          SLOPTOR_ARTIFACT: ${{ inputs.sloptor-artifact }}
 
       - name: Deploy to Cloudflare
         run: pnpm exec wrangler deploy
