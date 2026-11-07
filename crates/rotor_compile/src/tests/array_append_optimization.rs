@@ -22,6 +22,18 @@ export const exported = new Array<number>();
 for (const value of source) {
 	exported.push(value);
 }
+
+const sized = new Array<number>(source.size());
+for (const value of source) {
+	sized.push(value);
+}
+print(sized);
+
+const filled = new Array<number>(4, 0);
+for (const value of source) {
+	filled.push(value);
+}
+print(filled);
 ";
 
 fn compile(enabled: bool) -> String {
@@ -66,5 +78,15 @@ fn compile_file_optimized_array_appends_option() {
 	assert!(
 		!optimized.contains("_exportedLength") && optimized.contains("table.insert(exported, value)"),
 		"exported array did not retain its fallback:\n{optimized}"
+	);
+	assert!(
+		!optimized.contains("table.insert(sized")
+			&& optimized.contains("local _sizedLength = 0")
+			&& optimized.contains("sized[_sizedLength] = value"),
+		"sized array did not use indexed appends:\n{optimized}"
+	);
+	assert!(
+		!optimized.contains("_filledLength") && optimized.contains("table.insert(filled, value)"),
+		"pre-filled array did not retain its fallback:\n{optimized}"
 	);
 }
