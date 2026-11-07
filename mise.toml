@@ -12,7 +12,9 @@ cargo.binstall_native = true
 [tools]
 "cargo:cargo-nextest" = "latest"
 "github:bnjbvr/cargo-machete" = "latest"
+"github:howmanyslop/sloptor" = "3.0.0-beta.3"
 "github:lune-org/lune" = "0.10.1"
+"github:plasma-node/rbxtsgo" = "0.1.1"
 "github:rojo-rbx/rojo" = "7.6.1"
 betterleaks = "latest"
 bun = "latest"
@@ -36,8 +38,6 @@ tak = "0.0.13"
 tombi = "latest"
 typos = "latest"
 vale = "latest"
-"github:plasma-node/rbxtsgo" = "0.1.1"
-"github:howmanyslop/sloptor" = "3.0.0-beta.3"
 
 [tasks."amend:no-verify"]
 description = "Amends the staged changes, reusing the previous commit message."
