@@ -12,6 +12,7 @@ export const baseIgnores = [
 	"rbxts-tsconfig.schema.json",
 	"rotor.schema.json",
 	"third_party/**",
+	"documentation/src/types/astro-content.d.ts",
 ] satisfies ReadonlyArray<string>;
 
 export const projectType: "app" | "game" | "package" = "package";
