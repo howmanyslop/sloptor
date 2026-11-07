@@ -460,6 +460,9 @@ importers:
       oxlint:
         specifier: catalog:lint
         version: 1.92.0(oxlint-tsgolint@7.0.2006)
+      oxlint-plugin-react-doctor:
+        specifier: catalog:lint
+        version: 0.9.22
       oxlint-tsgolint:
         specifier: catalog:lint
         version: 7.0.2006
