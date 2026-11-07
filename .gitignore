@@ -111,3 +111,4 @@ documentation/playwright-report/
 benchmarks/compare/*/out/
 benchmarks/compare/*/include/
 benchmarks/compare/results
+testdata/conformance/project/.*
