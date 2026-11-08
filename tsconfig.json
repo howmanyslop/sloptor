@@ -17,9 +17,6 @@
 			"path": "./tools/linter-utilities"
 		},
 		{
-			"path": "./tools/tsrs-mirror"
-		},
-		{
 			"path": "./tsconfig.node.json"
 		}
 	],

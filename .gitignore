@@ -113,3 +113,6 @@ benchmarks/compare/*/include/
 benchmarks/compare/results
 testdata/conformance/project/.*
 editors/vscode/coverage/
+
+# turbo's local task cache
+.turbo

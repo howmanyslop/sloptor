@@ -239,6 +239,40 @@ jobs:
 
     timeout-minutes: 30
 
+  # Every TypeScript project, through turbo: a package whose inputs match a
+  # cached run replays it. Not gated on the Rust filter: the docs site is
+  # Rust-free there and still has TypeScript.
+  type-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@c37c93293d6b742fc901e1406b8f764f6fb19dac # v2
+        with:
+          experimental: true
+          install_args: node pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Keyed on the commit, restored from the newest run on the same lockfile;
+      # a lockfile change starts over.
+      - name: Cache turbo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: turbo-type-check-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          path: .turbo/cache
+          restore-keys: turbo-type-check-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Type check
+        run: pnpm exec turbo run type-check type-check:root --summarize
+
+    timeout-minutes: 10
+
   windows-node:
     if: needs.changes.outputs.rust == 'true'
     needs: changes

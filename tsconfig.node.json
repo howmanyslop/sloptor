@@ -6,5 +6,5 @@
 		"types": ["bun", "node"],
 		"sourceMap": false
 	},
-	"include": ["api.d.ts", "*.config.ts"]
+	"include": ["api.d.ts", "*.config.ts", "tools/tsrs-mirror/**/*.ts"]
 }
