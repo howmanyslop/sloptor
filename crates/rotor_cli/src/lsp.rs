@@ -10,6 +10,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use rotor_compile::census::{ProjectDiagnostics, compile_project_diagnostics};
+use rotor_compile::project::create_path_translator;
+use rotor_compile::project_config::parse_project_config;
 use rotor_support::{gopath, logservice};
 
 use crate::app::Failure;
@@ -40,13 +42,8 @@ pub fn run(_command: LspCommand, _streams: &mut Streams) -> Result<(), Failure> 
 		.map_err(|error| Failure::Runtime(format!("lsp: start the census thread: {error}")))?;
 	let jobs = Mutex::new(jobs);
 	let options = rotor_lsp::Options {
-		find_ts_config: Arc::new(|file_name: &str| {
-			let ts_config_path = owning_ts_config(file_name, find_ts_config_path(&gopath::dir(file_name))?);
-			if !has_rbxts_types(&gopath::dir(&ts_config_path)) {
-				return Err(NOT_ROBLOX_TS.to_owned());
-			}
-			Ok(ts_config_path)
-		}),
+		find_ts_config: Arc::new(|file_name: &str| find_project_config(file_name)),
+		output_path: Arc::new(|file_name: &str| output_path(file_name)),
 		census: Arc::new(move |config: &str, overlays: &BTreeMap<String, String>| {
 			let (reply, answer) = mpsc::channel();
 			let sent =
@@ -72,6 +69,27 @@ pub fn run(_command: LspCommand, _streams: &mut Streams) -> Result<(), Failure> 
 	// The census thread ends with the server's last sender; it is not waited for.
 	drop(worker);
 	served.map_err(Failure::Runtime)
+}
+
+/// The roblox-ts config that owns `file_name`.
+fn find_project_config(file_name: &str) -> Result<String, String> {
+	let ts_config_path = owning_ts_config(file_name, find_ts_config_path(&gopath::dir(file_name))?);
+	if !has_rbxts_types(&gopath::dir(&ts_config_path)) {
+		return Err(NOT_ROBLOX_TS.to_owned());
+	}
+	Ok(ts_config_path)
+}
+
+/// Where `sloptor build` writes `file_name`: the owning config's path translator, with the
+/// `rbxts` key's `luau` option as a build reads it. Only the config is parsed, not the program.
+fn output_path(file_name: &str) -> Result<String, String> {
+	let config = find_project_config(file_name)?;
+	// SAFETY: only the config is parsed in the scope, and only an owned string leaves it.
+	#[expect(unsafe_code, reason = "the parse is freed with the scope")]
+	let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+	let options = crate::diagnostics::compile_options(&config)?;
+	let project = parse_project_config(&config).map_err(|failure| failure.to_string())?;
+	Ok(create_path_translator(&project, !options.lua_extension).get_output_path(file_name))
 }
 
 /// The census thread: censuses one at a time, each followed by the session's trim. A panic is
@@ -189,7 +207,7 @@ mod tests {
 	use std::collections::BTreeMap;
 	use std::sync::mpsc;
 
-	use super::{has_rbxts_types, owning_ts_config, start_census_thread};
+	use super::{has_rbxts_types, output_path, owning_ts_config, start_census_thread};
 
 	/// A census that panics must not stop the diagnostics for good: it answers with its error and
 	/// the next census still runs.
@@ -256,6 +274,41 @@ mod tests {
 			"references are followed transitively"
 		);
 		assert_eq!(owner(package.join("stray.ts"), &nearest), text(&nearest));
+	}
+
+	/// Open Output lands on the file `sloptor build` writes: `src` maps to `out`, `index` to
+	/// `init`, and the `rbxts` key's `luau` option picks the extension.
+	#[test]
+	fn output_path_follows_the_build() {
+		for (luau, extension) in [(true, "luau"), (false, "lua")] {
+			let temp = tempfile::tempdir().expect("temp dir");
+			let root = rotor_support::fsutil::real_path(temp.path()).expect("canonical temp dir");
+			std::fs::create_dir_all(root.join("node_modules").join("@rbxts")).expect("@rbxts");
+			std::fs::create_dir_all(root.join("src").join("shared")).expect("src");
+			std::fs::write(
+				root.join("tsconfig.json"),
+				format!(
+					r#"{{
+					"compilerOptions": {{
+						"allowSyntheticDefaultImports": true, "module": "commonjs", "moduleDetection": "force",
+						"moduleResolution": "Node", "noLib": true, "outDir": "out", "rootDir": "src",
+						"strict": true, "typeRoots": ["node_modules/@rbxts"], "types": []
+					}},
+					"include": ["src"],
+					"rbxts": {{ "luau": {luau} }}
+				}}"#
+				),
+			)
+			.expect("tsconfig");
+			let source = root.join("src").join("shared").join("index.ts");
+			std::fs::write(&source, "export {};").expect("source");
+			let want = root.join("out").join("shared").join(format!("init.{extension}"));
+			assert_eq!(
+				output_path(&source.to_string_lossy()),
+				Ok(want.to_string_lossy().into_owned()),
+				"luau = {luau}"
+			);
+		}
 	}
 
 	/// A census of a plain TypeScript project would pop "rootDir must be defined" in the editor,

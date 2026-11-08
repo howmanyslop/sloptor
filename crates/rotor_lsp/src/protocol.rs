@@ -15,6 +15,8 @@ pub const METHOD_NOT_FOUND: i32 = -32601;
 pub const INVALID_PARAMS: i32 = -32602;
 /// `CodeInternalError`
 pub const INTERNAL_ERROR: i32 = -32603;
+/// `ErrorCodeRequestFailed`: a request that was understood and could not be answered.
+pub const REQUEST_FAILED: i32 = -32803;
 /// `ErrorCodeServerNotInitialized`
 pub const SERVER_NOT_INITIALIZED: i32 = -32002;
 

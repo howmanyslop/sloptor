@@ -1,40 +1,13 @@
 import { defineConfig } from "bumpp";
 import { exec } from "tinyexec";
 
-async function getUnpushedTagsAsync(): Promise<ReadonlyArray<string>> {
-	const { stdout } = await exec("git", ["push", "--tags", "--dry-run", "--porcelain"], {
-		throwOnError: true,
-	});
+import { assertReleasableRepositoryAsync } from "./scripts/utilities/release-utilities";
 
-	const unpushedTags = new Array<string>();
-	let size = 0;
-
-	for (const line of stdout.split("\n")) {
-		if (!line.startsWith("*\trefs/tags/")) continue;
-		unpushedTags[size++] = line.split("\t", 2)[1]?.split(":", 1)[0]?.slice("refs/tags/".length) ?? line;
-	}
-
-	// Same push target as bumpp's `git push --tags`. Porcelain marks refs the
-	// remote doesn't have yet with a leading `*`.
-	return unpushedTags;
-}
-
-const { stdout: dirtyFiles } = await exec("git", ["status", "--porcelain"], { throwOnError: true });
-
-if (dirtyFiles.trim().length > 0) {
-	throw new Error(`git working tree is not clean; commit or stash first:\n${dirtyFiles}`);
-}
+// The sloptor CLI release; `nr release vscode` releases the extension without
+// loading this file.
+await assertReleasableRepositoryAsync();
 
 await exec("node", ["scripts/validate-release.cjs"], { throwOnError: true });
-
-const strayTags = await getUnpushedTagsAsync();
-
-if (strayTags.length > 0) {
-	throw new Error(
-		`local tags missing from the remote would be pushed with the release: ${strayTags.join(", ")}\n` +
-			"push or delete them first (git tag -d <tag>)",
-	);
-}
 
 const VERSION_RS = "crates/rotor_support/src/version.rs";
 
