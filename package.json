@@ -61,8 +61,8 @@
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
 		"tsrs": "tsrs",
-		"type-check": "node --run type-check:root && pnpm --recursive run type-check",
-		"type-check:agent": "node --run type-check:root -- --pretty false && pnpm --recursive --reporter-hide-prefix run type-check:agent",
+		"type-check": "node --run type-check:root && pnpm --recursive --no-bail run type-check",
+		"type-check:agent": "node --run type-check:root -- --pretty false && pnpm --recursive --no-bail run type-check:agent",
 		"type-check:root": "tsrs --noEmit -p tsconfig.node.json && tsrs --noEmit -p tools/tsrs-mirror"
 	},
 	"devDependencies": {
