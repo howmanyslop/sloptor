@@ -7,7 +7,6 @@ const configuration = defineConfig({
 	deps: { neverBundle: ["vscode"] },
 	dts: false,
 	entry: ["src/extension.ts"],
-	fixedExtension: false,
 	format: "cjs",
 	minify: true,
 	outDir: "dist",

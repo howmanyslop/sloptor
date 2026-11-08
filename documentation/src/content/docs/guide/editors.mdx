@@ -1,6 +1,6 @@
 ---
 title: "Editors"
-description: "Run sloptor lsp, configure Neovim, Helix and Zed, and fix the project errors the server reports."
+description: "Run sloptor lsp, set up VS Code, Neovim, Helix and Zed, and fix the project errors the server reports."
 ---
 
 `sloptor lsp` is a language server over stdio. stdio is the only transport.
@@ -44,9 +44,9 @@ The compiler also checks the options in `tsconfig.json`. Set these
 | `moduleResolution`             | set explicitly to `Node` or `Node10`, or to `bundler` with `module: preserve` |
 | `allowSyntheticDefaultImports` | `true`                                                                        |
 | `typeRoots`                    | must contain `node_modules/@rbxts`                                            |
-| `rootDir` or `rootDirs`        | set one of the two                                                             |
-| `outDir`                       | set a path                                                                     |
-| `importsNotUsedAsValues`       | omit it, use `verbatimModuleSyntax`                                            |
+| `rootDir` or `rootDirs`        | set one of the two                                                            |
+| `outDir`                       | set a path                                                                    |
+| `importsNotUsedAsValues`       | omit it, use `verbatimModuleSyntax`                                           |
 
 Every entry in `types` must resolve under one of the `typeRoots`. This config
 satisfies the checks:
@@ -153,10 +153,77 @@ your `PATH`, as with an npm install. `binary.arguments` replaces the default
 To turn the server off for one language, add `"!sloptor"` to that language's
 `language_servers` array.
 
+## VS Code
+
+Install `howmanysmall.sloptor` from the Marketplace. It runs
+`sloptor lsp --stdio` next to VS Code's own TypeScript server. It also starts
+and stops the compiler, opens a file's compiled output and puts a color picker
+on `Color3` constructors.
+
+The extension looks for the binary in this order:
+
+1. The `sloptor.path` setting. A relative path is relative to the first
+   workspace folder.
+2. `node_modules/.bin/rotor`, which the npm package installs.
+3. `sloptor`, then `rotor`, on your `PATH`.
+
+`sloptor.typeErrors` maps to `initializationOptions.typeErrors` and is off by
+default. Leave it off. VS Code's TypeScript server already reports those
+errors.
+
+### Commands
+
+All commands are in the command palette under `sloptor`.
+
+| Command                 | What it does                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| Open Output             | Opens the compiled `.luau` file for the active `.ts` or `.tsx` file.             |
+| Start Compiler          | Runs `sloptor` with `sloptor.compiler.arguments` in the active file's workspace. |
+| Stop Compiler           | Stops the compiler that Start Compiler started.                                  |
+| Toggle Compiler         | Starts the compiler if it's stopped, and stops it if it's running.               |
+| Restart Language Server | Restarts `sloptor lsp`.                                                          |
+
+Open Output asks the server for the path through its `sloptor/outputPath`
+request. The server finds the project the same way it does for diagnostics,
+so solution configs in a monorepo resolve to the right project. The file is
+`.lua` instead of `.luau` when the project builds `.lua`.
+
+Start Compiler runs `sloptor build --watch` by default. For a monorepo with a
+solution `tsconfig.json`, build the references instead:
+
+```json
+{
+	"sloptor.compiler.arguments": ["build", "--build", "--watch"]
+}
+```
+
+### Color picker
+
+`new Color3(r, g, b)`, `Color3.fromRGB(r, g, b)` and `Color3.fromHSV(h, s, v)`
+get a color swatch. Picking a color rewrites the arguments. `Color3.fromRGB`
+always gets integers. The other two get `sloptor.colorPicker.precision`
+decimal places.
+
+### VS Code settings
+
+| Setting                         | Default                | Description                                                        |
+| ------------------------------- | ---------------------- | ------------------------------------------------------------------ |
+| `sloptor.path`                  | `""`                   | Path to the `sloptor` executable. Empty uses the lookup above.     |
+| `sloptor.typeErrors`            | `false`                | Also report TypeScript errors (`TS####`).                          |
+| `sloptor.compiler.arguments`    | `["build", "--watch"]` | Arguments for Start Compiler.                                      |
+| `sloptor.statusBar.enabled`     | `true`                 | Show the compiler start/stop button in the status bar.             |
+| `sloptor.colorPicker.enabled`   | `true`                 | Show the color picker on `Color3` constructors.                    |
+| `sloptor.colorPicker.precision` | `2`                    | Decimal places, `0` to `6`, for `new Color3` and `Color3.fromHSV`. |
+| `sloptor.openOutputToSide`      | `true`                 | Open the compiled file beside the source instead of in its place.  |
+| `sloptor.trace.server`          | `"off"`                | Log protocol messages: `"off"`, `"messages"` or `"verbose"`.       |
+
+The extension logs to the `sloptor` output channel. Set `sloptor.trace.server`
+to `"messages"` or `"verbose"` to see the protocol there too.
+
 ## Other editors
 
-VS Code only launches language servers that an extension registers, and
-sloptor has no extension yet. Run
+An editor that can launch a stdio language server can run `sloptor lsp`. Pass
+`typeErrors` the way the snippets above do. In an editor that can't, run
 [`sloptor diagnostics`](/sloptor/commands/diagnostics/) from the terminal for
 the same checks.
 
@@ -168,7 +235,7 @@ The editor shows two notifications. One contains
 `compile: invalid tsconfig.json configuration`. The other contains the
 compiler's validation text:
 
-```
+```text
 Invalid "tsconfig.json" configuration!
 https://roblox-ts.com/docs/quick-start#project-folder-setup
 
@@ -199,5 +266,6 @@ packages, and check that the nearest `tsconfig.json` is the one you expect. A
 plain TypeScript project has no sloptor diagnostics by design.
 
 If the server doesn't start at all, check the binary name on your `PATH` and
-the editor's language server log. The server writes its protocol to stdout and
+the editor's language server log. In VS Code, that log is the `sloptor` output
+channel. The server writes its protocol to stdout and
 everything else to stderr.

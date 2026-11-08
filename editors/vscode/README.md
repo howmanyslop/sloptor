@@ -47,16 +47,16 @@ VS Code shows a color swatch on `new Color3(r, g, b)`, `Color3.fromRGB(r, g, b)`
 
 ## Settings
 
-| Setting                         | Default              | Description                                                                         |
-| ------------------------------- | -------------------- | ----------------------------------------------------------------------------------- |
-| `sloptor.path`                  | `""`                 | Path to the `sloptor` executable. Empty uses the lookup in [Install](#install).     |
-| `sloptor.typeErrors`            | `false`              | Also report TypeScript errors (`TS####`).                                           |
-| `sloptor.compiler.arguments`    | `["build", "--watch"]` | Arguments for Start Compiler.                                                     |
-| `sloptor.statusBar.enabled`     | `true`               | Show the compiler button in the status bar.                                         |
-| `sloptor.colorPicker.enabled`   | `true`               | Show the color picker on `Color3` constructors.                                     |
-| `sloptor.colorPicker.precision` | `2`                  | Decimal places, `0` to `6`, for `new Color3` and `Color3.fromHSV`.                  |
-| `sloptor.openOutputToSide`      | `true`               | Open the compiled file beside the source instead of in its place.                   |
-| `sloptor.trace.server`          | `"off"`              | Log protocol messages: `"off"`, `"messages"` or `"verbose"`.                        |
+| Setting                         | Default                | Description                                                                     |
+| ------------------------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `sloptor.path`                  | `""`                   | Path to the `sloptor` executable. Empty uses the lookup in [Install](#install). |
+| `sloptor.typeErrors`            | `false`                | Also report TypeScript errors (`TS####`).                                       |
+| `sloptor.compiler.arguments`    | `["build", "--watch"]` | Arguments for Start Compiler.                                                   |
+| `sloptor.statusBar.enabled`     | `true`                 | Show the compiler button in the status bar.                                     |
+| `sloptor.colorPicker.enabled`   | `true`                 | Show the color picker on `Color3` constructors.                                 |
+| `sloptor.colorPicker.precision` | `2`                    | Decimal places, `0` to `6`, for `new Color3` and `Color3.fromHSV`.              |
+| `sloptor.openOutputToSide`      | `true`                 | Open the compiled file beside the source instead of in its place.               |
+| `sloptor.trace.server`          | `"off"`                | Log protocol messages: `"off"`, `"messages"` or `"verbose"`.                    |
 
 Leave `sloptor.typeErrors` off. VS Code's TypeScript server already reports those errors, so turning it on shows each one twice.
 
