@@ -6,10 +6,10 @@
 	"dependencies": {
 		"@cliffy/command": "catalog:scripts",
 		"ansis": "catalog:scripts",
-		"arktype": "catalog:scripts",
+		"arktype": "catalog:runtime",
 		"bumpp": "catalog:tooling",
 		"consola": "catalog:scripts",
-		"tinyexec": "catalog:scripts"
+		"tinyexec": "catalog:runtime"
 	},
 	"devDependencies": {
 		"@total-typescript/ts-reset": "catalog:types",

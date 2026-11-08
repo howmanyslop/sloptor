@@ -15,7 +15,7 @@
 	},
 	"dependencies": {
 		"@isentinel/eslint-config": "catalog:lint",
-		"arktype": "catalog:scripts",
+		"arktype": "catalog:runtime",
 		"confbox": "catalog:scripts",
 		"empathic": "catalog:scripts",
 		"type-fest": "catalog:types"

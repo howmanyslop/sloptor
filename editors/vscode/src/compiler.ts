@@ -1,5 +1,5 @@
 import { kill, platform } from "node:process";
-import { x } from "tinyexec";
+import { exec } from "tinyexec";
 import { commands, StatusBarAlignment, window, workspace } from "vscode";
 
 import { CompilerTerminal } from "./compiler-terminal";
@@ -27,8 +27,7 @@ interface Compilation {
 
 function killTree(pid: number, signal: NodeJS.Signals): void {
 	if (platform === "win32") {
-		// tinyexec swallows a failed spawn, and then there is nothing to kill.
-		x("taskkill", ["/pid", String(pid), "/T", "/F"]);
+		exec("taskkill", ["/pid", String(pid), "/T", "/F"]);
 		return;
 	}
 
@@ -285,7 +284,7 @@ export class Compiler implements Disposable {
 		terminal.show();
 		terminal.writeLine(`> ${[binary, ...compilerArguments].join(" ")}`);
 
-		const child = x(binary, compilerArguments, {
+		const child = exec(binary, compilerArguments, {
 			nodeOptions: {
 				cwd: compilation.folder.uri.fsPath,
 				env: { FORCE_COLOR: "1" },

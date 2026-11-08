@@ -299,9 +299,15 @@ catalogs:
       specifier: 0.9.22
       version: 0.9.22
   runtime:
+    arktype:
+      specifier: 2.2.8
+      version: 2.2.8
     effect:
-      specifier: 4.0.1
-      version: 4.0.1
+      specifier: 4.1.2
+      version: 4.1.2
+    tinyexec:
+      specifier: 1.3.1
+      version: 1.3.1
     vscode-languageclient:
       specifier: 11.0.0
       version: 11.0.0
@@ -312,9 +318,6 @@ catalogs:
     ansis:
       specifier: 4.5.0
       version: 4.5.0
-    arktype:
-      specifier: 2.2.8
-      version: 2.2.8
     confbox:
       specifier: 0.3.2
       version: 0.3.2
@@ -324,9 +327,6 @@ catalogs:
     empathic:
       specifier: 2.1.0
       version: 2.1.0
-    tinyexec:
-      specifier: 1.3.1
-      version: 1.3.1
   test:
     '@playwright/test':
       specifier: 1.64.1
@@ -497,7 +497,7 @@ importers:
         specifier: catalog:tooling
         version: 1.7.6
       tinyexec:
-        specifier: catalog:scripts
+        specifier: catalog:runtime
         version: 1.3.1
       tsrs:
         specifier: catalog:tooling
@@ -556,7 +556,7 @@ importers:
         version: 7.4.0(@astrojs/check@0.9.10(@emnapi/runtime@2.0.0-beta.2)(prettier@3.9.10)(typescript@6.0.2))(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(typescript@6.0.2)(yaml@2.9.1)
       effect:
         specifier: catalog:runtime
-        version: 4.0.1
+        version: 4.1.2
       react:
         specifier: catalog:frontend
         version: 19.3.1
@@ -627,8 +627,14 @@ importers:
       '@vitest/coverage-v8':
         specifier: catalog:test
         version: 5.1.0(vitest@5.1.0)
+      arktype:
+        specifier: catalog:runtime
+        version: 2.2.8
+      effect:
+        specifier: catalog:runtime
+        version: 4.1.2
       tinyexec:
-        specifier: catalog:scripts
+        specifier: catalog:runtime
         version: 1.3.1
       tsdown:
         specifier: catalog:tooling
@@ -636,6 +642,9 @@ importers:
       tsrs:
         specifier: catalog:tooling
         version: 0.22.0-ts7.1.0-beta
+      type-fest:
+        specifier: catalog:types
+        version: 5.8.0
       vitest:
         specifier: catalog:test
         version: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(jsdom@29.1.1)(vite@8.3.6(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(yaml@2.9.1))
@@ -660,7 +669,7 @@ importers:
         specifier: catalog:scripts
         version: 4.5.0
       arktype:
-        specifier: catalog:scripts
+        specifier: catalog:runtime
         version: 2.2.8
       bumpp:
         specifier: catalog:tooling
@@ -669,7 +678,7 @@ importers:
         specifier: catalog:scripts
         version: 3.4.2
       tinyexec:
-        specifier: catalog:scripts
+        specifier: catalog:runtime
         version: 1.3.1
     devDependencies:
       '@total-typescript/ts-reset':
@@ -713,7 +722,7 @@ importers:
         specifier: catalog:lint
         version: 6.3.0(patch_hash=5170c62cbd8f7fe155376b876739aa170be7348d47c491b7ff97da0c1f9503ee)(dc9f98700584ecbdae6c471e91679af2)
       arktype:
-        specifier: catalog:scripts
+        specifier: catalog:runtime
         version: 2.2.8
       confbox:
         specifier: catalog:scripts
@@ -5005,11 +5014,11 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  effect@4.0.1:
-    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
-
   effect@4.1.0:
     resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
+
+  effect@4.1.2:
+    resolution: {integrity: sha512-d3Oah1WyKxFLFh19yWheS5IXIVaITzxZ71JkE1rkUozq/6EcJSU5nPk5bF2QrSygZ3SQoiNQB8TsxFriyMeMaQ==}
 
   electron-to-chromium@1.5.478:
     resolution: {integrity: sha512-pftG+ma5Lm8O6/p45bhYT6StBN5ziQymaRzmCZwFl8DwWHKPPD93FdOmP1aqftcepolQYvrcyTLa17kE8Yf+jg==}
@@ -12016,9 +12025,9 @@ snapshots:
       minimatch: 10.2.6
       semver: 7.8.5
 
-  effect@4.0.1: {}
-
   effect@4.1.0: {}
+
+  effect@4.1.2: {}
 
   electron-to-chromium@1.5.478: {}
 
@@ -15555,7 +15564,7 @@ time:
   bumpp@12.3.0: '2026-09-03T07:21:10.442Z'
   confbox@0.3.2: '2026-10-29T10:33:49.890Z'
   consola@3.4.2: '2025-03-18T10:17:43.596Z'
-  effect@4.0.1: '2026-10-05T01:15:35.824Z'
+  effect@4.1.2: '2026-11-02T04:27:38.068Z'
   empathic@2.1.0: '2026-09-18T22:41:09.970Z'
   eslint-plugin-antfu@3.3.1: '2026-10-23T06:36:00.805Z'
   eslint-plugin-astro@3.2.1: '2026-09-17T02:54:46.351Z'

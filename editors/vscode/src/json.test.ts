@@ -1,17 +1,18 @@
 import { describe, it } from "vitest";
+import { Predicate } from "effect";
 
-import { isBoolean, isJsonArray, isJsonObject, isNumber, isString } from "./json";
+import { isJsonArray, isJsonObject } from "./json";
 
 describe("json guards", () => {
 	it("should tell booleans, numbers and strings apart", ({ expect }) => {
 		expect.assertions(6);
 
-		expect(isBoolean(false)).toBe(true);
-		expect(isBoolean("false")).toBe(false);
-		expect(isNumber(0)).toBe(true);
-		expect(isNumber("0")).toBe(false);
-		expect(isString("")).toBe(true);
-		expect(isString(null)).toBe(false);
+		expect(Predicate.isBoolean(false)).toBe(true);
+		expect(Predicate.isBoolean("false")).toBe(false);
+		expect(Predicate.isNumber(0)).toBe(true);
+		expect(Predicate.isNumber("0")).toBe(false);
+		expect(Predicate.isString("")).toBe(true);
+		expect(Predicate.isString(null)).toBe(false);
 	});
 
 	it("should tell arrays from objects", ({ expect }) => {

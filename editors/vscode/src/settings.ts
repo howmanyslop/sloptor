@@ -1,4 +1,6 @@
-import { isBoolean, isJsonArray, isNumber, isString } from "./json";
+import { Predicate } from "effect";
+
+import { isJsonArray } from "./json";
 
 import type { JsonValue } from "./json";
 
@@ -25,11 +27,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 function readBoolean(value: JsonValue, fallback: boolean): boolean {
-	return isBoolean(value) ? value : fallback;
+	return Predicate.isBoolean(value) ? value : fallback;
 }
 
 function readPrecision(value: JsonValue): number {
-	if (!isNumber(value) || !Number.isInteger(value)) return DEFAULT_SETTINGS.colorPrecision;
+	if (!Predicate.isNumber(value) || !Number.isInteger(value)) return DEFAULT_SETTINGS.colorPrecision;
 	return Math.min(Math.max(value, 0), MAXIMUM_PRECISION);
 }
 
@@ -39,7 +41,7 @@ function readArguments(value: JsonValue): ReadonlyArray<string> {
 	const result = new Array<string>();
 	let size = 0;
 	for (const argument of value) {
-		if (!isString(argument)) return DEFAULT_SETTINGS.compilerArguments;
+		if (!Predicate.isString(argument)) return DEFAULT_SETTINGS.compilerArguments;
 		result[size] = argument;
 		size += 1;
 	}
@@ -48,7 +50,7 @@ function readArguments(value: JsonValue): ReadonlyArray<string> {
 }
 
 function readPath(value: JsonValue): string | undefined {
-	if (!isString(value)) return undefined;
+	if (!Predicate.isString(value)) return undefined;
 
 	const trimmed = value.trim();
 	return trimmed.length === 0 ? undefined : trimmed;

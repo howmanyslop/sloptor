@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { x } from "tinyexec";
+import { exec } from "tinyexec";
 import { commands, window, workspace } from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
 
@@ -30,7 +30,7 @@ const DOCUMENT_SELECTOR: DocumentSelector = [
  * @rejects When the binary cannot be spawned.
  */
 async function spawnServerAsync(binary: string): Promise<ChildProcess> {
-	const server = x(binary, SERVER_ARGUMENTS).process;
+	const server = exec(binary, SERVER_ARGUMENTS).process;
 	if (server === undefined) {
 		throw new Error(`Couldn't start ${binary}`);
 	}

@@ -97,7 +97,7 @@
 		"pncat": "catalog:tooling",
 		"react-doctor": "catalog:lint",
 		"skills": "catalog:tooling",
-		"tinyexec": "catalog:scripts",
+		"tinyexec": "catalog:runtime",
 		"tsrs": "catalog:tooling",
 		"typescript": "catalog:tooling",
 		"vitest": "catalog:test"

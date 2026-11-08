@@ -1,4 +1,6 @@
-import { isJsonObject, isString } from "./json";
+import { Predicate } from "effect";
+
+import { isJsonObject } from "./json";
 
 import type { JsonValue } from "./json";
 
@@ -44,7 +46,7 @@ export function parseOutputPathAnswer(value: JsonValue): OutputPathAnswer {
 	if (!isJsonObject(value)) return MALFORMED;
 
 	const { path } = value;
-	if (!isString(path) || path.length === 0) return MALFORMED;
+	if (!Predicate.isString(path) || path.length === 0) return MALFORMED;
 	return { kind: "path", path };
 }
 

@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from "node:fs";
-import path from "node:path";
+import nodePath from "node:path";
 import { env, platform as processPlatform } from "node:process";
 
 export interface BinaryEnvironment {
@@ -23,8 +23,8 @@ const POSIX_EXTENSIONS: ReadonlyArray<string> = [""];
 const WINDOWS_LOCAL_EXTENSIONS: ReadonlyArray<string> = [".exe", ".cmd"];
 const DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD";
 
-function getPathModule(platform: NodeJS.Platform): typeof path.posix {
-	return platform === "win32" ? path.win32 : path.posix;
+function getPathModule(platform: NodeJS.Platform): typeof nodePath.posix {
+	return platform === "win32" ? nodePath.win32 : nodePath.posix;
 }
 
 function readVariable(environment: BinaryEnvironment, name: string): string | undefined {

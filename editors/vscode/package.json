@@ -151,9 +151,12 @@
 		"@types/node": "catalog:types",
 		"@types/vscode": "1.91.0",
 		"@vitest/coverage-v8": "catalog:test",
-		"tinyexec": "catalog:scripts",
+		"arktype": "catalog:runtime",
+		"effect": "catalog:runtime",
+		"tinyexec": "catalog:runtime",
 		"tsdown": "catalog:tooling",
 		"tsrs": "catalog:tooling",
+		"type-fest": "catalog:types",
 		"vitest": "catalog:test",
 		"vscode-languageclient": "catalog:runtime"
 	},
