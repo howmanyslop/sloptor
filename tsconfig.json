@@ -5,7 +5,19 @@
 			"path": "./documentation"
 		},
 		{
+			"path": "./editors/vscode"
+		},
+		{
+			"path": "./scripts"
+		},
+		{
 			"path": "./tools/lint-configurations"
+		},
+		{
+			"path": "./tools/linter-utilities"
+		},
+		{
+			"path": "./tools/tsrs-mirror"
 		},
 		{
 			"path": "./tsconfig.node.json"

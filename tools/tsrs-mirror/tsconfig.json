@@ -1,0 +1,7 @@
+{
+	"extends": "../../tsconfig.node.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": "../../node_modules/.tmp/tsrs-mirror.tsbuildinfo"
+	},
+	"include": ["**/*.ts"]
+}

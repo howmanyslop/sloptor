@@ -3,6 +3,10 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
+	"scripts": {
+		"type-check": "tsrs --noEmit",
+		"type-check:agent": "node --run type-check -- --pretty false"
+	},
 	"dependencies": {
 		"@cliffy/command": "catalog:scripts",
 		"ansis": "catalog:scripts",
@@ -13,6 +17,7 @@
 	},
 	"devDependencies": {
 		"@total-typescript/ts-reset": "catalog:types",
-		"@types/node": "catalog:types"
+		"@types/node": "catalog:types",
+		"tsrs": "catalog:tooling"
 	}
 }
