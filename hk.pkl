@@ -143,8 +143,8 @@ local fileChecks = new Mapping<String, Step> {
     exclude = RUST_EXCLUDE
   }
 
-  // TypeScript. turbo replays every package whose inputs are unchanged, so this
-  // costs a cache lookup unless a project actually moved.
+  // TypeScript. `tsrs -b` skips every project whose inputs are older than its
+  // .tsbuildinfo, so an unrelated change costs a timestamp check.
   ["type-check"] {
     glob =
       List(
@@ -153,7 +153,6 @@ local fileChecks = new Mapping<String, Step> {
         "**/package.json",
         "pnpm-workspace.yaml",
         "pnpm-lock.yaml",
-        "turbo.json",
       )
     exclude = List("third_party/**", "testdata/**", "reference/**", "benchmarks/**")
     exclusive = true

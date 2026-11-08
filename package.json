@@ -61,10 +61,8 @@
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
 		"tsrs": "tsrs",
-		"turbo": "turbo",
-		"type-check": "turbo run type-check type-check:root",
-		"type-check:agent": "turbo run type-check type-check:root --output-logs=errors-only -- --pretty false",
-		"type-check:root": "tsrs --noEmit -p tsconfig.node.json"
+		"type-check": "tsrs --build",
+		"type-check:agent": "nr type-check --pretty false"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:lint",
@@ -101,7 +99,6 @@
 		"skills": "catalog:tooling",
 		"tinyexec": "catalog:runtime",
 		"tsrs": "catalog:tooling",
-		"turbo": "catalog:tooling",
 		"typescript": "catalog:tooling",
 		"vitest": "catalog:test"
 	},

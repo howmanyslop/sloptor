@@ -30,8 +30,6 @@
 	"scripts": {
 		"build": "tsdown",
 		"test": "vitest run",
-		"type-check": "tsrs --noEmit",
-		"type-check:agent": "node --run type-check -- --pretty false",
 		"vscode:prepublish": "tsdown"
 	},
 	"contributes": {

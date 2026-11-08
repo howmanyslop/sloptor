@@ -10,10 +10,6 @@
 		"./get-oxlint-async": "./src/get-oxlint-async.ts",
 		"./package.json": "./package.json"
 	},
-	"scripts": {
-		"type-check": "tsrs --noEmit",
-		"type-check:agent": "node --run type-check -- --pretty false"
-	},
 	"dependencies": {
 		"@isentinel/eslint-config": "catalog:lint",
 		"@rotor-rbx/linter-utilities": "workspace:*",
