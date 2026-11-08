@@ -2,6 +2,7 @@ import { kill, platform } from "node:process";
 import { exec } from "tinyexec";
 import { commands, StatusBarAlignment, window, workspace } from "vscode";
 
+import { getCompilerStatus, pickCompilerFolder } from "./compiler-status";
 import { CompilerTerminal } from "./compiler-terminal";
 import { findBinary, showMissingBinaryAsync } from "./language-client";
 import { describeExit } from "./terminal-text";
@@ -15,7 +16,6 @@ const RUNNING_CONTEXT = "sloptor.compilerRunning";
 const TOGGLE_COMMAND = "sloptor.toggleCompiler";
 const SHOW_OUTPUT = "Show Output";
 const KILL_GRACE_MILLISECONDS = 3000;
-const TYPESCRIPT_LANGUAGES: ReadonlySet<string> = new Set(["typescript", "typescriptreact"]);
 
 interface Compilation {
 	child: ChildProcess | undefined;
@@ -55,10 +55,6 @@ function stopCompilation(compilation: Compilation): void {
 	compilation.killTimer.unref();
 }
 
-function isLocalFolder(folder?: WorkspaceFolder): folder is WorkspaceFolder {
-	return folder?.uri.scheme === "file";
-}
-
 function getTerminal(compilation: Compilation): CompilerTerminal {
 	if (compilation.terminal !== undefined) return compilation.terminal;
 
@@ -76,21 +72,12 @@ function getTerminal(compilation: Compilation): CompilerTerminal {
 	return terminal;
 }
 
-/**
- * The folder the compiler commands act on: the active file's, or the only one.
- *
- * @returns The folder, or `undefined` when there is no local one to pick.
- */
 function getActiveFolder(): undefined | WorkspaceFolder {
 	const editor = window.activeTextEditor;
-	if (editor !== undefined) {
-		const folder = workspace.getWorkspaceFolder(editor.document.uri);
-		return isLocalFolder(folder) ? folder : undefined;
-	}
+	const activeEditor =
+		editor === undefined ? undefined : { folder: workspace.getWorkspaceFolder(editor.document.uri) };
 
-	const folders = workspace.workspaceFolders;
-	const only = folders?.length === 1 ? folders[0] : undefined;
-	return isLocalFolder(only) ? only : undefined;
+	return pickCompilerFolder(workspace.workspaceFolders ?? [], activeEditor);
 }
 
 /**
@@ -143,18 +130,21 @@ export class Compiler implements Disposable {
 			commands.executeCommand("setContext", RUNNING_CONTEXT, isRunning);
 		}
 
-		const languageId = window.activeTextEditor?.document.languageId;
-		const isTypeScript = languageId !== undefined && TYPESCRIPT_LANGUAGES.has(languageId);
-		if (folder === undefined || !isTypeScript || !this.getSettings().statusBarEnabled) {
+		const status = getCompilerStatus({
+			folder,
+			isEnabled: this.getSettings().statusBarEnabled,
+			isRunning,
+			languageId: window.activeTextEditor?.document.languageId,
+		});
+
+		if (status === undefined) {
 			this.statusBarItem?.hide();
 			return;
 		}
 
 		const item = this.getStatusBarItem();
-		item.text = isRunning ? "$(debug-stop) sloptor" : "$(debug-start) sloptor";
-		item.tooltip = isRunning
-			? `Stop the sloptor compiler in ${folder.name}`
-			: `Start the sloptor compiler in ${folder.name}`;
+		item.text = status.text;
+		item.tooltip = status.tooltip;
 		item.show();
 	}
 

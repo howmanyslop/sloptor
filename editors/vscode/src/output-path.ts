@@ -9,10 +9,10 @@ export const OUTPUT_PATH_METHOD = "sloptor/outputPath";
 /** `RequestFailed`: the server's way of saying why there is no output path. */
 const REQUEST_FAILED = -32_803;
 
-export type OutputPathAnswer =
-	| { readonly kind: "malformed" }
-	| { readonly kind: "not-typescript" }
-	| { readonly kind: "path"; readonly path: string };
+/** An answer that is not a path to open. */
+export type OutputPathProblem = { readonly kind: "malformed" } | { readonly kind: "not-typescript" };
+
+export type OutputPathAnswer = OutputPathProblem | { readonly kind: "path"; readonly path: string };
 
 interface RequestFailure {
 	readonly code: number;
@@ -61,4 +61,16 @@ export function describeOutputPathError(cause: unknown): string {
 	if (isRequestFailure(cause)) return `sloptor can't find the output: ${cause.message}`;
 	if (cause instanceof Error) return `sloptor/outputPath failed: ${cause.message}`;
 	return "sloptor/outputPath failed.";
+}
+
+/**
+ * The message for an answer that has no path to open.
+ *
+ * @param problem - The answer.
+ * @returns The message to show.
+ */
+export function describeOutputPathProblem(problem: OutputPathProblem): string {
+	return problem.kind === "not-typescript"
+		? "Open Output only works on a TypeScript source file."
+		: "sloptor/outputPath answered with something that is not a path.";
 }

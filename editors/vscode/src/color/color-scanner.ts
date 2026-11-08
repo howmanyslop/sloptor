@@ -30,13 +30,6 @@ type GroupName = "close" | "first" | "firstComma" | "method" | "open" | "second"
 const COLOR3_CALL =
 	/(?<![\w$])(?:new\s+Color3|Color3\s*\.\s*(?<method>fromRGB|fromHSV))(?<open>\s*\(\s*)(?<first>-?(?:\d+(?:\.\d*)?|\.\d+))(?<firstComma>\s*,\s*)(?<second>-?(?:\d+(?:\.\d*)?|\.\d+))(?<secondComma>\s*,\s*)(?<third>-?(?:\d+(?:\.\d*)?|\.\d+))(?<close>\s*(?:,\s*)?\))/gu;
 
-/**
- * Reads a named group. Only `method` is ever missing, on `new Color3`.
- *
- * @param match - A {@link COLOR3_CALL} match.
- * @param name - Which argument or separator to read.
- * @returns The group's text, or an empty string when it did not participate.
- */
 function readGroup(match: RegExpExecArray, name: GroupName): string {
 	return match.groups?.[name] ?? "";
 }

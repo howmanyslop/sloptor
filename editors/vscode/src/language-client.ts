@@ -3,7 +3,7 @@ import { exec } from "tinyexec";
 import { commands, window, workspace } from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
 
-import { createProcessEnvironment, resolveBinary } from "./binary";
+import { createProcessEnvironment, describeMissingBinary, resolveBinary } from "./binary";
 
 import type { ChildProcess } from "node:child_process";
 import type { Disposable, LogOutputChannel } from "vscode";
@@ -74,12 +74,7 @@ export function findBinary(settings: Settings, searchFrom?: string): string | un
  * @returns Resolves once the message is dismissed or acted on.
  */
 export async function showMissingBinaryAsync(settings: Settings): Promise<void> {
-	const message =
-		settings.path === undefined
-			? "sloptor isn't installed here: there is no node_modules/.bin/rotor and no sloptor or rotor on PATH."
-			: `sloptor.path is "${settings.path}", which is not an executable file.`;
-
-	const choice = await window.showWarningMessage(message, OPEN_SETTINGS);
+	const choice = await window.showWarningMessage(describeMissingBinary(settings.path), OPEN_SETTINGS);
 	if (choice === OPEN_SETTINGS) {
 		await commands.executeCommand("workbench.action.openSettings", "sloptor.path");
 	}

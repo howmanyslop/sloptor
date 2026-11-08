@@ -1,35 +1,18 @@
 import { Color, ColorInformation, ColorPresentation, languages, Range } from "vscode";
 
-import { findColor3MatchAt, formatColor3Presentations, scanColor3Calls } from "./color-scanner";
+import { createColor3ScanCache } from "./color-scan-cache";
+import { findColor3MatchAt, formatColor3Presentations } from "./color-scanner";
 
-import type { Disposable, DocumentColorProvider, DocumentSelector, TextDocument } from "vscode";
-
-import type { Color3Match } from "./color-scanner";
-
-interface CachedScan {
-	readonly matches: ReadonlyArray<Color3Match>;
-	readonly version: number;
-}
+import type { Disposable, DocumentColorProvider, DocumentSelector } from "vscode";
 
 const DOCUMENT_SELECTOR: DocumentSelector = [{ language: "typescript" }, { language: "typescriptreact" }];
 
-function getMatches(cache: WeakMap<TextDocument, CachedScan>, document: TextDocument): ReadonlyArray<Color3Match> {
-	const cached = cache.get(document);
-	if (cached?.version === document.version) return cached.matches;
-
-	const matches = scanColor3Calls(document.getText());
-	cache.set(document, { matches, version: document.version });
-	return matches;
-}
-
 function createColorProvider(getPrecision: () => number): DocumentColorProvider {
-	// VS Code hands back the same TextDocument object while it stays open, so
-	// a closed document's scan goes when the document does.
-	const cache = new WeakMap<TextDocument, CachedScan>();
+	const getMatches = createColor3ScanCache();
 
 	return {
 		provideColorPresentations(color, { document, range }): Array<ColorPresentation> {
-			const match = findColor3MatchAt(getMatches(cache, document), document.offsetAt(range.start));
+			const match = findColor3MatchAt(getMatches(document), document.offsetAt(range.start));
 			if (match === undefined) {
 				return [];
 			}
@@ -45,7 +28,7 @@ function createColorProvider(getPrecision: () => number): DocumentColorProvider 
 		},
 
 		provideDocumentColors(document): Array<ColorInformation> {
-			const matches = getMatches(cache, document);
+			const matches = getMatches(document);
 			const colors = new Array<ColorInformation>();
 			let size = 0;
 

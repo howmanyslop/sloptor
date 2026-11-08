@@ -77,14 +77,25 @@ export function readSettings(read: (key: string) => JsonValue | undefined): Sett
 	};
 }
 
+/** What a settings change has to redo; the rest is read when it is used. */
+export interface SettingsChange {
+	readonly refreshStatusBar: boolean;
+	/** The binary and `typeErrors` are fixed when the server starts. */
+	readonly restartServer: boolean;
+	readonly toggleColorPicker: boolean;
+}
+
 /**
- * Whether the language server must restart for `next` to apply: only the
- * binary and the `typeErrors` initialization option are fixed at start.
+ * Compares the settings before and after a change.
  *
- * @param previous - The settings the server started with.
+ * @param previous - The settings before.
  * @param next - The settings now.
- * @returns `true` when the server must restart.
+ * @returns What has to be redone.
  */
-export function needsRestart(previous: Settings, next: Settings): boolean {
-	return previous.path !== next.path || previous.typeErrors !== next.typeErrors;
+export function compareSettings(previous: Settings, next: Settings): SettingsChange {
+	return {
+		refreshStatusBar: previous.statusBarEnabled !== next.statusBarEnabled,
+		restartServer: previous.path !== next.path || previous.typeErrors !== next.typeErrors,
+		toggleColorPicker: previous.colorPickerEnabled !== next.colorPickerEnabled,
+	};
 }

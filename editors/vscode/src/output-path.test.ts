@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 
-import { describeOutputPathError, parseOutputPathAnswer } from "./output-path";
+import { describeOutputPathError, describeOutputPathProblem, parseOutputPathAnswer } from "./output-path";
 
 describe("parseOutputPathAnswer", () => {
 	it("should read a path", ({ expect }) => {
@@ -47,5 +47,18 @@ describe("describeOutputPathError", () => {
 		expect(describeOutputPathError({ code: -32_803, message: 1 })).toBe("sloptor/outputPath failed.");
 		expect(describeOutputPathError({ code: -32_803 })).toBe("sloptor/outputPath failed.");
 		expect(describeOutputPathError(null)).toBe("sloptor/outputPath failed.");
+	});
+});
+
+describe("describeOutputPathProblem", () => {
+	it("should say why there is nothing to open", ({ expect }) => {
+		expect.assertions(2);
+
+		expect(describeOutputPathProblem({ kind: "not-typescript" })).toBe(
+			"Open Output only works on a TypeScript source file.",
+		);
+		expect(describeOutputPathProblem({ kind: "malformed" })).toBe(
+			"sloptor/outputPath answered with something that is not a path.",
+		);
 	});
 });

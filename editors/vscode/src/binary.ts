@@ -186,3 +186,15 @@ export function createProcessEnvironment(): BinaryEnvironment {
 		platform: processPlatform,
 	};
 }
+
+/**
+ * Why no binary was found, for the warning that offers to open the setting.
+ *
+ * @param configuredPath - `sloptor.path`, if set.
+ * @returns The message.
+ */
+export function describeMissingBinary(configuredPath?: string): string {
+	return configuredPath === undefined
+		? "sloptor isn't installed here: there is no node_modules/.bin/rotor and no sloptor or rotor on PATH."
+		: `sloptor.path is "${configuredPath}", which is not an executable file.`;
+}

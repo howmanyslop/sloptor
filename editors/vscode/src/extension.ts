@@ -4,7 +4,7 @@ import { registerColorProvider } from "./color/color-provider";
 import { Compiler } from "./compiler";
 import { LanguageServer } from "./language-client";
 import { openOutputAsync } from "./output";
-import { needsRestart, readSettings } from "./settings";
+import { compareSettings, readSettings } from "./settings";
 
 import type { ConfigurationChangeEvent, Disposable, ExtensionContext } from "vscode";
 
@@ -54,15 +54,16 @@ export function activate(context: ExtensionContext): void {
 
 		const previous = settings;
 		settings = loadSettings();
-		if (needsRestart(previous, settings)) {
+		const change = compareSettings(previous, settings);
+		if (change.restartServer) {
 			server.restartAsync().catch(() => undefined);
 		}
 
-		if (previous.colorPickerEnabled !== settings.colorPickerEnabled) {
+		if (change.toggleColorPicker) {
 			updateColorProvider();
 		}
 
-		if (previous.statusBarEnabled !== settings.statusBarEnabled) {
+		if (change.refreshStatusBar) {
 			compiler.refresh();
 		}
 	}

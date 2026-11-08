@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 
-import { DEFAULT_SETTINGS, needsRestart, readSettings } from "./settings";
+import { compareSettings, DEFAULT_SETTINGS, readSettings } from "./settings";
 
 import type { JsonObject, JsonValue } from "./json";
 
@@ -102,15 +102,39 @@ describe("readSettings", () => {
 	});
 });
 
-describe("needsRestart", () => {
-	it("should restart when the binary or typeErrors changes", ({ expect }) => {
-		expect.assertions(2);
+describe("compareSettings", () => {
+	it("should redo nothing when nothing changed", ({ expect }) => {
+		expect.assertions(1);
 
-		expect(needsRestart(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, path: "/opt/sloptor" })).toBe(true);
-		expect(needsRestart(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, typeErrors: true })).toBe(true);
+		expect(compareSettings(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS })).toStrictEqual({
+			refreshStatusBar: false,
+			restartServer: false,
+			toggleColorPicker: false,
+		});
 	});
 
-	it("should not restart for settings the extension reads live", ({ expect }) => {
+	it("should restart the server for a new binary or typeErrors", ({ expect }) => {
+		expect.assertions(2);
+
+		expect(compareSettings(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, path: "/opt/sloptor" }).restartServer).toBe(
+			true,
+		);
+		expect(compareSettings(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, typeErrors: true }).restartServer).toBe(true);
+	});
+
+	it("should toggle the color picker and refresh the status bar on their switches", ({ expect }) => {
+		expect.assertions(1);
+
+		const next = { ...DEFAULT_SETTINGS, colorPickerEnabled: false, statusBarEnabled: false };
+
+		expect(compareSettings(DEFAULT_SETTINGS, next)).toStrictEqual({
+			refreshStatusBar: true,
+			restartServer: false,
+			toggleColorPicker: true,
+		});
+	});
+
+	it("should redo nothing for settings read when used", ({ expect }) => {
 		expect.assertions(1);
 
 		const next = {
@@ -118,9 +142,12 @@ describe("needsRestart", () => {
 			colorPrecision: 4,
 			compilerArguments: ["build"],
 			openOutputToSide: false,
-			statusBarEnabled: false,
 		};
 
-		expect(needsRestart(DEFAULT_SETTINGS, next)).toBe(false);
+		expect(compareSettings(DEFAULT_SETTINGS, next)).toStrictEqual({
+			refreshStatusBar: false,
+			restartServer: false,
+			toggleColorPicker: false,
+		});
 	});
 });

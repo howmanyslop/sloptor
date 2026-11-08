@@ -1,6 +1,11 @@
 import { Uri, ViewColumn, window, workspace } from "vscode";
 
-import { describeOutputPathError, OUTPUT_PATH_METHOD, parseOutputPathAnswer } from "./output-path";
+import {
+	describeOutputPathError,
+	describeOutputPathProblem,
+	OUTPUT_PATH_METHOD,
+	parseOutputPathAnswer,
+} from "./output-path";
 
 import type { LanguageServer } from "./language-client";
 import type { OutputPathAnswer } from "./output-path";
@@ -44,13 +49,8 @@ export async function openOutputAsync(server: LanguageServer, settings: Settings
 		return;
 	}
 
-	if (answer.kind === "not-typescript") {
-		await window.showErrorMessage("Open Output only works on a TypeScript source file.");
-		return;
-	}
-
-	if (answer.kind === "malformed") {
-		await window.showErrorMessage("sloptor/outputPath answered with something that is not a path.");
+	if (answer.kind !== "path") {
+		await window.showErrorMessage(describeOutputPathProblem(answer));
 		return;
 	}
 

@@ -1,7 +1,7 @@
 import { env, execPath, platform } from "node:process";
 import { describe, it } from "vitest";
 
-import { createProcessEnvironment, isExecutableFile, resolveBinary } from "./binary";
+import { createProcessEnvironment, describeMissingBinary, isExecutableFile, resolveBinary } from "./binary";
 
 import type { BinaryEnvironment, BinaryQuery } from "./binary";
 
@@ -194,5 +194,18 @@ describe("createProcessEnvironment", () => {
 		expect(environment.platform).toBe(platform);
 		expect(environment.environment).toBe(env);
 		expect(environment.isExecutable(execPath)).toBe(true);
+	});
+});
+
+describe("describeMissingBinary", () => {
+	it("should name the lookup when sloptor.path is unset, and the path when it is set", ({ expect }) => {
+		expect.assertions(2);
+
+		expect(describeMissingBinary()).toBe(
+			"sloptor isn't installed here: there is no node_modules/.bin/rotor and no sloptor or rotor on PATH.",
+		);
+		expect(describeMissingBinary("./bin/sloptor")).toBe(
+			'sloptor.path is "./bin/sloptor", which is not an executable file.',
+		);
 	});
 });
