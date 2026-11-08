@@ -26,7 +26,7 @@
 	"license": "MIT",
 	"publisher": "howmanysmall",
 	"type": "module",
-	"main": "./dist/extension.js",
+	"main": "./dist/extension.cjs",
 	"scripts": {
 		"build": "tsdown",
 		"test": "vitest run",
@@ -141,13 +141,7 @@
 					"group": "navigation@90"
 				}
 			]
-		},
-		"taskDefinitions": [
-			{
-				"type": "sloptor",
-				"properties": {}
-			}
-		]
+		}
 	},
 	"activationEvents": [
 		"onLanguage:typescript",
@@ -155,7 +149,7 @@
 	],
 	"devDependencies": {
 		"@types/node": "catalog:types",
-		"@types/vscode": "catalog:types",
+		"@types/vscode": "1.91.0",
 		"tsdown": "catalog:tooling",
 		"tsrs": "catalog:tooling",
 		"vitest": "catalog:test",
