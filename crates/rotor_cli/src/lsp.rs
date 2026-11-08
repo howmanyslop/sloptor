@@ -189,7 +189,7 @@ mod tests {
 	use std::collections::BTreeMap;
 	use std::sync::mpsc;
 
-	use super::{has_rbxts_types, start_census_thread};
+	use super::{has_rbxts_types, owning_ts_config, start_census_thread};
 
 	/// A census that panics must not stop the diagnostics for good: it answers with its error and
 	/// the next census still runs.
@@ -209,6 +209,53 @@ mod tests {
 		assert!(result.is_none());
 		assert_eq!(error.as_deref(), Some("sloptor: census panicked: boom"));
 		assert_eq!(ask("fine"), (None, None), "the thread lives on");
+	}
+
+	/// A monorepo's `tsconfig.json` lists no files, only references; a file belongs to the
+	/// referenced config that lists it, and a file no config lists stays with the nearest.
+	#[test]
+	fn owning_ts_config_follows_solution_references() {
+		let temp = tempfile::tempdir().expect("temp dir");
+		let root = rotor_support::fsutil::real_path(temp.path()).expect("canonical temp dir");
+		let package = root.join("packages").join("logger");
+		std::fs::create_dir_all(package.join("src")).expect("src");
+		let write = |path: std::path::PathBuf, text: &str| std::fs::write(path, text).expect("write");
+		write(
+			root.join("tsconfig.json"),
+			r#"{ "files": [], "include": [], "references": [{ "path": "./packages/logger" }] }"#,
+		);
+		write(
+			package.join("tsconfig.json"),
+			r#"{ "files": [], "include": [], "references": [{ "path": "./tsconfig.spec.json" }, { "path": "./tsconfig.lib.json" }] }"#,
+		);
+		write(
+			package.join("tsconfig.lib.json"),
+			r#"{ "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "out" }, "include": ["src"], "exclude": ["src/**/*.test.ts"] }"#,
+		);
+		write(
+			package.join("tsconfig.spec.json"),
+			r#"{ "compilerOptions": { "composite": true, "rootDir": "src", "outDir": "out-test" }, "include": ["src/**/*.test.ts"] }"#,
+		);
+		write(package.join("src").join("logger.ts"), "export {};");
+		write(package.join("src").join("logger.test.ts"), "export {};");
+		write(package.join("stray.ts"), "export {};");
+		let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
+		let owner = |file: std::path::PathBuf, nearest: &std::path::Path| owning_ts_config(&text(&file), text(nearest));
+		let nearest = package.join("tsconfig.json");
+		assert_eq!(
+			owner(package.join("src").join("logger.ts"), &nearest),
+			text(&package.join("tsconfig.lib.json"))
+		);
+		assert_eq!(
+			owner(package.join("src").join("logger.test.ts"), &nearest),
+			text(&package.join("tsconfig.spec.json"))
+		);
+		assert_eq!(
+			owner(package.join("src").join("logger.ts"), &root.join("tsconfig.json")),
+			text(&package.join("tsconfig.lib.json")),
+			"references are followed transitively"
+		);
+		assert_eq!(owner(package.join("stray.ts"), &nearest), text(&nearest));
 	}
 
 	/// A census of a plain TypeScript project would pop "rootDir must be defined" in the editor,
