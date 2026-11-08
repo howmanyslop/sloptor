@@ -1,12 +1,13 @@
-import { platform } from "node:process";
+import { once } from "node:events";
+import { x } from "tinyexec";
 import { commands, window, workspace } from "vscode";
 import { LanguageClient } from "vscode-languageclient/node";
 
 import { createProcessEnvironment, resolveBinary } from "./binary";
-import { createSpawnCommand } from "./spawn-command";
 
+import type { ChildProcess } from "node:child_process";
 import type { Disposable, LogOutputChannel } from "vscode";
-import type { DocumentSelector, Executable } from "vscode-languageclient/node";
+import type { DocumentSelector } from "vscode-languageclient/node";
 
 import type { JsonObject, JsonValue } from "./json";
 import type { Settings } from "./settings";
@@ -19,6 +20,26 @@ const DOCUMENT_SELECTOR: DocumentSelector = [
 	{ language: "typescript", scheme: "file" },
 	{ language: "typescriptreact", scheme: "file" },
 ];
+
+/**
+ * Starts `sloptor lsp`. The client reads and writes its stdio and kills it if
+ * it outlives a shutdown.
+ *
+ * @param binary - The sloptor executable.
+ * @returns The running server.
+ * @rejects When the binary cannot be spawned.
+ */
+async function spawnServerAsync(binary: string): Promise<ChildProcess> {
+	const server = x(binary, SERVER_ARGUMENTS).process;
+	if (server === undefined) {
+		throw new Error(`Couldn't start ${binary}`);
+	}
+
+	// Rejects on `error`, so a binary that can't run fails the start instead of
+	// leaving the client waiting on a dead pipe.
+	await once(server, "spawn");
+	return server;
+}
 
 /**
  * The first workspace folder, which a relative `sloptor.path` is relative to.
@@ -158,23 +179,11 @@ export class LanguageServer implements Disposable {
 			return;
 		}
 
-		const spawn = createSpawnCommand(binary, SERVER_ARGUMENTS, platform);
-		const executable: Executable = {
-			args: spawn.arguments,
-			command: spawn.command,
-			options: { shell: spawn.shell },
-		};
-
-		const client = new LanguageClient(
-			CLIENT_ID,
-			"sloptor",
-			{ debug: executable, run: executable },
-			{
-				documentSelector: DOCUMENT_SELECTOR,
-				initializationOptions: { typeErrors: settings.typeErrors },
-				outputChannel: this.outputChannel,
-			},
-		);
+		const client = new LanguageClient(CLIENT_ID, "sloptor", async () => spawnServerAsync(binary), {
+			documentSelector: DOCUMENT_SELECTOR,
+			initializationOptions: { typeErrors: settings.typeErrors },
+			outputChannel: this.outputChannel,
+		});
 
 		this.client = client;
 

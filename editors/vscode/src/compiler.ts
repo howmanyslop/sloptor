@@ -1,10 +1,9 @@
-import { spawn } from "node:child_process";
-import { env, kill, platform } from "node:process";
+import { kill, platform } from "node:process";
+import { x } from "tinyexec";
 import { commands, StatusBarAlignment, window, workspace } from "vscode";
 
 import { CompilerTerminal } from "./compiler-terminal";
 import { findBinary, showMissingBinaryAsync } from "./language-client";
-import { createSpawnCommand } from "./spawn-command";
 import { describeExit } from "./terminal-text";
 
 import type { ChildProcess } from "node:child_process";
@@ -28,8 +27,8 @@ interface Compilation {
 
 function killTree(pid: number, signal: NodeJS.Signals): void {
 	if (platform === "win32") {
-		const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
-		taskkill.on("error", () => undefined);
+		// tinyexec swallows a failed spawn, and then there is nothing to kill.
+		x("taskkill", ["/pid", String(pid), "/T", "/F"]);
 		return;
 	}
 
@@ -283,27 +282,31 @@ export class Compiler implements Disposable {
 		binary: string,
 		compilerArguments: ReadonlyArray<string>,
 	): void {
-		const command = createSpawnCommand(binary, compilerArguments, platform);
 		terminal.show();
 		terminal.writeLine(`> ${[binary, ...compilerArguments].join(" ")}`);
 
-		const child = spawn(command.command, command.arguments, {
-			cwd: compilation.folder.uri.fsPath,
-			// A group of its own, so stopping reaches every process under it.
-			detached: platform !== "win32",
-			env: { ...env, FORCE_COLOR: "1" },
-			shell: command.shell,
-			stdio: ["ignore", "pipe", "pipe"],
-			windowsHide: true,
-		});
+		const child = x(binary, compilerArguments, {
+			nodeOptions: {
+				cwd: compilation.folder.uri.fsPath,
+				env: { FORCE_COLOR: "1" },
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+			// Its own process group, so stopping reaches every process under it.
+			// Windows has `taskkill /T`, and detaching there opens a console.
+			persist: platform !== "win32",
+		}).process;
+
+		if (child === undefined) return;
 
 		compilation.child = child;
 		compilation.stopping = false;
 
-		child.stdout.setEncoding("utf8");
-		child.stderr.setEncoding("utf8");
-		child.stdout.on("data", (chunk: string) => compilation.terminal?.write(chunk));
-		child.stderr.on("data", (chunk: string) => compilation.terminal?.write(chunk));
+		// Not tinyexec's line iterator: it holds back partial lines, and watch
+		// mode redraws in place.
+		child.stdout?.setEncoding("utf8");
+		child.stderr?.setEncoding("utf8");
+		child.stdout?.on("data", (chunk: string) => compilation.terminal?.write(chunk));
+		child.stderr?.on("data", (chunk: string) => compilation.terminal?.write(chunk));
 		child.on("error", (error) => {
 			const message = `Couldn't run ${binary}: ${error.message}`;
 			compilation.terminal?.writeLine(message);
