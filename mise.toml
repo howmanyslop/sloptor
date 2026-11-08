@@ -29,7 +29,7 @@ mr-boxington = { version = "latest", workflow = "release.yml@refs/heads/main" }
 ni = "latest"
 node = "22"
 pkl = "latest"
-pnpm = "12.16.1"
+pnpm = "12.18.0"
 rumdl = "latest"
 rust = { version = "1.99.1", components = ["rustfmt", "clippy"], mr_boxington = true }
 shellcheck = "latest"
