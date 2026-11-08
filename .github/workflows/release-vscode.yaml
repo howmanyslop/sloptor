@@ -1,0 +1,71 @@
+name: release-vscode
+
+# Publishes editors/vscode to the Visual Studio Marketplace through Trusted Publishing: the
+# Marketplace trusts this workflow file in howmanyslop/sloptor, so there is no token to store.
+# Renaming this file breaks the policy on the howmanysmall publisher.
+
+on:
+  push:
+    tags:
+      - "vscode-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-vscode-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    permissions:
+      contents: read
+      # The OIDC token vsce exchanges for a 15-minute Marketplace credential.
+      id-token: write
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Set up Mise toolchain
+        uses: jdx/mise-action@7a4e45a543138629540c9a1616d08632b893e492 # v5.0.1
+        with:
+          # Tag-triggered: never restore a cache into release artifacts.
+          cache: false
+          install_args: node pnpm
+          experimental: true
+
+      - if: github.event_name == 'push'
+        name: Check the tag matches the extension version
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").version')"
+          if [ "$TAG" != "vscode-v$version" ]; then
+            echo "::error::tag $TAG does not match editors/vscode/package.json version $version"
+            exit 1
+          fi
+        env:
+          TAG: ${{ github.ref_name }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter "./editors/vscode..."
+
+      - name: Package
+        run: pnpm dlx @vscode/vsce@4.1.0 package --no-dependencies --out sloptor.vsix
+
+      - name: Upload package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sloptor-vsix
+          path: editors/vscode/sloptor.vsix
+          if-no-files-found: error
+
+      - name: Publish
+        run: pnpm dlx @vscode/vsce@4.1.0 publish --oidc --packagePath sloptor.vsix
+    timeout-minutes: 15
