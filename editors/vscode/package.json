@@ -1,0 +1,167 @@
+{
+	"name": "sloptor",
+	"displayName": "sloptor",
+	"version": "0.1.0",
+	"private": true,
+	"description": "sloptor's roblox-ts diagnostics, compiler controls, Open Output and a Color3 picker.",
+	"categories": [
+		"Linters",
+		"Programming Languages"
+	],
+	"keywords": [
+		"luau",
+		"roblox",
+		"roblox-ts",
+		"sloptor"
+	],
+	"homepage": "https://github.com/howmanyslop/sloptor/tree/main/editors/vscode#readme",
+	"bugs": {
+		"url": "https://github.com/howmanyslop/sloptor/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/howmanyslop/sloptor.git",
+		"directory": "editors/vscode"
+	},
+	"license": "MIT",
+	"publisher": "howmanysmall",
+	"type": "module",
+	"main": "./dist/extension.js",
+	"scripts": {
+		"build": "tsdown",
+		"test": "vitest run",
+		"vscode:prepublish": "tsdown"
+	},
+	"contributes": {
+		"commands": [
+			{
+				"command": "sloptor.openOutput",
+				"title": "Open Output",
+				"category": "sloptor"
+			},
+			{
+				"command": "sloptor.startCompiler",
+				"title": "Start Compiler",
+				"category": "sloptor"
+			},
+			{
+				"command": "sloptor.stopCompiler",
+				"title": "Stop Compiler",
+				"category": "sloptor"
+			},
+			{
+				"command": "sloptor.toggleCompiler",
+				"title": "Toggle Compiler",
+				"category": "sloptor"
+			},
+			{
+				"command": "sloptor.restartServer",
+				"title": "Restart Language Server",
+				"category": "sloptor"
+			}
+		],
+		"configuration": {
+			"title": "sloptor",
+			"properties": {
+				"sloptor.path": {
+					"type": "string",
+					"default": "",
+					"markdownDescription": "Path to the `sloptor` executable. Empty looks for the npm package's `node_modules/.bin/rotor`, then `sloptor` and `rotor` on `PATH`. A relative path is relative to the first workspace folder.",
+					"scope": "machine-overridable"
+				},
+				"sloptor.typeErrors": {
+					"type": "boolean",
+					"default": false,
+					"markdownDescription": "Also report TypeScript errors (`TS####`). VS Code's TypeScript server already reports them, so turning this on shows each one twice."
+				},
+				"sloptor.compiler.arguments": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [
+						"build",
+						"--watch"
+					],
+					"markdownDescription": "Arguments for **Start Compiler**, run in the workspace folder of the active file. For a monorepo with a solution `tsconfig.json`, use `[\"build\", \"--build\", \"--watch\"]`."
+				},
+				"sloptor.statusBar.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show the compiler start/stop button in the status bar."
+				},
+				"sloptor.colorPicker.enabled": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show a color picker on Color3 constructors."
+				},
+				"sloptor.colorPicker.precision": {
+					"type": "integer",
+					"default": 2,
+					"minimum": 0,
+					"maximum": 6,
+					"description": "Decimal places the color picker writes for new Color3 and Color3.fromHSV. Color3.fromRGB always writes integers."
+				},
+				"sloptor.openOutputToSide": {
+					"type": "boolean",
+					"default": true,
+					"description": "Open Output opens the compiled file beside the source instead of in its place."
+				},
+				"sloptor.trace.server": {
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "off",
+					"description": "Log the messages between VS Code and sloptor lsp to the sloptor output channel."
+				}
+			}
+		},
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "sloptor.openOutput",
+					"when": "editorLangId == typescript || editorLangId == typescriptreact"
+				},
+				{
+					"command": "sloptor.startCompiler",
+					"when": "!sloptor.compilerRunning"
+				},
+				{
+					"command": "sloptor.stopCompiler",
+					"when": "sloptor.compilerRunning"
+				}
+			],
+			"editor/title/context": [
+				{
+					"command": "sloptor.openOutput",
+					"when": "resourceLangId == typescript || resourceLangId == typescriptreact",
+					"group": "navigation@90"
+				}
+			]
+		},
+		"taskDefinitions": [
+			{
+				"type": "sloptor",
+				"properties": {}
+			}
+		]
+	},
+	"activationEvents": [
+		"onLanguage:typescript",
+		"onLanguage:typescriptreact"
+	],
+	"devDependencies": {
+		"@types/node": "catalog:types",
+		"@types/vscode": "catalog:types",
+		"tsdown": "catalog:tooling",
+		"tsrs": "catalog:tooling",
+		"vitest": "catalog:test",
+		"vscode-languageclient": "catalog:runtime"
+	},
+	"engines": {
+		"vscode": "^1.91.0"
+	}
+}

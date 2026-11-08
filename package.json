@@ -57,7 +57,7 @@
 		"mdx-language-server": "mdx-language-server",
 		"oxfmt": "oxfmt",
 		"oxlint": "oxlint",
-		"release": "bumpp",
+		"release": "bun run scripts/release.ts",
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
 		"tsrs": "tsrs",
