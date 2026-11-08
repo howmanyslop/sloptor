@@ -26,17 +26,17 @@ export const DEFAULT_SETTINGS: Settings = {
 	typeErrors: false,
 };
 
-function readBoolean(value: JsonValue, fallback: boolean): boolean {
+function readBoolean(value: JsonValue | undefined, fallback: boolean): boolean {
 	return Predicate.isBoolean(value) ? value : fallback;
 }
 
-function readPrecision(value: JsonValue): number {
+function readPrecision(value?: JsonValue): number {
 	if (!Predicate.isNumber(value) || !Number.isInteger(value)) return DEFAULT_SETTINGS.colorPrecision;
 	return Math.min(Math.max(value, 0), MAXIMUM_PRECISION);
 }
 
-function readArguments(value: JsonValue): ReadonlyArray<string> {
-	if (!isJsonArray(value)) return DEFAULT_SETTINGS.compilerArguments;
+function readArguments(value?: JsonValue): ReadonlyArray<string> {
+	if (value === undefined || !isJsonArray(value)) return DEFAULT_SETTINGS.compilerArguments;
 
 	const result = new Array<string>();
 	let size = 0;
@@ -49,7 +49,7 @@ function readArguments(value: JsonValue): ReadonlyArray<string> {
 	return result;
 }
 
-function readPath(value: JsonValue): string | undefined {
+function readPath(value?: JsonValue): string | undefined {
 	if (!Predicate.isString(value)) return undefined;
 
 	const trimmed = value.trim();
@@ -65,7 +65,7 @@ function readPath(value: JsonValue): string | undefined {
  *   `compiler.arguments`.
  * @returns The validated settings.
  */
-export function readSettings(read: (key: string) => JsonValue): Settings {
+export function readSettings(read: (key: string) => JsonValue | undefined): Settings {
 	return {
 		colorPickerEnabled: readBoolean(read("colorPicker.enabled"), DEFAULT_SETTINGS.colorPickerEnabled),
 		colorPrecision: readPrecision(read("colorPicker.precision")),
@@ -75,4 +75,16 @@ export function readSettings(read: (key: string) => JsonValue): Settings {
 		statusBarEnabled: readBoolean(read("statusBar.enabled"), DEFAULT_SETTINGS.statusBarEnabled),
 		typeErrors: readBoolean(read("typeErrors"), DEFAULT_SETTINGS.typeErrors),
 	};
+}
+
+/**
+ * Whether the language server must restart for `next` to apply: only the
+ * binary and the `typeErrors` initialization option are fixed at start.
+ *
+ * @param previous - The settings the server started with.
+ * @param next - The settings now.
+ * @returns `true` when the server must restart.
+ */
+export function needsRestart(previous: Settings, next: Settings): boolean {
+	return previous.path !== next.path || previous.typeErrors !== next.typeErrors;
 }

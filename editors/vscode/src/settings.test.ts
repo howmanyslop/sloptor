@@ -1,10 +1,10 @@
 import { describe, it } from "vitest";
 
-import { DEFAULT_SETTINGS, readSettings } from "./settings";
+import { DEFAULT_SETTINGS, needsRestart, readSettings } from "./settings";
 
 import type { JsonObject, JsonValue } from "./json";
 
-function createReader(values: JsonObject): (key: string) => JsonValue {
+function createReader(values: JsonObject): (key: string) => JsonValue | undefined {
 	return function read(key) {
 		return values[key];
 	};
@@ -99,5 +99,28 @@ describe("readSettings", () => {
 
 		expect(readSettings(padded).path).toBe("/opt/sloptor");
 		expect(readSettings(blank).path).toBeUndefined();
+	});
+});
+
+describe("needsRestart", () => {
+	it("should restart when the binary or typeErrors changes", ({ expect }) => {
+		expect.assertions(2);
+
+		expect(needsRestart(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, path: "/opt/sloptor" })).toBe(true);
+		expect(needsRestart(DEFAULT_SETTINGS, { ...DEFAULT_SETTINGS, typeErrors: true })).toBe(true);
+	});
+
+	it("should not restart for settings the extension reads live", ({ expect }) => {
+		expect.assertions(1);
+
+		const next = {
+			...DEFAULT_SETTINGS,
+			colorPrecision: 4,
+			compilerArguments: ["build"],
+			openOutputToSide: false,
+			statusBarEnabled: false,
+		};
+
+		expect(needsRestart(DEFAULT_SETTINGS, next)).toBe(false);
 	});
 });

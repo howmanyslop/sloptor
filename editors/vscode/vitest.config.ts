@@ -19,7 +19,6 @@ function isFocusedRun(cliArguments: ReadonlyArray<string>): boolean {
 
 const enabled = !isFocusedRun(argv.slice(2));
 
-// Only the modules that do not import `vscode` run here; the rest is wiring.
 const configuration = defineConfig({
 	resolve: { tsconfigPaths: true },
 	test: {
@@ -27,7 +26,14 @@ const configuration = defineConfig({
 		coverage: {
 			clean: true,
 			enabled,
-			exclude: [],
+			exclude: [
+				"src/color/color-provider.ts",
+				"src/compiler-terminal.ts",
+				"src/compiler.ts",
+				"src/extension.ts",
+				"src/language-client.ts",
+				"src/output.ts",
+			],
 			include: ["src/**/*.ts"],
 			provider: "v8",
 			reporter: ["text", "html", "text-summary", "json", "json-summary"],

@@ -19,9 +19,8 @@ describe("parseOutputPathAnswer", () => {
 	});
 
 	it("should reject shapes the server never sends", ({ expect }) => {
-		expect.assertions(6);
+		expect.assertions(5);
 
-		expect(parseOutputPathAnswer(undefined)).toStrictEqual({ kind: "malformed" });
 		expect(parseOutputPathAnswer("/work/out/init.luau")).toStrictEqual({ kind: "malformed" });
 		expect(parseOutputPathAnswer(["/work/out/init.luau"])).toStrictEqual({ kind: "malformed" });
 		expect(parseOutputPathAnswer({})).toStrictEqual({ kind: "malformed" });

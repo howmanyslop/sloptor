@@ -4,7 +4,7 @@ import { registerColorProvider } from "./color/color-provider";
 import { Compiler } from "./compiler";
 import { LanguageServer } from "./language-client";
 import { openOutputAsync } from "./output";
-import { readSettings } from "./settings";
+import { needsRestart, readSettings } from "./settings";
 
 import type { ConfigurationChangeEvent, Disposable, ExtensionContext } from "vscode";
 
@@ -16,10 +16,6 @@ let activeServer: LanguageServer | undefined;
 function loadSettings(): Settings {
 	const configuration = workspace.getConfiguration("sloptor");
 	return readSettings((key) => configuration.get<JsonValue>(key));
-}
-
-function needsRestart(previous: Settings, next: Settings): boolean {
-	return previous.path !== next.path || previous.typeErrors !== next.typeErrors;
 }
 
 /**
