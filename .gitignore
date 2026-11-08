@@ -112,3 +112,4 @@ benchmarks/compare/*/out/
 benchmarks/compare/*/include/
 benchmarks/compare/results
 testdata/conformance/project/.*
+editors/vscode/coverage/

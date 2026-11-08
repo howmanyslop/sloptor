@@ -150,6 +150,8 @@
 	"devDependencies": {
 		"@types/node": "catalog:types",
 		"@types/vscode": "1.91.0",
+		"@vitest/coverage-v8": "catalog:test",
+		"tinyexec": "catalog:scripts",
 		"tsdown": "catalog:tooling",
 		"tsrs": "catalog:tooling",
 		"vitest": "catalog:test",
