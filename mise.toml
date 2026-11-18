@@ -1,3 +1,5 @@
+wrappers = { cargo = { command = "mbx", env = { MBX_CARGO_SHIM_MODE = "1" } } }
+
 [env]
 _.file = { path = ".env" }
 _.path = ["{{config_root}}/node_modules/.bin", "{{cwd}}/node_modules/.bin"]
