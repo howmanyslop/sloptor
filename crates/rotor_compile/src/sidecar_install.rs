@@ -3,10 +3,13 @@
 //! `ROTOR_SIDECAR_PATH` overrides; otherwise the embedded worker is extracted once into a
 //! content-addressed cache directory, the one Go's rotor uses for the same worker.
 
+use std::sync::Mutex;
+
 use rotor_support::{fsutil, gopath};
 use sha2::{Digest, Sha256};
 
 use crate::compile::Error;
+use crate::project::lock;
 
 /// The worker files Go's `tools/sidecar` package embeds (`main.js index.js lib/*.js
 /// package.json`), sorted by name.
@@ -44,6 +47,10 @@ pub(crate) const EMBEDDED_SIDECAR: &[(&str, &[u8])] = &[
 	("package.json", include_bytes!("../../../tools/sidecar/package.json")),
 ];
 
+/// Held across an extraction. Unlike Go, one at a time: the staging directory is named for the
+/// process, so threads extracting together would delete and rename it under each other.
+static EXTRACTING: Mutex<()> = Mutex::new(());
+
 /// `resolveSidecarDir`
 ///
 /// # Errors
@@ -68,6 +75,10 @@ pub(crate) fn extract_sidecar_into(cache_root: &str) -> Result<String, Error> {
 	let hash = embedded_sidecar_hash();
 	let dir = gopath::join(&[cache_root, "rotor", &format!("sidecar-{hash}")]);
 	let marker = gopath::join(&[&dir, ".complete"]);
+	if std::fs::metadata(&marker).is_ok() {
+		return Ok(dir);
+	}
+	let _extracting = lock(&EXTRACTING);
 	if std::fs::metadata(&marker).is_ok() {
 		return Ok(dir);
 	}
