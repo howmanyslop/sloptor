@@ -2,7 +2,7 @@
 //! `sidecar_slot_test.go`, `sidecar_roots_test.go` and `transformer_host_test.go`.
 
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use rotor_tsrs::ast::{SourceFile, SourceFileParseOptions};
@@ -50,6 +50,55 @@ fn resolve_sidecar_dir_extracts_embedded_worker() {
 	// Idempotent: a second call returns the same completed dir.
 	let again = extract_sidecar_into(&cache.dir()).unwrap_or_else(|error| panic!("second resolveSidecarDir: {error}"));
 	assert_eq!(again, dir, "resolveSidecarDir not stable");
+}
+
+/// Catches a cold-cache build that fails to find its worker because several projects started
+/// extracting it at the same moment.
+#[test]
+fn resolve_sidecar_dir_survives_concurrent_cold_extraction() {
+	const CALLERS: usize = 12;
+	for round in 0..20 {
+		let cache = Temp::new();
+		let cache_root = cache.dir();
+		let start = Barrier::new(CALLERS);
+		let results: Vec<_> = std::thread::scope(|scope| {
+			let callers: Vec<_> = (0..CALLERS)
+				.map(|_| {
+					scope.spawn(|| {
+						start.wait();
+						extract_sidecar_into(&cache_root)
+					})
+				})
+				.collect();
+			callers
+				.into_iter()
+				.map(|caller| caller.join().expect("an extraction thread"))
+				.collect()
+		});
+		let mut dirs = Vec::new();
+		for result in results {
+			dirs.push(result.unwrap_or_else(|error| panic!("round {round}: concurrent resolveSidecarDir: {error}")));
+		}
+		dirs.dedup();
+		assert_eq!(dirs.len(), 1, "round {round}: callers disagree on the worker dir");
+		for (name, data) in crate::sidecar_install::EMBEDDED_SIDECAR {
+			let extracted = std::fs::read(std::path::Path::new(&dirs[0]).join(name))
+				.unwrap_or_else(|error| panic!("round {round}: extracted sidecar missing {name}: {error}"));
+			assert_eq!(
+				extracted, *data,
+				"round {round}: extracted {name} differs from the embedded worker"
+			);
+		}
+		// Nothing but the finished worker stays behind in the cache.
+		let left: Vec<_> = std::fs::read_dir(std::path::Path::new(&cache_root).join("rotor"))
+			.expect("the rotor cache dir")
+			.map(|entry| entry.expect("a cache entry").file_name())
+			.collect();
+		let worker = std::path::Path::new(&dirs[0])
+			.file_name()
+			.expect("the worker dir's name");
+		assert_eq!(left, [worker], "round {round}: staging left behind");
+	}
 }
 
 #[test]
