@@ -696,7 +696,7 @@ impl Checker {
         symbol: P<Symbol>,
     ) -> bool {
         let identifier_text = definition.text();
-        if get_possible_symbol_reference_nodes(
+        get_possible_symbol_reference_nodes(
             source_file,
             identifier_text,
             Some(source_file.as_node()),
@@ -732,10 +732,7 @@ impl Checker {
             }
 
             false
-        }) {
-            return true;
-        }
-        false
+        })
     }
 
     // services.go:587
@@ -1471,7 +1468,7 @@ impl Checker {
             return false;
         };
         let declarations = symbol.declarations().to_vec();
-        if declarations.into_iter().any(|decl| {
+        declarations.into_iter().any(|decl| {
             let sf = ast::get_source_file_of_node(decl);
             if let Some(sf) = sf
                 && self.program.is_source_file_default_library(sf.path())
@@ -1480,10 +1477,7 @@ impl Checker {
             }
 
             false
-        }) {
-            return true;
-        }
-        false
+        })
     }
 
     // services.go:1140

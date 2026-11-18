@@ -22,11 +22,22 @@ fn test_unicode_to_upper_simple_mapping() {
     assert_eq!(unicode_to_upper(0xD800), 0xD800);
 }
 
-// The special cases in unicode_to_upper / unicode_to_lower were derived for Unicode 17.0.0. A toolchain with
-// another Unicode version needs the exhaustive comparison against Go's unicode.ToUpper / ToLower re-run.
+// The special cases in unicode_to_upper / unicode_to_lower were derived for Rust's Unicode 18.0.0 against Go's
+// Unicode 17.0.0. A toolchain with another Unicode version needs the exhaustive comparison against Go's
+// unicode.ToUpper / ToLower / SimpleFold re-run.
 #[test]
 fn test_unicode_version_of_case_mappings() {
-    assert_eq!(char::UNICODE_VERSION, (17, 0, 0));
+    assert_eq!(char::UNICODE_VERSION, (18, 0, 0));
+}
+
+// Go 1.27 (Unicode 17.0.0) has no case mapping for these runes, which Unicode 18.0.0 pairs.
+#[test]
+fn test_unicode_18_case_pairs_keep_go_mapping() {
+    for r in [0x277, 0xA7DD, 0xAB4B, 0xAB6C, 0x1DF40, 0x1DF41, 0x1DF7F] {
+        assert_eq!(unicode_to_upper(r), r, "U+{r:04X}");
+        assert_eq!(unicode_to_lower(r), r, "U+{r:04X}");
+        assert_eq!(unicode_simple_fold(r), r, "U+{r:04X}");
+    }
 }
 
 // Expected values are Go 1.27's unicode.SimpleFold, which an exhaustive comparison over every rune matches.

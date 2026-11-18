@@ -471,8 +471,7 @@ impl Checker {
                         let mut missed_properties = not_implemented_info
                             .as_ref()
                             .and_then(|m| m.get(&derived_class_decl))
-                            .map(|info| info.missed_properties.clone())
-                            .unwrap_or_default();
+                            .map_or_default(|info| info.missed_properties.clone());
                         missed_properties.push(self.symbol_to_string(base_property));
                         let map = not_implemented_info.get_or_insert_with(Default::default);
                         map.insert(

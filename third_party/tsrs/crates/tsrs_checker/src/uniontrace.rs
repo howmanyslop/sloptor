@@ -156,9 +156,8 @@ fn fingerprint<S: AsRef<str>>(items: &[S]) -> u64 {
 /// `name` relative to the current directory when it is below it, as diagnostics print it.
 fn relative(name: &str) -> &str {
     static CWD: OnceLock<String> = OnceLock::new();
-    let cwd = CWD.get_or_init(|| {
-        std::env::current_dir().map(|d| format!("{}/", d.display())).unwrap_or_default()
-    });
+    let cwd =
+        CWD.get_or_init(|| std::env::current_dir().map_or_default(|d| format!("{}/", d.display())));
     name.strip_prefix(cwd.as_str()).unwrap_or(name)
 }
 

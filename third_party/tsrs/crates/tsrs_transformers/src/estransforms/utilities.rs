@@ -250,8 +250,7 @@ impl SuperAccessState {
             .captured_super_properties
             .borrow()
             .as_ref()
-            .map(|s| s.iter().cloned().collect())
-            .unwrap_or_default();
+            .map_or_default(|s| s.iter().cloned().collect());
         for name in names {
             let name = alloc_str(&name);
             let mut descriptor_properties: Vec<P<Node>> = Vec::new();

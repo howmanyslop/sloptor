@@ -7,7 +7,7 @@ use std::sync::{Condvar, Mutex, mpsc};
 use std::time::{Duration, SystemTime};
 
 use tsrs_core::collections::new_ordered_map_with_size_hint;
-use tsrs_core::{CompilerOptions, ModuleKind, ModuleResolutionKind, P, ScriptTarget};
+use tsrs_core::{CompilerOptions, ModuleKind, ModuleResolutionKind, P, ScriptTarget, Tristate};
 use tsrs_vfs::{Entries, FS, FileInfo, vfstest};
 
 use tsrs_module::packagejson::InfoCacheEntryExt;
@@ -149,6 +149,135 @@ fn test_resolve_dynamic_dotted_directory() {
         ModuleKind::COMMON_JS,
     );
     assert_eq!(resolved, TARGET);
+}
+
+// A type root under a dynamic (non-`file:`) URI, such as a document in a virtual workspace. The file encoding and
+// the directory encoding of `~ts-uri-escape~thing.d.ts` differ: the file encoding keeps the `.d.ts` extension
+// outside the escape. Go `getCandidateFromTypeRoot` (resolver.go:659) keeps both encodings, and the directory
+// lookup uses the directory encoding (resolver.go:1823). The expected traces come from tsgo at the pinned commit.
+const DYNAMIC_TYPE_ROOT: &str = "^/~ts-uri~/custom/ts-nul-authority/types";
+const DYNAMIC_TYPE_ROOT_FILE: &str = "^/~ts-uri~/custom/ts-nul-authority/types/~ts-uri-escape~7e74732d7572692d6573636170657e7468696e67~.d.ts";
+const DYNAMIC_TYPE_ROOT_INDEX: &str = "^/~ts-uri~/custom/ts-nul-authority/types/~ts-uri-escape~7e74732d7572692d6573636170657e7468696e672e642e7473~/index.d.ts";
+
+// Resolves `~ts-uri-escape~thing.d.ts` from `$CWD/a.ts` with the type root `$ROOT`, where only `target` exists. The
+// result is the resolved file name and the trace. In the trace, `$NAME`, `$CWD`, `$FILE`, `$DIRECTORY` and `$ROOT`
+// replace the name and the paths.
+fn resolve_in_dynamic_type_root(target: &str, module: bool) -> (String, Vec<String>) {
+    const CWD: &str = "^/~ts-uri~/custom/ts-nul-authority/";
+    const NAME: &str = "~ts-uri-escape~thing.d.ts";
+    let fs = vfstest::from_map(
+        [
+            (format!("{DYNAMIC_TYPE_ROOT}/keep"), ""),
+            (target.to_string(), "declare const value: number;"),
+        ],
+        true,
+    );
+    let resolver = new_resolver(ResolverOptions::new(
+        host(fs, CWD),
+        P::new(CompilerOptions {
+            module_resolution: ModuleResolutionKind::BUNDLER,
+            type_roots: Some(vec![DYNAMIC_TYPE_ROOT.to_string()]),
+            trace_resolution: Tristate::True,
+            ..Default::default()
+        }),
+    ));
+    let source = format!("{CWD}a.ts");
+    let (resolved, trace) = if module {
+        let (resolved, trace) =
+            resolver.resolve_module_name(NAME, &source, ModuleKind::COMMON_JS, None).unwrap();
+        (resolved.resolved_file_name.to_string(), trace)
+    } else {
+        let (resolved, trace) =
+            resolver.resolve_type_reference_directive(NAME, &source, ModuleKind::COMMON_JS, None);
+        (resolved.resolved_file_name.to_string(), trace)
+    };
+    let directory = DYNAMIC_TYPE_ROOT_INDEX.strip_suffix("/index.d.ts").unwrap();
+    let trace = trace
+        .iter()
+        .map(|t| {
+            format!("{}|{}", t.message.key(), t.args.join("|"))
+                .replace(DYNAMIC_TYPE_ROOT_FILE, "$FILE")
+                .replace(directory, "$DIRECTORY")
+                .replace(DYNAMIC_TYPE_ROOT, "$ROOT")
+                .replace(CWD, "$CWD/")
+                .replace(NAME, "$NAME")
+        })
+        .collect();
+    (resolved, trace)
+}
+
+fn trace_lines(expected: &str) -> Vec<String> {
+    expected.lines().map(str::trim).filter(|line| !line.is_empty()).map(String::from).collect()
+}
+
+#[test]
+fn test_dynamic_type_root_directory_uses_directory_encoding() {
+    let (resolved, trace) = resolve_in_dynamic_type_root(DYNAMIC_TYPE_ROOT_INDEX, false);
+    assert_eq!(resolved, DYNAMIC_TYPE_ROOT_INDEX);
+    assert_eq!(
+        trace,
+        trace_lines(
+            "
+            Resolving_type_reference_directive_0_containing_file_1_root_directory_2_6116|$NAME|$CWD/a.ts|$ROOT
+            Resolving_with_primary_search_path_0_6121|$ROOT
+            File_name_0_has_a_1_extension_stripping_it_6132|$FILE|.d.ts
+            File_0_does_not_exist_6096|$FILE
+            File_0_does_not_exist_6096|$FILE.d.ts
+            File_0_does_not_exist_6096|$DIRECTORY/package.json
+            File_0_exists_use_it_as_a_name_resolution_result_6097|$DIRECTORY/index.d.ts
+            Resolving_real_path_for_0_result_1_6130|$DIRECTORY/index.d.ts|$DIRECTORY/index.d.ts
+            Type_reference_directive_0_was_successfully_resolved_to_1_primary_Colon_2_6119|$NAME|$DIRECTORY/index.d.ts|true
+            "
+        )
+    );
+}
+
+#[test]
+fn test_dynamic_type_root_file_uses_file_encoding() {
+    let (resolved, trace) = resolve_in_dynamic_type_root(DYNAMIC_TYPE_ROOT_FILE, false);
+    assert_eq!(resolved, DYNAMIC_TYPE_ROOT_FILE);
+    assert_eq!(
+        trace,
+        trace_lines(
+            "
+            Resolving_type_reference_directive_0_containing_file_1_root_directory_2_6116|$NAME|$CWD/a.ts|$ROOT
+            Resolving_with_primary_search_path_0_6121|$ROOT
+            File_name_0_has_a_1_extension_stripping_it_6132|$FILE|.d.ts
+            File_0_exists_use_it_as_a_name_resolution_result_6097|$FILE
+            Resolving_real_path_for_0_result_1_6130|$FILE|$FILE
+            Type_reference_directive_0_was_successfully_resolved_to_1_primary_Colon_2_6119|$NAME|$FILE|true
+            "
+        )
+    );
+}
+
+// Go `resolveFromTypeRoot` (resolver.go:678): the module resolution fallback builds the same candidate.
+#[test]
+fn test_dynamic_type_root_module_fallback_uses_directory_encoding() {
+    let (resolved, trace) = resolve_in_dynamic_type_root(DYNAMIC_TYPE_ROOT_INDEX, true);
+    assert_eq!(resolved, DYNAMIC_TYPE_ROOT_INDEX);
+    assert_eq!(
+        trace,
+        trace_lines(
+            "
+            Resolving_module_0_from_1_6086|$NAME|$CWD/a.ts
+            Explicitly_specified_module_resolution_kind_Colon_0_6087|Bundler
+            Resolving_in_0_mode_with_conditions_1_6402|CJS|'require', 'types'
+            File_0_does_not_exist_6096|$CWD/package.json
+            Loading_module_0_from_node_modules_folder_target_file_types_Colon_1_6098|$NAME|TypeScript, JavaScript, Declaration, JSON
+            Searching_all_ancestor_node_modules_directories_for_preferred_extensions_Colon_0_6417|TypeScript, Declaration
+            Directory_0_does_not_exist_skipping_all_lookups_in_it_6148|$CWD/node_modules
+            Searching_all_ancestor_node_modules_directories_for_fallback_extensions_Colon_0_6418|JavaScript, JSON
+            Directory_0_does_not_exist_skipping_all_lookups_in_it_6148|$CWD/node_modules
+            File_name_0_has_a_1_extension_stripping_it_6132|$FILE|.d.ts
+            File_0_does_not_exist_6096|$FILE
+            File_0_does_not_exist_6096|$FILE.d.ts
+            File_0_does_not_exist_6096|$DIRECTORY/package.json
+            File_0_exists_use_it_as_a_name_resolution_result_6097|$DIRECTORY/index.d.ts
+            Module_name_0_was_successfully_resolved_to_1_6089|$NAME|$DIRECTORY/index.d.ts
+            "
+        )
+    );
 }
 
 #[test]

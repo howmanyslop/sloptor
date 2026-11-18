@@ -3226,8 +3226,7 @@ impl Parser {
             expression_text,
             VIABLE_KEYWORD_SUGGESTIONS.iter().copied(),
         )
-        .map(std::string::ToString::to_string)
-        .unwrap_or_default();
+        .map_or_default(std::string::ToString::to_string);
         if suggestion.is_empty() {
             suggestion = get_space_suggestion(expression_text);
         }

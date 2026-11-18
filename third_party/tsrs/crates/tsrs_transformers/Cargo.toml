@@ -1,10 +1,16 @@
 [package]
 name = "tsrs_transformers"
-version.workspace = true
+version = "7.1.0-beta.tsrs3"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
+categories.workspace = true
+keywords.workspace = true
+repository.workspace = true
+readme.workspace = true
+include = ["/src", "/build.rs", "/LICENSE", "/NOTICE"]
+description = "TypeScript and JavaScript transforms for tsrs"
 
 [lints]
 workspace = true
@@ -21,9 +27,7 @@ rustc-hash.workspace = true
 bitflags.workspace = true
 
 [dev-dependencies]
-tsrs_compiler.workspace = true
 tsrs_parser.workspace = true
-tsrs_vfs.workspace = true
 
 [lib]
 test = false

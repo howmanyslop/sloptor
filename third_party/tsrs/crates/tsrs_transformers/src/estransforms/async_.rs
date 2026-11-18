@@ -1273,13 +1273,10 @@ pub fn is_update_expression(node: P<Node>) -> bool {
 // isSimpleParameterList checks if every parameter has no initializer and an Identifier name.
 // async.go:963
 pub fn is_simple_parameter_list(params: &[P<Node>]) -> bool {
-    if params.iter().any(|&param| {
+    !params.iter().any(|&param| {
         let p = param.as_parameter_declaration();
         p.initializer().is_some() || !ast::is_identifier(p.name())
-    }) {
-        return false;
-    }
-    true
+    })
 }
 
 // isNodeWithPossibleHoistedDeclaration checks if a node could contain hoisted declarations.

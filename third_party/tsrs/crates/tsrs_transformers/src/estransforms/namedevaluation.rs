@@ -34,15 +34,11 @@ pub fn is_class_named_evaluation_helper_block(emit_context: P<EmitContext>, node
  * @internal
  */
 pub fn class_has_explicitly_assigned_name(emit_context: P<EmitContext>, node: P<Node>) -> bool {
-    if emit_context.assigned_name(node).is_some()
+    emit_context.assigned_name(node).is_some()
         && node
             .members()
             .iter()
             .any(|&member| is_class_named_evaluation_helper_block(emit_context, member))
-    {
-        return true;
-    }
-    false
 }
 
 // namedevaluation.go:54

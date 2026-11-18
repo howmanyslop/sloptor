@@ -1,5 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readlinkSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
+import { platform, tmpdir } from "node:os";
 import path from "node:path";
 import { describe, it } from "vitest";
 
@@ -135,6 +144,19 @@ describe("trimWorkspaceManifest", () => {
 		expect(trimmed).not.toMatch(/profile/u);
 		expect(trimmed).toMatch(/members = \["crates\/tsrs_a"\]/u);
 	});
+
+	it("drops uncopied crates whose entry has a version before the path", ({ expect }) => {
+		expect.assertions(2);
+
+		const manifest = `[workspace.dependencies]
+tsrs_a = { version = "1.2.3", path = "crates/tsrs_a" }
+tsrs_b = { version = "1.2.3", path = "crates/tsrs_b" }
+`;
+		const trimmed = trimWorkspaceManifest(manifest, ["tsrs_a"]);
+
+		expect(trimmed).toMatch(/tsrs_a = \{ version = "1\.2\.3", path/u);
+		expect(trimmed).not.toMatch(/tsrs_b/u);
+	});
 });
 
 describe("mirror", () => {
@@ -176,6 +198,30 @@ describe("mirror", () => {
 		expect(result.notes).toMatch(/v9\.9\.9/u);
 		expect(result.notes).toMatch(/0002-second\.patch/u);
 		expect(result.packages).toStrictEqual(["tsrs_a", "tsrs_b"]);
+	});
+
+	// Upstream crates link LICENSE and NOTICE to the workspace root with
+	// relative symlinks. A copy that resolves them points back at the checkout.
+	it.skipIf(platform() === "win32")("keeps relative symlinks relative", ({ expect }) => {
+		expect.assertions(2);
+
+		const result = inFixture((root, source) => {
+			symlinkSync("../../LICENSE", path.join(source, "crates/tsrs_a/LICENSE"));
+			const out = path.join(root, "out-links");
+			mirror({
+				commit: "x",
+				out,
+				patchesDirectory: path.join(root, "patches"),
+				roots: ["tsrs_a"],
+				source,
+				tag: "y",
+			});
+			const link = path.join(out, "crates/tsrs_a/LICENSE");
+			return { content: readFileSync(link, "utf8"), target: readlinkSync(link) };
+		});
+
+		expect(result.target).toBe("../../LICENSE");
+		expect(result.content).toBe("license text\n");
 	});
 
 	it("replaces a previous mirror instead of merging into it", ({ expect }) => {

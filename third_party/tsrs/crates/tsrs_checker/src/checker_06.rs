@@ -2160,7 +2160,7 @@ impl Checker {
             return callback(self, prop);
         }
         let types = self.value_symbol_links.get(prop).containing_type().unwrap().types();
-        if types.iter().any(|&t| {
+        types.iter().any(|&t| {
             let p = self.get_property_of_type(t, prop.name());
             if let Some(p) = p
                 && self.for_each_property_worker(p, callback)
@@ -2169,10 +2169,7 @@ impl Checker {
             }
 
             false
-        }) {
-            return true;
-        }
-        false
+        })
     }
 
     // Return the declaring class type of a property or undefined if property not declared in class

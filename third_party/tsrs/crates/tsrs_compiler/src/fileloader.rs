@@ -111,8 +111,16 @@ pub struct RedirectsFile {
 #[derive(Clone, Debug)]
 pub struct DuplicateSourceFile {
     pub parse_options: SourceFileParseOptions,
+    // ContentMapperParseOptions are the acquire-time options for a content-mapped parse-cache entry.
+    pub content_mapper_parse_options: SourceFileParseOptions,
     pub hash: u128,
     pub script_kind: ScriptKind,
+    // ContentMapper is the identity of the content mapper that produced this file,
+    // or "" if the file is not content-mapped.
+    pub content_mapper: &'static str,
+    // IsContentMapperFailureStub reports whether the file is an empty placeholder
+    // from a failed transform.
+    pub is_content_mapper_failure_stub: bool,
 }
 
 #[derive(Default)]
@@ -263,16 +271,9 @@ pub(crate) fn process_all_program_files(
     let roots_start = tsrs_core::phases::Timer::new(compiler_options.diagnostics_enabled());
     // The lookups (a file_exists per root file) are independent; tasks are still created in root order.
     let curr_dir = host.get_current_directory().to_string();
-    let containing_file = match &loader.opts.config.config_file {
-        Some(config_file) => {
-            tspath::get_normalized_absolute_path(config_file.source_file.file_name(), &curr_dir)
-        }
-        None => curr_dir.clone(),
-    };
     let lookup = |root_file: &String| {
         let _regions = crate::programregions::enter(opts.regions.as_deref());
         let abs_path = tspath::get_normalized_absolute_path(root_file, &curr_dir);
-        // A root file reason is never a referenced-file reason, which is all the lookup asks of it.
         let looked_up = source_file_from_reference(
             &compiler_options,
             host.fs(),
@@ -280,8 +281,6 @@ pub(crate) fn process_all_program_files(
             &loader.supported_extensions_with_json_if_resolve_json_module,
             &abs_path,
             root_file,
-            &containing_file,
-            false,
         );
         // The task's path, which `filesParser::start` would otherwise compute from the task's file name on this thread.
         let name = if looked_up.1.is_some() { &abs_path } else { &looked_up.0 };
@@ -479,7 +478,7 @@ impl FileLoader {
                 let mut reason =
                     FileIncludeReason::new(FileIncludeKind::AutomaticTypeDirectiveFile);
                 reason.automatic_type_directive = Some(P::new(AutomaticTypeDirectiveFileData {
-                    type_reference: name.clone(),
+                    type_reference: name,
                     package_id: resolved.package_id,
                 }));
                 to_parse.push(ResolvedRef {
@@ -500,7 +499,7 @@ impl FileLoader {
                     file: None,
                     diagnostic_reason: Some(P::new(reason)),
                     message: &diagnostics::CANNOT_FIND_TYPE_DEFINITION_FILE_FOR_0,
-                    args: vec![name.clone()],
+                    args: vec![name],
                 }));
             }
         }
@@ -1216,7 +1215,6 @@ fn tripleslash_reference_lookup(
         referenced_file_name = tspath::combine_paths(&base_path, &[module_name]);
     }
     let normalized_file_name = tspath::normalize_path(&referenced_file_name);
-    // The include reason of a triple-slash reference is a referenced-file reason.
     let looked_up = source_file_from_reference(
         &ctx.opts.config.compiler_options().unwrap(),
         ctx.host.fs(),
@@ -1224,8 +1222,6 @@ fn tripleslash_reference_lookup(
         ctx.supported_extensions_with_json,
         &normalized_file_name,
         module_name,
-        containing_file,
-        true,
     );
     (normalized_file_name, looked_up)
 }
@@ -1407,9 +1403,10 @@ impl FileLoader {
         index: usize,
         prefetched: Option<(String, Option<SourceFileFromReferenceDiagnostic>)>,
     ) -> Result<ResolvedRef, ProcessingDiagnostic> {
+        let containing_path = self.to_path(containing_file);
         let include_reason = FileIncludeReason::new_referenced(
             FileIncludeKind::ReferenceFile,
-            tsrs_core::alloc_str(self.to_path(containing_file).as_str()),
+            tsrs_core::alloc_str(containing_path.as_str()),
             Some(index),
             None,
         );
@@ -1427,6 +1424,16 @@ impl FileLoader {
                 diagnostic_reason: Some(include_reason),
                 message: diagnostic.message,
                 args: diagnostic.args,
+            }));
+        }
+        // Go compares the paths after every successful lookup, including a name that got its extension from the
+        // supported-extensions loop.
+        if self.to_path(&resolved_file_name) == containing_path {
+            return Err(ProcessingDiagnostic::explaining(IncludeExplainingDiagnostic {
+                file: None,
+                diagnostic_reason: Some(include_reason),
+                message: &diagnostics::A_FILE_CANNOT_HAVE_A_REFERENCE_TO_ITSELF,
+                args: vec![],
             }));
         }
 
@@ -1723,17 +1730,7 @@ impl FileLoader {
     }
 
     fn create_synthetic_import(&self, text: &str, file: P<SourceFile>) -> P<Node> {
-        let external_helpers_module_reference =
-            self.factory.new_string_literal(tsrs_core::alloc_str(text), TokenFlags::None);
-        let import_decl = self.factory.new_import_declaration(
-            None,
-            None,
-            external_helpers_module_reference,
-            None,
-        );
-        external_helpers_module_reference.set_parent(Some(import_decl));
-        import_decl.set_parent(Some(file.as_node()));
-        external_helpers_module_reference
+        new_synthetic_import(&self.factory, text, file)
     }
 
     pub(crate) fn path_for_lib_file(&mut self, name: &str) -> P<LibFile> {
@@ -1865,6 +1862,21 @@ impl FileLoader {
     }
 }
 
+// fileloader.go:641 createSyntheticImport.
+pub(crate) fn new_synthetic_import(
+    factory: &NodeFactory,
+    text: &str,
+    file: P<SourceFile>,
+) -> P<Node> {
+    let external_helpers_module_reference =
+        factory.new_string_literal(tsrs_core::alloc_str(text), TokenFlags::None);
+    let import_decl =
+        factory.new_import_declaration(None, None, external_helpers_module_reference, None);
+    external_helpers_module_reference.set_parent(Some(import_decl));
+    import_decl.set_parent(Some(file.as_node()));
+    external_helpers_module_reference
+}
+
 // The part of resolveImportsAndModuleAugmentations that decides whether the file a resolved import names is added
 // to the program, and whether that sub task is elided past maxNodeModuleJsDepth (`isJsFileFromNodeModules`).
 // The speculative parse (filesParser::prefetch) asks the same question.
@@ -1917,7 +1929,7 @@ fn resolved_import_sub_task(
     (should_add_file, is_js_file_from_node_modules)
 }
 
-// fileLoader.getSourceFileFromReference; `is_referenced_file_reason` is what it asks of the include reason.
+// fileLoader.getSourceFileFromReference.
 fn source_file_from_reference(
     options: &CompilerOptions,
     fs: &dyn tsrs_vfs::FS,
@@ -1925,8 +1937,6 @@ fn source_file_from_reference(
     supported_extensions_with_json: &[Vec<String>],
     file_name: &str,
     reference_text: &str,
-    containing_file: &str,
-    is_referenced_file_reason: bool,
 ) -> (String, Option<SourceFileFromReferenceDiagnostic>) {
     let allow_non_ts_extensions = options.allow_non_ts_extensions.is_true();
     let diagnostic_file_name = tspath::normalize_slashes(reference_text);
@@ -1969,19 +1979,6 @@ fn source_file_from_reference(
                 Some(SourceFileFromReferenceDiagnostic {
                     message: &diagnostics::FILE_0_NOT_FOUND,
                     args: vec![diagnostic_file_name],
-                }),
-            );
-        }
-
-        if is_referenced_file_reason
-            && tspath::get_canonical_file_name(containing_file, fs.use_case_sensitive_file_names())
-                == canonical_file_name
-        {
-            return (
-                String::new(),
-                Some(SourceFileFromReferenceDiagnostic {
-                    message: &diagnostics::A_FILE_CANNOT_HAVE_A_REFERENCE_TO_ITSELF,
-                    args: vec![],
                 }),
             );
         }

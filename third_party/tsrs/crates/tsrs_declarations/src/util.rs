@@ -110,10 +110,7 @@ pub fn is_enclosing_declaration(node: P<Node>) -> bool {
 
 // util.go:122
 pub fn is_always_type(node: P<Node>) -> bool {
-    if node.kind() == Kind::InterfaceDeclaration {
-        return true;
-    }
-    false
+    node.kind() == Kind::InterfaceDeclaration
 }
 
 // util.go:129

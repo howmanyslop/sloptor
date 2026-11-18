@@ -584,7 +584,7 @@ impl Checker {
         let index_symbol = self.get_index_symbol(symbol);
         if let Some(index_symbol) = index_symbol {
             let members = self.get_members_of_symbol(symbol);
-            let sibling_symbols = members.map(|m| m.values()).unwrap_or_default();
+            let sibling_symbols = members.map_or_default(|m| m.values());
             return self.get_index_infos_of_index_symbol(index_symbol, &sibling_symbols);
         }
         Vec::new()
@@ -2208,7 +2208,7 @@ impl Checker {
         }
         let index_symbol = members.and_then(|m| m.lookup(INTERNAL_SYMBOL_NAME_INDEX));
         if let Some(index_symbol) = index_symbol {
-            let values = members.map(|m| m.values()).unwrap_or_default();
+            let values = members.map_or_default(|m| m.values());
             index_infos = self.get_index_infos_of_index_symbol(index_symbol, &values);
         } else {
             if let Some(info) = base_constructor_index_info {

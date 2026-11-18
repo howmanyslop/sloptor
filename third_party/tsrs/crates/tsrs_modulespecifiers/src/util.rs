@@ -52,15 +52,12 @@ pub(crate) fn path_is_bare_specifier(path: &str) -> bool {
 
 // util.go:46
 pub fn is_excluded_by_regex(module_specifier: &str, excludes: &[String]) -> bool {
-    if excludes.iter().any(|pattern| {
+    excludes.iter().any(|pattern| {
         let Some(re) = string_to_regex(pattern) else {
             return false;
         };
         re.is_match(module_specifier)
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 // util.go:59
@@ -208,16 +205,13 @@ pub(crate) fn try_get_any_file_from_path(
         Some(&CompilerOptions { allow_js: Tristate::True, ..Default::default() }),
         &[".node".to_string(), ".json".to_string()],
     );
-    if ext_groups.iter().flatten().any(|e| {
+    ext_groups.iter().flatten().any(|e| {
         let full_path = format!("{path}{e}");
         host.file_exists(&tspath::get_normalized_absolute_path(
             &full_path,
             host.get_current_directory(),
         ))
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 // util.go:214

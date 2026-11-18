@@ -1325,8 +1325,7 @@ impl RegExpParser {
             name,
             NON_BINARY_UNICODE_PROPERTIES.iter().map(|&(k, _)| k),
         )
-        .map(std::string::ToString::to_string)
-        .unwrap_or_default()
+        .map_or_default(std::string::ToString::to_string)
     }
 
     fn get_spelling_suggestion_for_unicode_property_value(
@@ -1339,8 +1338,7 @@ impl RegExpParser {
             return String::new();
         };
         tsrs_core::get_spelling_suggestion_for_strings(value, values.iter().copied())
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default()
+            .map_or_default(std::string::ToString::to_string)
     }
 
     fn get_spelling_suggestion_for_unicode_property_name_or_value(name: &str) -> String {
@@ -1352,8 +1350,7 @@ impl RegExpParser {
                 .chain(BINARY_UNICODE_PROPERTIES.iter().copied())
                 .chain(BINARY_UNICODE_PROPERTIES_OF_STRINGS.iter().copied()),
         )
-        .map(std::string::ToString::to_string)
-        .unwrap_or_default()
+        .map_or_default(std::string::ToString::to_string)
     }
 
     fn scan_word_characters(&mut self) -> &'static str {
@@ -1455,8 +1452,7 @@ impl RegExpParser {
                         reference.name,
                         self.group_specifiers_order.iter().copied(),
                     )
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_default();
+                    .map_or_default(std::string::ToString::to_string);
                     if !suggestion.is_empty() {
                         self.error(
                             &diagnostics::DID_YOU_MEAN_0,

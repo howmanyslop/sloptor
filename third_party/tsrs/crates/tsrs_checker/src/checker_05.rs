@@ -228,15 +228,12 @@ pub fn some_signature(
     signatures: &[P<Signature>],
     mut f: impl FnMut(P<Signature>) -> bool,
 ) -> bool {
-    if signatures.iter().any(|&sig| {
+    signatures.iter().any(|&sig| {
         let composite = sig.composite();
         composite.is_some_and(|composite| {
             composite.is_union.get() && composite.signatures.get().iter().any(|&s| f(s))
         }) || composite.is_none() && f(sig)
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 impl Checker {

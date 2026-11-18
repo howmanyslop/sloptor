@@ -183,8 +183,7 @@ pub fn get_referenced_location(
             let specifier = specifier.unwrap();
             let package_id = program
                 .get_resolved_module_from_module_specifier(file, specifier)
-                .map(|r| r.package_id)
-                .unwrap_or_default();
+                .map_or_default(|r| r.package_id);
             ReferenceFileLocation {
                 file,
                 node: Some(specifier),

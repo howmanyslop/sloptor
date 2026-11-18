@@ -454,7 +454,7 @@ impl CKey {
         match self {
             CKey::None => "-".to_string(),
             CKey::Root(root) => {
-                let node_part = root.node.get().map(node_label).unwrap_or_default();
+                let node_part = root.node.get().map_or_default(node_label);
                 match root.alias.get().and_then(|a| a.symbol()) {
                     Some(s) => format!("alias {} | {node_part}", s.name()),
                     None => format!("(no alias) {node_part}"),

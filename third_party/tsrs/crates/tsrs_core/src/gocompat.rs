@@ -108,6 +108,23 @@ pub fn quote(b: &[u8], style: QuoteStyle) -> String {
     out.push('"');
     out
 }
+/// Go `strings.ToValidUTF8(s, "�")`: each run of invalid bytes becomes one U+FFFD, where
+/// `String::from_utf8_lossy` writes one per maximal invalid subsequence.
+pub fn to_valid_utf8(b: &[u8]) -> String {
+    let mut out = String::with_capacity(b.len());
+    let mut in_invalid_run = false;
+    for chunk in b.utf8_chunks() {
+        if !chunk.valid().is_empty() {
+            out.push_str(chunk.valid());
+            in_invalid_run = false;
+        }
+        if !chunk.invalid().is_empty() && !in_invalid_run {
+            out.push('\u{FFFD}');
+            in_invalid_run = true;
+        }
+    }
+    out
+}
 pub fn parse_int64(b: &[u8], style: QuoteStyle) -> Result<i64, String> {
     let digits = b.strip_prefix(b"+").or_else(|| b.strip_prefix(b"-")).unwrap_or(b);
     let error = if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {

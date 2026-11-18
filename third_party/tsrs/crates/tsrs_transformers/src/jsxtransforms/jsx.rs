@@ -721,15 +721,12 @@ impl JSXTransformer {
 
 // jsx.go:481
 fn has_proto(obj: P<Node>) -> bool {
-    if obj.properties().iter().any(|p| {
+    obj.properties().iter().any(|p| {
         let p = *p;
         ast::is_property_assignment(p)
             && (ast::is_string_literal(p.name().unwrap()) || ast::is_identifier(p.name().unwrap()))
             && p.name().unwrap().text() == "__proto__"
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 impl JSXTransformer {
