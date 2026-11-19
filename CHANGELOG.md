@@ -1,5 +1,31 @@
 All notable changes to sloptor are documented here.
 
+## [v3.0.0-beta.5] - 2026-11-19
+
+The CLI moves to a new parser, so usage errors now exit 2 and the help and completion scripts change. Two build fixes ship alongside, and building from source now needs Rust 1.100.0 (was 1.99.1).
+
+### ⚠️ Breaking Changes
+
+- **sloptor build**: Usage errors from any command now exit 2 instead of 1, including a bare `sloptor`. Scripts that match exit code 1 for usage errors must match 2. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+- **sloptor build**: Boolean flags accept only lowercase `true` or `false` after `=`, so `--luau=1` and `--luau=TRUE` now exit 2. Write `--luau=true` instead; `--luau=1` was read as a boolean before. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+
+### 🚀 Added
+
+- **sloptor completion**: `--install` writes the script where the shell looks for it, as in `sloptor completion zsh --install`, and `nu` is now a supported shell. Previously there was no install step and no `nu` script. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+
+### 🐞 Fixed
+
+- **sloptor build**: Cold-cache builds of several projects no longer fail while extracting the sidecar, and `--watch` rebuilds no longer read freed declarations. Previously extraction failed with `ENOENT` or `directory not empty`, and a later project could read freed memory. - by @howmanysmall in [#195](https://github.com/howmanyslop/sloptor/pull/195) and [#196](https://github.com/howmanyslop/sloptor/pull/196)
+
+### 🔧 Changed
+
+- **sloptor build**: Help pages open with a version banner, and `--help` adds the examples to the `-h` page. Usage errors now print usage's `error:` layout with the command's `Usage:` line, where clap printed its own. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+- **sloptor completion**: Installed scripts ask sloptor for candidates on every Tab instead of listing commands and flags, so regenerate any script an older sloptor wrote with `sloptor completion <shell>`. Previously the static script went stale after an upgrade. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+
+### 🗑️ Removed
+
+- **sloptor build**: `--cpuprofile`, `--trace-out`, `--blockprofile`, `--mutexprofile` and `--heapprofile` are gone, so remove them from scripts. Previously they were accepted, then the build failed before compiling. - by @howmanysmall in [#192](https://github.com/howmanyslop/sloptor/pull/192)
+
 ## [v3.0.0-beta.4] - 2026-11-07
 
 This release changes the Luau emitted for `new Array(n)` when `optimizedArrayAppends` is on, and fixes slow builds with `luauTypes`. Projects that leave `optimizedArrayAppends` unset see no change.
@@ -386,6 +412,7 @@ No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/
 
 No release notes. See the [tag](https://github.com/howmanyslop/sloptor/releases/tag/v2.2.1-fork.4).
 
+[v3.0.0-beta.5]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.4...v3.0.0-beta.5
 [v3.0.0-beta.4]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.3...v3.0.0-beta.4
 [v3.0.0-beta.3]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.2...v3.0.0-beta.3
 [v3.0.0-beta.2]: https://github.com/howmanyslop/sloptor/compare/v3.0.0-beta.1...v3.0.0-beta.2
