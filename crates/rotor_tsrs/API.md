@@ -1014,7 +1014,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 | `checker` | method | `Checker.GetExportsOfModule` | 2 (jecs,transformer) | `Checker::get_exports_of_module_exported` | `rotor_tsrs::checker::TypeChecker::get_exports_of_module` |
 | `checker` | method | `Checker.GetGlobalSymbol` | 2 (transformer) | `Checker::get_global_symbol_exported` | `rotor_tsrs::checker::TypeChecker::get_global_symbol` |
 | `checker` | method | `Checker.GetIndexInfosOfType` | 6 (flamework,transformer) | `Checker::get_index_infos_of_type_exported` | `rotor_tsrs::checker::TypeChecker::get_index_infos_of_type` |
-| `checker` | method | `Checker.GetIndexTypeOfType` | 1 (transformer) | Checker::get_index_type_of_type (0001 patch) | `rotor_tsrs::checker::TypeChecker::get_index_type_of_type` |
+| `checker` | method | `Checker.GetIndexTypeOfType` | 1 (transformer) | Checker::get_index_type_of_type | `rotor_tsrs::checker::TypeChecker::get_index_type_of_type` |
 | `checker` | method | `Checker.GetLocalTypeParametersOfClassOrInterfaceOrTypeAlias` | 2 (transformer) | `Checker::get_local_type_parameters_of_class_or_interface_or_type_alias_exported` | `rotor_tsrs::checker::TypeChecker::get_local_type_parameters_of_class_or_interface_or_type_alias` |
 | `checker` | method | `Checker.GetMergedSymbol` | 7 (flamework,transformer) | `Checker::get_merged_symbol_exported` | `rotor_tsrs::checker::TypeChecker::get_merged_symbol` |
 | `checker` | method | `Checker.GetNonNullableType` | 6 (flamework,transformer) | `Checker::get_non_nullable_type` | `rotor_tsrs::checker::TypeChecker::get_non_nullable_type` |
