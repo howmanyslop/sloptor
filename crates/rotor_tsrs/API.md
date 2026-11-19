@@ -18,7 +18,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 - 1441 APIs over 8894 reference sites: **1323 covered**, **118 missing**.
 - 113 of the missing are LSP protocol, JSON-RPC, language-service and watcher APIs. tsrs vendors no such crates, and
   they belong to Stage 7 (`rotor_lsp`, `rotor_cli`).
-- The other 5 are rotor-only tsgo patches or APIs tsrs 0.20.1 does not have; each row gives the reason.
+- The other 5 are rotor-only tsgo patches or APIs tsrs 7.1.0-beta.tsrs3 does not have; each row gives the reason.
 
 | Package | Count |
 |---|---|
@@ -1152,7 +1152,7 @@ Every typescript-go API that non-mirrored Go code calls, mapped to tsrs and to i
 | `compiler` | method | `Program.GetResolvedModule` | 2 (jecs,transformer) | `Program::get_resolved_module` | `rotor_tsrs::compiler::Program::get_resolved_module` |
 | `compiler` | method | `Program.GetResolvedModuleFromModuleSpecifier` | 1 (flamework) | `Program::get_resolved_module_from_module_specifier` | `rotor_tsrs::compiler::Program::get_resolved_module_from_module_specifier` |
 | `compiler` | method | `Program.GetResolvedModules` | 2 (compile,jecs) | `Program::get_resolved_modules` | `rotor_tsrs::compiler::Program::get_resolved_modules` |
-| `compiler` | method | `Program.GetResolvedProjectReferenceFor` | 1 (compile) | — | missing: not in tsrs 0.20.1; Stage 5 can find it in Program::get_resolved_project_references |
+| `compiler` | method | `Program.GetResolvedProjectReferenceFor` | 1 (compile) | — | missing: not in tsrs 7.1.0-beta.tsrs3; Stage 5 can find it in Program::get_resolved_project_references |
 | `compiler` | method | `Program.GetResolvedProjectReferences` | 1 (compile) | `Program::get_resolved_project_references` | `rotor_tsrs::compiler::Program::get_resolved_project_references` |
 | `compiler` | method | `Program.GetResolvedTypeReferenceDirectives` | 1 (compile) | `Program::get_resolved_type_reference_directives` | `rotor_tsrs::compiler::Program::get_resolved_type_reference_directives` |
 | `compiler` | method | `Program.GetSemanticDiagnostics` | 1 (compile) | `Program::get_semantic_diagnostics` | `rotor_tsrs::compiler::Program::get_semantic_diagnostics` |

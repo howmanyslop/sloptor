@@ -132,7 +132,11 @@ impl ProgramOptions {
             canonical_diagnostics: true,
             checker_regions: false,
             checker_diagnostic_regions: false,
-            regions: config.regions.map(|_| Arc::default()),
+            // rotor: a program built again in full loads into the regions of the program it replaces, which that
+            // program's creator owns and frees after both (rotor_tsrs `ProgramScope`). Upstream gives it regions of its
+            // own, which nothing but the new program holds: `free_program` would free them before its checkers, and
+            // under the parses its host handed to a cache other programs read (rotor_compile `SolutionCompileCache`).
+            regions: config.regions,
             reuse_synthetic_imports: false,
             checker_count: config.checker_count,
         }

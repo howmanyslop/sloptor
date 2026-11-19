@@ -898,6 +898,10 @@ pub fn update_with_overlays_checkers(
 		let (next, _, kept) = derived.update_program_with_checkers(&path, Arc::clone(&host), None, None, checkers);
 		if !std::ptr::eq(next, derived) {
 			track_program(next, !kept);
+			// Outside a long-lived session nothing is freed, and every file binds below, in Go's order.
+			if !kept && long_lived() {
+				bind_rebuilt(next);
+			}
 		}
 		derived = next;
 		reused &= kept;
@@ -928,6 +932,15 @@ fn bind_outside_checkers(program: &'static Program) {
 	}
 }
 
+/// Binds the files of a program an update built again in full, as [`load_project_in_cached`]
+/// binds a loaded one: in the program's loader regions, where its loader parsed them. A
+/// single-threaded loader leaves its files unbound, and a declaration it parsed for a
+/// [`SourceFileCache`] is read by later programs after this thread's [`ProgramScope`] is gone, so
+/// its symbols may not go to the scope's region.
+fn bind_rebuilt(program: &'static Program) {
+	program.bind_source_files();
+}
+
 /// Derives a program from `program` whose files at `changed` are asked of `host` again, in that
 /// order (Go `Program.UpdateProgramFilesWithCheckers`, through tsrs's
 /// `update_program_files_with_checkers`).
@@ -945,7 +958,11 @@ pub fn update_program_files(
 	let (derived, reused) = program.update_program_files_with_checkers(changed, host, None, checkers);
 	if !std::ptr::eq(derived, program) {
 		track_program(derived, !reused);
-		bind_outside_checkers(derived);
+		if reused {
+			bind_outside_checkers(derived);
+		} else {
+			bind_rebuilt(derived);
+		}
 	}
 	(derived, reused)
 }

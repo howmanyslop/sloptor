@@ -1,5 +1,6 @@
 //! `solution_cache_test.go`.
 
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
@@ -9,7 +10,8 @@ use rotor_tsrs::tscore::ScriptKind;
 
 use super::solution::{join, write_solution_config};
 use super::{NO_LIB_GLOBAL_STUBS, Temp, large_stack};
-use crate::project::ProjectOptions;
+use crate::flamework_program_update::update_program_with_text_overlays;
+use crate::project::{ProjectOptions, new_project_program_with_options};
 use crate::solution_cache::{SolutionCompileCache, cacheable_parse_name};
 use crate::solution_drain::build_solution_with_options;
 use crate::timings::BuildTimings;
@@ -118,4 +120,86 @@ fn solution_parse_cache_hits_shared_declarations() {
 		counts.parse_cache_hits != 0,
 		"parse cache hits = 0, want the second project to reuse the shared declaration"
 	);
+}
+
+/// One project of [`rebuilt_program_declaration_outlives_its_project`]: a config, the global
+/// stubs and `src/main.ts`.
+fn write_late_import_project(temp: &Temp, name: &str, main: &str) -> String {
+	temp.write(&format!("{name}/tsconfig.json"), super::WRITE_PROJECT_TSCONFIG);
+	temp.write(
+		&format!("{name}/package.json"),
+		format!(r#"{{"name":"@scope/{name}"}}"#),
+	);
+	temp.write(&format!("{name}/src/globals.d.ts"), NO_LIB_GLOBAL_STUBS);
+	temp.write(&format!("{name}/src/main.ts"), main);
+	join(&temp.dir(), &[name])
+}
+
+/// A long-lived session frees each project's programs when its build ends, while the drain's
+/// parse cache goes on handing its declarations to the projects that follow. A declaration no
+/// project had loaded, which the first project's program reaches only once an edit makes it
+/// build again in full, must still be readable when the second project asks the cache for it.
+/// Poison mode makes a read of freed memory fault.
+#[test]
+#[expect(
+	unsafe_code,
+	reason = "each project's programs are freed with its scope, as a build frees them"
+)]
+fn rebuilt_program_declaration_outlives_its_project() {
+	const LATE_IMPORT: &str = "import { late } from \"../../shared/late\";\n";
+	rotor_tsrs::tscore::arena::enable_poison_mode();
+	rotor_tsrs::project::set_long_lived(true);
+	// The loader parses on its worker threads, or on the build's own thread when single-threaded.
+	for single_threaded in [false, true] {
+		let temp = Temp::new();
+		temp.write("shared/late.d.ts", "export declare const late: number;\n");
+		let left = write_late_import_project(&temp, "left", "export const value = 1;\n");
+		let right = write_late_import_project(
+			&temp,
+			"right",
+			&format!("{LATE_IMPORT}export const value: string = late;\n"),
+		);
+		let cache = Arc::new(SolutionCompileCache::new());
+		let load = |dir: &str| {
+			let options = ProjectOptions {
+				compile_cache: Some(Arc::clone(&cache)),
+				single_threaded: Some(single_threaded),
+				..ProjectOptions::default()
+			};
+			let (_, program) = new_project_program_with_options(dir, "", &options)
+				.unwrap_or_else(|failure| panic!("{dir}: {} ({:?})", failure.error, failure.messages()));
+			program
+		};
+		let codes = large_stack(|| {
+			{
+				// SAFETY: nothing of the left project's programs is used after this block.
+				let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+				let program = load(&left);
+				let overlays = BTreeMap::from([(
+					join(&left, &["src", "main.ts"]),
+					format!("{LATE_IMPORT}export const value = late;\n"),
+				)]);
+				let (_, reused) =
+					update_program_with_text_overlays(program, &overlays).unwrap_or_else(|error| panic!("{error}"));
+				assert!(
+					!reused,
+					"the import of a file outside the program did not build it again"
+				);
+			}
+			// SAFETY: only the diagnostic codes, plain numbers, leave the scope.
+			let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+			let program = load(&right);
+			let diagnostics = program.get_semantic_diagnostics(&rotor_tsrs::Context::default(), None);
+			diagnostics
+				.iter()
+				.map(|diagnostic| diagnostic.code())
+				.collect::<Vec<i32>>()
+		});
+		// `late` is a number, so the right project's `string` annotation is the one error (TS2322).
+		assert_eq!(
+			codes,
+			[2322],
+			"the right project's semantic diagnostics (single-threaded: {single_threaded})"
+		);
+	}
 }
