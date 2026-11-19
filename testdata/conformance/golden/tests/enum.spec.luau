@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.4
+-- Compiled with sloptor v3.0.0-beta.5
 -- Basic enum test
 local Fruits
 do

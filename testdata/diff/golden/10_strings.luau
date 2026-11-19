@@ -1,4 +1,4 @@
--- Compiled with sloptor v3.0.0-beta.4
+-- Compiled with sloptor v3.0.0-beta.5
 local name = "world"
 local n = 3
 local plain = `no substitution`
