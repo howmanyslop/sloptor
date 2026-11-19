@@ -85,6 +85,56 @@ fn resolve_path_for_module(directory: &str, path: &str, directory_only: bool) ->
     if directory_only { tspath::ensure_trailing_directory_separator(&resolved) } else { resolved }
 }
 
+// resolver.go:48 `resolutionCandidate`. Only the type root lookups use it. File lookups use `as_string`, and
+// directory lookups use `as_directory_path`.
+struct ResolutionCandidate {
+    path: String,
+    // Set when the directory encoding of a name in a dynamic directory differs from its file encoding in `path`.
+    directory_path: Option<String>,
+    directory_only: bool,
+}
+
+impl ResolutionCandidate {
+    // resolver.go:154 `AsString`
+    fn as_string(&self) -> String {
+        if self.directory_only {
+            tspath::ensure_trailing_directory_separator(&self.path)
+        } else {
+            self.path.clone()
+        }
+    }
+
+    // resolver.go:165 `AsDirectoryPath`
+    fn as_directory_path(&self) -> &str {
+        self.directory_path.as_deref().unwrap_or(&self.path)
+    }
+}
+
+// resolver.go:77 `resolutionCandidateFromDirectoryPath` and resolver.go:113 `resolutionCandidateFromEncodedPaths`.
+// The candidate is normalized, so a relative name such as `../../node_modules/foo/index.d.ts` does not keep `..`
+// segments. The dts faking host relies on it.
+fn resolution_candidate_from_directory_path(directory: &str, path: &str) -> ResolutionCandidate {
+    let resolve =
+        |encoded: &str| tspath::normalize_path(&tspath::combine_paths(directory, &[encoded]));
+    let file_path = path_for_dynamic_resolution(directory, path, false);
+    let directory_path = path_for_dynamic_resolution(directory, path, true);
+    if tspath::has_trailing_directory_separator(path) {
+        let mut resolved = resolve(&directory_path);
+        // resolver.go:56: a root keeps its separator.
+        if tspath::has_trailing_directory_separator(&resolved)
+            && resolved.len() > tspath::get_root_length(&resolved)
+        {
+            resolved.pop();
+        }
+        return ResolutionCandidate { path: resolved, directory_path: None, directory_only: true };
+    }
+    ResolutionCandidate {
+        path: resolve(&file_path),
+        directory_path: (directory_path != file_path).then(|| resolve(&directory_path)),
+        directory_only: false,
+    }
+}
+
 fn resolve_dynamic_logical_path(directory: &str, path: &str, directory_only: bool) -> String {
     let path = if directory_only && !path.is_empty() {
         tspath::remove_trailing_directory_separator(path)
@@ -823,7 +873,7 @@ impl<'r> ResolutionState<'r> {
                 if from_config {
                     // Custom typeRoots resolve as file or directory just like we do modules
                     let mut resolved_from_file =
-                        self.load_module_from_file(Extensions::Declaration, &candidate);
+                        self.load_module_from_file(Extensions::Declaration, &candidate.as_string());
                     if let Some(resolved) = resolved_from_file.as_mut() {
                         let package_directory = node_module_package_root_for_file(&resolved.path);
                         if !package_directory.is_empty() {
@@ -838,7 +888,7 @@ impl<'r> ResolutionState<'r> {
                 }
                 let resolved_from_directory = self.load_node_module_from_directory(
                     Extensions::Declaration,
-                    &candidate,
+                    candidate.as_directory_path(),
                     true, /*considerPackageJson*/
                 );
                 if !resolved_from_directory.should_continue_searching() {
@@ -876,7 +926,8 @@ impl<'r> ResolutionState<'r> {
         self.create_resolved_type_reference_directive(resolved, false /*primary*/)
     }
 
-    fn get_candidate_from_type_root(&mut self, type_root: &str) -> String {
+    // resolver.go:659
+    fn get_candidate_from_type_root(&mut self, type_root: &str) -> ResolutionCandidate {
         let mut name_for_lookup = self.name.clone();
         if type_root.ends_with("/node_modules/@types")
             || type_root.ends_with("/node_modules/@types/")
@@ -884,7 +935,7 @@ impl<'r> ResolutionState<'r> {
             let name = self.name.clone();
             name_for_lookup = self.mangle_scoped_package_name(&name);
         }
-        tspath::combine_paths(type_root, &[&name_for_lookup])
+        resolution_candidate_from_directory_path(type_root, &name_for_lookup)
     }
 
     fn mangle_scoped_package_name(&mut self, name: &str) -> String {
@@ -913,7 +964,7 @@ impl<'r> ResolutionState<'r> {
                 continue;
             }
             let mut resolved_from_file =
-                self.load_module_from_file(Extensions::Declaration, &candidate);
+                self.load_module_from_file(Extensions::Declaration, &candidate.as_string());
             if let Some(resolved) = resolved_from_file.as_mut() {
                 let package_directory = node_module_package_root_for_file(&resolved.path);
                 if !package_directory.is_empty() {
@@ -924,7 +975,7 @@ impl<'r> ResolutionState<'r> {
             }
             let resolved = self.load_node_module_from_directory(
                 Extensions::Declaration,
-                &candidate,
+                candidate.as_directory_path(),
                 true, /*considerPackageJson*/
             );
             if !resolved.should_continue_searching() {

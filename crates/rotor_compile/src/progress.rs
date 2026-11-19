@@ -169,7 +169,7 @@ impl BuildProgress {
 	#[must_use]
 	pub fn finished_since(&self, seen: usize) -> Vec<ProjectEvent> {
 		let finished = self.finished.lock().unwrap_or_else(PoisonError::into_inner);
-		finished.get(seen..).map(<[ProjectEvent]>::to_vec).unwrap_or_default()
+		finished.get(seen..).map_or_default(<[ProjectEvent]>::to_vec)
 	}
 
 	/// The kept file times, slowest first.

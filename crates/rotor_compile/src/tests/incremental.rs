@@ -377,8 +377,7 @@ fn age_outputs(temp: &Temp, at: SystemTime) -> Vec<String> {
 			let path = entry.path();
 			let rel = path
 				.strip_prefix(root)
-				.map(|rel| rel.to_string_lossy().replace('\\', "/"))
-				.unwrap_or_default();
+				.map_or_default(|rel| rel.to_string_lossy().replace('\\', "/"));
 			if path.is_dir() {
 				if rel != "src" && rel != "node_modules" {
 					walk(root, &path, at, outputs);

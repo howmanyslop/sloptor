@@ -10,10 +10,7 @@ impl Checker {
         jsdoc_parameters.extend(get_all_jsdoc_tags(node).into_iter().filter(|tag| {
             if tag.kind() == Kind::JSDocParameterTag {
                 let name = tag.as_jsdoc_parameter_or_property_tag().name();
-                if ast::is_identifier(name) && name.text().is_empty() {
-                    return false;
-                }
-                true
+                !(ast::is_identifier(name) && name.text().is_empty())
             } else {
                 false
             }

@@ -769,11 +769,7 @@ pub fn could_already_refer_to_undefined_type(t: P<PseudoType>) -> bool {
 // lookup.go:597
 fn is_optional_initialized_or_rest_parameter(node: P<Node>) -> bool {
     let p = node.as_parameter_declaration();
-    if p.dot_dot_dot_token().is_some() || p.initializer().is_some() || p.question_token().is_some()
-    {
-        return true;
-    }
-    false
+    p.dot_dot_dot_token().is_some() || p.initializer().is_some() || p.question_token().is_some()
 }
 
 // lookup.go:610

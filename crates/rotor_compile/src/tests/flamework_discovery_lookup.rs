@@ -135,7 +135,7 @@ return {
 		let (_, diagnostics, error) = build(&dir, &ProjectOptions::default());
 		let text = format!(
 			"{}{}",
-			error.as_ref().map(ToString::to_string).unwrap_or_default(),
+			error.as_ref().map_or_default(ToString::to_string),
 			diagnostics.join("\n")
 		)
 		.to_lowercase();

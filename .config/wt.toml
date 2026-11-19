@@ -1,0 +1,12 @@
+[[pre-start]]
+mise = "mise trust"
+
+[[pre-start]]
+mise-install = "mise install"
+
+[[pre-start]]
+deps = "mise exec -- nci"
+copy = "wt step copy-ignored"
+
+[step.copy-ignored]
+exclude = ["node_modules/"]

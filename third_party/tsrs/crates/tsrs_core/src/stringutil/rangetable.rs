@@ -96,8 +96,20 @@ pub(crate) fn unicode_is(table: &RangeTable, r: Rune) -> bool {
     false
 }
 
+/// Runes with a case mapping in Rust's Unicode 18.0.0 tables but none in Go 1.27's Unicode 17.0.0 tables, found by an
+/// exhaustive comparison of `unicode_to_upper` / `unicode_to_lower` against Go's `unicode.ToUpper` / `ToLower`. Go maps
+/// each of them to itself.
+#[rustfmt::skip]
+static CASED_AFTER_UNICODE_17: [u32; 40] = [
+    0x0277, 0x027C, 0xA7DD, 0xA7E2, 0xAB4B, 0xAB4C, 0xAB6C, 0xAB6D,
+    0x1DF40, 0x1DF41, 0x1DF48, 0x1DF49, 0x1DF4A, 0x1DF4B, 0x1DF4D, 0x1DF4E,
+    0x1DF51, 0x1DF52, 0x1DF68, 0x1DF69, 0x1DF6A, 0x1DF6B, 0x1DF6C, 0x1DF6D,
+    0x1DF6E, 0x1DF6F, 0x1DF72, 0x1DF73, 0x1DF74, 0x1DF75, 0x1DF76, 0x1DF77,
+    0x1DF78, 0x1DF79, 0x1DF7A, 0x1DF7B, 0x1DF7C, 0x1DF7D, 0x1DF7E, 0x1DF7F,
+];
+
 /// Go `unicode.ToLower` via Rust's full lowercase mapping; U+0130, the only rune with a multi-char full lowercase, is
-/// special-cased to 'i'.
+/// special-cased to 'i', and `CASED_AFTER_UNICODE_17` keeps Go's Unicode 17.0.0 mapping.
 pub fn unicode_to_lower(r: Rune) -> Rune {
     if r < 0x80 {
         if (b'A' as Rune..=b'Z' as Rune).contains(&r) {
@@ -111,6 +123,9 @@ pub fn unicode_to_lower(r: Rune) -> Rune {
     if c == '\u{130}' {
         return 'i' as Rune;
     }
+    if CASED_AFTER_UNICODE_17.binary_search(&r).is_ok() {
+        return r;
+    }
     let mut it = c.to_lowercase();
     match (it.next(), it.next()) {
         (Some(l), None) => l as Rune,
@@ -123,8 +138,8 @@ pub fn unicode_to_lower(r: Rune) -> Rune {
 ///
 /// The only runes whose full uppercase is multi-char but whose simple uppercase is another rune are the 27
 /// Greek letters with ypogegrammeni, which map to their titlecase form (U+1F80 -> U+1F88, U+1FB3 -> U+1FBC);
-/// they are special-cased. Checked exhaustively against Go 1.27 (Unicode 17.0.0, the same version as the
-/// pinned Rust toolchain's `char::UNICODE_VERSION`).
+/// they are special-cased, and `CASED_AFTER_UNICODE_17` keeps Go's Unicode 17.0.0 mapping. Checked exhaustively
+/// against Go 1.27 (Unicode 17.0.0) with the pinned Rust toolchain's `char::UNICODE_VERSION` 18.0.0.
 pub fn unicode_to_upper(r: Rune) -> Rune {
     if r < 0x80 {
         if (b'a' as Rune..=b'z' as Rune).contains(&r) {
@@ -139,6 +154,9 @@ pub fn unicode_to_upper(r: Rune) -> Rune {
         0x1F80..=0x1F87 | 0x1F90..=0x1F97 | 0x1FA0..=0x1FA7 => return r + 8,
         0x1FB3 | 0x1FC3 | 0x1FF3 => return r + 9,
         _ => {}
+    }
+    if CASED_AFTER_UNICODE_17.binary_search(&r).is_ok() {
+        return r;
     }
     let mut it = c.to_uppercase();
     match (it.next(), it.next()) {

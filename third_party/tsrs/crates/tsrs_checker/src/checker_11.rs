@@ -547,7 +547,7 @@ impl Checker {
     /// tsrs: the case that returns `t` itself (no flag below and not mapped: most object types) inline; called about
     /// 1.8G times on the 38k-file codebase, where the out-of-line body spent most of its instructions on its frame.
     #[inline]
-    pub(crate) fn get_apparent_type(&mut self, t: P<Type>) -> P<Type> {
+    pub fn get_apparent_type(&mut self, t: P<Type>) -> P<Type> {
         const SLOW: TypeFlags = TypeFlags::Instantiable
             .union(TypeFlags::Intersection)
             .union(TypeFlags::StringLike)
@@ -816,8 +816,7 @@ impl Checker {
         // Check if any property appears in more than one constituent type and reduces to 'never'.
         // Go in the order the properties were found so the combined properties are created in the same order every time.
         let mut result = false;
-        for i in 0..counts.entries.len() {
-            let (prop_name, _, count) = counts.entries[i];
+        for &(prop_name, _, count) in &counts.entries {
             if count > 1
                 && let Some(prop) = self.get_property_of_union_or_intersection_type(
                     t, prop_name, true, /*skipObjectFunctionPropertyAugment*/
@@ -866,7 +865,7 @@ impl Checker {
 
     // checker.go:22256
     #[inline]
-    pub(crate) fn get_reduced_apparent_type(&mut self, t: P<Type>) -> P<Type> {
+    pub fn get_reduced_apparent_type(&mut self, t: P<Type>) -> P<Type> {
         // An object type other than a mapped type is its own reduced and apparent type (most property lookups).
         if t.flags() == TypeFlags::Object && !t.object_flags().intersects(ObjectFlags::Mapped) {
             return t;
@@ -945,7 +944,7 @@ pub(crate) fn is_conflicting_private_property(prop: P<Symbol>) -> bool {
 
 impl Checker {
     // checker.go:22289
-    pub(crate) fn get_type_arguments(&mut self, t: P<Type>) -> &'static [P<Type>] {
+    pub fn get_type_arguments(&mut self, t: P<Type>) -> &'static [P<Type>] {
         let d = t.as_type_reference();
         if d.resolved_type_arguments.get().is_none() {
             let n = d.target.get().unwrap().as_interface_type();
@@ -1408,6 +1407,50 @@ fn active_mapper_cache_key(t: P<Type>, alias: Option<P<TypeAlias>>) -> CacheHash
 }
 
 impl Checker {
+    /// `T[keyof T & K]` with `T` a tuple of required elements and `K` a literal: the element type, without building
+    /// `keyof <tuple>` and intersecting it (tsgo-opt). Fast preset only (`lazy_tuples`): the skipped instantiations
+    /// would lower the instantiation counter the default mode keeps equal to Go's.
+    fn try_fast_tuple_keyof_indexed_access(
+        &mut self,
+        t: P<Type>,
+        object_type: P<Type>,
+        m: P<TypeMapper>,
+    ) -> Option<P<Type>> {
+        let d = t.as_indexed_access_type();
+        if !d.access_flags.get().is_empty()
+            || !is_tuple_type(object_type)
+            || self.compiler_options.no_unchecked_indexed_access == Tristate::True
+            || object_type
+                .target_tuple_type()
+                .combined_flags()
+                .intersects(ElementFlags::Optional | ElementFlags::Variable)
+        {
+            return None;
+        }
+        let index_type = d.index_type().unwrap();
+        if !index_type.flags().intersects(TypeFlags::Intersection) {
+            return None;
+        }
+        let types = index_type.types();
+        if types.len() != 2 {
+            return None;
+        }
+        let is_keyof_object = |u: P<Type>| {
+            u.flags().intersects(TypeFlags::Index)
+                && u.as_index_type().target.get() == d.object_type()
+                && u.as_index_type().index_flags.get().is_empty()
+        };
+        let key = if is_keyof_object(types[0]) {
+            types[1]
+        } else if is_keyof_object(types[1]) {
+            types[0]
+        } else {
+            return None;
+        };
+        let key_candidate = self.instantiate_type(key, Some(m));
+        self.try_fast_tuple_indexed_access(object_type, key_candidate)
+    }
+
     // checker.go:22551
     fn get_circular_type_names(&mut self) -> Vec<String> {
         let mut type_counts: FxHashMap<P<Type>, usize> = FxHashMap::default();
@@ -1632,6 +1675,12 @@ impl Checker {
             let alias = AliasArg::given_or_pending(alias, pending.as_ref());
             let d = t.as_indexed_access_type();
             let object_type = self.instantiate_type(d.object_type().unwrap(), Some(m));
+            if self.lazy_tuples
+                && let Some(fast) = self.try_fast_tuple_keyof_indexed_access(t, object_type, m)
+            {
+                crate::sitecount::hit("tuple literal index", "keyof T & K");
+                return fast;
+            }
             let index_type = self.instantiate_type(d.index_type().unwrap(), Some(m));
             return self.get_indexed_access_type_ex(
                 object_type,
@@ -2692,7 +2741,7 @@ impl Checker {
     }
 
     // checker.go:23232
-    pub(crate) fn get_type_from_type_node(&mut self, node: P<Node>) -> P<Type> {
+    pub fn get_type_from_type_node(&mut self, node: P<Node>) -> P<Type> {
         let t = self.get_type_from_type_node_worker(node);
         self.get_conditional_flow_type_of_type(t, Some(node))
     }
@@ -3655,7 +3704,7 @@ impl Checker {
     }
 
     // checker.go:23942
-    pub(crate) fn is_array_type(&self, t: P<Type>) -> bool {
+    pub fn is_array_type(&self, t: P<Type>) -> bool {
         t.object_flags().intersects(ObjectFlags::Reference)
             && (t.target() == Some(self.global_array_type)
                 || t.target() == Some(self.global_readonly_array_type))

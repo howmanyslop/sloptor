@@ -1506,8 +1506,7 @@ impl EmitResolver {
         let instance_index_symbol = c.get_index_symbol(sym);
         let mut instance_infos: Vec<P<IndexInfo>> = Vec::new();
         if let Some(instance_index_symbol) = instance_index_symbol {
-            let sibling_symbols =
-                c.get_members_of_symbol(sym).map(|m| m.values()).unwrap_or_default();
+            let sibling_symbols = c.get_members_of_symbol(sym).map_or_default(|m| m.values());
             instance_infos =
                 c.get_index_infos_of_index_symbol(instance_index_symbol, &sibling_symbols);
         }
@@ -1867,7 +1866,7 @@ impl EmitResolver {
         };
         // Go also returns false when getDeclaredTypeOfSymbol is nil; the Rust function never returns nil.
         let parent_type = c.get_declared_type_of_symbol(s_parent);
-        if c.get_base_types(parent_type).iter().any(|&base| {
+        c.get_base_types(parent_type).iter().any(|&base| {
             let Some(base_prop) = c.get_property_of_type(base, s.name()) else {
                 return false;
             };
@@ -1890,9 +1889,6 @@ impl EmitResolver {
             }
 
             false
-        }) {
-            return true;
-        }
-        false
+        })
     }
 }

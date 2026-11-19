@@ -341,8 +341,7 @@ fn unresolved_name(message: &str) -> String {
 	message
 		.split_once('\'')
 		.and_then(|(_, rest)| rest.split_once('\''))
-		.map(|(name, _)| name.to_owned())
-		.unwrap_or_default()
+		.map_or_default(|(name, _)| name.to_owned())
 }
 
 /// `unresolvedNamePositions`

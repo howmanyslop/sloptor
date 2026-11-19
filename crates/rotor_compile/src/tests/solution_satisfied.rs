@@ -616,7 +616,7 @@ fn solution_coordinator_rejects_missing_dependency_ownership_before_scheduling()
 	let (app_config, shared_config) = app_shared_solution(&root);
 	let (mut coordinator, drainer) = recording(&root);
 	let output = select(&mut coordinator, std::slice::from_ref(&app_config), &[]);
-	let error = output.error.as_ref().map(ToString::to_string).unwrap_or_default();
+	let error = output.error.as_ref().map_or_default(ToString::to_string);
 	assert!(
 		error.contains(&shared_config) && error.contains("has no owner"),
 		"selection error = {error:?}, want missing dependency ownership for {shared_config}"

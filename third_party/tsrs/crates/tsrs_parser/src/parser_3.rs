@@ -3897,7 +3897,7 @@ fn extract_pragmas(comment_range: ast::CommentRange, text: &str) -> Vec<ast::Pra
                             comment_range.pos() + pos as u32 + 1,
                             comment_range.pos() + pos as u32 + 1 + value.len() as u32,
                         ),
-                        name: arg_name.clone(),
+                        name: arg_name,
                         value: value.to_string(),
                     },
                 );
@@ -3959,7 +3959,7 @@ fn extract_pragmas(comment_range: ast::CommentRange, text: &str) -> Vec<ast::Pra
                             value: text[start..arg_end].to_string(),
                         },
                     );
-                    pragmas.push(ast::Pragma { comment_range, name: pragma_name.clone(), args });
+                    pragmas.push(ast::Pragma { comment_range, name: pragma_name, args });
                 }
             }
             pos = line_end;

@@ -4804,7 +4804,7 @@ impl Relater {
     // args: &[&dyn Display] -> &[Option<&str>] (Go passes nil as a wildcard; stored chain args are strings).
     fn chain_args_match(&self, _c: &mut Checker, args: &[Option<&str>]) -> bool {
         let chain = self.error_chain.get().unwrap();
-        if args.iter().enumerate().any(|(i, a)| {
+        !args.iter().enumerate().any(|(i, a)| {
             if let Some(a) = a
                 && *a != chain.args[i]
             {
@@ -4812,10 +4812,7 @@ impl Relater {
             }
 
             false
-        }) {
-            return false;
-        }
-        true
+        })
     }
 }
 

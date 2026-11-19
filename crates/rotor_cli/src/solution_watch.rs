@@ -513,7 +513,7 @@ fn worker(
 				if !events.configs.is_empty() {
 					for set in coordinator.watch_sets() {
 						if set.ts_config_paths.iter().any(|config| events.configs.contains(config)) {
-							events.projects.insert(set.project_path.clone());
+							events.projects.insert(set.project_path);
 						}
 					}
 					let next = match reload() {

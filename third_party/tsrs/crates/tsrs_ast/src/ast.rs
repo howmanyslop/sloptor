@@ -18,7 +18,7 @@ use crate::*;
 
 // parseJSDocForNode is the package-level function for lazily parsing JSDoc.
 // It is set by the parser crate via set_parse_jsdoc_for_node.
-pub type ParseJSDocForNodeFn = fn(&'static SourceFile, P<Node>) -> Vec<P<Node>>;
+pub type ParseJSDocForNodeFn = fn(&'static SourceFile, P<Node>) -> &'static [P<Node>];
 
 static PARSE_JSDOC_FOR_NODE: OnceLock<ParseJSDocForNodeFn> = OnceLock::new();
 
@@ -2209,6 +2209,15 @@ pub struct ContentMapperSourceFileInfo {
 }
 
 impl SourceFile {
+    // ContentMapperParseOptions returns the parse options used to acquire this file from the mapped parse cache.
+    // ast.go:2558
+    pub fn content_mapper_parse_options(&self) -> SourceFileParseOptions {
+        match self.content_mapper_info.get() {
+            None => SourceFileParseOptions::default(),
+            Some(info) => info.parse_options.clone(),
+        }
+    }
+
     // SetContentMapperInfo initializes all content-mapper metadata before the source file is published.
     // ast.go:2644
     pub fn set_content_mapper_info(&self, info: ContentMapperSourceFileInfo) {
@@ -2395,7 +2404,7 @@ impl SourceFile {
         if let Some(&jsdocs) = cache.get(&n) {
             return jsdocs;
         }
-        let jsdocs = alloc_vec(parse(self, n));
+        let jsdocs = parse(self, n);
         cache.insert(n, jsdocs);
         jsdocs
     }

@@ -99,7 +99,7 @@ fn native_overlay_host_preserves_shared_parses() {
 					force: true,
 					..ExternalModuleIndicatorOptions::default()
 				},
-				..opts.clone()
+				..opts
 			},
 		] {
 			let parsed = host.get_source_file(variant.clone());

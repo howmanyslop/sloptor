@@ -1349,7 +1349,7 @@ impl Checker {
         // Go iterates a map-based set and a map here; insertion-ordered collections keep the port deterministic.
         let mut variable_parents: OrderedSet<P<Node>> = OrderedSet::default();
         let mut import_clauses: OrderedMap<P<Node>, Vec<P<Node>>> = OrderedMap::default();
-        let locals = node.locals().map(|l| l.values()).unwrap_or_default();
+        let locals = node.locals().map_or_default(|l| l.values());
         for local in locals {
             let reference_kinds = self.reference_kinds(local);
             if local.flags().intersects(SymbolFlags::TypeParameter)
@@ -1496,18 +1496,14 @@ impl Checker {
                 return false;
             }
         }
-        if (is_parameter_declaration(node)
+        !((is_parameter_declaration(node)
             || is_variable_declaration(node)
                 && (is_for_in_or_of_statement(node.parent().unwrap().parent())
                     || self.get_combined_node_flags_cached(node).intersects(NodeFlags::Using))
             || is_binding_element(node)
                 && !(is_object_binding_pattern(node.parent().unwrap())
                     && node.property_name().is_none()))
-            && is_identifier_that_starts_with_underscore(name)
-        {
-            return false;
-        }
-        true
+            && is_identifier_that_starts_with_underscore(name))
     }
 
     // checker.go:7420
@@ -2007,7 +2003,7 @@ impl Checker {
     // and requesting the contextual type might cause a circularity or other bad behaviour.
     // It sets the contextual type of the node to any before calling getTypeOfExpression.
     // checker.go:7714
-    pub(crate) fn get_context_free_type_of_expression(&mut self, node: P<Node>) -> P<Type> {
+    pub fn get_context_free_type_of_expression(&mut self, node: P<Node>) -> P<Type> {
         if let Some(&cached) = self.context_free_types.get(&node) {
             return cached;
         }
@@ -3347,7 +3343,7 @@ impl Checker {
      * @return a signature of the call-like expression or undefined if one can't be found
      */
     // checker.go:8581
-    pub(crate) fn get_resolved_signature(
+    pub fn get_resolved_signature(
         &mut self,
         node: P<Node>,
         candidates_out_array: Option<&mut Vec<P<Signature>>>,

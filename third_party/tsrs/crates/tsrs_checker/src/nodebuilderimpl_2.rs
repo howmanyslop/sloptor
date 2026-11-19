@@ -660,11 +660,7 @@ fn has_type_annotation(declaration: Option<P<Node>>) -> bool {
     let declaration = declaration.unwrap();
     // Type alias declarations have a .Type() that is their type definition, not a type annotation on a value.
     // Exclude them so callers don't mistake them for annotated value declarations.
-    if ast::is_type_alias_declaration(declaration) || ast::is_js_type_alias_declaration(declaration)
-    {
-        return false;
-    }
-    true
+    !(ast::is_type_alias_declaration(declaration) || ast::is_js_type_alias_declaration(declaration))
 }
 
 impl NodeBuilderImpl {
@@ -935,11 +931,8 @@ impl NodeBuilderImpl {
             return false;
         }
         let prop_mapped_type = prop_mapped_type.unwrap();
-        if reverse_mapped_stack
-            .iter()
-            .rev()
-            .take(MAX_REVERSE_MAPPED_NESTING_INSPECTION_DEPTH + 1)
-            .any(|&prop| {
+        reverse_mapped_stack.iter().rev().take(MAX_REVERSE_MAPPED_NESTING_INSPECTION_DEPTH + 1).any(
+            |&prop| {
                 if c.reverse_mapped_symbol_links.has(prop) {
                     let links = c.reverse_mapped_symbol_links.try_get(prop).unwrap();
                     let mapped_type = links.mapped_type.get();
@@ -948,11 +941,8 @@ impl NodeBuilderImpl {
                 } else {
                     false
                 }
-            })
-        {
-            return true;
-        }
-        false
+            },
+        )
     }
 
     // nodebuilderimpl.go:2433

@@ -76,8 +76,7 @@ pub(crate) fn incremental_salt_with_flamework(
 	let package_layout = opts
 		.package_layout
 		.as_ref()
-		.map(|layout| layout.fingerprint(dir))
-		.unwrap_or_default();
+		.map_or_default(|layout| layout.fingerprint(dir));
 	let plugins = transformer_plugin_fingerprints(dir, &options.config_file_path)?;
 	let macro_inputs = macro_input_values(dir, program);
 

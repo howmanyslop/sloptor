@@ -353,8 +353,7 @@ fn react_syntax_origin_initial_prefix_suffix_and_next_build() {
 			.iter()
 			.flatten()
 			.find(|file| Path::new(&file.file_name) == Path::new(&main_path))
-			.map(|file| file.text.clone())
-			.unwrap_or_default()
+			.map_or_default(|file| file.text.clone())
 	};
 	let generated = text_for(&requests[1]);
 	assert!(

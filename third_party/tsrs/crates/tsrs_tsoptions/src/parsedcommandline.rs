@@ -555,19 +555,15 @@ impl ParsedCommandLine {
             }
         }
         let wildcard_directory_globs = self.wildcard_directory_globs();
-        if !wildcard_directory_globs.is_empty()
+        !wildcard_directory_globs.is_empty()
             && wildcard_directory_globs.iter().any(|glob| glob.match_(file_name))
-        {
-            return true;
-        }
-        false
     }
 
     pub fn possibly_matches_directory_name(&self, directory_path: &Path) -> bool {
         let Some(wildcard_directories) = self.wildcard_directories() else {
             return false;
         };
-        if wildcard_directories.iter().any(|(wildcard_dir, recursive)| {
+        wildcard_directories.iter().any(|(wildcard_dir, recursive)| {
             let wildcard_dir_path = tspath::to_path(
                 wildcard_dir,
                 self.get_current_directory(),
@@ -582,10 +578,7 @@ impl ParsedCommandLine {
             }
 
             false
-        }) {
-            return true;
-        }
-        false
+        })
     }
 
     pub fn get_matched_file_spec(&self, file_name: &str) -> String {

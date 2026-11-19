@@ -1231,7 +1231,7 @@ impl Handler for BlockingMapper {
 
 // Go `string(raw)` of a json.Value: "" when it is empty (absent), else its JSON text.
 fn raw_text(raw: Option<&Value>) -> String {
-    raw.map(|value| json::marshal(value).unwrap()).unwrap_or_default()
+    raw.map_or_default(|value| json::marshal(value).unwrap())
 }
 
 impl Handler for RecordingMapper {

@@ -1,7 +1,7 @@
 diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/program.rs
 --- a/crates/tsrs_compiler/src/program.rs
 +++ b/crates/tsrs_compiler/src/program.rs
-@@ -266,12 +266,32 @@ pub struct Program {
+@@ -267,12 +267,32 @@ pub struct Program {
      // tsrs-only: the address of the program `reuse_program` made this one from, 0 for a program built in full
      // (`is_reuse_of`). An address, not a reference: the watch frees that program once this one has replaced it.
      reused_from: usize,
@@ -34,7 +34,7 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
  impl std::ops::Deref for Program {
      type Target = ProcessedFiles;
      fn deref(&self) -> &ProcessedFiles {
-@@ -548,6 +568,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
+@@ -549,6 +569,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
          std::mem::take(&mut processed.file_include_data.processing_diagnostics);
      let files = std::mem::take(&mut processed.files);
      let files_by_path = std::mem::take(&mut processed.files_by_path);
@@ -42,7 +42,7 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
      let host = Arc::clone(&opts.host);
      let mut p = Program {
          opts: opts.program_config(),
-@@ -562,7 +583,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
+@@ -563,7 +584,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
          module_resolution_error,
          files,
          files_by_path,
@@ -51,15 +51,15 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
          project_reference_file_mapper,
          processing_diagnostics: Mutex::new(processing_diagnostics),
          uses_uri_style_node_core_modules: Tristate::Unknown,
-@@ -588,6 +609,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
-         checker_diagnostic_regions: opts.checker_diagnostic_regions,
+@@ -590,6 +611,7 @@ pub fn new_program(opts: ProgramOptions) -> &'static Program {
          reuse_synthetic_imports: opts.reuse_synthetic_imports,
+         replaced_synthetic_imports: FxHashMap::default(),
          reused_from: 0,
 +        resolved_modules: ResolvedModulesRef::Shared(&processed.resolved_modules),
          own_region: None,
      };
      // Go initializes the checker pool before verifying options; the pool factory takes the program by
-@@ -745,6 +767,238 @@ impl Program {
+@@ -748,6 +770,253 @@ impl Program {
          }
      }
  
@@ -88,6 +88,7 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
 +                None,
 +            );
 +            opts.canonical_diagnostics = self.canonical_diagnostics;
++            opts.reuse_synthetic_imports = self.reuse_synthetic_imports;
 +            (new_program(opts), false)
 +        };
 +        if self.module_resolution_error.is_some() {
@@ -134,6 +135,7 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
 +            });
 +        }
 +
++        let new_files: Vec<P<SourceFile>> = replacements.iter().map(|entry| entry.new_file).collect();
 +        let mut files = self.files.to_vec();
 +        let mut files_by_path = self.files_by_path.clone();
 +        let shape_changed = replacements.iter().any(|entry| entry.resolutions.is_some());
@@ -161,6 +163,18 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
 +            let _scope = own_region.as_ref().map(tsrs_core::arena::Region::enter);
 +            self.resolution_data.clone_data()
 +        };
++        // As in `reuse_program`, each replaced file owns its synthetic import nodes.
++        let mut replaced_synthetic_imports = self.replaced_synthetic_imports.clone();
++        for &file in &new_files {
++            // In the file's memory: the nodes live as long as their parent.
++            let _owner = tsrs_core::arena::enter_owner(file.addr());
++            let helpers = self.import_helpers_import_specifiers.get(file.path()).copied();
++            let jsx = self.jsx_runtime_import_specifiers.get(file.path()).map(|jsx| jsx.specifier);
++            for import in helpers.into_iter().chain(jsx) {
++                let own = new_synthetic_import(&NodeFactory::default(), import.text(), file);
++                replaced_synthetic_imports.insert(import, own);
++            }
++        }
 +        let mut result = Program {
 +            opts: config,
 +            resolution_host: crate::projectreferencefilemapper::resolution_host_for(Arc::clone(
@@ -200,6 +214,7 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
 +            checker_regions: self.checker_regions,
 +            checker_diagnostic_regions: self.checker_diagnostic_regions,
 +            reuse_synthetic_imports: self.reuse_synthetic_imports,
++            replaced_synthetic_imports,
 +            // Several files changed, so this is not the one-file reuse `is_reuse_of` describes.
 +            reused_from: 0,
 +            resolved_modules: match resolved_modules {
@@ -298,15 +313,15 @@ diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/prog
      // program.go:347
      // ReuseProgram attempts to produce a new program by replacing only
      // changedFilePath in place, reusing the rest of p. It returns
-@@ -882,6 +1136,7 @@ impl Program {
-             checker_diagnostic_regions: self.checker_diagnostic_regions,
+@@ -897,6 +1166,7 @@ impl Program {
              reuse_synthetic_imports: self.reuse_synthetic_imports,
+             replaced_synthetic_imports,
              reused_from: std::ptr::from_ref(self) as usize,
 +            resolved_modules: self.resolved_modules.clone(),
              own_region,
          };
          try_reuse(&result.unresolved_imports, &self.unresolved_imports);
-@@ -1294,7 +1549,7 @@ impl Program {
+@@ -1315,7 +1585,7 @@ impl Program {
      }
  
      pub fn get_resolved_modules(&self) -> &FxHashMap<Path, ModeAwareCache<P<ResolvedModule>>> {

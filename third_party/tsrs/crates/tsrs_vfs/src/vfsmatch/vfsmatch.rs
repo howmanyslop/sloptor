@@ -495,7 +495,7 @@ impl GlobPattern {
     }
 
     fn pattern_mentions_min_suffix(&self, segs: &[Segment]) -> bool {
-        if segs.iter().any(|seg| {
+        segs.iter().any(|seg| {
             if seg.kind != SegmentKind::Literal {
                 return false;
             }
@@ -505,10 +505,7 @@ impl GlobPattern {
                 stringutil::go_strings_to_lower(&seg.literal)
             };
             lit.contains(".min.js") || lit.contains(".min.")
-        }) {
-            return true;
-        }
-        false
+        })
     }
 
     // stringsEqual compares strings with appropriate case sensitivity.

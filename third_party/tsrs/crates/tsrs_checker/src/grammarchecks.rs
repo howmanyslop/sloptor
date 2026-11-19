@@ -3268,13 +3268,8 @@ impl Checker {
         file: P<SourceFile>,
     ) -> bool {
         file.statements.nodes().iter().any(|&decl| {
-            if (ast::is_declaration_node(decl) || decl.kind() == Kind::VariableStatement)
+            (ast::is_declaration_node(decl) || decl.kind() == Kind::VariableStatement)
                 && self.check_grammar_top_level_element_for_required_declare_modifier(decl)
-            {
-                return true;
-            }
-
-            false
         })
     }
 

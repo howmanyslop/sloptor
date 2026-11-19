@@ -75,8 +75,7 @@ fn output_tree_hashes(temp: &Temp) -> BTreeMap<String, String> {
 		.filter(|path| {
 			let name = path
 				.file_name()
-				.map(|name| name.to_string_lossy().into_owned())
-				.unwrap_or_default();
+				.map_or_default(|name| name.to_string_lossy().into_owned());
 			!name.ends_with(".tsbuildinfo") && name != "rbxts.copyfiles.json"
 		})
 		.map(|path| {

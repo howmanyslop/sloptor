@@ -12,19 +12,19 @@ index 8e0428c1..c400b29c 100644
          } else {
              default_checker_count(program)
 diff --git a/crates/tsrs_compiler/src/program.rs b/crates/tsrs_compiler/src/program.rs
-index 42203919..7d8cc16e 100644
+index a82cd0e2..4b51e8c9 100644
 --- a/crates/tsrs_compiler/src/program.rs
 +++ b/crates/tsrs_compiler/src/program.rs
-@@ -85,6 +85,8 @@ pub struct ProgramOptions {
-     /// program reused from this one lives (watch mode keeps the full build's files). The language server frees it
-     /// with this program, so it leaves this off and gets Go's full rebuild.
+@@ -83,6 +83,8 @@ pub struct ProgramOptions {
+     /// tsrs-only: `reuse_program` may replace a file that has synthetic imports (JSX runtime, import helpers) when
+     /// its new version needs the same ones. Off, an edit of such a file is Go's full rebuild.
      pub reuse_synthetic_imports: bool,
 +    /// rotor: the built-in pool's checker count, over the `checkers` option (Go `ProgramOptions.CheckerCount`).
 +    pub checker_count: Option<i64>,
  }
 
  impl ProgramOptions {
-@@ -106,6 +108,7 @@ impl ProgramOptions {
+@@ -104,6 +106,7 @@ impl ProgramOptions {
              checker_diagnostic_regions: false,
              regions: None,
              reuse_synthetic_imports: false,
@@ -32,15 +32,15 @@ index 42203919..7d8cc16e 100644
          }
      }
 
-@@ -133,6 +136,7 @@ impl ProgramOptions {
+@@ -131,6 +134,7 @@ impl ProgramOptions {
              checker_diagnostic_regions: false,
-             regions: None,
+             regions: config.regions.map(|_| Arc::default()),
              reuse_synthetic_imports: false,
 +            checker_count: config.checker_count,
          }
      }
 
-@@ -145,6 +149,7 @@ impl ProgramOptions {
+@@ -143,6 +147,7 @@ impl ProgramOptions {
              project_name: self.project_name.clone(),
              skip_module_resolution: self.skip_module_resolution,
              regions: self.regions.clone(),
@@ -48,7 +48,7 @@ index 42203919..7d8cc16e 100644
          }
      }
  }
-@@ -158,6 +163,7 @@ pub struct ProgramConfig {
+@@ -156,6 +161,7 @@ pub struct ProgramConfig {
      project_name: String,
      pub(crate) skip_module_resolution: bool,
      pub(crate) regions: Option<std::sync::Arc<crate::programregions::ProgramRegions>>,
@@ -56,7 +56,7 @@ index 42203919..7d8cc16e 100644
  }
 
  impl ProgramConfig {
-@@ -689,7 +695,23 @@ impl Program {
+@@ -691,7 +697,23 @@ impl Program {
          create_checker_pool: Option<CreateCheckerPool>,
          create_module_resolver: Option<CreateModuleResolver>,
      ) -> (&'static Program, Option<P<SourceFile>>, bool) {
@@ -81,7 +81,7 @@ index 42203919..7d8cc16e 100644
              changed_file_path,
              Arc::clone(&new_host),
              create_checker_pool.clone(),
-@@ -699,7 +721,7 @@ impl Program {
+@@ -701,7 +723,7 @@ impl Program {
              (result.unwrap(), new_file, true)
          } else {
              let mut opts = ProgramOptions::from_config(
@@ -90,7 +90,7 @@ index 42203919..7d8cc16e 100644
                  new_host,
                  create_checker_pool,
                  create_module_resolver,
-@@ -721,6 +743,17 @@ impl Program {
+@@ -724,6 +746,17 @@ impl Program {
          changed_file_path: &Path,
          new_host: Arc<dyn CompilerHost>,
          create_checker_pool: Option<CreateCheckerPool>,
@@ -108,9 +108,9 @@ index 42203919..7d8cc16e 100644
          _create_module_resolver: Option<CreateModuleResolver>,
      ) -> (Option<&'static Program>, Option<P<SourceFile>>, bool) {
          let old_file = self.files_by_path[changed_file_path];
-@@ -796,7 +829,7 @@ impl Program {
-             self.resolution_data.clone_data()
-         };
+@@ -810,7 +843,7 @@ impl Program {
+             }
+         }
          let mut result = Program {
 -            opts: self.opts.clone(),
 +            opts: config,

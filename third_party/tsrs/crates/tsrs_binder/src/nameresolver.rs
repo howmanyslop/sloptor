@@ -871,7 +871,7 @@ fn get_is_deferred_context_worker(location: P<Node>, last_location: Option<P<Nod
 }
 
 fn is_type_parameter_symbol_declared_in_container(symbol: P<Symbol>, container: P<Node>) -> bool {
-    if symbol.declarations().iter().any(|&decl| {
+    symbol.declarations().iter().any(|&decl| {
         if decl.kind() == Kind::TypeParameter {
             let parent = decl.parent();
             if parent == Some(container) {
@@ -880,10 +880,7 @@ fn is_type_parameter_symbol_declared_in_container(symbol: P<Symbol>, container: 
         }
 
         false
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 fn is_self_reference_location(node: P<Node>, last_location: Option<P<Node>>) -> bool {

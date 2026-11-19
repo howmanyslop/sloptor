@@ -369,7 +369,7 @@ fn merge_transform_analyses(
 			merged.push(FileAnalysis {
 				file_id,
 				metadata: analysis.metadata.clone(),
-				classes: analysis.classes.clone(),
+				classes: analysis.classes,
 			});
 			continue;
 		};

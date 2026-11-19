@@ -25,8 +25,8 @@ import path from "node:path";
 import type { StdioOptions } from "node:child_process";
 
 export const TSRS_REPOSITORY = "https://github.com/oxc-project/tsrs.git";
-export const TSRS_TAG = "v0.20.1";
-export const TSRS_COMMIT = "77d3cddb44540734abc33a42ccca4d3f33bee527";
+export const TSRS_TAG = "v7.1.0-beta.tsrs3";
+export const TSRS_COMMIT = "eba9b2b796ef5e4a80b793e0b94b72bc7d4a9c05";
 
 /**
  * The tsrs crates rotor links directly. The rest of the closure follows from
@@ -59,7 +59,7 @@ const RUSTFMT_CONFIG = ".rustfmt.toml";
 const QUIET = "--quiet";
 const STDIO_QUIET: StdioOptions = ["ignore", "inherit", "inherit"];
 const STDIO_CAPTURE: StdioOptions = ["ignore", "pipe", "inherit"];
-const PATH_ENTRY = /^(?<name>tsrs_\w+)\s*=\s*\{\s*path\s*=/u;
+const PATH_ENTRY = /^(?<name>tsrs_\w+)\s*=\s*\{[^}]*\bpath\s*=/u;
 const BLANK_RUNS = /\n{3,}/gu;
 const IGNORED_COPY = /[\\/](?:target|node_modules|\.git)$/u;
 const TYPESCRIPT_REFERENCE =
@@ -313,6 +313,7 @@ export function mirror(options: MirrorOptions): MirrorResult {
 			cpSync(path.join(options.source, "crates", name), path.join(staging, "crates", name), {
 				filter: (source) => !IGNORED_COPY.test(source),
 				recursive: true,
+				verbatimSymlinks: true,
 			});
 		}
 
@@ -321,7 +322,10 @@ export function mirror(options: MirrorOptions): MirrorResult {
 		}
 
 		if (existsSync(path.join(options.source, "licenses"))) {
-			cpSync(path.join(options.source, "licenses"), path.join(staging, "licenses"), { recursive: true });
+			cpSync(path.join(options.source, "licenses"), path.join(staging, "licenses"), {
+				recursive: true,
+				verbatimSymlinks: true,
+			});
 		}
 
 		// Keep tsrs's own rustfmt settings. `cargo fmt --all` also formats path
@@ -354,7 +358,7 @@ export function mirror(options: MirrorOptions): MirrorResult {
 			renameSync(staging, options.out);
 		} catch {
 			// Cross-device rename: copy instead.
-			cpSync(staging, options.out, { recursive: true });
+			cpSync(staging, options.out, { recursive: true, verbatimSymlinks: true });
 		}
 
 		return { crates, patches };

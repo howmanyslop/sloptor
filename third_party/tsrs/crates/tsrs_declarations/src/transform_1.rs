@@ -986,7 +986,7 @@ impl DeclarationTransformer {
 
 // transform.go:859
 fn has_any_binding_initializers(binding_pattern: P<Node>) -> bool {
-    if binding_pattern.as_binding_pattern().elements.nodes().iter().any(|&elem| {
+    binding_pattern.as_binding_pattern().elements.nodes().iter().any(|&elem| {
         if !ast::is_binding_element(elem) {
             return false;
         }
@@ -1002,10 +1002,7 @@ fn has_any_binding_initializers(binding_pattern: P<Node>) -> bool {
         }
 
         false
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 impl DeclarationTransformer {

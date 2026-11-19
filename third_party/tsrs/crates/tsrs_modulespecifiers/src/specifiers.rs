@@ -621,6 +621,7 @@ fn get_local_module_specifier(
                     current_directory: host.get_current_directory().to_string(),
                 },
             )),
+            module_file_name,
             &allowed_endings,
             compiler_options,
             Some(host),
@@ -666,6 +667,7 @@ fn get_local_module_specifier(
     if let Some(paths) = paths.filter(|_| paths_only || from_package_json_imports.is_empty()) {
         from_paths = try_get_module_name_from_paths(
             &relative_to_base_url,
+            module_file_name,
             paths,
             &allowed_endings,
             &base_directory,
@@ -779,9 +781,10 @@ fn get_local_module_specifier(
     maybe_non_relative
 }
 
-// specifiers.go:641
+// specifiers.go:641; `source_file_name` is the target file of the specifier.
 fn process_ending(
     file_name: &str,
+    source_file_name: &str,
     allowed_endings: &[ModuleSpecifierEnding],
     options: &CompilerOptions,
     host: Option<&dyn ModuleSpecifierGenerationHost>,
@@ -833,7 +836,7 @@ fn process_ending(
             let without_index = no_extension.strip_suffix("/index").unwrap_or(no_extension);
             if let Some(host) = host
                 && without_index != no_extension
-                && try_get_any_file_from_path(host, without_index)
+                && try_get_any_file_from_path(host, &tspath::get_directory_path(source_file_name))
             {
                 // Can't remove index if there's a file by the same name as the directory.
                 // Probably more callers should pass `host` so we can determine this?
@@ -914,7 +917,7 @@ fn try_get_module_name_from_root_dirs(
     if shortest.is_empty() {
         return String::new();
     }
-    process_ending(&shortest, allowed_endings, compiler_options, Some(host))
+    process_ending(&shortest, module_file_name, allowed_endings, compiler_options, Some(host))
 }
 
 // specifiers.go:748
@@ -1004,8 +1007,13 @@ fn try_get_module_name_as_node_module(
             package_root_index = package_root_index
                 .and_then(|index| index_after(&path_obj.file_name, "/", index + 1));
             if package_root_index.is_none() {
-                module_specifier =
-                    process_ending(&module_file_name, &allowed_endings, options, Some(host));
+                module_specifier = process_ending(
+                    &module_file_name,
+                    &module_file_name,
+                    &allowed_endings,
+                    options,
+                    Some(host),
+                );
                 break;
             }
         }
@@ -1143,6 +1151,7 @@ fn try_directory_with_package_json(
         let sub_module_name = &path_obj.file_name[package_root_path.len() + 1..];
         let from_paths = try_get_module_name_from_paths(
             sub_module_name,
+            &module_file_to_try,
             paths,
             allowed_endings,
             &package_root_path,
@@ -1377,6 +1386,7 @@ fn cut<'a>(s: &'a str, sep: &str) -> (&'a str, &'a str, bool) {
 // specifiers.go:1094
 fn try_get_module_name_from_paths(
     relative_to_base_url: &str,
+    file_name: &str,
     paths: &OrderedMap<String, impl PathSubstitutions>,
     allowed_endings: &[ModuleSpecifierEnding],
     base_directory: &str,
@@ -1433,8 +1443,13 @@ fn try_get_module_name_from_paths(
 
             let mut candidates: Vec<SpecPair> = Vec::new();
             candidates.extend(allowed_endings.iter().map(|&ending| {
-                let result =
-                    process_ending(relative_to_base_url, &[ending], compiler_options, Some(host));
+                let result = process_ending(
+                    relative_to_base_url,
+                    file_name,
+                    &[ending],
+                    compiler_options,
+                    Some(host),
+                );
                 SpecPair { ending, value: result }
             }));
             if !tspath::try_get_extension_from_path(&pattern).is_empty() {
@@ -1450,7 +1465,7 @@ fn try_get_module_name_from_paths(
                     if value.len() >= prefix.len() + suffix.len()
                                     && stringutil::has_prefix(value, prefix, case_sensitive) // TODO: possible strada bug: these are not case-switched in strada
                                     && stringutil::has_suffix(value, suffix, case_sensitive)
-                                    && validate_ending(c, relative_to_base_url, compiler_options, host)
+                                    && validate_ending(c, relative_to_base_url, file_name, compiler_options, host)
                     {
                         let matched_star = &value[prefix.len()..value.len() - suffix.len()];
                         if !tspath::path_is_relative(matched_star) {
@@ -1468,7 +1483,13 @@ fn try_get_module_name_from_paths(
                 || candidates.iter().any(|c| {
                     c.ending == ModuleSpecifierEnding::Minimal
                         && pattern == c.value
-                        && validate_ending(c, relative_to_base_url, compiler_options, host)
+                        && validate_ending(
+                            c,
+                            relative_to_base_url,
+                            file_name,
+                            compiler_options,
+                            host,
+                        )
                 })
             {
                 return key.clone();
@@ -1482,6 +1503,7 @@ fn try_get_module_name_from_paths(
 fn validate_ending(
     c: &SpecPair,
     relative_to_base_url: &str,
+    file_name: &str,
     compiler_options: &CompilerOptions,
     host: &dyn ModuleSpecifierGenerationHost,
 ) -> bool {
@@ -1494,7 +1516,13 @@ fn validate_ending(
     // everything else in this file, this logic needs to be updated if that's not true in some future module resolution mode.)
     c.ending != ModuleSpecifierEnding::Minimal
         || c.value
-            == process_ending(relative_to_base_url, &[c.ending], compiler_options, Some(host))
+            == process_ending(
+                relative_to_base_url,
+                file_name,
+                &[c.ending],
+                compiler_options,
+                Some(host),
+            )
 }
 
 // specifiers.go:1204

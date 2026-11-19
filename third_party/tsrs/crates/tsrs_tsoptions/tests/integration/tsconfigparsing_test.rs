@@ -256,6 +256,19 @@ fn parse_json_config_file_tests() -> Vec<ParseJsonConfigTestCase> {
             ..Default::default()
         },
         ParseJsonConfigTestCase {
+            title: "handles empty file name in files list",
+            input: vec![TestConfig {
+                json_text: r#"{
+                "files": [""]
+            }"#,
+                config_file_name: "/apath/tsconfig.json",
+                base_path: "/apath",
+                all_file_list: &[("/apath/a.ts", "")],
+                ..Default::default()
+            }],
+            ..Default::default()
+        },
+        ParseJsonConfigTestCase {
             title: "generates errors for empty files list when no references are provided",
             input: vec![TestConfig {
                 json_text: r#"{
@@ -288,7 +301,7 @@ fn parse_json_config_file_tests() -> Vec<ParseJsonConfigTestCase> {
                 "include": []
             }"#,
                 config_file_name: "/apath/tsconfig.json",
-                base_path: "tests/cases/unittests",
+                base_path: "/tests/cases/unittests",
                 all_file_list: &[("/apath/a.ts", "")],
                 ..Default::default()
             }],
@@ -1110,7 +1123,7 @@ fn baseline_parse_config_with(
             &parsed_config_file_content.errors,
             "\r\n",
             &ComparePathsOptions {
-                current_directory: base_path.clone(),
+                current_directory: base_path,
                 use_case_sensitive_file_names: true,
             },
         ));

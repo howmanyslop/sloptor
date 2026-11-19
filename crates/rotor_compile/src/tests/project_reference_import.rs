@@ -866,8 +866,7 @@ fn project_reference_paths_use_reference_luau() {
 			.iter()
 			.find(|project| project.config_path == config_path)
 			.and_then(|project| project.options.project_reference_paths.clone())
-			.map(|paths| (*paths).clone())
-			.unwrap_or_default();
+			.map_or_default(|paths| (*paths).clone());
 		let (_, program) = new_project_program_with_options(
 			&rotor_support::gopath::dir(&config_path),
 			&config_path,

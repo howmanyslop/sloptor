@@ -96,7 +96,7 @@ fn update_flamework_component_config_generates_imported_component_payload_and_pr
 		.expect("updateFlameworkComponentConfig() default instance");
 		let default_names: Vec<String> = default_properties
 			.iter()
-			.map(|property| property.name().map(|name| name.text().to_owned()).unwrap_or_default())
+			.map(|property| property.name().map_or_default(|name| name.text().to_owned()))
 			.collect();
 		let imported = macro_import_statements(&state.factory, &imports);
 		let import_text = imported.first().map(|statement| emit_node(*statement, source_file));

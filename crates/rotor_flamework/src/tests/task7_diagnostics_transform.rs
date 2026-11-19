@@ -400,10 +400,7 @@ fn task7_native_error_tuples(error: &crate::Error) -> Vec<String> {
 
 /// `task7ASTDiagnosticTuples`
 fn task7_ast_diagnostic_tuples(diagnostic: &Diagnostic) -> Vec<String> {
-	let file_name = diagnostic
-		.file
-		.map(|file| file.file_name().to_owned())
-		.unwrap_or_default();
+	let file_name = diagnostic.file.map_or_default(|file| file.file_name().to_owned());
 	let mut tuples = vec![task7_position_transform_tuple(
 		diagnostic.category.name(),
 		&file_name,

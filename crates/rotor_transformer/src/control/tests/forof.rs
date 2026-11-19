@@ -332,7 +332,8 @@ fn iteration_fixture_for_of_half_matches_the_golden() {
 						.nodes()[0]
 						.as_variable_declaration()
 						.name
-						.kind() == crate::prelude::Kind::ArrayBindingPattern
+						.kind()
+						== crate::prelude::Kind::ArrayBindingPattern
 			})
 			.expect("the fixture has the destructuring half");
 		let list = transform_statement_list(s, Some(file.as_node()), &statements[..for_of_half], None);

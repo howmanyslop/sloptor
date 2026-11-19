@@ -250,8 +250,7 @@ pub fn copy_dir(src: &Path, dst: &Path) {
 pub fn output(outputs: &Outputs, key: &str) -> String {
 	outputs
 		.get(key)
-		.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-		.unwrap_or_default()
+		.map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// `keys`

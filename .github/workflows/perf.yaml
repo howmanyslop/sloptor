@@ -25,7 +25,7 @@ env:
   # pinned Rust toolchain and the pinned tak version. Change it in BOTH this
   # file and perf-pr.yaml when any of those changes: numbers either side of
   # that change do not belong in the same series.
-  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.99.1-tak0.0.13
+  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.100.0-tak0.0.13
 
 # One writer at a time, and never cancel: a cancelled run is a hole in the
 # history.

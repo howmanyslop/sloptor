@@ -29,12 +29,12 @@ thread_local! {
 
 // parseJSDocForNode lazily parses JSDoc for a node in a TS file.
 // Called on first access to Node.JSDoc() for non-JS source files.
-fn parse_jsdoc_for_node(source_file: &'static SourceFile, node: P<Node>) -> Vec<P<Node>> {
+fn parse_jsdoc_for_node(source_file: &'static SourceFile, node: P<Node>) -> &'static [P<Node>] {
     let mut p = LAZY_JSDOC_PARSER.with(Cell::take).unwrap_or_else(|| Box::new(new_parser()));
     p.initialize_text_state(source_file.text(), source_file.script_kind());
     p.source_text_index = source_file.text_index.get();
     let start = p.parse_jsdoc_comments(node);
-    let jsdoc = p.node_stack[start..].to_vec();
+    let jsdoc = alloc_slice(&p.node_stack[start..]);
     p.recycle();
     LAZY_JSDOC_PARSER.with(|cell| cell.set(Some(p)));
     jsdoc
@@ -332,7 +332,8 @@ impl Parser {
                         } else {
                             whitespace_len.saturating_sub(indent - margin)
                         };
-                        comments.push(&whitespace[existing_indent as usize..]);
+                        comments
+                            .push(slice_jsdoc_indentation(whitespace, existing_indent as usize));
                     }
                     indent += whitespace_len;
                 }
@@ -587,7 +588,7 @@ impl Parser {
         }
         let mut initial_margin: &'static str = "";
         if margin < indent_text.len() as u32 {
-            initial_margin = alloc_str(&indent_text[margin as usize..]);
+            initial_margin = alloc_str(slice_jsdoc_indentation(indent_text, margin as usize));
         }
         self.parse_tag_comments(margin, Some(initial_margin))
     }
@@ -666,11 +667,13 @@ impl Parser {
                         "whitespace shouldn't come from the scanner while saving comment text"
                     );
                     let whitespace = self.scanner.token_text();
-                    // if the whitespace crosses the margin, take only the whitespace that passes the margin
                     let whitespace_len = whitespace.len() as u32;
                     if let Some(margin) = margin.filter(|&margin| indent + whitespace_len > margin)
                     {
-                        comments.push(&whitespace[margin.saturating_sub(indent) as usize..]);
+                        comments.push(slice_jsdoc_indentation(
+                            whitespace,
+                            margin.saturating_sub(indent) as usize,
+                        ));
                         if in_fenced_code_block {
                             state = JsdocState::SavingBackticks;
                         } else {
@@ -1681,6 +1684,17 @@ impl Parser {
         let identifier = self.new_identifier(text);
         self.finish_node_with_end(identifier, pos, end)
     }
+}
+
+fn slice_jsdoc_indentation(text: &str, start: usize) -> &str {
+    if let Some(suffix) = text.get(start..) {
+        return suffix;
+    }
+    // Go slices indentation by bytes; decode each orphaned continuation byte as RuneError.
+    let end = text.ceil_char_boundary(start);
+    let mut suffix = "\u{fffd}".repeat(end - start);
+    suffix.push_str(&text[end..]);
+    alloc_str(&suffix)
 }
 
 fn remove_leading_newlines(comments: &mut Vec<&'static str>) {

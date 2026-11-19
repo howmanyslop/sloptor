@@ -803,8 +803,7 @@ pub fn require_prelude(state: &mut State<'_>, name: &str) -> String {
 	let base = builder
 		.ast()
 		.get::<TypeFunctionDeclaration>(declaration)
-		.map(|declaration| declaration.name.clone())
-		.unwrap_or_default();
+		.map_or_default(|declaration| declaration.name.clone());
 	let unique = builder.unique_name(&base);
 	let parameters = builder
 		.ast()

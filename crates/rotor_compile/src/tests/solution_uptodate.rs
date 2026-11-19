@@ -157,8 +157,7 @@ fn solution_watch_declaration_change_recompiles_dependent() {
 	let output = result
 		.outputs
 		.get(&join(&f.dir, &["game/out/init.luau"]))
-		.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-		.unwrap_or_default();
+		.map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
 	assert!(
 		output.contains("local result = 2"),
 		"dependent did not compile against the new declaration:\n{output}"

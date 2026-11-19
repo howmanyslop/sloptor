@@ -702,8 +702,7 @@ pub fn stats_report() -> Option<String> {
     // Relaxed (all loads): read on the main thread after the pass's threads joined.
     let load = |c: &AtomicUsize| c.load(Ordering::Relaxed);
     let reserve = tsrs_core::ptr::reserve_stats()
-        .map(|(_, high)| format!("; arena address space used {:.1} MB", mb(high)))
-        .unwrap_or_default();
+        .map_or_default(|(_, high)| format!("; arena address space used {:.1} MB", mb(high)));
     Some(format!(
         "tsrs: leaf files: {} of {} checked files ({} more not predicted, {:.1}% of the leaves' nodes), {:.1} MB of the {:.1} MB used by {} file regions ({:.1} MB reserved); freed {} ({:.1} MB reserved){reserve}\n",
         load(&LEAVES),

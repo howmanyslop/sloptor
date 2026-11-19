@@ -131,7 +131,7 @@ pub fn config_from_json(v: &JsonValue) -> (String, Tree) {
 		.and_then(JsonValue::as_str)
 		.unwrap_or_default()
 		.to_owned();
-	let tree = v.member("tree").map(tree_from_json).unwrap_or_default();
+	let tree = v.member("tree").map_or_default(tree_from_json);
 	(name, tree)
 }
 

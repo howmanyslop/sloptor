@@ -602,8 +602,10 @@ fn parallel_scripted_close_and_stderr_order() {
 		let output = logservice::take_capture();
 		assert!(
 			error.is_none()
-				&& handled && spawns.load(std::sync::atomic::Ordering::Relaxed) == 1
-				&& !kept && first.closed()
+				&& handled
+				&& spawns.load(std::sync::atomic::Ordering::Relaxed) == 1
+				&& !kept
+				&& first.closed()
 				&& second.closed(),
 			"fail_first {fail_first}: {handled} {error:?}"
 		);
@@ -652,7 +654,8 @@ fn parallel_transport_failure_never_retries_serial() {
 			&& spawns.load(std::sync::atomic::Ordering::Relaxed) == 1
 			&& first.closed()
 			&& second.closed()
-			&& !kept && first.requests().len() <= 2
+			&& !kept
+			&& first.requests().len() <= 2
 			&& second.requests().len() <= 2,
 		"handled={handled} error={error:?}"
 	);

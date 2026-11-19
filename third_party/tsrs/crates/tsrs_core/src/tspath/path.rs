@@ -1282,15 +1282,11 @@ pub fn contains_path(parent: &str, child: &str, options: &ComparePathsOptions) -
     }
 
     let component_comparer = options.get_equality_comparer();
-    if parent_components.iter().enumerate().any(|(i, parent_component)| {
+    parent_components.iter().enumerate().all(|(i, parent_component)| {
         let comparer: fn(&str, &str) -> bool =
             if i == 0 { stringutil::equate_string_case_insensitive } else { component_comparer };
-        !comparer(parent_component, child_components[i])
-    }) {
-        return false;
-    }
-
-    true
+        comparer(parent_component, child_components[i])
+    })
 }
 
 impl Path {

@@ -60,8 +60,7 @@ fn string_list(value: &Value, field: &str) -> Vec<String> {
 	value
 		.get(field)
 		.and_then(Value::as_array)
-		.map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-		.unwrap_or_default()
+		.map_or_default(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
 }
 
 fn forkparity_dir() -> std::path::PathBuf {
@@ -126,8 +125,7 @@ impl ProjectFixture {
 		self.transcript
 			.get("invocations")
 			.and_then(Value::as_array)
-			.map(|items| items.iter().map(|item| string_list(item, "arguments")).collect())
-			.unwrap_or_default()
+			.map_or_default(|items| items.iter().map(|item| string_list(item, "arguments")).collect())
 	}
 
 	/// `matrixProjectArgs`: `--build` when the fork was run with it or the project has references.

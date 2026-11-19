@@ -16,7 +16,7 @@ env:
   CARGO_INCREMENTAL: "0"
   MBX_DISABLE: "1"
   # Must match perf.yaml exactly, or every comparison reports nothing.
-  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.99.1-tak0.0.13
+  TAK_RUNNER: gha-ubuntu24.04-x64-rust1.100.0-tak0.0.13
 
 concurrency:
   group: perf-pr-${{ github.event.pull_request.number || github.ref }}

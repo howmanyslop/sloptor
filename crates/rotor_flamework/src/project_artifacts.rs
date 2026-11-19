@@ -80,7 +80,7 @@ impl Project {
 
 		let game_globs = match local.metadata.as_ref().and_then(|metadata| metadata.globs.as_ref()) {
 			Some(globs) => {
-				let expanded = globs.paths.as_ref().map(clone_glob_matches).unwrap_or_default();
+				let expanded = globs.paths.as_ref().map_or_default(clone_glob_matches);
 				let mut resolved = resolve_glob_paths(&self.root_directory, Some(&self.resolver), &expanded)?;
 				if self.config.obfuscation {
 					resolved = self.obfuscate_glob_patterns(&resolved)?;

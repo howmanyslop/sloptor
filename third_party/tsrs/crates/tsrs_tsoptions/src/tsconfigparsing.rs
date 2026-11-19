@@ -3079,7 +3079,7 @@ pub(crate) fn get_file_names_from_config_specs(
     // remove a literal file.
     literal_file_map.extend(validated_files_spec.iter().map(|file_name| {
         let file = tspath::get_normalized_absolute_path(file_name, &base_path);
-        (key_mappper(file_name), file)
+        (key_mappper(&file), file)
     }));
 
     let mut json_only_include_matchers: Option<Option<vfsmatch::SpecMatcher>> = None;

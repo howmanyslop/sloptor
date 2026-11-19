@@ -54,7 +54,7 @@ fn create_truthiness_checks_cases() {
 			("five", "x"),
 			("derived", "x"),
 			("num", "x ~= 0 and x == x and x"),
-			("zero", "x ~= 0 and x == x and x"),    // TS#32778: 0-possible adds the NaN check
+			("zero", "x ~= 0 and x == x and x"), // TS#32778: 0-possible adds the NaN check
 			("zeroOne", "x ~= 0 and x == x and x"), // ditto (no NaN-able member)
 			("str", r#"x ~= "" and x"#),
 			("empty", r#"x ~= "" and x"#),

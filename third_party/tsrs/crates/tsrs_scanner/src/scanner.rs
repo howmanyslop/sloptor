@@ -3243,7 +3243,7 @@ fn parse_int_64(s: &str, base: u32) -> i64 {
 // hasJSDocTag reports whether text starts with one of the given tag names followed
 // by a valid JSDoc tag terminator (whitespace, '}', '*', or end-of-string).
 fn has_jsdoc_tag(text: &[u8], tags: &[&str]) -> bool {
-    if tags.iter().any(|tag| {
+    tags.iter().any(|tag| {
         let tag = tag.as_bytes();
         if !text.starts_with(tag) {
             return false;
@@ -3253,10 +3253,7 @@ fn has_jsdoc_tag(text: &[u8], tags: &[&str]) -> bool {
         }
         let ch = text[tag.len()];
         ch == b' ' || ch == b'\t' || ch == b'\n' || ch == b'\r' || ch == b'}' || ch == b'*'
-    }) {
-        return true;
-    }
-    false
+    })
 }
 
 #[inline]
