@@ -276,10 +276,8 @@ pub(crate) fn apply_transformer_sidecar_with_plugins_and_host(
 	let mut source_traces = DiagnosticTraces::default();
 	let mut canonical_sources: Option<HashMap<String, P<SourceFile>>> = None;
 	let mut transformed_files = response.transformed;
-	let rebases: HashMap<String, Arc<TransformerRebase>> = state
-		.as_ref()
-		.map(|state| lock(state).rebases.clone())
-		.unwrap_or_default();
+	let rebases: HashMap<String, Arc<TransformerRebase>> =
+		state.as_ref().map_or_default(|state| lock(state).rebases.clone());
 	for file in &mut transformed_files {
 		if file.trace_map.is_empty() {
 			continue;
@@ -883,8 +881,7 @@ impl SidecarSession {
 		let tail = self
 			.process
 			.as_ref()
-			.map(|process| process.stderr.to_string())
-			.unwrap_or_default();
+			.map_or_default(|process| process.stderr.to_string());
 		if tail.is_empty() {
 			return error.clone();
 		}
@@ -947,7 +944,8 @@ impl SidecarSession {
 				None if errors.is_empty() => {
 					let _ = child.kill();
 					if let Ok(status) = child.wait()
-						&& !expected_kill && !status.success()
+						&& !expected_kill
+						&& !status.success()
 					{
 						errors.push(exit_status_text(status));
 					}
@@ -1335,7 +1333,8 @@ pub(crate) fn run_transformer_sidecar_shard(
 				}
 			};
 		if attempt == 0
-			&& fresh && crate::sidecar_parallel::parallel_request_supported(call, &request)
+			&& fresh
+			&& crate::sidecar_parallel::parallel_request_supported(call, &request)
 			&& let Some(build) = &call.parallel_build
 			&& build.try_split()
 		{
@@ -1942,8 +1941,7 @@ pub(crate) fn sidecar_plugin_names(plugins: Option<&[String]>, config_path: &str
 		return plugins.iter().filter_map(|plugin| plugin_transform(plugin)).collect();
 	}
 	crate::transformer_order::effective_transformer_plugins(config_path)
-		.map(|plugins| plugins.into_iter().map(|plugin| plugin.transform).collect())
-		.unwrap_or_default()
+		.map_or_default(|plugins| plugins.into_iter().map(|plugin| plugin.transform).collect())
 }
 
 /// `formatSidecarDiagnostic`

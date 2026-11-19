@@ -161,7 +161,8 @@ pub fn transform_variable_declaration(state: &mut State<'_>, declaration: P<Node
 			&& {
 				let t = state.get_type(initializer);
 				check(state, TypeCheck::LuaTuple, t)
-			} && !array_binding_pattern_contains_hoists(state, name)
+			}
+			&& !array_binding_pattern_contains_hoists(state, name)
 			&& !array_like_expression_contains_spread(name)
 		{
 			let optimized = destructuring::transform_optimized_array_binding_pattern(state, name, value.into());

@@ -17,28 +17,28 @@ use crate::{Ast, ListId, ListNodeId, NodeId};
 pub mod element {
 	/// `List[luau.Expression]`
 	#[derive(Debug)]
-	pub enum Expression {}
+	pub struct Expression(!);
 	/// `List[luau.Statement]`
 	#[derive(Debug)]
-	pub enum Statement {}
+	pub struct Statement(!);
 	/// `List[luau.AnyIdentifier]`
 	#[derive(Debug)]
-	pub enum AnyIdentifier {}
+	pub struct AnyIdentifier(!);
 	/// `List[luau.WritableExpression]`
 	#[derive(Debug)]
-	pub enum WritableExpression {}
+	pub struct WritableExpression(!);
 	/// `List[luau.Node]`
 	#[derive(Debug)]
-	pub enum Node {}
+	pub struct Node(!);
 	/// `List[*luau.MapField]`
 	#[derive(Debug)]
-	pub enum MapField {}
+	pub struct MapField(!);
 	/// `List[luau.TypeNode]`
 	#[derive(Debug)]
-	pub enum TypeNode {}
+	pub struct TypeNode(!);
 	/// `List[luau.TypeTableField]`
 	#[derive(Debug)]
-	pub enum TypeTableField {}
+	pub struct TypeTableField(!);
 }
 
 /// The element type of a list, known at run time.

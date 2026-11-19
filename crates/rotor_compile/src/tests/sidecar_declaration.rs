@@ -157,15 +157,12 @@ fn transformer_source_map_original_content() {
 	let map: serde_json::Value =
 		serde_json::from_slice(&std::fs::read(temp.join("out/main.luau.map")).expect("the map")).expect("JSON");
 	let strings = |key: &str| -> Vec<String> {
-		map[key]
-			.as_array()
-			.map(|values| {
-				values
-					.iter()
-					.filter_map(|value| value.as_str().map(str::to_owned))
-					.collect()
-			})
-			.unwrap_or_default()
+		map[key].as_array().map_or_default(|values| {
+			values
+				.iter()
+				.filter_map(|value| value.as_str().map(str::to_owned))
+				.collect()
+		})
 	};
 	assert_eq!(
 		strings("sourcesContent"),

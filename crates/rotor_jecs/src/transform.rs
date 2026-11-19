@@ -340,7 +340,7 @@ impl State<'_> {
 		if let Some(error) = failure {
 			return Err(error);
 		}
-		let caches = frame.map(|frame| frame.order).unwrap_or_default();
+		let caches = frame.map_or_default(|frame| frame.order);
 		if !changed && caches.is_empty() {
 			return Ok((to_transform.to_vec(), false));
 		}

@@ -145,8 +145,7 @@ pub fn annotate_source_map_segments(luau_text: &str, map_json: &str, column_zero
 			let joined = u32::try_from(line)
 				.ok()
 				.and_then(|line| segments.get(&line))
-				.map(|segments| segments.join(" "))
-				.unwrap_or_default();
+				.map_or_default(|segments| segments.join(" "));
 			if joined.is_empty() { "-".to_owned() } else { joined }
 		})
 		.collect();
@@ -800,8 +799,7 @@ fn source_map_runtime_headers() {
 			let text = result
 				.outputs
 				.get(&format!("out/{name}.luau"))
-				.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-				.unwrap_or_default();
+				.map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned());
 			if name == "main" {
 				assert!(
 					text.contains("local TS = ") && text.contains("local exports = {}"),

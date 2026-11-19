@@ -139,8 +139,7 @@ fn read_task7_luau_tree(root: &Path) -> BTreeMap<String, String> {
 			}
 			let relative = path
 				.strip_prefix(base)
-				.map(|relative| relative.to_string_lossy().replace('\\', "/"))
-				.unwrap_or_default();
+				.map_or_default(|relative| relative.to_string_lossy().replace('\\', "/"));
 			outputs.insert(relative, std::fs::read_to_string(&path).expect("read output"));
 		}
 	}

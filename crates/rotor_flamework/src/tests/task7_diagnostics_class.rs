@@ -337,10 +337,7 @@ fn task7_class_ast_tuple(root: &Path, diagnostic: &Diagnostic) -> Tuple {
 		.string_code
 		.clone()
 		.unwrap_or_else(|| diagnostic.code().to_string());
-	let file = diagnostic
-		.file
-		.map(|file| file.file_name().to_owned())
-		.unwrap_or_default();
+	let file = diagnostic.file.map_or_default(|file| file.file_name().to_owned());
 	Tuple {
 		category: category.to_owned(),
 		code,

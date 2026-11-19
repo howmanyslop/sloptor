@@ -120,9 +120,8 @@ fn new_oracle_fixture() -> ReferenceFixture {
 /// The parts of a project its incremental salt and scheduling read; Go compares the whole value.
 fn project_fingerprint(project: &SolutionProject) -> String {
 	let sorted = |paths: Option<&std::sync::Arc<HashMap<String, String>>>| {
-		let mut entries: Vec<(String, String)> = paths
-			.map(|paths| paths.iter().map(|(key, value)| (key.clone(), value.clone())).collect())
-			.unwrap_or_default();
+		let mut entries: Vec<(String, String)> =
+			paths.map_or_default(|paths| paths.iter().map(|(key, value)| (key.clone(), value.clone())).collect());
 		entries.sort();
 		entries
 	};

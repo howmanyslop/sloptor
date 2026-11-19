@@ -496,8 +496,7 @@ fn task7_state_transform_native(root: &Path) -> (i32, Vec<Tuple>) {
 fn task7_state_native_diagnostic(root: &Path, diagnostic: &Diagnostic) -> Tuple {
 	let file = diagnostic
 		.file
-		.map(|file| task7_state_normalize_path(root, file.file_name()))
-		.unwrap_or_default();
+		.map_or_default(|file| task7_state_normalize_path(root, file.file_name()));
 	let related: Vec<&str> = diagnostic.related_information.iter().map(Diagnostic::string).collect();
 	let code = diagnostic
 		.string_code

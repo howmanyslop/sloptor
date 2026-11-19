@@ -97,9 +97,7 @@ impl SolutionCoordinator {
 			project_path: project.config_path.clone(),
 			..SolutionWatchSet::default()
 		};
-		set.ts_config_paths = read_rbxts_options_with_chain(&project.config_path)
-			.map(|(_, chain)| chain)
-			.unwrap_or_default();
+		set.ts_config_paths = read_rbxts_options_with_chain(&project.config_path).map_or_default(|(_, chain)| chain);
 		if set.ts_config_paths.is_empty() {
 			set.ts_config_paths = vec![project.config_path.clone()];
 		}

@@ -385,8 +385,7 @@ pub fn task7_artifact_hash(dir: &str) -> String {
 			}
 			let relative = path
 				.strip_prefix(root)
-				.map(|relative| relative.to_string_lossy().replace('\\', "/"))
-				.unwrap_or_default();
+				.map_or_default(|relative| relative.to_string_lossy().replace('\\', "/"));
 			if relative != "flamework.build" && !relative.starts_with("out/") && !relative.starts_with("include/") {
 				continue;
 			}

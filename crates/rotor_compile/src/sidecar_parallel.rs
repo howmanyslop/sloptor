@@ -205,8 +205,9 @@ pub(crate) fn parallel_resolution_scope(project_dir: &str, files: &[String]) -> 
 				// Conservative: an unrelated symlink in a compile scope selects serial too.
 				let irregular = !(file_type.is_file() || file_type.is_dir());
 				if file_type.is_symlink()
-					|| irregular || !at_root
-					&& (name.eq_ignore_ascii_case("package.json") || name.eq_ignore_ascii_case("node_modules"))
+					|| irregular
+					|| !at_root
+						&& (name.eq_ignore_ascii_case("package.json") || name.eq_ignore_ascii_case("node_modules"))
 				{
 					return false;
 				}
@@ -547,14 +548,16 @@ pub(crate) fn merge_parallel_responses(
 	let (a, b) = (first.parallel_batch_diagnostics, second.parallel_batch_diagnostics);
 	let (x, y) = (first.parallel_source_diagnostics, second.parallel_source_diagnostics);
 	let len = |diagnostics: &[TransformerDiagnostic]| i64::try_from(diagnostics.len()).unwrap_or(i64::MAX);
-	let incompatible =
-		a < 0
-			|| b < 0 || a > len(&first.diagnostics)
-			|| b > len(&second.diagnostics)
-			|| a != b || x < 0
-			|| y < 0 || x > len(&first.diagnostics) - a
-			|| y > len(&second.diagnostics) - b
-			|| first.after_declarations_transformers != second.after_declarations_transformers;
+	let incompatible = a < 0
+		|| b < 0
+		|| a > len(&first.diagnostics)
+		|| b > len(&second.diagnostics)
+		|| a != b
+		|| x < 0
+		|| y < 0
+		|| x > len(&first.diagnostics) - a
+		|| y > len(&second.diagnostics) - b
+		|| first.after_declarations_transformers != second.after_declarations_transformers;
 	let index = |value: i64| usize::try_from(value).unwrap_or(0);
 	if incompatible || a != 0 && first.diagnostics[..index(a)] != second.diagnostics[..index(b)] {
 		return (

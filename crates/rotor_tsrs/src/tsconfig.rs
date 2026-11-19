@@ -335,8 +335,7 @@ fn read_raw_enforced_options_from_chain(config_path: &str, visited: &mut Vec<Str
 	let base = match root.get("extends") {
 		Some(Value::String(extends)) => resolve_extends_path(&gopath::dir(&normalized), extends)
 			.ok()
-			.map(|parent| read_raw_enforced_options_from_chain(&parent, visited))
-			.unwrap_or_default(),
+			.map_or_default(|parent| read_raw_enforced_options_from_chain(&parent, visited)),
 		_ => RawEnforcedOptions::default(),
 	};
 	let Some(Value::Object(options)) = root.get("compilerOptions") else {
@@ -349,15 +348,12 @@ fn read_raw_enforced_options_from_chain(config_path: &str, visited: &mut Vec<Str
 	}
 	if let Some(value) = options.get("types") {
 		current.has_types = true;
-		current.types = value
-			.as_array()
-			.map(|entries| {
-				entries
-					.iter()
-					.filter_map(|entry| entry.as_str().map(str::to_owned))
-					.collect()
-			})
-			.unwrap_or_default();
+		current.types = value.as_array().map_or_default(|entries| {
+			entries
+				.iter()
+				.filter_map(|entry| entry.as_str().map(str::to_owned))
+				.collect()
+		});
 	}
 	if let Some(value) = options.get("importsNotUsedAsValues") {
 		current.has_imports_not_used = true;

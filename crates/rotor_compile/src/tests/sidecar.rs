@@ -174,16 +174,14 @@ pub fn output_text(result: &BuildResult, key: &str) -> String {
 	result
 		.outputs
 		.get(key)
-		.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-		.unwrap_or_default()
+		.map_or_default(|bytes| String::from_utf8_lossy(bytes).into_owned())
 }
 
 /// `envValue`
 pub fn env_value(env: &[(String, String)], name: &str) -> String {
 	env.iter()
 		.find(|(key, _)| key == name)
-		.map(|(_, value)| value.clone())
-		.unwrap_or_default()
+		.map_or_default(|(_, value)| value.clone())
 }
 
 /// `session.roundTrip`: one request and its decoded response.
@@ -300,7 +298,7 @@ fn apply_transformer_sidecar_with_plugins_runs_prefix_and_suffix_once() {
 			"prefix transform did not produce a new program"
 		);
 		let source = second.program.get_source_file(&format!("{abs_dir}/src/main.ts"));
-		let text = source.map(|source| source.text().to_owned()).unwrap_or_default();
+		let text = source.map_or_default(|source| source.text().to_owned());
 		assert!(
 			text.contains(r#""suffix:prefix:start""#),
 			"filtered transforms produced {text:?}, want suffix:prefix:start"

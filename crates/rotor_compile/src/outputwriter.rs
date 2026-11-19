@@ -86,10 +86,7 @@ impl OutputWriter {
 
 	/// The outputs and hashes recorded so far.
 	pub(crate) fn current_outputs(&self) -> BTreeMap<String, String> {
-		self.current
-			.as_ref()
-			.map(|current| lock(current).clone())
-			.unwrap_or_default()
+		self.current.as_ref().map_or_default(|current| lock(current).clone())
 	}
 
 	/// Replaces the recorded outputs (after pruning).
@@ -210,7 +207,7 @@ impl OutputWriter {
 		match resolved {
 			Some(resolved) if !within_root(&resolved, root) => {
 				// The parent root opened, so Go names the base name.
-				let name = path.file_name().map(|name| name.to_string_lossy()).unwrap_or_default();
+				let name = path.file_name().map_or_default(|name| name.to_string_lossy());
 				Err(Error::message(format!("openat {name}: path escapes from parent")))
 			}
 			_ => Ok(()),

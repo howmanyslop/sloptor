@@ -214,7 +214,7 @@ pub(crate) fn warm_transformer_sidecar_shards(
 		operation: "warm".to_owned(),
 		ts_config_path: gopath::from_slash(&sidecar_config_path).into_owned(),
 		project_dir: gopath::from_slash(&dir_path).into_owned(),
-		plugins: plugins.map(<[String]>::to_vec).unwrap_or_default(),
+		plugins: plugins.map_or_default(<[String]>::to_vec),
 		..TransformerRequest::default()
 	}
 	.to_json();

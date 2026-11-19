@@ -455,7 +455,7 @@ impl StageTimer<'_> {
 
 /// `startStage`: starts timing `stage` on `timings` (or only logging it, without timings).
 pub fn start_stage(timings: Option<&BuildTimings>, stage: Stage) -> StageTimer<'_> {
-	let label = timings.map(BuildTimings::project_label).unwrap_or_default();
+	let label = timings.map_or_default(BuildTimings::project_label);
 	logservice::write_stage_start_if_verbose(&label, stage.trace_name());
 	StageTimer {
 		timings,

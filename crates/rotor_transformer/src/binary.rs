@@ -182,7 +182,8 @@ pub fn transform_binary_expression(state: &mut State<'_>, node: P<Node>) -> Node
 				&& {
 					let right_type = state.get_type(right_node);
 					check(state, TypeCheck::LuaTuple, right_type)
-				} && !array_like_expression_contains_spread(left_node)
+				}
+				&& !array_like_expression_contains_spread(left_node)
 			{
 				expressions::transform_optimized_array_assignment_pattern(state, left_node, right.into());
 				if !is_used_as_statement(node) {

@@ -94,9 +94,8 @@ pub(crate) fn resolve_transformer_plugin_entry(
 	let package_dir = find_package_directory(&project_dir, &package_name).ok_or("package not installed")?;
 	let manifest = read_package_manifest(&package_dir).map_err(|_| "package.json unreadable")?;
 	let candidates = if subpath.is_empty() {
-		let exports_runtime_path = resolve_package_exports(&package_dir, &[])
-			.map(|(_, runtime_path)| runtime_path)
-			.unwrap_or_default();
+		let exports_runtime_path =
+			resolve_package_exports(&package_dir, &[]).map_or_default(|(_, runtime_path)| runtime_path);
 		vec![
 			exports_runtime_path,
 			package_exports_runtime_entry(manifest.exports.as_ref()),

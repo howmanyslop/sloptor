@@ -103,8 +103,8 @@ export declare namespace Flamework {
 		write_file(&provider, "src/index.d.ts", "export declare const value: number;\n");
 		write_file(&provider, "src/init.luau", "return { value = 1 }\n");
 		let mut links = vec![
-			(format!("{dir}/node_modules/@workspace/provider"), provider.clone()),
-			(format!("{dir}/node_modules/@flamework/core"), core.clone()),
+			(format!("{dir}/node_modules/@workspace/provider"), provider),
+			(format!("{dir}/node_modules/@flamework/core"), core),
 			(format!("{workspace}/node_modules/@rbxts/t"), guard.clone()),
 			(
 				format!("{workspace}/node_modules/.pnpm/@flamework+core@1.0.0/node_modules/@rbxts/t"),
@@ -112,7 +112,7 @@ export declare namespace Flamework {
 			),
 		];
 		if local_guard {
-			links.push((format!("{dir}/node_modules/@rbxts/t"), guard.clone()));
+			links.push((format!("{dir}/node_modules/@rbxts/t"), guard));
 		}
 		for (link, target) in &links {
 			let link = Path::new(link);

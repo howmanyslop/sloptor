@@ -157,7 +157,7 @@ pub(crate) fn validate_project_outputs(
 			},
 		);
 		for path in [
-			translator.build_info_output_path.clone(),
+			translator.build_info_output_path,
 			gopath::from_slash(&ts_build_info_path).into_owned(),
 		] {
 			if path.is_empty() {

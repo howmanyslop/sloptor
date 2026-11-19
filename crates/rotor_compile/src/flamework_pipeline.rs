@@ -367,7 +367,7 @@ fn external_transformer_stage(
 	} else {
 		remap_program_source_files(transformed.program, &source_files).map_err(Failure::bare)?
 	};
-	let rewritten = state.map(|state| lock(state).rebases.clone()).unwrap_or_default();
+	let rewritten = state.map_or_default(|state| lock(state).rebases.clone());
 	let mut composed = traces.clone();
 	for (key, trace) in std::mem::take(&mut transformed.source_traces.0) {
 		// A rebased file came back traced to the text native jecs started from, not to its

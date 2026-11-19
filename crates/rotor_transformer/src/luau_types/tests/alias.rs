@@ -108,8 +108,7 @@ fn luau_types_alias_generics_defaults() {
 			let statement_generics = entry
 				.statement
 				.and_then(|statement| fixture.state.ast.get::<TypeAlias>(statement))
-				.map(|alias| alias.generics.clone())
-				.unwrap_or_default();
+				.map_or_default(|alias| alias.generics.clone());
 			assert_eq!(
 				spell_generics(fixture, &statement_generics),
 				want,

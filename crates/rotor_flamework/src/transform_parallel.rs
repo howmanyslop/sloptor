@@ -316,8 +316,7 @@ fn transform_and_print(
 	let operations = state
 		.recording
 		.as_mut()
-		.map(|recording| std::mem::take(&mut recording.operations))
-		.unwrap_or_default();
+		.map_or_default(|recording| std::mem::take(&mut recording.operations));
 	Some(ParallelFileResult {
 		transformed,
 		metadata,
