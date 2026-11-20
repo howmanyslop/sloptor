@@ -1,16 +1,10 @@
 {
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
-		"tsBuildInfoFile": "./node_modules/.tsbuildinfo-scripts",
+		"tsBuildInfoFile": "./node_modules/.tmp/node.tsbuildinfo",
 		"rootDir": ".",
-		"paths": {
-			"$script-commands/*": ["./scripts/commands/*"],
-			"$script-constants/*": ["./scripts/constants/*"],
-			"$script-types/*": ["./scripts/types/*"],
-			"$script-utilities/*": ["./scripts/utilities/*"]
-		},
 		"types": ["bun", "node"],
 		"sourceMap": false
 	},
-	"include": ["api.d.ts", "*.config.ts", "scripts/**/*.ts", "tools/tsrs-mirror/**/*.ts"]
+	"include": ["api.d.ts", "*.config.ts", "tools/tsrs-mirror/**/*.ts"]
 }

@@ -1,6 +1,7 @@
 {
 	"extends": "../tsconfig.node.json",
 	"compilerOptions": {
+		"tsBuildInfoFile": "./node_modules/.tmp/scripts.tsbuildinfo",
 		"paths": {
 			"$commands/*": ["./commands/*"],
 			"$constants/*": ["./constants/*"],
@@ -9,5 +10,7 @@
 			"$types/*": ["./types/*"],
 			"$utilities/*": ["./utilities/*"]
 		}
-	}
+	},
+	"include": ["**/*.ts"],
+	"exclude": ["node_modules"]
 }

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use rotor_compile::census::{FileDiagnostics, FileOutcome, ProjectDiagnostics};
 use rotor_compile::compile::{DiagnosticInfo, InternalCompilerError};
-use rotor_lsp::{Cancel, Census, FindTsConfig, Options};
+use rotor_lsp::{Cancel, Census, FindTsConfig, Options, OutputPath};
 use rotor_support as _;
 use rotor_tsrs as _;
 use serde_json::{Value, json};
@@ -102,6 +102,7 @@ struct Client {
 struct ServeConfig {
 	census: Census,
 	find: FindTsConfig,
+	output: OutputPath,
 	debounce: Duration,
 }
 
@@ -121,6 +122,7 @@ fn start_server(config: ServeConfig) -> Client {
 				Options {
 					find_ts_config: config.find,
 					census: config.census,
+					output_path: config.output,
 					debounce: config.debounce,
 				},
 			);
@@ -365,7 +367,19 @@ fn overlay_text(overlays: &BTreeMap<String, String>, file: &Path) -> String {
 }
 
 fn serve_config(census: Census, find: FindTsConfig, debounce: Duration) -> ServeConfig {
-	ServeConfig { census, find, debounce }
+	// The real mapping is the CLI's; this one only proves the path reaches it unchanged.
+	let output: OutputPath = Arc::new(|file_name: &str| {
+		if file_name.ends_with("broken.ts") {
+			return Err("compile: invalid tsconfig.json configuration".to_owned());
+		}
+		Ok(format!("{file_name}.luau"))
+	});
+	ServeConfig {
+		census,
+		find,
+		output,
+		debounce,
+	}
 }
 
 /// An editor that cannot start the server: a handshake without full sync, the wrong name, or a
@@ -774,6 +788,29 @@ fn malformed_params_are_invalid_params() {
 			"request {id}"
 		);
 	}
+}
+
+/// Open Output: a source file answers its output path with its case kept, any other document
+/// answers `null`, a project that cannot be read is an error, and params without a document are
+/// invalid.
+#[test]
+fn output_path_request() {
+	let project = new_project(&["Mixed.ts", "broken.ts"]);
+	let client = start_server(serve_config(project.no_any_census(), project.find(), Duration::ZERO));
+	client.handshake(None, None);
+	let document = |path: &Path| json!({"textDocument": {"uri": uri_of(path)}});
+	client.request(20, "sloptor/outputPath", document(&project.files[0]));
+	client.request(21, "sloptor/outputPath", document(&project.config));
+	client.request(22, "sloptor/outputPath", document(&project.files[1]));
+	client.request(23, "sloptor/outputPath", json!({}));
+	let expected = format!("{}.luau", project.files[0].to_string_lossy());
+	assert_eq!(client.response_to(20).result, Some(json!({"path": expected})));
+	assert_eq!(client.response_to(21).result, Some(Value::Null));
+	assert_eq!(
+		client.response_to(22).error,
+		Some((-32803, "compile: invalid tsconfig.json configuration".to_owned()))
+	);
+	assert_eq!(client.response_to(23).error.map(|error| error.0), Some(-32602));
 }
 
 /// The editor can stop the server: shutdown answers a null result (not none) and exit ends it.
