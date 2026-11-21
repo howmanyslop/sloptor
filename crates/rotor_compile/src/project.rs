@@ -560,7 +560,7 @@ pub(crate) fn new_project_context_with_import_context(
 			project_path: gopath::from_slash(dir).into_owned(),
 			pkg_rojo_resolvers,
 			node_modules_path_mapping: node_modules_mapping,
-			project_reference_paths: import_path_map,
+			project_reference_paths: import_path_map.into_iter().collect(),
 			node_modules_path,
 			type_roots,
 			use_case_sensitive_file_names,

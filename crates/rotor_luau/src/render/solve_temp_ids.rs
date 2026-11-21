@@ -2,7 +2,9 @@
 //! temporary identifiers, scope-aware so they never collide with source
 //! identifiers or other temps.
 
-use std::collections::{HashMap, HashSet};
+use std::borrow::Cow;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::list::element;
 use crate::render::visit::{self, Visitor};
@@ -14,17 +16,17 @@ type ScopeId = usize;
 /// Upstream `Scope`. Maps start empty and never allocate until written, since
 /// most scopes never register a name.
 #[derive(Default)]
-struct TempScope {
-	ids: HashSet<String>,
-	last_try: HashMap<String, usize>,
+struct TempScope<'a> {
+	ids: FxHashSet<Cow<'a, str>>,
+	last_try: FxHashMap<Cow<'a, str>, usize>,
 	/// Per base: the `_` separator cursor, then the empty separator cursor.
-	next_try: HashMap<String, [Option<usize>; 2]>,
+	next_try: FxHashMap<Cow<'a, str>, [Option<usize>; 2]>,
 	parent: Option<ScopeId>,
 }
 
-struct Scopes(Vec<TempScope>);
+struct Scopes<'a>(Vec<TempScope<'a>>);
 
-impl Scopes {
+impl<'a> Scopes<'a> {
 	fn push(&mut self, parent: Option<ScopeId>) -> ScopeId {
 		self.0.push(TempScope {
 			parent,
@@ -47,10 +49,10 @@ impl Scopes {
 		}
 	}
 
-	fn add_id(&mut self, scope: ScopeId, id: &str) {
+	fn add_id(&mut self, scope: ScopeId, id: &'a str) {
 		let ids = &mut self.0[scope].ids;
 		if !ids.contains(id) {
-			ids.insert(id.to_owned());
+			ids.insert(Cow::Borrowed(id));
 		}
 	}
 
@@ -74,12 +76,18 @@ impl Scopes {
 		let current = &mut self.0[scope];
 		// Preserve upstream's final-name counter: overlapping hints can read
 		// it.
-		current.last_try.insert(input.clone(), i);
-		current.ids.insert(input.clone());
+		current.last_try.insert(Cow::Owned(input.clone()), i);
+		current.ids.insert(Cow::Owned(input.clone()));
 		// All skipped candidates remain reserved in this scope or an
 		// ancestor. Keep separate cursors for anonymous "_1" and exact "__1"
 		// suffixes.
-		current.next_try.entry(base.to_owned()).or_default()[family] = Some(i);
+		if let Some(cursors) = current.next_try.get_mut(base) {
+			cursors[family] = Some(i);
+		} else {
+			let mut cursors = [None; 2];
+			cursors[family] = Some(i);
+			current.next_try.insert(Cow::Owned(base.to_owned()), cursors);
+		}
 		input
 	}
 }
@@ -144,8 +152,8 @@ fn is_scope_edge(ast: &Ast, node: NodeId, head: bool) -> bool {
 	false
 }
 
-struct Solve {
-	scopes: Scopes,
+struct Solve<'a> {
+	scopes: Scopes<'a>,
 	stack: Vec<ScopeId>,
 	temps: Vec<NodeId>,
 	/// The scope each temporary was last seen in, indexed by [`NodeId`].
@@ -154,9 +162,10 @@ struct Solve {
 	/// Set when a scope edge pops more scopes than were pushed. Go indexes
 	/// the empty stack and panics; the walk records it and fails.
 	underflow: bool,
+	track_ids: bool,
 }
 
-impl Solve {
+impl<'a> Solve<'a> {
 	/// The innermost scope. On an empty stack this records the underflow and
 	/// returns the root scope so the walk can finish before failing.
 	fn peek(&mut self) -> ScopeId {
@@ -179,12 +188,12 @@ impl Solve {
 		}
 	}
 
-	fn register_id(&mut self, name: &str) {
+	fn register_id(&mut self, name: &'a str) {
 		let scope = self.peek();
 		self.scopes.add_id(scope, name);
 	}
 
-	fn reserve_identifier_use(&mut self, name: &str) {
+	fn reserve_identifier_use(&mut self, name: &'a str) {
 		let mut scope = Some(self.peek());
 		while let Some(current) = scope {
 			self.scopes.add_id(current, name);
@@ -193,10 +202,11 @@ impl Solve {
 	}
 }
 
-impl Visitor for Solve {
-	fn before(&mut self, ast: &Ast, node: NodeId) {
+impl<'a> Visitor<'a> for Solve<'a> {
+	fn before(&mut self, ast: &'a Ast, node: NodeId) {
 		let kind = ast.kind(node);
-		if let NodeData::FunctionDeclaration(declaration) = ast.data(node)
+		if self.track_ids
+			&& let NodeData::FunctionDeclaration(declaration) = ast.data(node)
 			&& declaration.localize
 			&& let NodeData::Identifier(identifier) = ast.data(declaration.name)
 		{
@@ -205,8 +215,14 @@ impl Visitor for Solve {
 		if is_fully_scoped_node(kind) {
 			self.push();
 		}
-		if is_scope_edge(ast, node, true) {
+		if kind.is_statement() && is_scope_edge(ast, node, true) {
 			self.push();
+		}
+		if !self.track_ids {
+			if let NodeData::ForStatement(statement) = ast.data(node) {
+				self.unsolved_iterators.push(statement.expression);
+			}
+			return;
 		}
 		match ast.data(node) {
 			NodeData::ForStatement(statement) => self.unsolved_iterators.push(statement.expression),
@@ -249,11 +265,12 @@ impl Visitor for Solve {
 		}
 	}
 
-	fn after(&mut self, ast: &Ast, node: NodeId) {
-		if is_fully_scoped_node(ast.kind(node)) {
+	fn after(&mut self, ast: &'a Ast, node: NodeId) {
+		let kind = ast.kind(node);
+		if is_fully_scoped_node(kind) {
 			self.pop();
 		}
-		if is_scope_edge(ast, node, false) {
+		if kind.is_statement() && is_scope_edge(ast, node, false) {
 			self.pop();
 		}
 	}
@@ -265,15 +282,21 @@ impl Visitor for Solve {
 /// Fails when scope edges pop more scopes than they push, which happens when
 /// a list's head or tail changed after construction and so has no parent.
 pub fn solve_temp_ids(state: &mut RenderState, ast: &Ast, root: NodeOrList) -> RenderResult<Vec<NodeId>> {
+	let track_ids = ast.temp_id_count() > 0;
 	let mut scopes = Scopes(Vec::new());
 	let root_scope = scopes.push(None);
 	let mut solve = Solve {
 		scopes,
 		stack: vec![root_scope],
 		temps: Vec::new(),
-		node_scopes: vec![None; ast.node_count()],
+		node_scopes: if track_ids {
+			vec![None; ast.node_count()]
+		} else {
+			Vec::new()
+		},
 		unsolved_iterators: Vec::new(),
 		underflow: false,
+		track_ids,
 	};
 	visit::visit_node_or_list(ast, root, &mut solve);
 	if solve.underflow {

@@ -250,7 +250,19 @@ impl Parser<'_> {
 	fn string(&mut self) -> Result<String, String> {
 		// The opening quote.
 		self.at += 1;
-		let mut out: Vec<u8> = Vec::new();
+		let start = self.at;
+		while let Some(&byte) = self.bytes.get(self.at) {
+			if byte == b'"' {
+				let result = String::from_utf8_lossy(&self.bytes[start..self.at]).into_owned();
+				self.at += 1;
+				return Ok(result);
+			}
+			if byte == b'\\' {
+				break;
+			}
+			self.at += 1;
+		}
+		let mut out: Vec<u8> = self.bytes[start..self.at].to_vec();
 		loop {
 			let Some(byte) = self.peek() else {
 				return Err("unexpected end of JSON input".to_owned());
@@ -334,24 +346,38 @@ pub fn write_string(out: &mut String, text: &str) {
 /// Appends `text` as a `json.Encoder` writes a string; `escape_html` is its `SetEscapeHTML`.
 pub fn write_string_escaping(out: &mut String, text: &str, escape_html: bool) {
 	out.push('"');
-	for character in text.chars() {
-		match character {
-			'"' => out.push_str("\\\""),
-			'\\' => out.push_str("\\\\"),
-			'\n' => out.push_str("\\n"),
-			'\r' => out.push_str("\\r"),
-			'\t' => out.push_str("\\t"),
-			'\x08' => out.push_str("\\b"),
-			'\x0c' => out.push_str("\\f"),
+	let mut safe_start = 0;
+	for (idx, character) in text.char_indices() {
+		let escaped = match character {
+			'"' => "\\\"",
+			'\\' => "\\\\",
+			'\n' => "\\n",
+			'\r' => "\\r",
+			'\t' => "\\t",
+			'\x08' => "\\b",
+			'\x0c' => "\\f",
 			character
 				if u32::from(character) < 0x20
 					|| matches!(character, '\u{2028}' | '\u{2029}')
 					|| (escape_html && matches!(character, '<' | '>' | '&')) =>
 			{
+				if safe_start < idx {
+					out.push_str(&text[safe_start..idx]);
+				}
 				let _ = write!(out, "\\u{:04x}", u32::from(character));
+				safe_start = idx + character.len_utf8();
+				continue;
 			}
-			character => out.push(character),
+			_ => continue,
+		};
+		if safe_start < idx {
+			out.push_str(&text[safe_start..idx]);
 		}
+		out.push_str(escaped);
+		safe_start = idx + character.len_utf8();
+	}
+	if safe_start < text.len() {
+		out.push_str(&text[safe_start..]);
 	}
 	out.push('"');
 }

@@ -146,7 +146,7 @@ pub fn transform_identifier(state: &mut State<'_>, node: P<Node>) -> NodeId {
 
 	check_identifier_hoist(state, node, symbol);
 
-	transform_identifier_defined(state, node)
+	transform_identifier_defined_with_symbol(state, node, symbol)
 }
 
 /// `TransformIdentifierDefined` (`transformIdentifier.ts` L14-28): an identifier in a defining
@@ -155,6 +155,11 @@ pub fn transform_identifier_defined(state: &mut State<'_>, node: P<Node>) -> Nod
 	let Some(symbol) = identifier_symbol(state, node) else {
 		return state.ast.id(node.text());
 	};
+	transform_identifier_defined_with_symbol(state, node, symbol)
+}
+
+/// [`transform_identifier_defined`] when the caller already resolved `node`'s symbol.
+pub fn transform_identifier_defined_with_symbol(state: &mut State<'_>, node: P<Node>, symbol: P<Symbol>) -> NodeId {
 	if let Some(&replacement) = state.symbol_to_id.get(&symbol) {
 		return replacement;
 	}

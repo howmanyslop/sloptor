@@ -248,7 +248,7 @@ impl RenderState {
 		struct Reserve<'s> {
 			state: &'s mut RenderState,
 		}
-		impl Visitor for Reserve<'_> {
+		impl Visitor<'_> for Reserve<'_> {
 			const RENDER_ORDER: bool = true;
 
 			fn before(&mut self, ast: &Ast, node: NodeId) {
@@ -265,7 +265,7 @@ impl RenderState {
 			state: &'s RenderState,
 			found: bool,
 		}
-		impl Visitor for NeedsFallback<'_> {
+		impl Visitor<'_> for NeedsFallback<'_> {
 			const RENDER_ORDER: bool = true;
 
 			fn before(&mut self, ast: &Ast, node: NodeId) {

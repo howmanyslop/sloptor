@@ -17,7 +17,7 @@ fn rojo_context(runtime_lib_rbx_path: Option<RbxPath>) -> &'static RojoContext {
 		project_path: String::new(),
 		pkg_rojo_resolvers: Vec::new(),
 		node_modules_path_mapping: NodeModulesPathMapping::default(),
-		project_reference_paths: std::collections::HashMap::new(),
+		project_reference_paths: std::collections::HashMap::default(),
 		node_modules_path: String::new(),
 		type_roots: Vec::new(),
 		use_case_sensitive_file_names: true,

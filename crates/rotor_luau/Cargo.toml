@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+rustc-hash.workspace = true
+
 [dev-dependencies]
 regex.workspace = true
 

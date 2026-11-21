@@ -1,8 +1,9 @@
 //! `diagservice.go`: the port of `classes/DiagnosticService.ts`. Upstream is a global static
 //! accumulator; rotor injects an instance so concurrent compilations stay independent.
 
-use std::collections::HashSet;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
+
+use rustc_hash::FxHashSet;
 
 use crate::diagnostics::Diagnostic;
 
@@ -12,7 +13,7 @@ pub struct DiagService {
 	diagnostics: Vec<Diagnostic>,
 	/// The codes already reported through [`DiagService::add_single`] (upstream
 	/// `singleDiagnostics`, keyed by the stable factory name).
-	single: HashSet<&'static str>,
+	single: FxHashSet<&'static str>,
 }
 
 impl DiagService {
@@ -37,7 +38,12 @@ impl DiagService {
 
 	/// Appends `diagnostic` unless `key` is already in the caller's `cache`, recording it on
 	/// first use (upstream `addDiagnosticWithCache`).
-	pub fn add_with_cache<K: Eq + Hash>(&mut self, key: K, diagnostic: Diagnostic, cache: &mut HashSet<K>) {
+	pub fn add_with_cache<K: Eq + Hash, S: BuildHasher>(
+		&mut self,
+		key: K,
+		diagnostic: Diagnostic,
+		cache: &mut std::collections::HashSet<K, S>,
+	) {
 		if cache.insert(key) {
 			self.add(diagnostic);
 		}

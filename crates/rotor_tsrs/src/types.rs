@@ -7,7 +7,7 @@
 //! the transformer's state can share its own registry. [`TypeState`] is a ready-made context for
 //! callers without one.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use tsrs_ast::{
 	Node, Symbol, SymbolFlags, get_source_file_of_node, is_construct_signature_declaration, is_interface_declaration,
@@ -41,7 +41,7 @@ pub trait TypeContext {
 /// `MacroManager.LuaTupleNominalSymbol`).
 #[derive(Debug, Default)]
 pub struct AmbientSymbols {
-	symbols: HashMap<String, Option<P<Symbol>>>,
+	symbols: FxHashMap<String, Option<P<Symbol>>>,
 	lua_tuple_nominal: Option<P<Symbol>>,
 	lua_tuple_nominal_resolved: bool,
 }
@@ -230,8 +230,11 @@ fn is_empty_string(t: P<Type>) -> bool {
 }
 
 fn is_array(context: &mut impl TypeContext, t: P<Type>) -> bool {
-	// The checker's isArrayLikeType is true for `any`, so rule it out first.
-	if t.flags().intersects(TypeFlags::Any) {
+	// The checker's isArrayLikeType is true for `any` (and `never`), so rule `any` out first.
+	if !t
+		.flags()
+		.intersects(TypeFlags::Object | TypeFlags::UnionOrIntersection | TypeFlags::Instantiable | TypeFlags::Never)
+	{
 		return false;
 	}
 	if t.is_tuple_type() || ck(context).is_array_like_type(t) {
@@ -245,6 +248,12 @@ fn is_array(context: &mut impl TypeContext, t: P<Type>) -> bool {
 }
 
 fn is_lua_tuple(context: &mut impl TypeContext, t: P<Type>) -> bool {
+	if !t
+		.flags()
+		.intersects(TypeFlags::Object | TypeFlags::UnionOrIntersection | TypeFlags::Instantiable)
+	{
+		return false;
+	}
 	let Some(nominal) = context.lua_tuple_nominal_symbol() else {
 		return false;
 	};
@@ -296,8 +305,23 @@ pub fn get_recursive_base_types(context: &mut impl TypeContext, t: P<Type>) -> V
 	result
 }
 
+/// Whether `t` can have a base constraint in `tsrs_checker::Checker::get_base_constraint_of_type`.
+#[inline]
+fn may_have_base_constraint(t: P<Type>) -> bool {
+	t.flags().intersects(
+		TypeFlags::InstantiableNonPrimitive
+			| TypeFlags::UnionOrIntersection
+			| TypeFlags::TemplateLiteral
+			| TypeFlags::StringMapping
+			| TypeFlags::Index,
+	) || t.is_tuple_type()
+}
+
 /// `type.getConstraint() ?? type`.
 fn constraint_or_self(context: &mut impl TypeContext, t: P<Type>) -> P<Type> {
+	if !may_have_base_constraint(t) {
+		return t;
+	}
 	ck(context).get_base_constraint_of_type(t).unwrap_or(t)
 }
 
@@ -314,14 +338,13 @@ fn is_definitely_type_inner(context: &mut impl TypeContext, t: P<Type>, callback
 			.iter()
 			.any(|&member| is_definitely_type_inner(context, member, callbacks));
 	}
-	if is_class_or_interface(t)
+	if callbacks.iter().any(|callback| callback.check(context, t)) {
+		return true;
+	}
+	is_class_or_interface(t)
 		&& get_recursive_base_types(context, t)
 			.into_iter()
 			.any(|base| is_definitely_type_inner(context, base, callbacks))
-	{
-		return true;
-	}
-	callbacks.iter().any(|callback| callback.check(context, t))
 }
 
 /// Whether `t`, or its constraint, certainly satisfies one of `callbacks` (`IsDefinitelyType`): every
@@ -394,11 +417,15 @@ pub fn walk_types(context: &mut impl TypeContext, t: P<Type>, callback: &mut dyn
 		}
 		return;
 	}
-	match ck(context).get_base_constraint_of_type(t) {
+	if may_have_base_constraint(t)
+		&& let Some(constraint) = ck(context).get_base_constraint_of_type(t)
+		&& constraint != t
+	{
 		// A template literal type is its own constraint; following it would never end.
-		Some(constraint) if constraint != t => walk_types(context, constraint, callback),
-		_ => callback(t),
+		walk_types(context, constraint, callback);
+		return;
 	}
+	callback(t);
 }
 
 /// The symbol of the first construct signature declared by an interface declaration of

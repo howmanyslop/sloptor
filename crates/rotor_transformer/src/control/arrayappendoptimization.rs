@@ -4,6 +4,8 @@
 
 use std::collections::HashMap;
 
+use rustc_hash::FxHashMap;
+
 use rotor_tsrs::ast::{self as tsast, ModifierFlags, skip_downwards};
 use rotor_tsrs::checker::{TypeChecker, TypeFlags};
 use rotor_tsrs::types::{self as tstypes, TypeCheck};
@@ -49,7 +51,7 @@ fn create_array_append_plan(
 	let target = ArrayAppendTarget {
 		length_id: state.ast.temp_id(format!("{}Length", definition.text())),
 	};
-	let mut calls = HashMap::new();
+	let mut calls = FxHashMap::default();
 	let definition_function = tsast::find_ancestor(definition, tsast::is_function_like);
 	let search_container = match definition_function {
 		Some(function) => function,

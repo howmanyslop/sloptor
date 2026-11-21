@@ -34,8 +34,9 @@ use crate::incremental_salt::{incremental_salt_with_flamework, output_manifest_p
 use crate::incremental_signature::{narrow_selection_by_declaration_signature, recovered_input_paths};
 use crate::macrodecl::source_uses_macros;
 use crate::outputwriter::OutputWriter;
+use crate::outputwriter::WriteOutcome;
 use crate::package_layout::prepare_package_layout;
-use crate::parallelwrite::{Job, parallelize, write_workers};
+use crate::parallelwrite::{Job, WRITE_SYNC_CUTOFF, parallel_fold_with_cutoff, parallelize, write_workers};
 use crate::project::{
 	ProjectOptions, create_path_translator, get_root_dirs, lock, new_project_context_with_import_context,
 	new_project_program_with_options, project_is_package, project_source_files, resolve_include_path,
@@ -566,8 +567,11 @@ fn build_after_copy(
 		// No cleanup ran and nothing was selected: the pre-build index is still valid.
 		prune_missing_outputs(previous_presence, &mut current_outputs);
 	} else {
-		let current_presence = writer.new_output_presence_index(current_outputs.keys());
-		prune_missing_outputs(&current_presence, &mut current_outputs);
+		let unconfirmed = writer.unconfirmed_keys(current_outputs.keys());
+		if !unconfirmed.is_empty() {
+			let current_presence = writer.new_output_presence_index(unconfirmed);
+			current_outputs.retain(|path, _| writer.is_confirmed(path) || current_presence.has_regular(path));
+		}
 	}
 	writer.set_current_outputs(current_outputs.clone());
 	writer.persist_stamps();
@@ -647,6 +651,47 @@ fn build_after_copy(
 }
 
 /// The compiled output and source map writes, fanned out across the write workers.
+type PlannedOutputJobs = (Vec<String>, Vec<(String, String, Option<String>)>);
+
+fn prepare_compiled_output_jobs(
+	dir: &str,
+	path_translator: &PathTranslator,
+	selected_files: &[P<SourceFile>],
+	outputs: &BTreeMap<String, Vec<u8>>,
+	source_maps: &BTreeMap<String, String>,
+	source_traces: &crate::source_trace::DiagnosticTraces,
+	timings: Option<&crate::timings::BuildTimings>,
+) -> Result<PlannedOutputJobs, Error> {
+	let mut rel_outs: Vec<(String, P<SourceFile>)> = Vec::with_capacity(outputs.len());
+	for &file in selected_files {
+		let rel_out = output_path_relative_to_dir(dir, &path_translator.get_output_path(file.file_name()));
+		if outputs.contains_key(&rel_out) {
+			rel_outs.push((rel_out, file));
+		}
+	}
+	let mut write_paths = Vec::with_capacity(rel_outs.len() * 2);
+	let mut planned: Vec<(String, String, Option<String>)> = Vec::with_capacity(rel_outs.len());
+	for (rel_out, file) in &rel_outs {
+		let abs_out = gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]);
+		let mut source_map = source_maps.get(&format!("{rel_out}.map")).cloned();
+		if let Some(map) = &mut source_map {
+			if let Some(timings) = timings {
+				timings.add_scheduled_source_map_write();
+			}
+			if let Some(trace) = source_traces.get(file.file_name()) {
+				*map = rewrite_source_map_with_trace(map, trace).map_err(Error::Message)?;
+			}
+			*map = rewrite_source_map_paths(map, &abs_out).map_err(Error::Message)?;
+		}
+		write_paths.push(abs_out.clone());
+		if source_map.is_some() {
+			write_paths.push(format!("{abs_out}.map"));
+		}
+		planned.push((rel_out.clone(), abs_out, source_map));
+	}
+	Ok((write_paths, planned))
+}
+
 #[expect(
 	clippy::too_many_arguments,
 	reason = "the write half of Go's BuildProjectWithOptions"
@@ -663,65 +708,97 @@ fn write_compiled_outputs(
 ) -> Result<Vec<String>, Error> {
 	let stop = start_stage(timings, Stage::CompiledOutputWrites);
 	let result = (|| {
-		let mut rel_outs: Vec<(String, P<SourceFile>)> = Vec::with_capacity(outputs.len());
-		for &file in selected_files {
-			let rel_out = output_path_relative_to_dir(dir, &path_translator.get_output_path(file.file_name()));
-			if outputs.contains_key(&rel_out) {
-				rel_outs.push((rel_out, file));
-			}
-		}
-		let mut write_paths = Vec::with_capacity(rel_outs.len() * 2);
-		let mut planned: Vec<(String, String, Option<String>)> = Vec::with_capacity(rel_outs.len());
-		for (rel_out, file) in &rel_outs {
-			let abs_out = gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]);
-			let mut source_map = source_maps.get(&format!("{rel_out}.map")).cloned();
-			if let Some(map) = &mut source_map {
-				if let Some(timings) = timings {
-					timings.add_scheduled_source_map_write();
-				}
-				if let Some(trace) = source_traces.get(file.file_name()) {
-					*map = rewrite_source_map_with_trace(map, trace).map_err(Error::Message)?;
-				}
-				*map = rewrite_source_map_paths(map, &abs_out).map_err(Error::Message)?;
-			}
-			write_paths.push(abs_out.clone());
-			if source_map.is_some() {
-				write_paths.push(format!("{abs_out}.map"));
-			}
-			planned.push((rel_out.clone(), abs_out, source_map));
-		}
+		let (write_paths, planned) = prepare_compiled_output_jobs(
+			dir,
+			path_translator,
+			selected_files,
+			outputs,
+			source_maps,
+			source_traces,
+			timings,
+		)?;
 		writer.prepare(&write_paths)?;
-		let wrote: Vec<AtomicBool> = planned.iter().map(|_| AtomicBool::new(false)).collect();
-		let jobs: Vec<Job<'_>> = planned
-			.iter()
-			.zip(&wrote)
-			.map(|((rel_out, abs_out, source_map), wrote)| -> Job<'_> {
-				Box::new(move || {
-					// Defense in depth: refuse any output path escaping the project directory.
-					assert_local_output_path(rel_out)?;
-					let text = outputs.get(rel_out).map_or(&[][..], Vec::as_slice);
-					let written = writer.write(abs_out, text)?;
-					wrote.store(written, Ordering::Relaxed);
-					if let Some(timings) = timings {
-						timings.record_output_write(abs_out, written);
-					}
-					let Some(source_map) = source_map else {
-						return Ok(());
-					};
-					let map_path = format!("{abs_out}.map");
-					let map_written = writer.write(&map_path, source_map.as_bytes())?;
-					if let Some(timings) = timings {
-						timings.record_output_write(&map_path, map_written);
+		// Group writes by parent directory so workers do not contend on the same directory
+		// inode lock (APFS); for single-directory projects, fall back to per-file fan-out.
+		let mut by_dir: HashMap<String, Vec<usize>> = HashMap::new();
+		for (index, (_, abs_out, _)) in planned.iter().enumerate() {
+			by_dir.entry(gopath::dir(abs_out)).or_default().push(index);
+		}
+		let write_one = |index: usize| -> Result<(usize, bool, Vec<WriteOutcome>, Vec<String>), Error> {
+			let (rel_out, abs_out, source_map) = &planned[index];
+			assert_local_output_path(rel_out)?;
+			let text = outputs.get(rel_out).map_or(&[][..], Vec::as_slice);
+			let mut outcomes = Vec::with_capacity(1 + usize::from(source_map.is_some()));
+			let mut recorded_paths = Vec::with_capacity(1 + usize::from(source_map.is_some()));
+			let main_outcome = writer.write_prepared_keyed(abs_out, rel_out, text)?;
+			let main_wrote = main_outcome.wrote;
+			if main_wrote && timings.is_some() {
+				recorded_paths.push(abs_out.clone());
+			}
+			outcomes.push(main_outcome);
+			if let Some(source_map) = source_map {
+				let map_path = format!("{abs_out}.map");
+				let map_key = format!("{rel_out}.map");
+				let map_outcome = writer.write_prepared_keyed(&map_path, &map_key, source_map.as_bytes())?;
+				if map_outcome.wrote && timings.is_some() {
+					recorded_paths.push(map_path);
+				}
+				outcomes.push(map_outcome);
+			}
+			Ok((index, main_wrote, outcomes, recorded_paths))
+		};
+		let mut wrote = vec![false; planned.len()];
+		let mut all_outcomes = Vec::with_capacity(write_paths.len());
+		let mut recorded_paths = Vec::new();
+		if by_dir.len() >= 2 {
+			let groups: Vec<Vec<usize>> = by_dir.into_values().collect();
+			let chunks = parallel_fold_with_cutoff(
+				write_workers(),
+				1,
+				&groups,
+				|acc: &mut Vec<(usize, bool, Vec<WriteOutcome>, Vec<String>)>, group| {
+					for &index in group {
+						acc.push(write_one(index)?);
 					}
 					Ok(())
-				})
-			})
-			.collect();
-		parallelize(write_workers(), jobs)?;
+				},
+			)?;
+			for chunk in chunks {
+				for (index, main_wrote, outcomes, paths) in chunk {
+					wrote[index] = main_wrote;
+					all_outcomes.extend(outcomes);
+					recorded_paths.extend(paths);
+				}
+			}
+		} else {
+			let indices: Vec<usize> = (0..planned.len()).collect();
+			let chunks = parallel_fold_with_cutoff(
+				write_workers().min(4),
+				WRITE_SYNC_CUTOFF,
+				&indices,
+				|acc: &mut Vec<(usize, bool, Vec<WriteOutcome>, Vec<String>)>, &index| {
+					acc.push(write_one(index)?);
+					Ok(())
+				},
+			)?;
+			for chunk in chunks {
+				for (index, main_wrote, outcomes, paths) in chunk {
+					wrote[index] = main_wrote;
+					all_outcomes.extend(outcomes);
+					recorded_paths.extend(paths);
+				}
+			}
+		}
+		writer.apply_write_outcomes(all_outcomes);
+		if let Some(timings) = timings {
+			for path in recorded_paths {
+				timings.record_output_write(&path, true);
+			}
+		}
 		Ok(planned
 			.iter()
-			.zip(&wrote)
-			.filter(|(_, wrote)| wrote.load(Ordering::Relaxed))
+			.zip(wrote)
+			.filter(|(_, wrote)| *wrote)
 			.map(|((rel_out, _, _), _)| gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]))
 			.collect())
 	})();

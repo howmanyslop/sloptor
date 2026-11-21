@@ -6,20 +6,53 @@
 //! same upstream file, so they are here.
 
 use rotor_tsrs::ast::{self as tsast, INTERNAL_SYMBOL_NAME_MISSING};
-use rotor_tsrs::checker::ContextFlags;
+use rotor_tsrs::checker::{ContextFlags, TypeFlags};
 
 use crate::access::is_valid_method_index_without_call;
 use crate::diagnostics;
 use crate::ismethod::{is_method, is_method_from_type};
 use crate::prelude::*;
-use crate::types::walk_types;
+
+const NON_CALLABLE_PRIMITIVES: TypeFlags = TypeFlags::NumberLike
+	.union(TypeFlags::StringLike)
+	.union(TypeFlags::BooleanLike)
+	.union(TypeFlags::Void)
+	.union(TypeFlags::Undefined)
+	.union(TypeFlags::Null)
+	.union(TypeFlags::Never)
+	.union(TypeFlags::ESSymbolLike)
+	.union(TypeFlags::BigIntLike);
+
+const MAYBE_CALLABLE_MASK: TypeFlags = TypeFlags::Object
+	.union(TypeFlags::UnionOrIntersection)
+	.union(TypeFlags::Instantiable)
+	.union(TypeFlags::Any)
+	.union(TypeFlags::Unknown);
+
+fn has_call_signatures_uncached(state: &mut State<'_>, t: P<Type>) -> bool {
+	if t.flags().intersects(TypeFlags::UnionOrIntersection) {
+		return t
+			.types()
+			.iter()
+			.any(|&member| has_call_signatures_uncached(state, member));
+	}
+	match state.ck().get_base_constraint_of_type(t) {
+		Some(constraint) if constraint != t => has_call_signatures_uncached(state, constraint),
+		_ => !state.ck().get_call_signatures(t).is_empty(),
+	}
+}
 
 /// `hasCallSignatures` (L8-14).
 fn has_call_signatures(state: &mut State<'_>, t: P<Type>) -> bool {
-	let mut result = false;
-	walk_types(state, t, &mut |state, leaf| {
-		result = result || !state.ck().get_call_signatures(leaf).is_empty();
-	});
+	let flags = t.flags();
+	if flags.intersects(NON_CALLABLE_PRIMITIVES) && !flags.intersects(MAYBE_CALLABLE_MASK) {
+		return false;
+	}
+	if let Some(&cached) = state.multi.has_call_signatures_cache.get(&t) {
+		return cached;
+	}
+	let result = has_call_signatures_uncached(state, t);
+	state.multi.has_call_signatures_cache.insert(t, result);
 	result
 }
 
@@ -39,11 +72,56 @@ pub fn validate_types(state: &mut State<'_>, node: P<Node>, base_type: P<Type>, 
 
 /// `validateMethodExpression`: an expression's method-ness against its contextual type.
 pub fn validate_method_expression(state: &mut State<'_>, node: P<Node>) {
-	let Some(parent) = tsast::skip_upwards(node).parent() else {
+	let outer = tsast::skip_upwards(node);
+	let Some(parent) = outer.parent() else {
 		return;
 	};
-	if tsast::is_property_assignment(parent) || tsast::is_shorthand_property_assignment(parent) {
-		return;
+	match parent.kind() {
+		Kind::PropertyAssignment
+		| Kind::ShorthandPropertyAssignment
+		| Kind::ExpressionStatement
+		| Kind::IfStatement
+		| Kind::WhileStatement
+		| Kind::DoStatement
+		| Kind::SwitchStatement
+		| Kind::ThrowStatement
+		| Kind::TemplateSpan => return,
+		Kind::PropertyAccessExpression if parent.as_property_access_expression().expression == outer => return,
+		Kind::ElementAccessExpression if parent.as_element_access_expression().expression == outer => return,
+		Kind::CallExpression if parent.as_call_expression().expression == outer => return,
+		Kind::NewExpression if parent.as_new_expression().expression == outer => return,
+		_ => {}
+	}
+	match outer.kind() {
+		Kind::NumericLiteral
+		| Kind::StringLiteral
+		| Kind::NoSubstitutionTemplateLiteral
+		| Kind::TemplateExpression
+		| Kind::TrueKeyword
+		| Kind::FalseKeyword
+		| Kind::NullKeyword
+		| Kind::PrefixUnaryExpression
+		| Kind::PostfixUnaryExpression
+		| Kind::VoidExpression
+		| Kind::DeleteExpression
+		| Kind::ArrayLiteralExpression
+		| Kind::ObjectLiteralExpression => return,
+		Kind::BinaryExpression
+			if !matches!(
+				outer.as_binary_expression().operator_token.kind(),
+				Kind::BarBarToken
+					| Kind::AmpersandAmpersandToken
+					| Kind::QuestionQuestionToken
+					| Kind::CommaToken
+					| Kind::EqualsToken
+					| Kind::BarBarEqualsToken
+					| Kind::AmpersandAmpersandEqualsToken
+					| Kind::QuestionQuestionEqualsToken
+			) =>
+		{
+			return;
+		}
+		_ => {}
 	}
 	let t = state.get_type(node);
 	if !has_call_signatures(state, t) {

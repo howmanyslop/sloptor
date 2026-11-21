@@ -1,8 +1,6 @@
 //! `package_layout.go`: one build's package import inputs, shared by the incremental salt and
 //! emission. It must not survive into the next build.
 
-use std::fmt::Write as _;
-
 use rotor_rojo::{ProjectFiles, RojoResolver};
 use rotor_support::gopath;
 use rotor_transformer::{NodeModulesPathMapping, ProjectType};
@@ -143,10 +141,12 @@ impl PackageLayout {
 
 /// The lowercase hex SHA-256 of `bytes`.
 pub(crate) fn hex_sha256(bytes: &[u8]) -> String {
+	const HEX: &[u8; 16] = b"0123456789abcdef";
 	let digest = Sha256::digest(bytes);
 	let mut out = String::with_capacity(64);
 	for byte in digest {
-		let _ = write!(out, "{byte:02x}");
+		out.push(char::from(HEX[usize::from(byte >> 4)]));
+		out.push(char::from(HEX[usize::from(byte & 0x0f)]));
 	}
 	out
 }

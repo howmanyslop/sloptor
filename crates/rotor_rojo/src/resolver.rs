@@ -3,10 +3,13 @@
 //! files). This code decides require paths, so it is byte-parity-critical
 //! downstream and quirks are ported verbatim.
 
-use std::collections::{HashMap, HashSet};
+use std::borrow::Cow;
+use std::collections::HashSet;
 use std::fs;
 use std::sync::Arc;
 use std::sync::LazyLock;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use rotor_support::gopath;
 use tsrs_core::tspath::{EncodedRootLength, get_encoded_root_length};
@@ -189,7 +192,7 @@ pub struct RojoResolver {
 	/// Go's `rbxPath == nil`: nothing has been pushed yet, so a mapping recorded now is nil.
 	rbx_path_nil: bool,
 	partitions: Vec<PartitionInfo>,
-	file_path_to_rbx_path_map: HashMap<String, Option<RbxPath>>,
+	file_path_to_rbx_path_map: FxHashMap<String, Option<RbxPath>>,
 	isolated_containers: Vec<RbxPath>,
 	walked_configs: Vec<String>,
 	walked_directories: Vec<String>,
@@ -200,7 +203,7 @@ pub struct RojoResolver {
 /// The state that only matters while a resolver is being built.
 struct Walker<'a> {
 	resolver: RojoResolver,
-	active_directories: HashSet<String>,
+	active_directories: FxHashSet<String>,
 	/// Package imports retain default-project composition, but an unrelated
 	/// named project must not take precedence over the package's output path.
 	ignore_named_projects: bool,
@@ -434,17 +437,62 @@ impl RojoResolver {
 	/// data covers the file, and whether the stored path is nil.
 	#[must_use]
 	pub fn lookup_rbx_path(&self, file_path: &str) -> RbxPathLookup {
-		let Ok(abs) = gopath::abs(file_path) else {
-			return RbxPathLookup::Missing;
+		#[cfg(not(windows))]
+		let abs: Cow<'_, str> = if is_clean_unix_absolute(file_path) {
+			Cow::Borrowed(file_path)
+		} else {
+			let Ok(abs) = gopath::abs(file_path) else {
+				return RbxPathLookup::Missing;
+			};
+			Cow::Owned(abs)
 		};
-		let file_path = convert_to_luau(&abs);
+		#[cfg(windows)]
+		let abs: Cow<'_, str> = {
+			let Ok(abs) = gopath::abs(file_path) else {
+				return RbxPathLookup::Missing;
+			};
+			Cow::Owned(abs)
+		};
+		let file_path = convert_to_luau_cow(&abs);
 
-		if let Some(rbx_path) = self.file_path_to_rbx_path_map.get(&file_path) {
+		if let Some(rbx_path) = self.file_path_to_rbx_path_map.get(file_path.as_ref()) {
 			return rbx_path.clone().map_or(RbxPathLookup::Nil, RbxPathLookup::Found);
 		}
 
 		let ext = extname(&file_path);
+		#[cfg(not(windows))]
+		let file_clean = is_clean_unix_absolute(&file_path);
 		for partition in &self.partitions {
+			#[cfg(not(windows))]
+			if file_clean && is_clean_unix_absolute(&partition.fs_path) {
+				if let Some(rel_check) = unix_descendant_rel(&file_path, &partition.fs_path) {
+					if rel_check.starts_with("..") {
+						continue;
+					}
+					let stripped = strip_rojo_exts(&file_path);
+					let relative_path = if stripped == partition.fs_path {
+						""
+					} else if partition.fs_path == "/" {
+						&stripped[1..]
+					} else {
+						stripped.get(partition.fs_path.len() + 1..).unwrap_or("")
+					};
+					let mut relative_parts: Vec<&str> = if !relative_path.is_empty() && relative_path != "." {
+						relative_path.split('/').collect()
+					} else {
+						Vec::new()
+					};
+					if is_rojo_script_ext(ext) && relative_parts.last() == Some(&INIT_NAME) {
+						relative_parts.pop();
+					}
+					let mut result = Vec::with_capacity(partition.rbx_path.len() + relative_parts.len());
+					result.extend(partition.rbx_path.iter().cloned());
+					result.extend(relative_parts.into_iter().map(str::to_owned));
+					return RbxPathLookup::Found(result);
+				}
+				continue;
+			}
+
 			if is_path_descendant_of(&file_path, &partition.fs_path) {
 				let stripped = strip_rojo_exts(&file_path);
 				let Ok(relative_path) = gopath::rel(&partition.fs_path, stripped) else {
@@ -584,7 +632,7 @@ impl<'a> Walker<'a> {
 	) -> Self {
 		Self {
 			resolver: RojoResolver::new(),
-			active_directories: HashSet::new(),
+			active_directories: FxHashSet::default(),
 			ignore_named_projects,
 			project_files,
 			listings,
@@ -900,6 +948,20 @@ fn array_starts_with(a: &[String], b: &[String]) -> bool {
 	a[..min_length] == b[..min_length]
 }
 
+#[cfg(not(windows))]
+#[inline]
+fn unix_descendant_rel<'a>(file_path: &'a str, dir_path: &str) -> Option<&'a str> {
+	if dir_path == file_path {
+		return Some("");
+	}
+	let rest = file_path.strip_prefix(dir_path)?;
+	if dir_path == "/" {
+		Some(rest)
+	} else {
+		rest.strip_prefix('/')
+	}
+}
+
 /// Mirrors `RojoResolver.ts` L124-126, including the quirk that a direct child
 /// whose name starts with `..` is treated as outside.
 fn is_path_descendant_of(file_path: &str, dir_path: &str) -> bool {
@@ -911,35 +973,60 @@ fn is_path_descendant_of(file_path: &str, dir_path: &str) -> bool {
 	// paths case-insensitively there.
 	#[cfg(not(windows))]
 	if is_clean_absolute(file_path) && is_clean_absolute(dir_path) {
-		let Some(rel) = file_path.strip_prefix(dir_path) else {
-			return false;
-		};
-		let rel = if dir_path == "/" {
-			rel
-		} else {
-			let Some(rel) = rel.strip_prefix('/') else {
-				return false;
-			};
-			rel
-		};
-		return !rel.starts_with("..");
+		return unix_descendant_rel(file_path, dir_path).is_some_and(|rel| !rel.starts_with(".."));
 	}
 	gopath::rel(dir_path, file_path).is_ok_and(|rel| !rel.starts_with(".."))
+}
+
+/// Whether `p` is rooted and `gopath::clean` would leave it unchanged, without allocating.
+#[cfg(not(windows))]
+pub fn is_clean_unix_absolute(p: &str) -> bool {
+	let bytes = p.as_bytes();
+	if bytes.first() != Some(&b'/') {
+		return false;
+	}
+	if bytes.len() == 1 {
+		return true;
+	}
+	if bytes[bytes.len() - 1] == b'/' {
+		return false;
+	}
+	let mut i = 1;
+	while i < bytes.len() {
+		let start = i;
+		while i < bytes.len() && bytes[i] != b'/' {
+			i += 1;
+		}
+		let seg_len = i - start;
+		if seg_len == 0
+			|| (seg_len == 1 && bytes[start] == b'.')
+			|| (seg_len == 2 && bytes[start] == b'.' && bytes[start + 1] == b'.')
+		{
+			return false;
+		}
+		i += 1;
+	}
+	true
 }
 
 /// Whether `p` is rooted and `Clean` would leave it unchanged, which it does
 /// without allocating.
 #[cfg(not(windows))]
 fn is_clean_absolute(p: &str) -> bool {
-	p.starts_with('/') && gopath::clean_cow(p) == p
+	is_clean_unix_absolute(p)
+}
+
+/// Renames a `.lua` path to `.luau` (`RojoResolver.ts` L154-158) without allocating when unchanged.
+fn convert_to_luau_cow(file_path: &str) -> Cow<'_, str> {
+	match file_path.strip_suffix(LUA_EXT) {
+		Some(stem) if extname(file_path) == LUA_EXT => Cow::Owned(format!("{stem}{LUAU_EXT}")),
+		_ => Cow::Borrowed(file_path),
+	}
 }
 
 /// Renames a `.lua` path to `.luau` (`RojoResolver.ts` L154-158).
 fn convert_to_luau(file_path: &str) -> String {
-	match file_path.strip_suffix(LUA_EXT) {
-		Some(stem) if extname(file_path) == LUA_EXT => format!("{stem}{LUAU_EXT}"),
-		_ => file_path.to_owned(),
-	}
+	convert_to_luau_cow(file_path).into_owned()
 }
 
 /// Mirrors Node `path.extname`: the basename's last `.`-suffix, unless the dot
@@ -1019,6 +1106,41 @@ pub fn canonical_file_name(file_path: &str, use_case_sensitive_file_names: bool)
 		return file_path;
 	}
 	file_path.to_lowercase()
+}
+
+#[cfg(all(test, not(windows)))]
+mod clean_unix_tests {
+	use super::is_clean_unix_absolute;
+	use rotor_support::gopath;
+
+	#[test]
+	fn matches_gopath_clean_cow_for_unix_paths() {
+		let cases = [
+			"",
+			"/",
+			"//",
+			"/a",
+			"/a/",
+			"/a/b",
+			"/a//b",
+			"/.",
+			"/..",
+			"/a/.",
+			"/a/..",
+			"/a/.b",
+			"/a/..b",
+			"/a/b.",
+			"/a/b..",
+			"/a/b/c.ts",
+			"a/b",
+			"./a",
+			"../a",
+		];
+		for p in cases {
+			let expected = p.starts_with('/') && gopath::clean_cow(p) == p;
+			assert_eq!(is_clean_unix_absolute(p), expected, "mismatch for {p:?}");
+		}
+	}
 }
 
 #[cfg(test)]

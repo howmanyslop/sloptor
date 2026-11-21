@@ -13,7 +13,7 @@
 //! Go iterates its registration maps in map order, which only reorders checker queries;
 //! [`MacroManager::missing`] sorts. Rust iterates the tables in declaration order.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use rotor_tsrs::ast::{self as tsast, SymbolFlags};
 use rotor_tsrs::checker::{Checker, TypeChecker};
@@ -136,11 +136,11 @@ const MACRO_ONLY_CLASSES: &[&str] = &[
 #[derive(Default)]
 pub struct MacroManager {
 	/// The `SYMBOL_NAMES` memo; other names memoize lazily, misses included.
-	symbols: HashMap<String, Option<P<Symbol>>>,
-	identifier_macros: HashMap<P<Symbol>, IdentifierMacroEntry>,
-	call_macros: HashMap<P<Symbol>, CallMacroEntry>,
-	constructor_macros: HashMap<P<Symbol>, ConstructorMacro>,
-	property_call_macros: HashMap<P<Symbol>, PropertyCallMacroEntry>,
+	symbols: FxHashMap<String, Option<P<Symbol>>>,
+	identifier_macros: FxHashMap<P<Symbol>, IdentifierMacroEntry>,
+	call_macros: FxHashMap<P<Symbol>, CallMacroEntry>,
+	constructor_macros: FxHashMap<P<Symbol>, ConstructorMacro>,
+	property_call_macros: FxHashMap<P<Symbol>, PropertyCallMacroEntry>,
 	lua_tuple_nominal: Option<P<Symbol>>,
 	lua_tuple_nominal_resolved: bool,
 	missing_compiler_types: Vec<String>,
@@ -233,7 +233,7 @@ impl MacroManager {
 				continue;
 			};
 
-			let mut method_map: HashMap<&'static str, P<Symbol>> = HashMap::new();
+			let mut method_map: FxHashMap<&'static str, P<Symbol>> = FxHashMap::default();
 			for &declaration in symbol.declarations() {
 				if !tsast::is_interface_declaration(declaration) {
 					continue;

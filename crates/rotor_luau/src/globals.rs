@@ -5,6 +5,7 @@ use crate::{Ast, NodeId};
 /// Exactly the top-level keys of upstream `globals.ts`
 /// (`LuauAST/impl/globals.ts`). [`is_reserved_identifier`](crate::is_reserved_identifier)
 /// depends on it.
+#[expect(dead_code, reason = "kept as reference list of reserved Luau globals")]
 pub const RESERVED_GLOBAL_NAMES: &[&str] = &[
 	"_G",
 	"TS",

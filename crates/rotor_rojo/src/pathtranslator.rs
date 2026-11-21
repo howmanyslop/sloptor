@@ -2,6 +2,8 @@
 //! (`reference/path-translator/src/PathTranslator.ts`; line references are
 //! into that file). Pure path and string code with no filesystem access.
 
+use std::borrow::Cow;
+
 use rotor_support::gopath;
 
 use crate::resolver::{INIT_NAME, LUA_EXT, LUAU_EXT};
@@ -19,27 +21,68 @@ const INDEX_NAME: &str = "index";
 
 /// A path as a file name plus a stack of all its dot-extensions, so
 /// `a.spec.ts` has exts `[".spec", ".ts"]` (`PathTranslator.ts` L16-39).
-struct PathInfo {
-	dir_name: String,
-	file_name: String,
-	exts: Vec<String>,
+struct PathInfo<'a> {
+	dir_name: Cow<'a, str>,
+	file_name: Cow<'a, str>,
+	exts: Vec<Cow<'a, str>>,
 }
 
-impl PathInfo {
-	fn from(file_path: &str) -> Self {
-		let dir_name = gopath::dir(file_path);
+impl<'a> PathInfo<'a> {
+	fn from(file_path: &'a str) -> Self {
+		let dir_name: Cow<'a, str> = {
+			#[cfg(not(windows))]
+			if crate::resolver::is_clean_unix_absolute(file_path) && file_path != "/" {
+				file_path.rfind('/').map_or_else(
+					|| Cow::Owned(gopath::dir(file_path)),
+					|slash| {
+						if slash == 0 {
+							Cow::Borrowed("/")
+						} else {
+							Cow::Borrowed(&file_path[..slash])
+						}
+					},
+				)
+			} else {
+				Cow::Owned(gopath::dir(file_path))
+			}
+			#[cfg(windows)]
+			{
+				Cow::Owned(gopath::dir(file_path))
+			}
+		};
 		// Upstream slices past dirName.length + 1 unconditionally; replicate
 		// (including the quirk of eating a character when dirName is not a
 		// strict "<dir><sep>" prefix, e.g. bare relative file names).
 		let start = dir_name.len() + 1;
-		let rest = if start < file_path.len() {
-			String::from_utf8_lossy(&file_path.as_bytes()[start..]).into_owned()
+		let rest: Cow<'a, str> = if start < file_path.len() {
+			String::from_utf8_lossy(&file_path.as_bytes()[start..])
 		} else {
-			String::new()
+			Cow::Borrowed("")
 		};
-		let mut parts = rest.split('.');
-		let file_name = parts.next().unwrap_or_default().to_owned();
-		let exts = parts.map(|v| format!(".{v}")).collect();
+		let (file_name, exts) = match rest {
+			Cow::Borrowed(rest) => {
+				let mut bytes_iter = rest.match_indices('.');
+				if let Some((first_dot, _)) = bytes_iter.next() {
+					let file_name = Cow::Borrowed(&rest[..first_dot]);
+					let mut exts = Vec::with_capacity(2);
+					let mut prev = first_dot;
+					for (next_dot, _) in bytes_iter {
+						exts.push(Cow::Borrowed(&rest[prev..next_dot]));
+						prev = next_dot;
+					}
+					exts.push(Cow::Borrowed(&rest[prev..]));
+					(file_name, exts)
+				} else {
+					(Cow::Borrowed(rest), Vec::new())
+				}
+			}
+			Cow::Owned(rest) => {
+				let mut parts = rest.split('.');
+				let file_name = Cow::Owned(parts.next().unwrap_or_default().to_owned());
+				let exts = parts.map(|v| Cow::Owned(format!(".{v}"))).collect();
+				(file_name, exts)
+			}
+		};
 		Self {
 			dir_name,
 			file_name,
@@ -50,19 +93,38 @@ impl PathInfo {
 	/// The ext `depth` entries from the top of the stack, empty when out of
 	/// range (JS `undefined`).
 	fn exts_peek(&self, depth: usize) -> &str {
-		self.exts.len().checked_sub(depth + 1).map_or("", |i| &self.exts[i])
+		self.exts
+			.len()
+			.checked_sub(depth + 1)
+			.map_or("", |i| self.exts[i].as_ref())
 	}
 
-	fn pop_ext(&mut self) -> String {
-		self.exts.pop().unwrap_or_default()
+	fn pop_ext(&mut self) -> Cow<'a, str> {
+		self.exts.pop().unwrap_or(Cow::Borrowed(""))
 	}
 
-	fn push_ext(&mut self, ext: &str) {
-		self.exts.push(ext.to_owned());
+	fn push_ext(&mut self, ext: &'static str) {
+		self.exts.push(Cow::Borrowed(ext));
 	}
 
 	fn join(&self) -> String {
-		gopath::join(&[&self.dir_name, &format!("{}{}", self.file_name, self.exts.concat())])
+		let ext_len: usize = self.exts.iter().map(|e| e.len()).sum();
+		let mut base = String::with_capacity(self.file_name.len() + ext_len);
+		base.push_str(&self.file_name);
+		for ext in &self.exts {
+			base.push_str(ext);
+		}
+		#[cfg(not(windows))]
+		if crate::resolver::is_clean_unix_absolute(&self.dir_name) && !base.is_empty() && !base.contains('/') {
+			let mut out = String::with_capacity(self.dir_name.len() + 1 + base.len());
+			out.push_str(&self.dir_name);
+			if self.dir_name != "/" {
+				out.push('/');
+			}
+			out.push_str(&base);
+			return out;
+		}
+		gopath::join(&[&self.dir_name, &base])
 	}
 }
 
@@ -121,7 +183,7 @@ impl PathTranslator {
 
 			// index -> init
 			if p.file_name == INDEX_NAME {
-				INIT_NAME.clone_into(&mut p.file_name);
+				p.file_name = Cow::Borrowed(INIT_NAME);
 			}
 
 			p.push_ext(self.luau_ext());
@@ -155,7 +217,7 @@ impl PathTranslator {
 		let from_end = if p.exts_peek(1) == D_EXT { 2 } else { 1 };
 		// JS splice clamps negative indices to the start.
 		let at = p.exts.len().saturating_sub(from_end);
-		p.exts.insert(at, TRANSFORMED_EXT.to_owned());
+		p.exts.insert(at, Cow::Borrowed(TRANSFORMED_EXT));
 
 		make_relative(&self.root_dir, &self.out_dir, &p)
 	}
@@ -167,7 +229,7 @@ impl PathTranslator {
 	pub fn get_input_paths(&self, file_path: &str) -> Vec<String> {
 		let mut possible_paths = Vec::new();
 		let mut p = PathInfo::from(file_path);
-		let to_root = |p: &PathInfo| make_relative(&self.out_dir, &self.root_dir, p);
+		let to_root = |p: &PathInfo<'_>| make_relative(&self.out_dir, &self.root_dir, p);
 
 		// index.*.lua(u) cannot come from a .ts file
 		if p.exts_peek(0) == self.luau_ext() && p.file_name != INDEX_NAME {
@@ -185,7 +247,7 @@ impl PathTranslator {
 
 			// init -> index
 			if p.file_name == INIT_NAME {
-				let original_file_name = std::mem::replace(&mut p.file_name, INDEX_NAME.to_owned());
+				let original_file_name = std::mem::replace(&mut p.file_name, Cow::Borrowed(INDEX_NAME));
 
 				// index.*.ts
 				p.push_ext(TS_EXT);
@@ -218,7 +280,7 @@ impl PathTranslator {
 			p.pop_ext();
 
 			p.push_ext(D_EXT);
-			p.push_ext(&ts_like_ext);
+			p.exts.push(ts_like_ext);
 		}
 
 		possible_paths.push(to_root(&p));
@@ -248,7 +310,7 @@ impl PathTranslator {
 
 			// index -> init
 			if p.file_name == INDEX_NAME {
-				INIT_NAME.clone_into(&mut p.file_name);
+				p.file_name = Cow::Borrowed(INIT_NAME);
 			}
 
 			p.push_ext(self.luau_ext()); // push .lua(u)
@@ -273,8 +335,27 @@ fn add_rbxtsc_build_info_infix(file_path: &str) -> String {
 
 /// Rebases a path from one root into another (`makeRelativeFactory`,
 /// `PathTranslator.ts` L54-56).
-fn make_relative(from: &str, to: &str, p: &PathInfo) -> String {
+fn make_relative(from: &str, to: &str, p: &PathInfo<'_>) -> String {
 	let joined = p.join();
+	#[cfg(not(windows))]
+	if crate::resolver::is_clean_unix_absolute(from)
+		&& crate::resolver::is_clean_unix_absolute(to)
+		&& crate::resolver::is_clean_unix_absolute(&joined)
+		&& let Some(tail) = joined.strip_prefix(from)
+	{
+		if tail.is_empty() {
+			return to.to_owned();
+		}
+		if let Some(rel) = tail.strip_prefix('/') {
+			let mut out = String::with_capacity(to.len() + 1 + rel.len());
+			out.push_str(to);
+			if to != "/" {
+				out.push('/');
+			}
+			out.push_str(rel);
+			return out;
+		}
+	}
 	// Node's path.relative returns the target itself when no relative path
 	// exists (e.g. different drives); join then concatenates.
 	let rel = gopath::rel(from, &joined).unwrap_or(joined);

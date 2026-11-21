@@ -5,7 +5,7 @@
 //! returns [`NodeId`]s into it. The checker and the pass-wide caches are borrowed for the life of
 //! the state: one file is transformed at a time on a checker, as in Go.
 
-use std::collections::{HashMap, HashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use rotor_luau::{Origin, OriginId, Position};
 use rotor_rojo::{PathTranslator, RbxPath, RojoResolver};
@@ -56,19 +56,27 @@ impl ProjectType {
 #[derive(Default)]
 pub struct MultiState {
 	/// `IsMethodCache`
-	pub is_method_cache: HashMap<P<Type>, bool>,
+	pub is_method_cache: FxHashMap<P<Type>, bool>,
 	/// `IsReportedByNoUnstableThisType`
-	pub is_reported_by_no_unstable_this_type: HashSet<P<Node>>,
+	pub is_reported_by_no_unstable_this_type: FxHashSet<P<Node>>,
 	/// `IsDefinedAsLetCache`
-	pub is_defined_as_let_cache: HashMap<P<Symbol>, bool>,
+	pub is_defined_as_let_cache: FxHashMap<P<Symbol>, bool>,
 	/// `IsReportedByNoAnyCache`
-	pub is_reported_by_no_any_cache: HashSet<P<Symbol>>,
+	pub is_reported_by_no_any_cache: FxHashSet<P<Symbol>>,
 	/// `IsReportedByMultipleDefinitionsCache`
-	pub is_reported_by_multiple_definitions_cache: HashSet<P<Symbol>>,
+	pub is_reported_by_multiple_definitions_cache: FxHashSet<P<Symbol>>,
 	/// `GetModuleExportsCache`
-	pub get_module_exports_cache: HashMap<P<Symbol>, Vec<P<Symbol>>>,
+	pub get_module_exports_cache: FxHashMap<P<Symbol>, Vec<P<Symbol>>>,
 	/// `GetModuleExportsAliasMapCache`
-	pub get_module_exports_alias_map_cache: HashMap<P<Symbol>, HashMap<P<Symbol>, String>>,
+	pub get_module_exports_alias_map_cache: FxHashMap<P<Symbol>, FxHashMap<P<Symbol>, String>>,
+	/// Pass-wide memo for `methodassignment::has_call_signatures`.
+	pub(crate) has_call_signatures_cache: FxHashMap<P<Type>, bool>,
+	/// Whether the program's symlink cache contains any directory realpath->symlink entries.
+	pub(crate) has_directory_symlinks: Option<bool>,
+	/// Pass-wide memo for `State::guess_virtual_path`.
+	pub(crate) virtual_path_cache: FxHashMap<P<SourceFile>, Option<String>>,
+	/// Pass-wide memo for resolved non-`node_modules` project imports.
+	pub(crate) resolved_project_imports: FxHashMap<P<SourceFile>, (String, RbxPath)>,
 	/// The pass's one `MacroManager` (upstream `services.macroManager`), built by the first
 	/// [`State::new`].
 	pub(crate) macro_manager: Option<MacroManager>,
@@ -115,7 +123,7 @@ pub struct RojoContext {
 	pub node_modules_path_mapping: NodeModulesPathMapping,
 	/// Referenced sources and emitted declarations to their Luau import paths, keyed by
 	/// `rojo.CanonicalFileName`.
-	pub project_reference_paths: HashMap<String, String>,
+	pub project_reference_paths: FxHashMap<String, String>,
 	/// Upstream `data.nodeModulesPath`: `<package.json dir>/node_modules`.
 	pub node_modules_path: String,
 	/// `compilerOptions.typeRoots`, absolute and slash-separated.
@@ -134,7 +142,7 @@ pub struct ArrayAppendTarget {
 /// `arrayAppendPlan` (`arrayappendoptimization.go`).
 #[derive(Clone, Debug)]
 pub struct ArrayAppendPlan {
-	pub(crate) calls: HashMap<P<Node>, ArrayAppendTarget>,
+	pub(crate) calls: FxHashMap<P<Node>, ArrayAppendTarget>,
 	pub(crate) target: ArrayAppendTarget,
 }
 
@@ -257,24 +265,30 @@ pub struct State<'a> {
 	label_stack: Vec<LabelEntry>,
 	break_depth: usize,
 	pub(crate) array_append_plans: Vec<ArrayAppendPlan>,
-	get_type_cache: HashMap<P<Node>, P<Type>>,
+	get_type_cache: FxHashMap<P<Node>, P<Type>>,
 
 	/// `HoistsByStatement`: the TS identifiers needing a `local x` before each statement.
-	pub hoists_by_statement: HashMap<P<Node>, Vec<P<Node>>>,
+	pub hoists_by_statement: FxHashMap<P<Node>, Vec<P<Node>>>,
 	/// `IsHoisted`: per-symbol hoist decisions, never reconsidered once made.
-	pub is_hoisted: HashMap<P<Symbol>, bool>,
+	pub is_hoisted: FxHashMap<P<Symbol>, bool>,
 	/// `SymbolToID`: a symbol's replacement temporary.
-	pub symbol_to_id: HashMap<P<Symbol>, NodeId>,
+	pub symbol_to_id: FxHashMap<P<Symbol>, NodeId>,
 	/// Gates expression origins and occurrence-specific clones.
 	pub source_map_enabled: bool,
-	pub(crate) source_map_column_indexes: HashMap<P<SourceFile>, Vec<SourceColumnCheckpoint>>,
+	/// Gates statement/node origin recording (enabled when `source_map_enabled` or in origin tests).
+	pub track_origins: bool,
+	/// Cached `rojo.path_translator.get_output_path(source_file.file_name())`.
+	pub(crate) source_out_path: String,
+	/// Cached `rojo.resolver.get_rbx_path_from_file_path(&source_out_path)`.
+	pub(crate) source_rbx_path: Option<RbxPath>,
+	pub(crate) source_map_column_indexes: FxHashMap<P<SourceFile>, Vec<SourceColumnCheckpoint>>,
 	/// `ClassIdentifierMap`: a class-like declaration's internal identifier.
-	pub class_identifier_map: HashMap<P<Node>, NodeId>,
-	class_element_to_object_key_map: HashMap<P<Node>, NodeId>,
+	pub class_identifier_map: FxHashMap<P<Node>, NodeId>,
+	class_element_to_object_key_map: FxHashMap<P<Node>, NodeId>,
 	/// The decorated object keys, as a dense table over the arena.
 	source_map_object_keys: Vec<bool>,
-	module_id_by_symbol: HashMap<P<Symbol>, NodeId>,
-	declaration_to_optimizable_var_args: HashMap<P<Node>, control::VarArgsData>,
+	module_id_by_symbol: FxHashMap<P<Symbol>, NodeId>,
+	declaration_to_optimizable_var_args: FxHashMap<P<Node>, control::VarArgsData>,
 
 	/// The first internal invariant violation (a Go `panic`), surfaced by the driver as an
 	/// internal compiler error.
@@ -300,13 +314,18 @@ impl<'a> State<'a> {
 			multi.macro_manager = Some(MacroManager::new(checker));
 		}
 		let source_map_enabled = program.options().source_map.is_true();
+		let text_len = source_file.text().len();
 		let mut state = Self {
 			program,
 			checker,
 			source_file,
 			diags: DiagService::new(),
 			multi,
-			ast: Ast::new(),
+			ast: Ast::with_capacity(
+				(text_len / 12).clamp(32, 8192),
+				(text_len / 48).clamp(16, 2048),
+				(text_len / 24).clamp(32, 4096),
+			),
 			rojo: None,
 			project_type: None,
 			is_in_replicated_first: false,
@@ -329,17 +348,20 @@ impl<'a> State<'a> {
 			label_stack: Vec::new(),
 			break_depth: 0,
 			array_append_plans: Vec::new(),
-			get_type_cache: HashMap::new(),
-			hoists_by_statement: HashMap::new(),
-			is_hoisted: HashMap::new(),
-			symbol_to_id: HashMap::new(),
+			get_type_cache: FxHashMap::default(),
+			hoists_by_statement: FxHashMap::default(),
+			is_hoisted: FxHashMap::default(),
+			symbol_to_id: FxHashMap::default(),
 			source_map_enabled,
-			source_map_column_indexes: HashMap::new(),
-			class_identifier_map: HashMap::new(),
-			class_element_to_object_key_map: HashMap::new(),
+			track_origins: source_map_enabled,
+			source_out_path: String::new(),
+			source_rbx_path: None,
+			source_map_column_indexes: FxHashMap::default(),
+			class_identifier_map: FxHashMap::default(),
+			class_element_to_object_key_map: FxHashMap::default(),
 			source_map_object_keys: Vec::new(),
-			module_id_by_symbol: HashMap::new(),
-			declaration_to_optimizable_var_args: HashMap::new(),
+			module_id_by_symbol: FxHashMap::default(),
+			declaration_to_optimizable_var_args: FxHashMap::default(),
 			internal_error: None,
 			slices: Slices::default(),
 		};
@@ -393,6 +415,9 @@ impl<'a> State<'a> {
 	}
 
 	pub(crate) fn set_source_position(&mut self, node: NodeId, position: Option<Position>) {
+		if !self.track_origins {
+			return;
+		}
 		if let Some(start) = position {
 			let origin = self.ast.add_origin(Origin {
 				start,
@@ -405,6 +430,9 @@ impl<'a> State<'a> {
 	/// Go mutates the shared origin in place; the arena merges a new origin instead, which only
 	/// differs for clones made before this call (sourcemap output only).
 	pub(crate) fn set_source_end_position(&mut self, node: NodeId, position: Option<Position>) {
+		if !self.track_origins {
+			return;
+		}
 		let Some(origin) = self.ast.origin(node) else {
 			return;
 		};
@@ -431,6 +459,9 @@ impl<'a> State<'a> {
 	}
 
 	pub(crate) fn set_node_source_position(&mut self, node: NodeId, source_node: P<Node>) {
+		if !self.track_origins {
+			return;
+		}
 		let needs = self.ast.origin(node).is_none_or(|origin| {
 			let data = self.ast.origin_data(origin);
 			data.start_unset || data.closing.is_none()
@@ -442,6 +473,9 @@ impl<'a> State<'a> {
 	}
 
 	pub(crate) fn set_statement_list_source_positions(&mut self, source_node: P<Node>, lists: &[Statements]) {
+		if !self.track_origins {
+			return;
+		}
 		let mut origin: Option<OriginId> = None;
 		for &statements in lists {
 			for value in self.ast.list_to_vec(statements) {
@@ -510,6 +544,8 @@ impl<'a> State<'a> {
 			.as_ref()
 			.and_then(|path| path.first())
 			.is_some_and(|first| first == "ReplicatedFirst");
+		self.source_out_path = source_out_path;
+		self.source_rbx_path = rbx_path;
 	}
 
 	// -----------------------------------------------------------------------------------------
@@ -865,6 +901,28 @@ impl<'a> State<'a> {
 	// -----------------------------------------------------------------------------------------
 	// guessVirtualPath (upstream lines 365-384)
 	// -----------------------------------------------------------------------------------------
+
+	/// [`State::guess_virtual_path`] cached per `SourceFile` in `MultiState`.
+	pub(crate) fn guess_virtual_path_for_file(&mut self, file: P<SourceFile>) -> Option<String> {
+		let has_symlinks = *self.multi.has_directory_symlinks.get_or_insert_with(|| {
+			let cache = self.program.get_symlink_cache();
+			let mut any = false;
+			cache.directories_by_realpath().range(&mut |_: &_, _: &_| {
+				any = true;
+				false
+			});
+			any
+		});
+		if !has_symlinks {
+			return None;
+		}
+		if let Some(cached) = self.multi.virtual_path_cache.get(&file) {
+			return cached.clone();
+		}
+		let result = self.guess_virtual_path(file.file_name());
+		self.multi.virtual_path_cache.insert(file, result.clone());
+		result
+	}
 
 	/// `GuessVirtualPath`: maps a realpathed `node_modules` file back onto its symlink-side path
 	/// through the symlink cache's realpath to symlink map, innermost ancestor first. `None`

@@ -88,7 +88,10 @@ fn with_project<R: Send>(tsconfig: &str, source: &str, test: impl FnOnce(&mut St
 	write_fixture(directory.path(), "tsconfig.json", tsconfig);
 	write_fixture(directory.path(), "input.ts", source);
 	let root: &Path = &rotor_support::fsutil::real_path(directory.path()).expect("the directory resolves");
-	with_state(root, "input.ts", test)
+	with_state(root, "input.ts", |state| {
+		state.track_origins = true;
+		test(state)
+	})
 }
 
 fn file_statements(state: &mut State<'_>) -> Statements {
