@@ -1,7 +1,7 @@
 //! `parallelwrite.go`: the write worker pool. Output writes are independent file I/O, so they fan
 //! out across workers (Windows writes are far slower per syscall than macOS/APFS).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use crate::compile::Error;
@@ -103,4 +103,67 @@ pub(crate) fn parallelize(workers: usize, jobs: Vec<Job<'_>>) -> Result<(), Erro
 		.into_inner()
 		.unwrap_or_else(PoisonError::into_inner)
 		.map_or(Ok(()), Err)
+}
+
+/// Runs `work` over `items` using up to `workers` worker threads when `items.len() >= cutoff`,
+/// accumulating into per-worker `A` values and returning them without per-item heap or mutex
+/// overhead.
+pub(crate) fn parallel_fold_with_cutoff<T: Sync, A: Default + Send>(
+	workers: usize,
+	cutoff: usize,
+	items: &[T],
+	work: impl Fn(&mut A, &T) -> Result<(), Error> + Sync,
+) -> Result<Vec<A>, Error> {
+	let workers = workers.min(WRITE_CONCURRENCY_CAP);
+	if workers <= 1 || items.len() < cutoff || items.len() <= 1 {
+		let mut acc = A::default();
+		for item in items {
+			work(&mut acc, item)?;
+		}
+		return Ok(vec![acc]);
+	}
+	let worker_count = workers.min(items.len());
+	let next = AtomicUsize::new(0);
+	let failed = AtomicBool::new(false);
+	let first: Mutex<Option<Error>> = Mutex::new(None);
+	let results = rotor_tsrs::threads::scope(|scope| {
+		let handles: Vec<_> = (0..worker_count)
+			.map(|_| {
+				scope.spawn(|| {
+					let mut acc = A::default();
+					loop {
+						if failed.load(Ordering::Relaxed) {
+							break;
+						}
+						let index = next.fetch_add(1, Ordering::Relaxed);
+						let Some(item) = items.get(index) else {
+							break;
+						};
+						if let Err(error) = work(&mut acc, item) {
+							failed.store(true, Ordering::Relaxed);
+							let mut guard = first.lock().unwrap_or_else(PoisonError::into_inner);
+							if guard.is_none() {
+								*guard = Some(error);
+							}
+							drop(guard);
+							break;
+						}
+					}
+					acc
+				})
+			})
+			.collect();
+		handles
+			.into_iter()
+			.map(|handle| {
+				handle
+					.join()
+					.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+			})
+			.collect::<Vec<_>>()
+	});
+	if let Some(error) = first.into_inner().unwrap_or_else(PoisonError::into_inner) {
+		return Err(error);
+	}
+	Ok(results)
 }

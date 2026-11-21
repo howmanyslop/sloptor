@@ -185,7 +185,7 @@ pub fn luau_types_rojo_context(project: &Path) -> &'static RojoContext {
 		project_path: dir,
 		pkg_rojo_resolvers: Vec::new(),
 		node_modules_path_mapping: NodeModulesPathMapping::default(),
-		project_reference_paths: HashMap::new(),
+		project_reference_paths: HashMap::default(),
 		node_modules_path: String::new(),
 		type_roots: Vec::new(),
 		use_case_sensitive_file_names: true,

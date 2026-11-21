@@ -7,14 +7,14 @@ use rotor_tsrs::types::TypeCheck;
 
 use crate::assignment::{
 	create_compound_assignment_statement, get_assignable_value, get_simple_assignment_operator,
-	transform_writable_assignment, transform_writable_expression,
+	simple_non_plus_assignment_operator, transform_writable_assignment, transform_writable_expression,
 };
 use crate::call::array_binding_pattern_contains_hoists;
 use crate::dispatch::transform_expression;
 use crate::ensureorder::ensure_transform_order;
 use crate::exports::is_symbol_mutable;
 use crate::extras::{is_break_blocked_by_try_statement, is_return_blocked_by_try_statement};
-use crate::identifier::{transform_identifier_defined, validate_identifier};
+use crate::identifier::{transform_identifier_defined_with_symbol, validate_identifier};
 use crate::prelude::*;
 use crate::refwalker::for_each_symbol_reference;
 use crate::spreadhelpers::{array_like_expression_contains_spread, get_target_id_for_binding_pattern};
@@ -50,7 +50,7 @@ pub fn transform_variable(state: &mut State<'_>, identifier: P<Node>, right: Opt
 		return export_access;
 	}
 
-	let mut left = transform_identifier_defined(state, identifier);
+	let mut left = transform_identifier_defined_with_symbol(state, identifier, symbol);
 
 	check_variable_hoist(state, identifier, symbol);
 	if state.is_hoisted.get(&symbol).copied().unwrap_or(false) {
@@ -283,6 +283,14 @@ pub fn transform_expression_statement_inner(state: &mut State<'_>, expression: P
 			&& !tsast::is_array_literal_expression(left)
 			&& !tsast::is_object_literal_expression(left)
 		{
+			if let Some(operator) = simple_non_plus_assignment_operator(operator_kind) {
+				let assignment = transform_writable_assignment(state, left, right, false, false);
+				let statement = state.ast.assignment(assignment.writable, operator, assignment.value);
+				if operator_kind != Kind::EqualsToken {
+					state.set_operator_source_position(statement, operator_token);
+				}
+				return state.ast.list_from([statement]);
+			}
 			let writable_type = state.get_type(left);
 			let value_type = state.get_type(right);
 			let simple = get_simple_assignment_operator(state, writable_type, operator_kind, value_type);

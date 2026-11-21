@@ -797,6 +797,7 @@ name = "rotor_compile"
 version = "0.0.0"
 dependencies = [
  "icu_normalizer",
+ "rayon",
  "rotor_config",
  "rotor_flamework",
  "rotor_jecs",
@@ -805,6 +806,7 @@ dependencies = [
  "rotor_support",
  "rotor_transformer",
  "rotor_tsrs",
+ "rustc-hash",
  "serde_json",
  "sha2",
  "tempfile",
@@ -864,6 +866,7 @@ name = "rotor_luau"
 version = "0.0.0"
 dependencies = [
  "regex",
+ "rustc-hash",
 ]
 
 [[package]]
@@ -872,6 +875,7 @@ version = "0.0.0"
 dependencies = [
  "rayon",
  "rotor_support",
+ "rustc-hash",
  "sha2",
  "tempfile",
  "tsrs_core",
@@ -899,6 +903,7 @@ dependencies = [
  "rotor_rojo",
  "rotor_support",
  "rotor_tsrs",
+ "rustc-hash",
  "tempfile",
 ]
 
@@ -908,6 +913,7 @@ version = "0.0.0"
 dependencies = [
  "regex",
  "rotor_support",
+ "rustc-hash",
  "serde_json",
  "tempfile",
  "tsrs_ast",

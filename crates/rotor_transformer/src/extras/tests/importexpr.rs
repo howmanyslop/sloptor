@@ -91,7 +91,7 @@ fn package_import_of_nil_rojo_path_reports_no_rojo_data() {
 		project_path: root_text.clone(),
 		pkg_rojo_resolvers: vec![RojoResolver::package_imports(&type_root, &ProjectFiles::new())],
 		node_modules_path_mapping: NodeModulesPathMapping::default(),
-		project_reference_paths: std::collections::HashMap::new(),
+		project_reference_paths: std::collections::HashMap::default(),
 		node_modules_path: gopath::join(&[&root_text, "node_modules"]),
 		type_roots: vec![type_root],
 		use_case_sensitive_file_names: true,

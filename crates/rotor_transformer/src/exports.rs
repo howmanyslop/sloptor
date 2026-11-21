@@ -2,7 +2,7 @@
 //! module export queries.
 
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use rotor_tsrs::ast::{self as tsast, ModifierFlags, NodeFlags, SymbolFlags};
 use rotor_tsrs::checker::skip_alias;
@@ -311,13 +311,16 @@ impl State<'_> {
 
 	/// `GetModuleExportsAliasMap`, cached pass-wide: original (alias-skipped) export symbol to
 	/// the name it is exported under.
-	pub fn get_module_exports_alias_map(&mut self, module_symbol: P<Symbol>) -> &HashMap<P<Symbol>, String> {
+	pub fn get_module_exports_alias_map(
+		&mut self,
+		module_symbol: P<Symbol>,
+	) -> &rustc_hash::FxHashMap<P<Symbol>, String> {
 		if !self
 			.multi
 			.get_module_exports_alias_map_cache
 			.contains_key(&module_symbol)
 		{
-			let mut alias_map = HashMap::new();
+			let mut alias_map = rustc_hash::FxHashMap::default();
 			for export_symbol in self.get_module_exports(module_symbol) {
 				let original_symbol = skip_alias(export_symbol, self.checker);
 				let declaration = export_symbol.declarations().first().copied();

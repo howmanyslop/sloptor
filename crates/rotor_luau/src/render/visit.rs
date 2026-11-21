@@ -3,18 +3,18 @@
 use crate::types::TypeGeneric;
 use crate::{Ast, NodeData, NodeId, NodeOrList};
 
-pub trait Visitor {
+pub trait Visitor<'a> {
 	/// Rendering historically evaluated map-field values first and allocated
 	/// fallback temporary names in that order, including in unsolved
 	/// iterators. Render-order walks also enter `for` iterators.
 	const RENDER_ORDER: bool = false;
 
-	fn before(&mut self, _ast: &Ast, _node: NodeId) {}
+	fn before(&mut self, _ast: &'a Ast, _node: NodeId) {}
 
-	fn after(&mut self, _ast: &Ast, _node: NodeId) {}
+	fn after(&mut self, _ast: &'a Ast, _node: NodeId) {}
 }
 
-pub fn visit_node_or_list<V: Visitor>(ast: &Ast, value: NodeOrList, vis: &mut V) {
+pub fn visit_node_or_list<'a, V: Visitor<'a>>(ast: &'a Ast, value: NodeOrList, vis: &mut V) {
 	match value {
 		NodeOrList::Node(node) => visit_node(ast, node, vis),
 		NodeOrList::List(list) => {
@@ -25,20 +25,20 @@ pub fn visit_node_or_list<V: Visitor>(ast: &Ast, value: NodeOrList, vis: &mut V)
 	}
 }
 
-fn visit_list<V: Visitor, T>(ast: &Ast, list: crate::List<T>, vis: &mut V) {
+fn visit_list<'a, V: Visitor<'a>, T>(ast: &'a Ast, list: crate::List<T>, vis: &mut V) {
 	for node in ast.list_iter(list) {
 		visit_node(ast, node, vis);
 	}
 }
 
 /// Visits an optional type child.
-fn visit_type<V: Visitor>(ast: &Ast, node: Option<NodeId>, vis: &mut V) {
+fn visit_type<'a, V: Visitor<'a>>(ast: &'a Ast, node: Option<NodeId>, vis: &mut V) {
 	if let Some(node) = node {
 		visit_node(ast, node, vis);
 	}
 }
 
-fn visit_generics<V: Visitor>(ast: &Ast, generics: &[TypeGeneric], vis: &mut V) {
+fn visit_generics<'a, V: Visitor<'a>>(ast: &'a Ast, generics: &[TypeGeneric], vis: &mut V) {
 	for generic in generics {
 		visit_type(ast, generic.default, vis);
 	}
@@ -47,7 +47,7 @@ fn visit_generics<V: Visitor>(ast: &Ast, generics: &[TypeGeneric], vis: &mut V) 
 /// Visits the type children of a function-like node in render order: generic
 /// defaults, parameters (with their binding annotations), the varargs
 /// annotation, then the return annotation.
-fn visit_signature<V: Visitor>(ast: &Ast, generics: &[TypeGeneric], node: NodeId, vis: &mut V) {
+fn visit_signature<'a, V: Visitor<'a>>(ast: &'a Ast, generics: &[TypeGeneric], node: NodeId, vis: &mut V) {
 	visit_generics(ast, generics, vis);
 	if let Some(params) = ast.param_data(node) {
 		visit_list(ast, params.params, vis);
@@ -57,7 +57,7 @@ fn visit_signature<V: Visitor>(ast: &Ast, generics: &[TypeGeneric], node: NodeId
 }
 
 #[expect(clippy::too_many_lines, reason = "one arm per node kind")]
-pub fn visit_node<V: Visitor>(ast: &Ast, node: NodeId, vis: &mut V) {
+pub fn visit_node<'a, V: Visitor<'a>>(ast: &'a Ast, node: NodeId, vis: &mut V) {
 	vis.before(ast, node);
 	match ast.data(node) {
 		NodeData::Identifier(n) => visit_type(ast, n.annotation, vis),

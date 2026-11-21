@@ -81,9 +81,9 @@ pub fn check_pass_in(
 		// from the scope's program, or allocated in its region, outlives the scope.
 		#[expect(unsafe_code, reason = "check --watch frees each pass's program")]
 		let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
-		check_on_large_stack(&slash_dir, checkers, render, progress)
+		check_on_large_stack(&slash_dir, checkers, render, progress, scoped)
 	} else {
-		rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render, progress))
+		rotor_tsrs::with_large_stack(|| check_on_large_stack(&slash_dir, checkers, render, progress, scoped))
 	};
 	if let Some(error) = pass.1 {
 		let _ = writeln!(
@@ -96,11 +96,81 @@ pub fn check_pass_in(
 	pass.0
 }
 
+fn collect_semantic_diagnostics(
+	context: &Context,
+	program: &'static rotor_tsrs::compiler::Program,
+	file_names: &[String],
+	progress: Option<&BuildProgress>,
+) -> Vec<P<rotor_tsrs::ast::Diagnostic>> {
+	if let Some(progress) = progress {
+		progress.set_phase(Phase::Checking);
+	}
+	let files: Vec<P<rotor_tsrs::ast::SourceFile>> = file_names
+		.iter()
+		.filter_map(|name| program.get_source_file(name))
+		.collect();
+	if let Some(progress) = progress {
+		for _ in files.len()..file_names.len() {
+			progress.file_checked();
+		}
+	}
+	if !program.single_threaded() && files.len() > 1 {
+		let mut groups_by_checker: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+		let mut groups: Vec<Vec<P<rotor_tsrs::ast::SourceFile>>> = Vec::new();
+		for &file in &files {
+			let key = {
+				let checker = program.get_type_checker_for_file_exclusive(context, file);
+				checker.id
+			};
+			let group_index = *groups_by_checker.entry(key).or_insert_with(|| {
+				groups.push(Vec::new());
+				groups.len() - 1
+			});
+			groups[group_index].push(file);
+		}
+		if groups.len() > 1 {
+			let per_group: Vec<Vec<P<rotor_tsrs::ast::Diagnostic>>> = rotor_tsrs::threads::scope(|scope| {
+				#[expect(clippy::needless_collect, reason = "every worker must spawn before joining")]
+				let handles: Vec<_> = groups
+					.iter()
+					.map(|group| {
+						scope.spawn(move || {
+							let mut out = Vec::new();
+							for &file in group {
+								out.extend(program.get_semantic_diagnostics(context, Some(file)));
+								if let Some(progress) = progress {
+									progress.file_checked();
+								}
+							}
+							out
+						})
+					})
+					.collect();
+				handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+			});
+			let mut out = Vec::new();
+			for group_out in per_group {
+				out.extend(group_out);
+			}
+			return out;
+		}
+	}
+	let mut out = Vec::new();
+	for &file in &files {
+		out.extend(program.get_semantic_diagnostics(context, Some(file)));
+		if let Some(progress) = progress {
+			progress.file_checked();
+		}
+	}
+	out
+}
+
 fn check_on_large_stack(
 	slash_dir: &str,
 	checkers: Option<i64>,
 	render: Render,
 	progress: Option<&BuildProgress>,
+	scoped: bool,
 ) -> (CheckPass, Option<String>) {
 	if let Some(progress) = progress {
 		progress.set_phase(Phase::Loading);
@@ -113,7 +183,9 @@ fn check_on_large_stack(
 	let loaded = rotor_tsrs::project::load_check_program(slash_dir, &config_path, checkers);
 	let Some(program) = loaded.program else {
 		let mut pass = render_pass(&loaded.config_diagnostics, &compare_paths_options, render, 0);
-		pass.watch_files = vec![config_path];
+		if scoped {
+			pass.watch_files = vec![config_path];
+		}
 		return (pass, None);
 	};
 	let context = Context::default();
@@ -122,21 +194,7 @@ fn check_on_large_stack(
 		progress.add_files(file_names.len());
 	}
 	let mut bind = |context: &Context, file| program.get_bind_diagnostics(context, file);
-	let mut semantic = |context: &Context, _| {
-		if let Some(progress) = progress {
-			progress.set_phase(Phase::Checking);
-		}
-		let mut out = Vec::new();
-		for name in &file_names {
-			if let Some(file) = program.get_source_file(name) {
-				out.extend(program.get_semantic_diagnostics(context, Some(file)));
-			}
-			if let Some(progress) = progress {
-				progress.file_checked();
-			}
-		}
-		out
-	};
+	let mut semantic = |context: &Context, _| collect_semantic_diagnostics(context, program, &file_names, progress);
 	let diagnostics = get_diagnostics_of_any_program(&context, program, None, false, &mut bind, &mut semantic);
 	let diagnostics = sort_and_deduplicate_diagnostics(&diagnostics);
 	let mut pass = render_pass(
@@ -146,13 +204,15 @@ fn check_on_large_stack(
 		program.source_files().len(),
 	);
 	let warning = refresh_rotor_types(slash_dir, &file_names, program).err();
-	pass.watch_files = std::iter::once(config_path)
-		.chain(file_names.iter().cloned())
-		.chain(rotor_compile::macro_inputs::macro_input_files(
-			slash_dir,
-			program.source_files(),
-		))
-		.collect();
+	if scoped {
+		pass.watch_files = std::iter::once(config_path)
+			.chain(file_names.iter().cloned())
+			.chain(rotor_compile::macro_inputs::macro_input_files(
+				slash_dir,
+				program.source_files(),
+			))
+			.collect();
+	}
 	(pass, warning)
 }
 
@@ -400,4 +460,42 @@ pub fn run(command: CheckCommand, streams: &mut Streams) -> Result<(), Failure> 
 		return Err(Failure::Reported);
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn check_pass_multi_checker_matches_single_checker() -> std::io::Result<()> {
+		let dir = std::env::temp_dir().join(format!("sloptor-check-parity-{}", std::process::id()));
+		let _ = std::fs::remove_dir_all(&dir);
+		std::fs::create_dir_all(dir.join("src"))?;
+		std::fs::write(
+			dir.join("tsconfig.json"),
+			r#"{"compilerOptions":{"strict":true,"target":"ESNext","module":"CommonJS","noEmit":true},"include":["src"]}"#,
+		)?;
+		std::fs::write(dir.join("src/a.ts"), "export const a: number = 1;\n")?;
+		std::fs::write(dir.join("src/b.ts"), "export const b: string = 42;\n")?;
+		std::fs::write(
+			dir.join("src/c.ts"),
+			"import { a } from './a';\nexport const c = a + 1;\n",
+		)?;
+		std::fs::write(dir.join("src/d.ts"), "export const d: boolean = 'no';\n")?;
+
+		let dir_str = dir.to_string_lossy().into_owned();
+		let mut w1 = Vec::new();
+		let mut w4 = Vec::new();
+		let p1 = check_pass(&dir_str, Some(1), Render::Json, None, &mut w1);
+		let p4 = check_pass(&dir_str, Some(4), Render::Json, None, &mut w4);
+
+		let _ = std::fs::remove_dir_all(&dir);
+
+		assert_eq!(p1.files, p4.files);
+		assert_eq!(p1.diagnostics, p4.diagnostics);
+		assert_eq!(p1.errors, p4.errors);
+		assert_eq!(p1.json, p4.json);
+		assert!(p1.errors >= 2);
+		Ok(())
+	}
 }

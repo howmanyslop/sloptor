@@ -2,53 +2,78 @@
 //! manifest outputs exist.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
 
 use rotor_support::gopath;
+use rustc_hash::FxHashMap;
 
+use crate::output_stamps::FileStamp;
 use crate::outputwriter::OutputWriter;
 use crate::package_layout::hex_sha256;
-use crate::parallelwrite::{Job, parallelize, write_workers};
-use crate::project::lock;
+use crate::parallelwrite::{WRITE_SYNC_CUTOFF, parallel_fold_with_cutoff, write_workers};
 
 impl OutputWriter {
 	/// `validatedOutputHashes`: the outputs whose file on disk still has the recorded hash.
-	pub(crate) fn validated_output_hashes(&self, outputs: &BTreeMap<String, String>) -> HashMap<String, String> {
-		let validated = Mutex::new(HashMap::with_capacity(outputs.len()));
-		let mut jobs: Vec<Job<'_>> = Vec::with_capacity(outputs.len());
+	pub(crate) fn validated_output_hashes(&self, outputs: &BTreeMap<String, String>) -> FxHashMap<String, String> {
+		if outputs.is_empty() {
+			return FxHashMap::default();
+		}
+		let mut items: Vec<(&String, &String, String)> = Vec::with_capacity(outputs.len());
+		let mut confined_parents: HashSet<String> = HashSet::new();
 		for (path, hash) in outputs {
 			let Some(key) = normalize_output_presence_key(path, self.case_sensitive) else {
 				continue;
 			};
-			let validated = &validated;
-			jobs.push(Box::new(move || {
-				let absolute = gopath::join(&[&self.project_dir, &gopath::from_slash(&key)]);
-				let Ok(metadata) = self.lstat(&absolute) else {
+			if !gopath::is_local(&gopath::from_slash(&key)) {
+				continue;
+			}
+			let absolute = gopath::join(&[&self.project_dir, &gopath::from_slash(&key)]);
+			let parent = gopath::dir(&key);
+			if confined_parents.insert(parent) && self.confine_parent(&absolute).is_err() {
+				continue;
+			}
+			items.push((path, hash, absolute));
+		}
+
+		let chunks = parallel_fold_with_cutoff(
+			write_workers(),
+			WRITE_SYNC_CUTOFF,
+			&items,
+			|acc: &mut Vec<(String, String, FileStamp)>, (path, hash, absolute)| {
+				let Ok(metadata) = std::fs::symlink_metadata(absolute) else {
 					return Ok(());
 				};
 				if !metadata.file_type().is_file() {
 					return Ok(());
 				}
-				let stamp = crate::output_stamps::FileStamp::of(&metadata);
+				let stamp = FileStamp::of(&metadata);
 				if self.stamps.holds(path, stamp, hash) {
-					self.stamps.observe(path, stamp, hash);
-					lock(validated).insert(path.clone(), hash.clone());
+					if let Some(stamp) = stamp {
+						acc.push(((*path).clone(), (*hash).clone(), stamp));
+					}
 					return Ok(());
 				}
-				let Ok(contents) = std::fs::read(&absolute) else {
+				let Ok(contents) = std::fs::read(absolute) else {
 					return Ok(());
 				};
-				if hex_sha256(&contents) == *hash {
-					self.stamps.observe(path, stamp, hash);
-					lock(validated).insert(path.clone(), hash.clone());
+				if hex_sha256(&contents) == **hash
+					&& let Some(stamp) = stamp
+				{
+					acc.push(((*path).clone(), (*hash).clone(), stamp));
 				}
 				Ok(())
-			}));
+			},
+		);
+
+		let mut validated = FxHashMap::with_capacity_and_hasher(items.len(), rustc_hash::FxBuildHasher);
+		let mut stamp_entries = Vec::with_capacity(items.len());
+		for chunk in chunks.unwrap_or_default() {
+			for (path, hash, stamp) in chunk {
+				stamp_entries.push((path.clone(), stamp, hash.clone()));
+				validated.insert(path, hash);
+			}
 		}
-		let _ = parallelize(write_workers(), jobs);
+		self.stamps.observe_batch(stamp_entries);
 		validated
-			.into_inner()
-			.unwrap_or_else(std::sync::PoisonError::into_inner)
 	}
 
 	/// `newOutputPresenceIndex(previous)` for the validated previous outputs, which validation

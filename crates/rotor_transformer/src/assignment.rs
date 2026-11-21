@@ -31,6 +31,12 @@ const fn compound_operator(kind: Kind) -> Option<AssignmentOperator> {
 	})
 }
 
+/// Simple compound/plain assignment operators whose Luau lowering never depends on operand types
+/// (all of [`compound_operator`] except `+=`, which may lower to `..=`).
+pub const fn simple_non_plus_assignment_operator(kind: Kind) -> Option<AssignmentOperator> {
+	compound_operator(kind)
+}
+
 /// `getSimpleAssignmentOperator` (L23-34): `+=` is `..=` when either side is definitely a
 /// string. `None` means no simple operator exists (upstream `undefined`).
 pub fn get_simple_assignment_operator(

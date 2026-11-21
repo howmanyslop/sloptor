@@ -38,7 +38,7 @@ impl Layout {
 	}
 }
 
-impl Visitor for Layout {
+impl Visitor<'_> for Layout {
 	fn before(&mut self, ast: &Ast, node: NodeId) {
 		if let NodeData::TypeAlias(alias) = ast.data(node)
 			&& let Some(body) = alias.body

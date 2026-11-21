@@ -336,7 +336,7 @@ pub(super) fn lower_task7_files(root: &Path, project: &Project) {
 				project_path: root_text.clone(),
 				pkg_rojo_resolvers: Vec::new(),
 				node_modules_path_mapping: rotor_transformer::NodeModulesPathMapping::default(),
-				project_reference_paths: std::collections::HashMap::new(),
+				project_reference_paths: std::collections::HashMap::default(),
 				node_modules_path: format!("{root_text}/node_modules"),
 				type_roots: vec![
 					format!("{root_text}/node_modules/@rbxts"),

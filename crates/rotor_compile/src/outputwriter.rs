@@ -6,7 +6,7 @@
 //! equivalent; the writer refuses non-local paths and parents that resolve outside the project
 //! directory instead.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -14,10 +14,21 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rotor_support::{fsutil, gopath, gostr};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::compile::Error;
+use crate::output_stamps::FileStamp;
 use crate::package_layout::hex_sha256;
 use crate::project::lock;
+
+/// Outcome of a single [`OutputWriter::write_prepared_keyed`] call, accumulated by parallel
+/// workers and merged once via [`OutputWriter::apply_write_outcomes`].
+pub(crate) struct WriteOutcome {
+	pub(crate) wrote: bool,
+	pub(crate) key: String,
+	pub(crate) hash: String,
+	pub(crate) stamp: Option<FileStamp>,
+}
 
 /// `outputWriter`
 pub struct OutputWriter {
@@ -25,16 +36,18 @@ pub struct OutputWriter {
 	pub(crate) project_dir: String,
 	/// The canonical project directory, once [`OutputWriter::use_hashes`] confined the writer.
 	canonical_root: Option<String>,
-	pub(crate) previous: HashMap<String, String>,
+	pub(crate) previous: FxHashMap<String, String>,
 	/// The outputs' stat fields beside their hashes (Rust only, `output_stamps`).
 	pub(crate) stamps: crate::output_stamps::OutputStamps,
 	current: Option<Mutex<BTreeMap<String, String>>>,
 	hash_skips: AtomicUsize,
-	prepared: Mutex<HashSet<String>>,
+	prepared: Mutex<FxHashSet<String>>,
 	/// `dirRoots`: the canonical form of each parent directory already confined, by its
 	/// project-relative path (lowercased on a case-insensitive file system). Only directories
 	/// that resolved inside the project are cached; one that does not exist yet is checked again.
-	dir_roots: Mutex<HashMap<String, PathBuf>>,
+	dir_roots: Mutex<FxHashMap<String, PathBuf>>,
+	/// Output keys written or confirmed present on disk during this build.
+	confirmed_this_build: Mutex<FxHashSet<String>>,
 }
 
 impl Default for OutputWriter {
@@ -55,12 +68,13 @@ impl OutputWriter {
 			case_sensitive: rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names(),
 			project_dir: String::new(),
 			canonical_root: None,
-			previous: HashMap::new(),
+			previous: FxHashMap::default(),
 			stamps: crate::output_stamps::OutputStamps::default(),
 			current: None,
 			hash_skips: AtomicUsize::new(0),
-			prepared: Mutex::new(HashSet::new()),
-			dir_roots: Mutex::new(HashMap::new()),
+			prepared: Mutex::new(FxHashSet::default()),
+			dir_roots: Mutex::new(FxHashMap::default()),
+			confirmed_this_build: Mutex::new(FxHashSet::default()),
 		}
 	}
 
@@ -98,45 +112,98 @@ impl OutputWriter {
 
 	/// `write`: writes `contents` to `path` unless it already holds them. True when it wrote.
 	pub(crate) fn write(&self, path: &str, contents: &[u8]) -> Result<bool, Error> {
-		let hash = hex_sha256(contents);
 		let key = self.output_key(path);
-		// The stamp validation saw stays with the hash it confirmed: a file another process
-		// rewrote since then has a newer stamp, so the next build hashes it again.
-		if self.previous.get(&key) == Some(&hash)
-			&& let Ok(metadata) = self.lstat(path)
-			&& metadata.file_type().is_file()
-		{
-			if let Some(current) = &self.current {
-				lock(current).insert(key, hash);
-			}
-			self.hash_skips.fetch_add(1, Ordering::Relaxed);
-			return Ok(false);
-		}
-		if self.same_contents(path, contents) {
-			self.observe_written(path, &key, &hash);
-			self.record_hash(key, hash);
-			return Ok(false);
-		}
 		self.check_confined_parent(path)?;
-		self.check_confined_final(path)?;
-		fsutil::write_file(Path::new(path), contents, 0o644).map_err(|error| io_error(&error))?;
-		self.observe_written(path, &key, &hash);
-		self.record_hash(key, hash);
-		Ok(true)
+		let outcome = self.write_prepared_keyed(path, &key, contents)?;
+		let wrote = outcome.wrote;
+		self.apply_write_outcomes(std::iter::once(outcome));
+		Ok(wrote)
 	}
 
-	/// `sameContents`
-	fn same_contents(&self, path: &str, contents: &[u8]) -> bool {
-		let Ok(metadata) = fs::symlink_metadata(path) else {
-			return false;
-		};
-		if !metadata.file_type().is_file() || metadata.len() != contents.len() as u64 {
-			return false;
+	/// Writes `contents` to `path` (whose parent directory was already confined and prepared, and
+	/// whose [`OutputWriter::output_key`] is `key`) using a single `symlink_metadata` + `fstat`
+	/// without locking `current`, `stamps`, or `confirmed_this_build`.
+	pub(crate) fn write_prepared_keyed(&self, path: &str, key: &str, contents: &[u8]) -> Result<WriteOutcome, Error> {
+		let hash = hex_sha256(contents);
+		if let Ok(metadata) = fs::symlink_metadata(path) {
+			let file_type = metadata.file_type();
+			if file_type.is_file() {
+				if self.previous.get(key) == Some(&hash) {
+					self.hash_skips.fetch_add(1, Ordering::Relaxed);
+					return Ok(WriteOutcome {
+						wrote: false,
+						key: key.to_owned(),
+						hash,
+						stamp: None,
+					});
+				}
+				if metadata.len() == contents.len() as u64 && fs::read(path).is_ok_and(|existing| existing == contents)
+				{
+					return Ok(WriteOutcome {
+						wrote: false,
+						key: key.to_owned(),
+						hash,
+						stamp: FileStamp::of(&metadata),
+					});
+				}
+			} else if file_type.is_symlink() {
+				self.check_confined_final_symlink(path)?;
+			}
 		}
-		self.check_confined_parent(path).is_ok() && fs::read(path).is_ok_and(|existing| existing == contents)
+		let written_meta = fsutil::write_file_returning_metadata(Path::new(path), contents, 0o644)
+			.map_err(|error| io_error(&error))?;
+		Ok(WriteOutcome {
+			wrote: true,
+			key: key.to_owned(),
+			hash,
+			stamp: written_meta.as_ref().and_then(FileStamp::of),
+		})
+	}
+
+	/// Merges a batch of [`WriteOutcome`]s into `current`, `stamps`, and `confirmed_this_build`.
+	pub(crate) fn apply_write_outcomes<I>(&self, outcomes: I)
+	where
+		I: IntoIterator<Item = WriteOutcome>,
+	{
+		let outcomes: Vec<WriteOutcome> = outcomes.into_iter().collect();
+		if outcomes.is_empty() {
+			return;
+		}
+		{
+			let mut confirmed = lock(&self.confirmed_this_build);
+			for outcome in &outcomes {
+				confirmed.insert(outcome.key.clone());
+			}
+		}
+		if let Some(current) = &self.current {
+			let mut current = lock(current);
+			for outcome in &outcomes {
+				current.insert(outcome.key.clone(), outcome.hash.clone());
+			}
+		}
+		self.stamps.observe_batch(
+			outcomes
+				.into_iter()
+				.filter_map(|outcome| outcome.stamp.map(|stamp| (outcome.key, stamp, outcome.hash))),
+		);
+	}
+
+	/// Keys in `keys` not already written or confirmed present during this build.
+	pub(crate) fn unconfirmed_keys<'a, I>(&self, keys: I) -> Vec<&'a String>
+	where
+		I: IntoIterator<Item = &'a String>,
+	{
+		let confirmed = lock(&self.confirmed_this_build);
+		keys.into_iter().filter(|key| !confirmed.contains(*key)).collect()
+	}
+
+	/// Whether `key` was written or confirmed present during this build.
+	pub(crate) fn is_confirmed(&self, key: &str) -> bool {
+		lock(&self.confirmed_this_build).contains(key)
 	}
 
 	/// `lstat`: refuses paths outside the project directory.
+	#[cfg(test)]
 	pub(crate) fn lstat(&self, path: &str) -> Result<fs::Metadata, Error> {
 		let key = self.output_key(path);
 		if !gopath::is_local(&gopath::from_slash(&key)) {
@@ -190,14 +257,11 @@ impl OutputWriter {
 	/// The final component of `path`, which a write follows: a symlink must resolve inside the
 	/// project. Only the final component is inspected (its parent is
 	/// [`OutputWriter::check_confined_parent`]'s).
-	fn check_confined_final(&self, path: &str) -> Result<(), Error> {
+	fn check_confined_final_symlink(&self, path: &str) -> Result<(), Error> {
 		let Some(root) = &self.canonical_root else {
 			return Ok(());
 		};
 		let path = Path::new(path);
-		if !fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-			return Ok(());
-		}
 		// A dangling symlink resolves through its target, which a write creates.
 		let resolved = fs::canonicalize(path).ok().or_else(|| {
 			fs::read_link(path)
@@ -233,17 +297,6 @@ impl OutputWriter {
 		)
 	}
 
-	/// Records the stamp of the regular file at `path`, which now holds content hashing to
-	/// `hash`.
-	fn observe_written(&self, path: &str, key: &str, hash: &str) {
-		if let Ok(metadata) = fs::symlink_metadata(path)
-			&& metadata.file_type().is_file()
-		{
-			self.stamps
-				.observe(key, crate::output_stamps::FileStamp::of(&metadata), hash);
-		}
-	}
-
 	/// Writes the stamps of this build's outputs (`output_stamps`).
 	pub(crate) fn persist_stamps(&self) {
 		if self.project_dir.is_empty() {
@@ -252,16 +305,14 @@ impl OutputWriter {
 		self.stamps.persist(&self.project_dir, &self.current_outputs());
 	}
 
-	/// `recordHash`
-	fn record_hash(&self, key: String, hash: String) {
-		if let Some(current) = &self.current {
-			lock(current).insert(key, hash);
-		}
-	}
-
 	/// `hashSkipCount`
 	pub(crate) fn hash_skip_count(&self) -> usize {
 		self.hash_skips.load(Ordering::Relaxed)
+	}
+
+	/// `check_confined_parent` exposed for pre-confining parent directories before parallel work.
+	pub(crate) fn confine_parent(&self, path: &str) -> Result<(), Error> {
+		self.check_confined_parent(path)
 	}
 
 	/// `prepareParent`: creates the parent of `path` once per directory.

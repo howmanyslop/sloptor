@@ -7,29 +7,59 @@
 //! rbxtsc's exact errors.
 
 use std::path::Path as StdPath;
-use std::sync::LazyLock;
 
-use regex::Regex;
 use rotor_support::gopath;
 use serde_json::{Map, Value};
 use tsrs_core::{CompilerOptions, ModuleDetectionKind, ModuleKind, ModuleResolutionKind, Tristate};
 
-/// The four arity-1 iteration interfaces `@rbxts/compiler-types` declares (`sanitize.go`
-/// `iterableArityPattern`).
-static ITERABLE_ARITY: LazyLock<Option<Regex>> = LazyLock::new(|| {
-	Regex::new(r"\binterface (Iterable|IterableIterator|AsyncIterable|AsyncIterableIterator)<T>").ok()
-});
+const ITERABLE_TARGETS: &[&str] = &[
+	"Iterable<T>",
+	"IterableIterator<T>",
+	"AsyncIterable<T>",
+	"AsyncIterableIterator<T>",
+];
+
+const fn is_regex_word_byte(byte: u8) -> bool {
+	byte.is_ascii_alphanumeric() || byte == b'_'
+}
 
 /// Rewrites `@rbxts/compiler-types`' arity-1 iteration interfaces to `<T, TReturn = any, TNext =
 /// any>`, the arity TypeScript 7 resolves the iteration globals at (`RewriteIterableArity`).
 #[must_use]
 pub fn rewrite_iterable_arity(source: &str) -> String {
-	ITERABLE_ARITY.as_ref().map_or_else(
+	const PREFIX: &str = "interface ";
+	if !source.contains(PREFIX) {
+		return source.to_owned();
+	}
+	let bytes = source.as_bytes();
+	let mut out: Option<String> = None;
+	let mut copied = 0;
+	let mut search_from = 0;
+	while let Some(rel) = source[search_from..].find(PREFIX) {
+		let pos = search_from + rel;
+		let prev_is_word = pos > 0 && is_regex_word_byte(bytes[pos - 1]);
+		let after_prefix = pos + PREFIX.len();
+		if !prev_is_word
+			&& let Some(target) = ITERABLE_TARGETS
+				.iter()
+				.find(|target| source[after_prefix..].starts_with(**target))
+		{
+			let name = &target[..target.len() - "<T>".len()];
+			let buf = out.get_or_insert_with(|| String::with_capacity(source.len() + 64));
+			buf.push_str(&source[copied..after_prefix]);
+			buf.push_str(name);
+			buf.push_str("<T, TReturn = any, TNext = any>");
+			copied = after_prefix + target.len();
+			search_from = copied;
+			continue;
+		}
+		search_from = after_prefix;
+	}
+	out.map_or_else(
 		|| source.to_owned(),
-		|pattern| {
-			pattern
-				.replace_all(source, "interface $1<T, TReturn = any, TNext = any>")
-				.into_owned()
+		|mut buf| {
+			buf.push_str(&source[copied..]);
+			buf
 		},
 	)
 }
@@ -667,5 +697,31 @@ mod tests {
 			assert!(message.contains(needle), "missing {needle} in {message}");
 		}
 		assert!(message.starts_with("Invalid \"tsconfig.json\" configuration!\n"));
+	}
+
+	#[test]
+	fn rewrites_iterable_arity_with_word_boundaries() {
+		let input = "\
+interface Iterable<T> { a: 1 }
+export interface IterableIterator<T> { b: 2 }
+interface AsyncIterable<T> { c: 3 }
+interface AsyncIterableIterator<T> { d: 4 }
+interface MyIterable<T> {}
+foointerface Iterable<T> {}
+_interface Iterable<T> {}
+interface Iterable<T, U> {}
+";
+		let expected = "\
+interface Iterable<T, TReturn = any, TNext = any> { a: 1 }
+export interface IterableIterator<T, TReturn = any, TNext = any> { b: 2 }
+interface AsyncIterable<T, TReturn = any, TNext = any> { c: 3 }
+interface AsyncIterableIterator<T, TReturn = any, TNext = any> { d: 4 }
+interface MyIterable<T> {}
+foointerface Iterable<T> {}
+_interface Iterable<T> {}
+interface Iterable<T, U> {}
+";
+		assert_eq!(rewrite_iterable_arity(input), expected);
+		assert_eq!(rewrite_iterable_arity("const x = 1;"), "const x = 1;");
 	}
 }

@@ -95,6 +95,17 @@ pub fn write_file_if_changed(path: impl AsRef<Path>, data: &[u8], mode: u32) -> 
 ///
 /// Returns the I/O error from opening or writing the file.
 pub fn write_file(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
+	let _ = write_file_returning_metadata(path, data, mode)?;
+	Ok(())
+}
+
+/// [`write_file`], returning the open file's `fstat` metadata before closing so callers can
+/// record its stamp without a second path lookup.
+///
+/// # Errors
+///
+/// Returns the I/O error from opening or writing the file.
+pub fn write_file_returning_metadata(path: &Path, data: &[u8], mode: u32) -> io::Result<Option<fs::Metadata>> {
 	use std::io::Write;
 	let mut options = fs::OpenOptions::new();
 	options.write(true).create(true).truncate(true);
@@ -110,7 +121,8 @@ pub fn write_file(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
 		.open(path)
 		.map_err(|error| gostr::with_path("open", &name, &error))?;
 	file.write_all(data)
-		.map_err(|error| gostr::with_path("write", &name, &error))
+		.map_err(|error| gostr::with_path("write", &name, &error))?;
+	Ok(file.metadata().ok())
 }
 
 /// `os.MkdirAll`: creates `path` and its missing parents, each with `mode` (before the umask) on

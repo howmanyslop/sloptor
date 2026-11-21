@@ -1,7 +1,6 @@
 //! Identifier, number literal, and reserved name checks.
 
-use crate::globals::RESERVED_GLOBAL_NAMES;
-
+#[cfg_attr(not(test), expect(dead_code, reason = "kept as reference list of Luau keywords"))]
 pub const LUAU_RESERVED_KEYWORDS: &[&str] = &[
 	"and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local", "nil", "not", "or",
 	"repeat", "return", "then", "true", "until", "while",
@@ -35,7 +34,33 @@ const LUAU_RESERVED_CLASS_FIELDS: &[&str] = &["__index", "new"];
 /// [`is_valid_identifier`]).
 #[must_use]
 pub fn is_reserved_keyword(id: &str) -> bool {
-	LUAU_RESERVED_KEYWORDS.contains(&id)
+	if !(2..=8).contains(&id.len()) {
+		return false;
+	}
+	matches!(
+		id,
+		"and"
+			| "break"
+			| "do"
+			| "else"
+			| "elseif"
+			| "end"
+			| "false"
+			| "for"
+			| "function"
+			| "if"
+			| "in"
+			| "local"
+			| "nil"
+			| "not"
+			| "or"
+			| "repeat"
+			| "return"
+			| "then"
+			| "true"
+			| "until"
+			| "while"
+	)
 }
 
 const fn is_identifier_start(c: u8) -> bool {
@@ -153,7 +178,7 @@ const fn is_decimal_literal(s: &[u8]) -> bool {
 /// Whether `id` is a Luau metamethod name.
 #[must_use]
 pub fn is_metamethod(id: &str) -> bool {
-	LUAU_METAMETHODS.contains(&id)
+	id.starts_with("__") && LUAU_METAMETHODS.contains(&id)
 }
 
 /// Whether `id` is a field name that roblox-ts classes reserve.
@@ -165,7 +190,35 @@ pub fn is_reserved_class_field(id: &str) -> bool {
 /// Whether `id` is a top-level key of upstream `globals.ts`.
 #[must_use]
 pub fn is_reserved_identifier(id: &str) -> bool {
-	RESERVED_GLOBAL_NAMES.contains(&id)
+	matches!(
+		id,
+		"_G" | "TS"
+			| "assert"
+			| "bit32"
+			| "coroutine"
+			| "error"
+			| "exports"
+			| "getmetatable"
+			| "ipairs"
+			| "next"
+			| "pairs"
+			| "pcall"
+			| "require"
+			| "script"
+			| "select"
+			| "self"
+			| "setmetatable"
+			| "string"
+			| "super"
+			| "table"
+			| "utf8"
+			| "math"
+			| "tostring"
+			| "type"
+			| "typeof"
+			| "unpack"
+			| "game"
+	)
 }
 
 #[cfg(test)]

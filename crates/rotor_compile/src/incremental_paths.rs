@@ -5,7 +5,8 @@
 //! restored cache is independent of the machine.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use rotor_support::{fsutil, gopath};
 use rotor_tsrs::compiler::Program;
@@ -29,12 +30,19 @@ pub(crate) type Encoder<'a> = Box<dyn Fn(&str) -> String + 'a>;
 /// `incrementalSourcePathEncoder`: project-relative names get the `project://` anchor.
 pub(crate) fn incremental_source_path_encoder(program: &Program) -> Encoder<'_> {
 	let encode = incremental_path_encoder(program.get_current_directory(), Some(program));
+	let cached: RefCell<FxHashMap<String, String>> = RefCell::new(FxHashMap::default());
 	Box::new(move |name: &str| {
-		let relative = encode(name);
-		if gopath::is_abs(&gopath::from_slash(&relative)) {
-			return relative;
+		if let Some(hit) = cached.borrow().get(name) {
+			return hit.clone();
 		}
-		format!("{INCREMENTAL_PROJECT_PATH_PREFIX}{relative}")
+		let relative = encode(name);
+		let result = if gopath::is_abs(&gopath::from_slash(&relative)) {
+			relative
+		} else {
+			format!("{INCREMENTAL_PROJECT_PATH_PREFIX}{relative}")
+		};
+		cached.borrow_mut().insert(name.to_owned(), result.clone());
+		result
 	})
 }
 
@@ -99,7 +107,7 @@ pub(crate) fn incremental_path_encoder<'a>(dir: &str, program: Option<&'a Progra
 			.map(|index| haystack[index + needle.len()..].to_owned())
 	};
 
-	let mut aliases: HashMap<String, Vec<String>> = HashMap::new();
+	let mut aliases: FxHashMap<String, Vec<String>> = FxHashMap::default();
 	let mut add_alias = |real: &str, link: &str| {
 		let link = normalize_source_file_path(link);
 		let entry = aliases.entry(canonical(real)).or_default();
@@ -150,18 +158,23 @@ pub(crate) fn incremental_path_encoder<'a>(dir: &str, program: Option<&'a Progra
 		}
 	}
 
-	let encoded: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+	let encoded: RefCell<FxHashMap<String, String>> = RefCell::new(FxHashMap::default());
 	let encode_inner = move |name: &str, this: &dyn Fn(&str) -> String| -> String {
-		if let Some(template) = incremental_path_template(name, this) {
-			return template;
-		}
 		if name.is_empty() {
 			return String::new();
 		}
 		if let Some(result) = encoded.borrow().get(name) {
 			return result.clone();
 		}
+		if let Some(template) = incremental_path_template(name, this) {
+			encoded.borrow_mut().insert(name.to_owned(), template.clone());
+			return template;
+		}
 		let mut best = encode_relative(name);
+		if aliases.is_empty() {
+			encoded.borrow_mut().insert(name.to_owned(), best.clone());
+			return best;
+		}
 		let relative_to_project = encode_project_relative(name);
 		let is_project_local = gopath::is_local(&gopath::from_slash(&relative_to_project));
 		let in_node_modules = path_after_segments(&relative_to_project, &["node_modules"]).is_some();
@@ -173,7 +186,7 @@ pub(crate) fn incremental_path_encoder<'a>(dir: &str, program: Option<&'a Progra
 		let mut best_link: Option<String> = None;
 		let first = normalize_source_file_path(name);
 		let mut queue = vec![first.clone()];
-		let mut seen = std::collections::HashSet::from([first]);
+		let mut seen = FxHashSet::from_iter([first]);
 		let mut depth = 0;
 		while depth < aliases.len() && !queue.is_empty() {
 			let mut next = Vec::new();
@@ -232,6 +245,9 @@ fn recurse(name: &str, inner: &Recursive<'_>) -> String {
 /// `incrementalPathTemplate`: only the part before the first `*` is encoded; cleaning `*/../`
 /// would change its meaning.
 pub(crate) fn incremental_path_template(name: &str, encode_prefix: &dyn Fn(&str) -> String) -> Option<String> {
+	if !name.contains('*') {
+		return None;
+	}
 	let name = name.replace('\\', "/");
 	let (prefix, suffix) = name.split_once('*')?;
 	let mut encoded = encode_prefix(prefix);

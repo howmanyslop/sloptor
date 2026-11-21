@@ -7,12 +7,13 @@
 //! lives in `.rotor/cache`, is a pure accelerator, and is only trusted on Unix; elsewhere every
 //! output is read.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::sync::Mutex;
 
 use rotor_support::gopath;
+use rustc_hash::FxHashMap;
 
 use crate::project::lock;
 
@@ -61,8 +62,8 @@ impl FileStamp {
 /// The output stamps a build read and the ones it observed.
 #[derive(Default)]
 pub(crate) struct OutputStamps {
-	loaded: HashMap<String, (FileStamp, String)>,
-	observed: Mutex<HashMap<String, (FileStamp, String)>>,
+	loaded: FxHashMap<String, (FileStamp, String)>,
+	observed: Mutex<FxHashMap<String, (FileStamp, String)>>,
 }
 
 /// The cache file under the project directory.
@@ -77,15 +78,24 @@ impl OutputStamps {
 	/// A racily clean stamp ([`FileStamp::racy`]) is left out, so the file is hashed again and the
 	/// next stamps file, written later, records it.
 	pub(crate) fn load(project_dir: &str) -> Self {
-		let mut loaded = HashMap::new();
+		let mut loaded = FxHashMap::default();
 		let path = stamps_path(project_dir);
 		let Some(written) = fs::metadata(&path).ok().and_then(|metadata| FileStamp::of(&metadata)) else {
 			return Self::default();
 		};
 		if let Ok(text) = fs::read_to_string(&path) {
 			for line in text.lines() {
-				let fields: Vec<&str> = line.splitn(7, '\t').collect();
-				let [hash, len, mtime, ctime, ino, dev, key] = fields[..] else {
+				let mut parts = line.splitn(7, '\t');
+				let (Some(hash), Some(len), Some(mtime), Some(ctime), Some(ino), Some(dev), Some(key), None) = (
+					parts.next(),
+					parts.next(),
+					parts.next(),
+					parts.next(),
+					parts.next(),
+					parts.next(),
+					parts.next(),
+					parts.next(),
+				) else {
 					return Self::default();
 				};
 				let (Ok(len), Ok(mtime), Ok(ctime), Ok(ino), Ok(dev)) =
@@ -121,9 +131,21 @@ impl OutputStamps {
 	}
 
 	/// Records that `key`'s file, whose metadata is `stamp`, holds content hashing to `hash`.
+	#[cfg(test)]
 	pub(crate) fn observe(&self, key: &str, stamp: Option<FileStamp>, hash: &str) {
 		if let Some(stamp) = stamp {
 			lock(&self.observed).insert(key.to_owned(), (stamp, hash.to_owned()));
+		}
+	}
+
+	/// Records a batch of `(key, stamp, hash)` observations under a single lock acquisition.
+	pub(crate) fn observe_batch<I>(&self, entries: I)
+	where
+		I: IntoIterator<Item = (String, FileStamp, String)>,
+	{
+		let mut observed = lock(&self.observed);
+		for (key, stamp, hash) in entries {
+			observed.insert(key, (stamp, hash));
 		}
 	}
 
@@ -131,7 +153,7 @@ impl OutputStamps {
 	/// loaded. A failure leaves the old file, which the next build checks file by file anyway.
 	pub(crate) fn persist(&self, project_dir: &str, outputs: &BTreeMap<String, String>) {
 		let observed = lock(&self.observed);
-		let mut text = String::new();
+		let mut text = String::with_capacity(outputs.len() * 140);
 		let mut unchanged = true;
 		let mut count = 0;
 		for (key, hash) in outputs {
@@ -142,7 +164,10 @@ impl OutputStamps {
 				continue;
 			}
 			count += 1;
-			unchanged &= self.loaded.get(key) == Some(&(*stamp, hash.clone()));
+			unchanged &= self
+				.loaded
+				.get(key)
+				.is_some_and(|(loaded_stamp, loaded_hash)| loaded_stamp == stamp && loaded_hash == hash);
 			let _ = writeln!(
 				text,
 				"{hash}\t{}\t{}\t{}\t{}\t{}\t{key}",

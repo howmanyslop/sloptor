@@ -364,37 +364,52 @@ fn get_project_import_parts(
 		return none_parts(state);
 	}
 
-	let source_out_path = rojo.path_translator.get_output_path(source_file.file_name());
-	let Some(source_rbx_path) = rojo.resolver.get_rbx_path_from_file_path(&source_out_path) else {
-		let path = rel_to_project(rojo, &source_out_path);
+	let is_current_source_file = source_file == state.source_file;
+	let owned_source_rbx_path = if is_current_source_file {
+		state.source_rbx_path.take()
+	} else {
+		let owned_source_out_path = rojo.path_translator.get_output_path(source_file.file_name());
+		rojo.resolver.get_rbx_path_from_file_path(&owned_source_out_path)
+	};
+	let Some(source_rbx_path) = owned_source_rbx_path.as_deref() else {
+		let path = if is_current_source_file {
+			rel_to_project(rojo, &state.source_out_path)
+		} else {
+			let out = rojo.path_translator.get_output_path(source_file.file_name());
+			rel_to_project(rojo, &out)
+		};
 		state
 			.diags
 			.add(diagnostics::no_rojo_data(source_file.as_node(), &path, false));
 		return none_parts(state);
 	};
 
-	if state.project_type == Some(ProjectType::Game) {
+	let result = if state.project_type == Some(ProjectType::Game) {
 		// In the case of `import("")`, don't do the network type check as the call may be guarded
 		// by runtime RunService checks (upstream comment).
 		if !module_specifier.parent().is_some_and(tsast::is_import_call)
 			&& rojo.resolver.get_network_type(module_rbx_path) == NetworkType::Server
-			&& rojo.resolver.get_network_type(&source_rbx_path) != NetworkType::Server
+			&& rojo.resolver.get_network_type(source_rbx_path) != NetworkType::Server
 		{
 			state.diags.add(diagnostics::no_server_import(module_specifier));
-			return none_parts(state);
-		}
-
-		return match rojo.resolver.get_file_relation(&source_rbx_path, module_rbx_path) {
-			FileRelation::OutToOut | FileRelation::InToOut => get_absolute_import(state, module_rbx_path),
-			FileRelation::InToIn => get_relative_import(state, &source_rbx_path, module_rbx_path),
-			FileRelation::OutToIn => {
-				state.diags.add(diagnostics::no_isolated_import(module_specifier));
-				none_parts(state)
+			none_parts(state)
+		} else {
+			match rojo.resolver.get_file_relation(source_rbx_path, module_rbx_path) {
+				FileRelation::OutToOut | FileRelation::InToOut => get_absolute_import(state, module_rbx_path),
+				FileRelation::InToIn => get_relative_import(state, source_rbx_path, module_rbx_path),
+				FileRelation::OutToIn => {
+					state.diags.add(diagnostics::no_isolated_import(module_specifier));
+					none_parts(state)
+				}
 			}
-		};
+		}
+	} else {
+		get_relative_import(state, source_rbx_path, module_rbx_path)
+	};
+	if is_current_source_file {
+		state.source_rbx_path = owned_source_rbx_path;
 	}
-
-	get_relative_import(state, &source_rbx_path, module_rbx_path)
+	result
 }
 
 /// `getImportParts` (L184-210): resolve the specifier to a file, translate to its output
@@ -412,6 +427,38 @@ pub(super) fn get_module_tree_import_parts(
 	module_specifier: P<Node>,
 ) -> Vec<NodeId> {
 	get_import_parts_impl(state, source_file, module_specifier, true)
+}
+
+fn resolve_project_import_out_path(rojo: &RojoContext, module_file: P<SourceFile>, virtual_path: &str) -> String {
+	let mut module_out_path = rojo.path_translator.get_import_path(virtual_path, false);
+	let inside_root = {
+		#[cfg(not(windows))]
+		{
+			let root = &rojo.path_translator.root_dir;
+			virtual_path == root
+				|| (virtual_path.starts_with(root)
+					&& (root == "/" || virtual_path.as_bytes().get(root.len()) == Some(&b'/')))
+		}
+		#[cfg(windows)]
+		{
+			false
+		}
+	};
+	let outside_root = !inside_root
+		&& gopath::rel(&rojo.path_translator.root_dir, &gopath::from_slash(virtual_path)).map_or(true, |relative| {
+			relative == ".." || relative.starts_with(&format!("..{}", gopath::NATIVE.separator()))
+		});
+	if outside_root {
+		if tspath::is_declaration_file_name(virtual_path) {
+			// Keep the path in place (no outDir rebase), but map index to init.
+			module_out_path = rojo.path_translator.get_import_path(virtual_path, true);
+		} else if tsast::is_json_source_file(module_file) {
+			virtual_path.clone_into(&mut module_out_path);
+		}
+		// Other sources outside rootDir already carry a TypeScript error (upstream asserts);
+		// a census still transforms them, so keep the translated path.
+	}
+	module_out_path
 }
 
 fn get_import_parts_impl(
@@ -434,36 +481,60 @@ fn get_import_parts_impl(
 		return none_parts(state);
 	};
 
+	if !allow_folder
+		&& let Some((module_out_path, module_rbx_path)) =
+			state.multi.resolved_project_imports.get(&module_file).cloned()
+	{
+		return get_project_import_parts(
+			state,
+			rojo,
+			source_file,
+			module_specifier,
+			&module_out_path,
+			&module_rbx_path,
+		);
+	}
+
 	// createImportExpression.ts:191: everything below operates on the virtual path.
 	let virtual_path = state
-		.guess_virtual_path(module_file.file_name())
+		.guess_virtual_path_for_file(module_file)
 		.unwrap_or_else(|| module_file.file_name().to_owned());
 
 	let mut mapped_path = virtual_path.clone();
 	let mut has_mapped_path = false;
-	let key = canonical_file_name(&virtual_path, rojo.use_case_sensitive_file_names);
-	let mut reference_path = rojo.project_reference_paths.get(&key).cloned();
-	if reference_path.is_none() && !rojo.project_reference_paths.is_empty() {
-		// Project references use real config paths, while package resolution may expose a
-		// node_modules symlink (including with preserveSymlinks).
-		let real_path = state.program.host().fs().realpath(module_file.file_name());
-		let real_key = canonical_file_name(&real_path, rojo.use_case_sensitive_file_names);
-		reference_path = rojo.project_reference_paths.get(&real_key).cloned();
-	}
-	if let Some(mapped) = rojo
-		.node_modules_path_mapping
-		.lookup(&virtual_path, rojo.use_case_sensitive_file_names)
-	{
-		mapped_path = mapped;
-		has_mapped_path = true;
-	}
-	if !has_mapped_path
-		&& let Some(mapped) = rojo
+	let reference_path = if rojo.project_reference_paths.is_empty() {
+		None
+	} else {
+		let key = canonical_file_name(&virtual_path, rojo.use_case_sensitive_file_names);
+		let found = rojo.project_reference_paths.get(&key).cloned();
+		if found.is_none() {
+			// Project references use real config paths, while package resolution may expose a
+			// node_modules symlink (including with preserveSymlinks).
+			let real_path = state.program.host().fs().realpath(module_file.file_name());
+			let real_key = canonical_file_name(&real_path, rojo.use_case_sensitive_file_names);
+			rojo.project_reference_paths.get(&real_key).cloned()
+		} else {
+			found
+		}
+	};
+	let has_mapping =
+		!rojo.node_modules_path_mapping.exact.is_empty() || !rojo.node_modules_path_mapping.patterns.is_empty();
+	if has_mapping {
+		if let Some(mapped) = rojo
 			.node_modules_path_mapping
-			.lookup(module_file.file_name(), rojo.use_case_sensitive_file_names)
-	{
-		mapped_path = mapped;
-		has_mapped_path = true;
+			.lookup(&virtual_path, rojo.use_case_sensitive_file_names)
+		{
+			mapped_path = mapped;
+			has_mapped_path = true;
+		}
+		if !has_mapped_path
+			&& let Some(mapped) = rojo
+				.node_modules_path_mapping
+				.lookup(module_file.file_name(), rojo.use_case_sensitive_file_names)
+		{
+			mapped_path = mapped;
+			has_mapped_path = true;
+		}
 	}
 
 	let is_node_module = is_inside_node_modules(&virtual_path) || has_mapped_path;
@@ -477,24 +548,8 @@ fn get_import_parts_impl(
 		return get_node_modules_import_parts(state, rojo, source_file, module_specifier, &module_out_path);
 	}
 
-	let module_out_path = reference_path.unwrap_or_else(|| {
-		let mut module_out_path = rojo.path_translator.get_import_path(&virtual_path, false);
-		let outside_root = gopath::rel(&rojo.path_translator.root_dir, &gopath::from_slash(&virtual_path))
-			.map_or(true, |relative| {
-				relative == ".." || relative.starts_with(&format!("..{}", gopath::NATIVE.separator()))
-			});
-		if outside_root {
-			if tspath::is_declaration_file_name(&virtual_path) {
-				// Keep the path in place (no outDir rebase), but map index to init.
-				module_out_path = rojo.path_translator.get_import_path(&virtual_path, true);
-			} else if tsast::is_json_source_file(module_file) {
-				module_out_path.clone_from(&virtual_path);
-			}
-			// Other sources outside rootDir already carry a TypeScript error (upstream asserts);
-			// a census still transforms them, so keep the translated path.
-		}
-		module_out_path
-	});
+	let module_out_path =
+		reference_path.unwrap_or_else(|| resolve_project_import_out_path(rojo, module_file, &virtual_path));
 	// `!ok || moduleRbxPath == nil`: a stored nil path carries no location.
 	let Some(module_rbx_path) = rojo.resolver.lookup_rbx_path(&module_out_path).found() else {
 		let path = rel_to_project(rojo, &module_out_path);
@@ -503,6 +558,12 @@ fn get_import_parts_impl(
 			.add(diagnostics::no_rojo_data(module_specifier, &path, false));
 		return none_parts(state);
 	};
+	if !is_node_module {
+		state
+			.multi
+			.resolved_project_imports
+			.insert(module_file, (module_out_path.clone(), module_rbx_path.clone()));
+	}
 	get_project_import_parts(
 		state,
 		rojo,

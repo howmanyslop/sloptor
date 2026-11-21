@@ -5,7 +5,7 @@
 
 use rotor_luau::{BinaryExpression, NumberLiteral, UnaryExpression, js_number_parse};
 use rotor_tsrs::ast as tsast;
-use rotor_tsrs::checker::LiteralValue;
+use rotor_tsrs::checker::{LiteralValue, TypeFlags};
 use rotor_tsrs::types::TypeCheck;
 
 use crate::call::convert_to_indexable_expression;
@@ -24,8 +24,47 @@ pub fn validate_not_any_type(state: &mut State<'_>, mut node: P<Node>) {
 	{
 		node = tsast::skip_downwards(expression);
 	}
+	if matches!(
+		tsast::skip_upwards(node).kind(),
+		Kind::NumericLiteral
+			| Kind::StringLiteral
+			| Kind::NoSubstitutionTemplateLiteral
+			| Kind::TemplateExpression
+			| Kind::TrueKeyword
+			| Kind::FalseKeyword
+			| Kind::NullKeyword
+			| Kind::PrefixUnaryExpression
+			| Kind::PostfixUnaryExpression
+			| Kind::VoidExpression
+			| Kind::DeleteExpression
+			| Kind::ObjectLiteralExpression
+			| Kind::FunctionExpression
+			| Kind::ArrowFunction
+			| Kind::ClassExpression
+	) {
+		return;
+	}
 
 	let mut t = state.get_type(node);
+	let flags = t.flags();
+	if flags.intersects(
+		TypeFlags::NumberLike
+			.union(TypeFlags::StringLike)
+			.union(TypeFlags::BooleanLike)
+			.union(TypeFlags::Void)
+			.union(TypeFlags::Undefined)
+			.union(TypeFlags::Null)
+			.union(TypeFlags::Never)
+			.union(TypeFlags::ESSymbolLike)
+			.union(TypeFlags::BigIntLike),
+	) && !flags.intersects(
+		TypeFlags::Any
+			.union(TypeFlags::Object)
+			.union(TypeFlags::UnionOrIntersection)
+			.union(TypeFlags::Instantiable),
+	) {
+		return;
+	}
 
 	if is_definitely_type(state, t, &[TypeCheck::Array]) {
 		// Array<T> -> T

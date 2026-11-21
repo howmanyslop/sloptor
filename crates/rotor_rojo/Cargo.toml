@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 rayon.workspace = true
 rotor_support.workspace = true
+rustc-hash.workspace = true
 sha2.workspace = true
 tsrs_core.workspace = true
 tsrs_vfs.workspace = true

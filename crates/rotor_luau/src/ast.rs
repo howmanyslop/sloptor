@@ -41,6 +41,20 @@ impl Ast {
 		Self::default()
 	}
 
+	/// Creates an empty arena with pre-allocated capacity for nodes, lists, and links.
+	#[must_use]
+	pub fn with_capacity(nodes: usize, lists: usize, links: usize) -> Self {
+		Self {
+			data: Vec::with_capacity(nodes),
+			parents: Vec::with_capacity(nodes),
+			origins: Vec::with_capacity(nodes),
+			origin_table: Vec::new(),
+			lists: Vec::with_capacity(lists),
+			links: Vec::with_capacity(links),
+			temp_ids: 0,
+		}
+	}
+
 	/// Stores a node without adopting its children: the Go struct literal.
 	/// Constructors such as [`Ast::binary`] adopt their children instead.
 	pub fn alloc(&mut self, data: impl Into<NodeData>) -> NodeId {
