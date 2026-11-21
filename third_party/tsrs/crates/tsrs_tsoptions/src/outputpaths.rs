@@ -89,8 +89,10 @@ pub fn get_common_source_directory(
         if let Some(check) = check_source_files_belong_to_path {
             check(&files(), &options.root_dir);
         }
-    } else if !options.config_file_path.is_empty() {
-        // If the rootDir is not specified, then the common source directory is the directory of the config file.
+    } else if options.composite.is_true() && !options.config_file_path.is_empty() {
+        // rotor: TypeScript 5's rule, which rbxtsc compiles with. Only a composite project's
+        // common source directory is its config file's directory; any other project's is the
+        // common directory of its files, which may lie outside the config file's directory.
         common_source_directory = tspath::get_directory_path(&options.config_file_path);
         if let Some(check) = check_source_files_belong_to_path {
             check(&files(), &common_source_directory);

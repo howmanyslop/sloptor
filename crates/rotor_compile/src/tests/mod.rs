@@ -58,6 +58,7 @@ mod project;
 mod project_context_selection;
 mod project_reference_import;
 mod rbxts_options;
+mod rootdirs;
 mod rotortypes;
 mod sidecar;
 mod sidecar_acceptance;

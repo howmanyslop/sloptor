@@ -1,0 +1,1 @@
+{"name":"rootdirs","tree":{"$className":"DataModel","ReplicatedStorage":{"include":{"$path":"include"},"shared":{"$path":"out/common/src/shared"}},"ServerScriptService":{"server":{"$path":"out/game/src/server"}}}}
