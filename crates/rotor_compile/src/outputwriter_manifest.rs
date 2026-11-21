@@ -18,7 +18,7 @@ impl OutputWriter {
 			return FxHashMap::default();
 		}
 		let mut items: Vec<(&String, &String, String)> = Vec::with_capacity(outputs.len());
-		let mut confined_parents: HashSet<String> = HashSet::new();
+		let mut confined_parents: FxHashMap<String, bool> = FxHashMap::default();
 		for (path, hash) in outputs {
 			let Some(key) = normalize_output_presence_key(path, self.case_sensitive) else {
 				continue;
@@ -28,7 +28,10 @@ impl OutputWriter {
 			}
 			let absolute = gopath::join(&[&self.project_dir, &gopath::from_slash(&key)]);
 			let parent = gopath::dir(&key);
-			if confined_parents.insert(parent) && self.confine_parent(&absolute).is_err() {
+			let confined = *confined_parents
+				.entry(parent)
+				.or_insert_with(|| self.confine_parent(&absolute).is_ok());
+			if !confined {
 				continue;
 			}
 			items.push((path, hash, absolute));
@@ -38,7 +41,7 @@ impl OutputWriter {
 			write_workers(),
 			WRITE_SYNC_CUTOFF,
 			&items,
-			|acc: &mut Vec<(String, String, FileStamp)>, (path, hash, absolute)| {
+			|acc: &mut Vec<(String, String, Option<FileStamp>)>, (path, hash, absolute)| {
 				let Ok(metadata) = std::fs::symlink_metadata(absolute) else {
 					return Ok(());
 				};
@@ -47,17 +50,13 @@ impl OutputWriter {
 				}
 				let stamp = FileStamp::of(&metadata);
 				if self.stamps.holds(path, stamp, hash) {
-					if let Some(stamp) = stamp {
-						acc.push(((*path).clone(), (*hash).clone(), stamp));
-					}
+					acc.push(((*path).clone(), (*hash).clone(), stamp));
 					return Ok(());
 				}
 				let Ok(contents) = std::fs::read(absolute) else {
 					return Ok(());
 				};
-				if hex_sha256(&contents) == **hash
-					&& let Some(stamp) = stamp
-				{
+				if hex_sha256(&contents) == **hash {
 					acc.push(((*path).clone(), (*hash).clone(), stamp));
 				}
 				Ok(())
@@ -68,7 +67,9 @@ impl OutputWriter {
 		let mut stamp_entries = Vec::with_capacity(items.len());
 		for chunk in chunks.unwrap_or_default() {
 			for (path, hash, stamp) in chunk {
-				stamp_entries.push((path.clone(), stamp, hash.clone()));
+				if let Some(stamp) = stamp {
+					stamp_entries.push((path.clone(), stamp, hash.clone()));
+				}
 				validated.insert(path, hash);
 			}
 		}
