@@ -131,7 +131,7 @@ impl OutputStamps {
 	}
 
 	/// Records that `key`'s file, whose metadata is `stamp`, holds content hashing to `hash`.
-	#[cfg(test)]
+	#[cfg(all(test, unix))]
 	pub(crate) fn observe(&self, key: &str, stamp: Option<FileStamp>, hash: &str) {
 		if let Some(stamp) = stamp {
 			lock(&self.observed).insert(key.to_owned(), (stamp, hash.to_owned()));
