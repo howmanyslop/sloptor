@@ -143,7 +143,26 @@ local fileChecks = new Mapping<String, Step> {
     exclude = RUST_EXCLUDE
   }
 
-  // TypeScript.
+  // TypeScript. `tsrs -b` skips every project whose inputs are older than its
+  // .tsbuildinfo, so an unrelated change costs a timestamp check.
+  ["type-check"] {
+    glob =
+      List(
+        "**/*.{ts,tsx,mts,cts}",
+        "**/tsconfig*.json",
+        "**/package.json",
+        "pnpm-workspace.yaml",
+        "pnpm-lock.yaml",
+      )
+    exclude = List("third_party/**", "testdata/**", "reference/**", "benchmarks/**")
+    exclusive = true
+    check = new CommandSpec {
+      command = new Command {
+        argv = List("node", "--run", "type-check")
+      }
+      effect = "write"
+    }
+  }
   ["biome"] = (Builtins.biome) {
     check = new CommandSpec {
       command = "biome check --no-errors-on-unmatched {{files}}"
@@ -178,7 +197,7 @@ local fileChecks = new Mapping<String, Step> {
       effect = "write"
     }
   }
-  ["type-check"] {
+  ["type-check-omp"] {
     glob = OMP_FILES
     depends = List("biome")
     check = new CommandSpec {

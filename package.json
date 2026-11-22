@@ -57,12 +57,12 @@
 		"mdx-language-server": "mdx-language-server",
 		"oxfmt": "oxfmt",
 		"oxlint": "oxlint",
-		"release": "bumpp",
+		"release": "bun run scripts/release.ts",
 		"skills": "skills",
 		"test:api": "node --test test/api.integration.test.js test/api.lifecycle.test.js",
 		"tsrs": "tsrs",
-		"type-check": "tsrs --noEmit",
-		"type-check:agent": "tsrs --noEmit --pretty false"
+		"type-check": "tsrs --build",
+		"type-check:agent": "nr type-check --pretty false"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "catalog:lint",
@@ -97,7 +97,7 @@
 		"pncat": "catalog:tooling",
 		"react-doctor": "catalog:lint",
 		"skills": "catalog:tooling",
-		"tinyexec": "catalog:scripts",
+		"tinyexec": "catalog:runtime",
 		"tsrs": "catalog:tooling",
 		"typescript": "catalog:tooling",
 		"vitest": "catalog:test"
@@ -108,7 +108,7 @@
 		"@rotor-rbx/rotor-linux-x64": "3.0.0-beta.5",
 		"@rotor-rbx/rotor-win32-x64": "3.0.0-beta.5"
 	},
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.18.0",
 	"engines": {
 		"node": "^20.19.0 || >=22.12.0"
 	},

@@ -100,6 +100,14 @@ export async function getEslintAsync(tsconfigPath: string): Promise<LintConfigur
 			},
 		},
 		{
+			name: "sloptor/no-catalog",
+			// vsce reads `@types/vscode` as semver, not `catalog:`.
+			files: ["editors/vscode/package.json", "tools/sidecar/package.json"],
+			rules: {
+				"pnpm/json-enforce-catalog": "off",
+			},
+		},
+		{
 			name: "rotor/dependencies",
 			files: [GLOB_PACKAGE_JSON],
 			rules: {

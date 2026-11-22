@@ -1,0 +1,9 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": "./node_modules/.tmp/vscode.tsbuildinfo",
+		"lib": ["ES2023"],
+		"types": ["node", "vscode"]
+	},
+	"include": ["src/**/*.ts", "*.config.ts"]
+}

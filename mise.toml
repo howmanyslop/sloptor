@@ -1,3 +1,5 @@
+wrappers = { cargo = { command = "mbx", env = { MBX_CARGO_SHIM_MODE = "1" } } }
+
 [env]
 _.file = { path = ".env" }
 _.path = ["{{config_root}}/node_modules/.bin", "{{cwd}}/node_modules/.bin"]
@@ -29,7 +31,7 @@ mr-boxington = { version = "latest", workflow = "release.yml@refs/heads/main" }
 ni = "latest"
 node = "22"
 pkl = "latest"
-pnpm = "12.16.1"
+pnpm = "12.18.0"
 rumdl = "latest"
 rust = { version = "1.100.0", components = ["rustfmt", "clippy"], mr_boxington = true }
 shellcheck = "latest"

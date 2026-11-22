@@ -22,11 +22,18 @@ use crate::scheduler::Scheduler;
 /// `serverName`: `serverInfo.name` and every diagnostic's source.
 pub const SERVER_NAME: &str = "sloptor";
 
+/// Answers with the compiled output path of a `.ts(x)` file: `{"path": "..."}`, or `null` for any
+/// other document. It is sloptor's own request; editors reach it through an extension.
+pub const OUTPUT_PATH_METHOD: &str = "sloptor/outputPath";
+
 /// `defaultDebounce`: how long typing must go quiet before a census runs.
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Maps an absolute file path (OS separators) to the tsconfig that owns it.
 pub type FindTsConfig = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
+/// Maps an absolute source path (OS separators) to the path the compiler writes it to.
+pub type OutputPath = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
 /// Compiles the project at a tsconfig with the given overlays (absolute path to buffer text) and
 /// returns its census. The census may come with an error.
@@ -41,6 +48,8 @@ pub struct Options {
 	pub find_ts_config: FindTsConfig,
 	/// `Census`
 	pub census: Census,
+	/// Answers [`OUTPUT_PATH_METHOD`].
+	pub output_path: OutputPath,
 	/// The delay after `didChange` before a census; zero means [`DEFAULT_DEBOUNCE`].
 	pub debounce: Duration,
 }
@@ -255,6 +264,8 @@ impl Session<'_> {
 		} else if request.method == "shutdown" {
 			self.shutdown = true;
 			self.server.respond(id, "null");
+		} else if request.method == OUTPUT_PATH_METHOD {
+			self.handle_output_path(id, request.params.as_ref());
 		} else {
 			self.server.respond_error(
 				id,
@@ -324,6 +335,35 @@ impl Session<'_> {
 		};
 		self.server
 			.respond(id, &protocol::initialize_result(encoding, SERVER_NAME));
+	}
+
+	/// [`OUTPUT_PATH_METHOD`]: params are `{"textDocument": {"uri": ...}}`. The path is read as
+	/// sent, not through [`source_path_key`], so it keeps its case.
+	fn handle_output_path(&self, id: Option<&Id>, params: Option<&Value>) {
+		let Some(uri) = params.and_then(protocol::did_close) else {
+			self.server.respond_error(
+				id,
+				protocol::INVALID_PARAMS,
+				&format!("invalid params for {OUTPUT_PATH_METHOD}"),
+			);
+			return;
+		};
+		let Some(file_name) = source_path(&uri)
+			.and_then(|_| crate::lsconv::document_uri_to_file_name(&uri))
+			.map(|file_name| gopath::clean(&gopath::from_slash(&file_name)))
+		else {
+			self.server.respond(id, "null");
+			return;
+		};
+		match (self.server.options.output_path)(&file_name) {
+			Ok(path) => {
+				let mut result = String::from("{\"path\":");
+				protocol::write_string(&mut result, &path);
+				result.push('}');
+				self.server.respond(id, &result);
+			}
+			Err(error) => self.server.respond_error(id, protocol::REQUEST_FAILED, &error),
+		}
 	}
 
 	/// `didOpen`: records the buffer and runs a census at once.

@@ -19,7 +19,9 @@ mod publish;
 mod scheduler;
 mod server;
 
-pub use server::{Cancel, Census, DEFAULT_DEBOUNCE, FindTsConfig, Options, SERVER_NAME, serve};
+pub use server::{
+	Cancel, Census, DEFAULT_DEBOUNCE, FindTsConfig, OUTPUT_PATH_METHOD, Options, OutputPath, SERVER_NAME, serve,
+};
 
 #[cfg(test)]
 use tempfile as _;

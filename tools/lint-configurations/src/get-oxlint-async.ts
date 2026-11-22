@@ -873,7 +873,7 @@ export async function getOxlintAsync({
 		},
 		{
 			name: "sloptor/block-useless-rule",
-			files: ["documentation/src/integrations/contextual-menu.ts"],
+			files: ["documentation/src/integrations/contextual-menu.ts", CONFIGURATION_FILES],
 			rules: { "sonar/file-name-differ-from-class": "off" },
 		},
 	);
