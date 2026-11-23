@@ -906,8 +906,8 @@ main:has(.note-row) .sl-container {
 .figure-links {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
 	gap: 0.5rem;
+	align-items: flex-start;
 	margin-top: 1rem;
 }
 
