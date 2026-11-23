@@ -159,11 +159,12 @@ fn copy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
 	fs::create_dir_all(dst)?;
 	for entry in fs::read_dir(src)? {
 		let entry = entry?;
+		let path = entry.path();
 		let target = dst.join(entry.file_name());
-		if entry.file_type()?.is_dir() {
-			copy_tree(&entry.path(), &target)?;
+		if path.is_dir() {
+			copy_tree(&path, &target)?;
 		} else {
-			fs::copy(entry.path(), target)?;
+			fs::copy(&path, target)?;
 		}
 	}
 	Ok(())
