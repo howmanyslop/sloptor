@@ -384,6 +384,11 @@ mod tests {
 	#[test]
 	fn io_pool_reuses_threads_across_scopes() {
 		let first = super::scope_io(|scope| scope.spawn(|| std::thread::current().id()).join().ok());
+		// The scope returns once the job finishes, a moment before its worker files itself as idle.
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		while super::lock(super::Pool::Io.idle()).is_empty() && std::time::Instant::now() < deadline {
+			std::thread::yield_now();
+		}
 		let second = super::scope_io(|scope| scope.spawn(|| std::thread::current().id()).join().ok());
 		assert!(first.is_some());
 		assert_eq!(first, second, "sequential io scopes should reuse the idle thread");
