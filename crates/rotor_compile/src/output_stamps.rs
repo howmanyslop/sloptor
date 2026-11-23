@@ -159,7 +159,7 @@ impl OutputStamps {
 	}
 
 	/// Records that `key`'s file, whose metadata is `stamp`, holds content hashing to `hash`.
-	#[cfg(all(test, any(unix, windows)))]
+	#[cfg(all(test, unix))]
 	pub(crate) fn observe(&self, key: &str, stamp: Option<FileStamp>, hash: &str) {
 		if let Some(stamp) = stamp {
 			lock(&self.observed).insert(key.to_owned(), (stamp, hash.to_owned()));
@@ -212,7 +212,7 @@ impl OutputStamps {
 	}
 }
 
-// `FileStamp::of` is `None` off Unix, so nothing is loaded or trusted there.
+// Uses Unix nanosecond timestamps; Windows FILETIME margin behavior is covered in `racy_margin_tests`.
 #[cfg(all(test, unix))]
 mod tests {
 	use std::collections::BTreeMap;
