@@ -440,7 +440,7 @@ fn stage(dir: &Path, files: &BTreeMap<String, Vec<u8>>) {
 	let node_modules = repo_root().join("testdata/transformers/project/node_modules");
 	assert!(
 		node_modules.join("typescript/package.json").is_file(),
-		"install testdata/transformers/project's dependencies (pnpm install) first"
+		"install testdata/transformers/project's dependencies (mise run testdata:install) first"
 	);
 	let mut project_dirs = BTreeSet::from([dir.to_path_buf()]);
 	for (path, contents) in files {

@@ -361,6 +361,15 @@ run = "cargo build --locked --release -p rotor_cli"
 description = "Runs the Rust workspace tests with nextest."
 run = "cargo nextest run --locked --workspace --no-tests=pass"
 
+[tasks."testdata:install"]
+description = "Installs the test fixture projects' dependencies the way CI does: a hoisted bun install outside the pnpm workspace. The oracle tests need a flat node_modules."
+run = '''
+set -euo pipefail
+for dir in testdata/diff/project testdata/conformance/project testdata/transformers/project; do
+	(cd "$dir" && bun install --no-save)
+done
+'''
+
 [tasks."tools:test"]
 description = "Runs the unit tests for tools/tsrs-mirror."
 run = "vitest run tools/tsrs-mirror"

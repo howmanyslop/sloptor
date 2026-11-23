@@ -270,7 +270,7 @@ fn conformance_goldens_match() {
 		let golden_dir = root.join("testdata/conformance/golden");
 		assert!(
 			project_dir.join("node_modules").exists(),
-			"install the conformance project's dependencies (bun install --no-save) first"
+			"install the conformance project's dependencies (mise run testdata:install) first"
 		);
 		let corrected = upstream_corrected_rows(&root);
 		let goldens = golden_paths(&golden_dir);
