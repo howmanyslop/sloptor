@@ -43,6 +43,17 @@ interface ToolCommandOptions {
 	readonly sloptor: string;
 }
 
+interface ResolveSloptorOptions {
+	readonly build: boolean;
+	readonly log: {
+		start: (message: string) => void;
+		success: (message: string) => void;
+	};
+	readonly reuse: boolean;
+	readonly sloptorPath: string | undefined;
+	readonly useMise: boolean;
+}
+
 const DEFAULT_PROJECTS = ["hello", "algorithms", "containers", "async", "roblox-api", "obby", "wide"];
 
 const repositoryRoot = nodePath.resolve(import.meta.dirname, "..");
@@ -67,6 +78,44 @@ async function cleanAsync(project: string): Promise<void> {
 
 function getInstalledVersion(binary: string): string {
 	return nodePath.basename(nodePath.dirname(binary));
+}
+
+function getLocalSloptorBinary(): string {
+	const configuredTarget = process.env.CARGO_TARGET_DIR;
+	const targetDirectory =
+		configuredTarget !== undefined && configuredTarget.length > 0
+			? nodePath.resolve(repositoryRoot, configuredTarget)
+			: nodePath.join(repositoryRoot, "target");
+	const binaryName = process.platform === "win32" ? "sloptor.exe" : "sloptor";
+	return nodePath.join(targetDirectory, "release", binaryName);
+}
+
+async function resolveSloptorAsync({
+	build,
+	log,
+	reuse,
+	sloptorPath,
+	useMise,
+}: ResolveSloptorOptions): Promise<string> {
+	if (useMise && sloptorPath !== undefined) {
+		throw new Error("Cannot combine --use-mise and --sloptor.");
+	}
+
+	if (sloptorPath !== undefined) return nodePath.resolve(repositoryRoot, sloptorPath);
+	if (useMise) return runAsync("mise", ["which", "sloptor"]);
+
+	if (!reuse && build) {
+		log.start("building release sloptor");
+		await runAsync("cargo", ["build", "--locked", "--release", "-p", "rotor_cli"]);
+		log.success("built release sloptor");
+	}
+
+	return getLocalSloptorBinary();
+}
+
+function quoteForHyperfine(value: string): string {
+	if (!/\s/u.test(value)) return value;
+	return `"${value.replaceAll('"', String.raw`\"`)}"`;
 }
 
 function getMachineInfo(): MachineInfo {
@@ -94,13 +143,14 @@ async function getRbxtscVersionAsync(projects: ReadonlyArray<string>): Promise<s
 }
 
 function getRivalCommand(rival: Rival, { checkers, directory, rbxtsgo }: ToolCommandOptions): string {
+	const quotedDirectory = quoteForHyperfine(directory);
 	switch (rival) {
 		// Installed per fixture as a devDependency, like a user's project.
 		case "rbxtsc":
-			return `${directory}/node_modules/.bin/rbxtsc -p ${directory}`;
+			return `${quoteForHyperfine(nodePath.join(directory, "node_modules", ".bin", "rbxtsc"))} -p ${quotedDirectory}`;
 
 		case "rbxtsgo":
-			return `${rbxtsgo} -p ${directory} -checkers ${checkers}`;
+			return `${quoteForHyperfine(rbxtsgo)} -p ${quotedDirectory} -checkers ${checkers}`;
 
 		default:
 			throw new Error(`Unknown rival: ${String(rival satisfies never)}`);
@@ -113,7 +163,7 @@ function getToolParameters(options: ToolCommandOptions): ReadonlyArray<string> {
 	return [
 		"-n",
 		"sloptor",
-		`${sloptor} build -p ${directory} --checkers ${checkers}`,
+		`${quoteForHyperfine(sloptor)} build -p ${quoteForHyperfine(directory)} --checkers ${checkers}`,
 		...rivals.flatMap((rival) => ["-n", rival, getRivalCommand(rival, options)]),
 	];
 }
@@ -141,7 +191,12 @@ async function runBenchmarkAsync(
 	if (reuse) return readHyperfineOutputAsync(output);
 
 	const prepare =
-		scenario === "cold" ? ["--prepare", `rm -rf ${directory}/out ${directory}/include ${directory}/.rotor`] : [];
+		scenario === "cold"
+			? [
+					"--prepare",
+					`rm -rf ${quoteForHyperfine(nodePath.join(directory, "out"))} ${quoteForHyperfine(nodePath.join(directory, "include"))} ${quoteForHyperfine(nodePath.join(directory, ".rotor"))}`,
+				]
+			: [];
 	const parameters = [
 		"-N",
 		"--warmup",
@@ -162,8 +217,8 @@ async function runBenchmarkAsync(
 }
 
 const { command, log } = createScriptCommand(
-	"1.2.0",
-	"Benchmarks sloptor against rivals on the fixtures in benchmarks/compare. Needs mise (sloptor, rbxtsgo, hyperfine 2.x) and `pnpm install --ignore-workspace` run once inside each fixture, which installs rbxtsc.",
+	"1.3.0",
+	"Benchmarks sloptor against rivals on the fixtures in benchmarks/compare. Defaults to building and running the local release sloptor binary; pass --use-mise to opt into mise's sloptor. Needs hyperfine 2.x, mise for rbxtsgo, and `pnpm install --ignore-workspace` run once inside each fixture for rbxtsc.",
 );
 
 command
@@ -193,71 +248,98 @@ command
 		default: nodePath.join(compareDirectory, "results"),
 	})
 	.option("--reuse", "Read the hyperfine JSON already in --out instead of running anything.")
+	.option("--use-mise", "Resolve sloptor through `mise which sloptor` instead of the local release binary.")
+	.option("--sloptor <path:string>", "Explicit path to a sloptor binary (overrides local build and --use-mise).")
+	.option("--no-build", "Skip `cargo build --locked --release -p rotor_cli` when using the local release binary.")
 	.option("--summary <file:string>", "Also write the documentation site's data to this file.")
-	.action(async ({ against, checkers, out, projects, reuse, runs, scenarios, summary, warmup }) => {
-		try {
-			const [sloptor, rbxtsgo] = await Promise.all([
-				runAsync("mise", ["which", "sloptor"]),
-				runAsync("mise", ["which", "rbxtsgo"]),
-				mkdir(out, { recursive: true }),
-			]);
-			const rivalVersions = await Promise.all(
-				against.map(async (rival) => ({
-					name: rival,
-					version: rival === "rbxtsgo" ? getInstalledVersion(rbxtsgo) : await getRbxtscVersionAsync(projects),
-				})),
-			);
-
-			const tools = [{ name: "sloptor", version: getInstalledVersion(sloptor) }, ...rivalVersions];
-			console.log(`${renderTitle(tools)}\n`);
-
-			const reports = new Array<ScenarioReport>();
-			for (const scenario of scenarios) {
-				const comparisons = new Array<ProjectComparison>();
-
-				for (const project of projects) {
-					log.start(`${project} · ${scenario}`);
-
-					// oxlint-disable-next-line no-await-in-loop -- benchmarks must run one at a time or they skew each other
-					const output = await runBenchmarkAsync(project, {
-						checkers,
-						out,
-						rbxtsgo,
+	.action(
+		async ({
+			against,
+			build,
+			checkers,
+			out,
+			projects,
+			reuse,
+			runs,
+			scenarios,
+			sloptor: sloptorPath,
+			summary,
+			useMise,
+			warmup,
+		}) => {
+			try {
+				const [sloptor, rbxtsgo] = await Promise.all([
+					resolveSloptorAsync({
+						build,
+						log,
 						reuse: reuse === true,
-						rivals: against,
-						runs,
-						scenario,
-						sloptor,
-						warmup,
-					});
+						sloptorPath,
+						useMise: useMise === true,
+					}),
+					against.includes("rbxtsgo") ? runAsync("mise", ["which", "rbxtsgo"]) : Promise.resolve(""),
+					mkdir(out, { recursive: true }),
+				]);
+				const [sloptorVersion, ...rivalVersions] = await Promise.all([
+					runAsync(sloptor, ["--version"]),
+					...against.map(async (rival) => ({
+						name: rival,
+						version:
+							rival === "rbxtsgo" ? getInstalledVersion(rbxtsgo) : await getRbxtscVersionAsync(projects),
+					})),
+				]);
 
-					comparisons.push(getComparison(project, output));
+				const tools = [{ name: "sloptor", version: sloptorVersion }, ...rivalVersions];
+				console.log(`${renderTitle(tools)}\n`);
+
+				const reports = new Array<ScenarioReport>();
+				for (const scenario of scenarios) {
+					const comparisons = new Array<ProjectComparison>();
+
+					for (const project of projects) {
+						log.start(`${project} · ${scenario}`);
+
+						// oxlint-disable-next-line no-await-in-loop -- benchmarks must run one at a time or they skew each other
+						const output = await runBenchmarkAsync(project, {
+							checkers,
+							out,
+							rbxtsgo,
+							reuse: reuse === true,
+							rivals: against,
+							runs,
+							scenario,
+							sloptor,
+							warmup,
+						});
+
+						comparisons.push(getComparison(project, output));
+					}
+
+					// A reused export may hold a different run count than the
+					// flag.
+					const report = { checkers, comparisons, runs: comparisons[0]?.sloptor.runs ?? runs, scenario };
+					reports.push(report);
+					console.log(`\n${renderScenario(report)}\n`);
 				}
 
-				// A reused export may hold a different run count than the flag.
-				const report = { checkers, comparisons, runs: comparisons[0]?.sloptor.runs ?? runs, scenario };
-				reports.push(report);
-				console.log(`\n${renderScenario(report)}\n`);
-			}
+				console.log(renderSummary(reports));
 
-			console.log(renderSummary(reports));
-
-			if (summary !== undefined) {
-				await writeSummaryAsync(summary, {
-					checkers,
-					hyperfine: await runAsync("hyperfine", ["--version"]),
-					machine: getMachineInfo(),
-					projects: await Promise.all(projects.map(async (project) => getProjectSizeAsync(project))),
-					scenarios: reports,
-					tools,
-					warmup,
-				});
-				log.success(`Wrote ${summary}`);
+				if (summary !== undefined) {
+					await writeSummaryAsync(summary, {
+						checkers,
+						hyperfine: await runAsync("hyperfine", ["--version"]),
+						machine: getMachineInfo(),
+						projects: await Promise.all(projects.map(async (project) => getProjectSizeAsync(project))),
+						scenarios: reports,
+						tools,
+						warmup,
+					});
+					log.success(`Wrote ${summary}`);
+				}
+			} catch (error) {
+				log.fail(error instanceof Error ? error.message : String(error));
+				process.exitCode = 1;
 			}
-		} catch (error) {
-			log.fail(error instanceof Error ? error.message : String(error));
-			process.exitCode = 1;
-		}
-	});
+		},
+	);
 
 await parseScriptArgumentsAsync(command);
