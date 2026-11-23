@@ -59,6 +59,7 @@ overrides:
 # list; same patch as small-rules.
 patchedDependencies:
   "@isentinel/eslint-config@6.3.0": patches/@isentinel__eslint-config@6.3.0.patch
+  "@astrojs/vite-plugin-astro@0.1.3": patches/@astrojs__vite-plugin-astro@0.1.3.patch
 
 catalogs:
   commitlint:

@@ -1,0 +1,18 @@
+diff --git a/dist/internal/vite-plugin-utils/index.js b/dist/internal/vite-plugin-utils/index.js
+index 80d5326..e74951f 100644
+--- a/dist/internal/vite-plugin-utils/index.js
++++ b/dist/internal/vite-plugin-utils/index.js
+@@ -1,3 +1,4 @@
++import { existsSync } from "node:fs";
+ import { fileURLToPath } from "node:url";
+ import { commonAncestorPath } from "common-ancestor-path";
+ import { appendExtension, appendForwardSlash, removeLeadingForwardSlashWindows } from "@astrojs/internal-helpers/path";
+@@ -35,7 +36,7 @@ export function normalizeFilename(filename, root) {
+ 		// is imported via a TypeScript path alias and Vite produces a relative virtual module ID.
+ 		const url = new URL(filename, root);
+ 		filename = viteID(url);
+-	} else if (filename.startsWith("/") && !isPathInRoot(filename, fileURLToPath(root))) {
++	} else if (filename.startsWith("/") && !isPathInRoot(filename, fileURLToPath(root)) && !existsSync(filename)) {
+ 		const url = new URL("." + filename, root);
+ 		filename = viteID(url);
+ 	}
