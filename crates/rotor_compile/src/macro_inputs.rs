@@ -25,15 +25,16 @@ pub(crate) struct MacroInputs {
 /// `collectMacroInputs`
 pub(crate) fn collect_macro_inputs(dir: &str, sources: &[P<SourceFile>]) -> MacroInputs {
 	let mut inputs = MacroInputs::default();
-	let env = Env::load(dir);
-	let resolver = FileResolver::new(dir);
+	let mut env: Option<Env> = None;
+	let mut resolver: Option<FileResolver> = None;
 	for &source in sources {
 		let text = source.text();
 		if source.is_declaration_file() || (!text.contains("$env") && !text.contains("$file")) {
 			continue;
 		}
 		let mut uses_env = false;
-		let record_env = |values: &mut BTreeMap<String, String>, key: &str| {
+		let record_env = |env: &mut Option<Env>, values: &mut BTreeMap<String, String>, key: &str| {
+			let env = env.get_or_insert_with(|| Env::load(dir));
 			let value = env
 				.lookup(key)
 				.map_or_else(|| "unset".to_owned(), |value| format!("set:{value}"));
@@ -55,9 +56,10 @@ pub(crate) fn collect_macro_inputs(dir: &str, sources: &[P<SourceFile>]) -> Macr
 				match callee.text() {
 					"$env" => {
 						uses_env = true;
-						record_env(&mut inputs.values, argument.text());
+						record_env(&mut env, &mut inputs.values, argument.text());
 					}
 					"$file" => {
+						let resolver = resolver.get_or_insert_with(|| FileResolver::new(dir));
 						if let Some(path) = resolver.resolve_path_public(source.file_name(), argument.text()) {
 							inputs.files.insert(path.clone());
 							let value = resolver
@@ -81,12 +83,12 @@ pub(crate) fn collect_macro_inputs(dir: &str, sources: &[P<SourceFile>]) -> Macr
 				uses_env = true;
 				if node.kind() == Kind::PropertyAccessExpression {
 					if let Some(name) = node.name() {
-						record_env(&mut inputs.values, name.text());
+						record_env(&mut env, &mut inputs.values, name.text());
 					}
 				} else {
 					let argument = ast::skip_downwards(node.as_element_access_expression().argument_expression);
 					if ast::is_string_literal_like(argument) {
-						record_env(&mut inputs.values, argument.text());
+						record_env(&mut env, &mut inputs.values, argument.text());
 					}
 				}
 			}
@@ -95,7 +97,7 @@ pub(crate) fn collect_macro_inputs(dir: &str, sources: &[P<SourceFile>]) -> Macr
 		source
 			.as_node()
 			.for_each_child(&mut |child| walk(child, &mut |node| visit_node(node, &mut inputs)));
-		if uses_env {
+		if uses_env && let Some(env) = &env {
 			inputs.files.extend(env.files());
 		}
 	}

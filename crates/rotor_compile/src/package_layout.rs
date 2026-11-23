@@ -10,7 +10,7 @@ use crate::compile::Error;
 use crate::gojson;
 use crate::incremental_salt::portable_incremental_rojo_state;
 use crate::packageexports::{build_node_modules_path_mappings, remap_runtime_path};
-use crate::project::{ProjectOptions, project_is_package};
+use crate::project::{ProjectOptions, project_is_package_cached};
 
 /// `packageLayout`
 pub struct PackageLayout {
@@ -31,7 +31,7 @@ pub(crate) fn is_package_build(dir: &str, opts: &ProjectOptions) -> Result<bool,
 	if let Some(project_type) = opts.project_type {
 		return Ok(project_type == ProjectType::Package);
 	}
-	project_is_package(dir).map(|(_, is_package)| is_package)
+	project_is_package_cached(dir, opts).map(|(_, is_package)| is_package)
 }
 
 /// `preparePackageLayout`: `None` unless this is a package build.

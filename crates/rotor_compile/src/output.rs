@@ -15,6 +15,7 @@ use rotor_tsrs::ast::SourceFile;
 use rotor_tsrs::compiler::EmitOnly;
 use rotor_tsrs::compiler::Program;
 use rotor_tsrs::{Context, P, tspath};
+use rustc_hash::FxHashMap;
 
 use crate::compile::{DiagnosticInfo, Error, Failure, diagnostic_info_messages, ts_diagnostic_infos};
 use crate::copyfilesgate::{
@@ -36,11 +37,11 @@ use crate::macrodecl::source_uses_macros;
 use crate::outputwriter::OutputWriter;
 use crate::outputwriter::WriteOutcome;
 use crate::package_layout::prepare_package_layout;
-use crate::parallelwrite::{Job, WRITE_SYNC_CUTOFF, parallel_fold_with_cutoff, parallelize, write_workers};
+use crate::parallelwrite::{WRITE_SYNC_CUTOFF, parallel_fold_with_cutoff, write_workers};
 use crate::project::{
 	ProjectOptions, create_path_translator, get_root_dirs, lock, new_project_context_with_import_context,
-	new_project_program_with_options, project_is_package, project_source_files, resolve_include_path,
-	resolve_rojo_config_path, run_work_group,
+	new_project_program_with_options, project_is_package, project_is_package_cached, project_source_files,
+	resolve_include_path, resolve_rojo_config_path, resolve_rojo_config_path_cached, run_work_group,
 };
 use crate::rotortypes::{ROTOR_TYPES_FILE_NAME, write_rotor_types};
 use crate::sidecar::project_uses_transformer_plugins;
@@ -126,13 +127,15 @@ fn build_project(project_dir: &str, opts: ProjectOptions) -> Result<BuildResult,
 	// leaves the build. The result, the failure and the deferred persistence own their data
 	// (the manifest is encoded before it is queued), and every thread that checks or emits is
 	// scoped to the build.
-	let _programs = unsafe { rotor_tsrs::project::ProgramScope::enter() };
+	let _programs = (!opts.leak_program_on_exit).then(|| unsafe { rotor_tsrs::project::ProgramScope::enter() });
 	build_project_in_scope(project_dir, opts)
 }
 
 /// [`build_project`] inside its program scope.
 #[expect(clippy::too_many_lines, reason = "one function in Go")]
 fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result<BuildResult, BuildFailure> {
+	opts.cached_package_info = None;
+	opts.cached_rojo_config = None;
 	let mut writer = OutputWriter::new();
 	if let Some(timings) = &opts.timings {
 		timings.set_effective_write_workers(write_workers());
@@ -159,9 +162,13 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	let rojo_cache: Option<Arc<RojoResolverCache>> = if opts.emit_declaration_only {
 		None
 	} else {
+		if let Ok(resolved) = resolve_rojo_config_path(&dir, &opts.rojo_config_path) {
+			opts.cached_rojo_config = Some(resolved);
+		}
 		load_rojo_caches_pre_build(&dir, &opts).map(Arc::new)
 	};
 	opts.rojo_cache.clone_from(&rojo_cache);
+	opts.cached_package_info = project_is_package(&dir).ok();
 	let native_pipeline = prepare_flamework_pipeline(&dir, program, &opts)?;
 	let flamework_inputs = flamework_incremental_inputs(native_pipeline.as_ref())
 		.map_err(|error| Error::message(format!("compile: collect native Flamework incremental inputs: {error}")))?;
@@ -320,27 +327,11 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	}
 
 	// Copying the non-compiled files is disk work no compile stage reads, so it runs beside them;
-	// every return waits for it.
-	rotor_tsrs::threads::scope(|scope| {
-		let copy = scope.spawn(|| {
-			let stop = start_stage(timings, Stage::NonCompiledCopy);
-			let result = if copy_files_gate.skip_copy_files {
-				Ok(())
-			} else {
-				copy_non_compiled_files(&path_translator, &root_dirs)
-			};
-			stop.stop();
-			result
-		});
-		let mut join_copy = Some(copy);
-		let mut join = move || -> Result<(), Error> {
-			join_copy.take().map_or(Ok(()), |handle| {
-				handle
-					.join()
-					.unwrap_or_else(|_| Err(Error::message("compile: copying non-compiled files panicked")))
-			})
-		};
-		let result = build_after_copy(
+	// every return waits for it. Skip spawning a thread when the gate already proved nothing needs
+	// copying.
+	if copy_files_gate.skip_copy_files {
+		let mut noop = || Ok(());
+		build_after_copy(
 			&dir,
 			native_pipeline.as_ref(),
 			&mut program,
@@ -357,15 +348,51 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 			rojo_cache.clone(),
 			&copy_files_gate,
 			&include_outputs,
-			&mut join,
-		);
-		let joined = join();
-		match (result, joined) {
-			(Err(error), _) => Err(error),
-			(Ok(_), Err(error)) => Err(error.into()),
-			(Ok(result), Ok(())) => Ok(result),
-		}
-	})
+			&mut noop,
+		)
+	} else {
+		rotor_tsrs::threads::scope_io(|scope| {
+			let copy = scope.spawn(|| {
+				let stop = start_stage(timings, Stage::NonCompiledCopy);
+				let result = copy_non_compiled_files(&path_translator, &root_dirs);
+				stop.stop();
+				result
+			});
+			let mut join_copy = Some(copy);
+			let mut join = move || -> Result<(), Error> {
+				join_copy.take().map_or(Ok(()), |handle| {
+					handle
+						.join()
+						.unwrap_or_else(|_| Err(Error::message("compile: copying non-compiled files panicked")))
+				})
+			};
+			let result = build_after_copy(
+				&dir,
+				native_pipeline.as_ref(),
+				&mut program,
+				&mut opts,
+				&writer,
+				&path_translator,
+				&source_files,
+				&selected_files,
+				signature_declarations,
+				&mut current_manifest,
+				previous_manifest.as_ref(),
+				&previous_presence,
+				&manifest_path,
+				rojo_cache.clone(),
+				&copy_files_gate,
+				&include_outputs,
+				&mut join,
+			);
+			let joined = join();
+			match (result, joined) {
+				(Err(error), _) => Err(error),
+				(Ok(_), Err(error)) => Err(error.into()),
+				(Ok(result), Ok(())) => Ok(result),
+			}
+		})
+	}
 }
 
 #[expect(
@@ -507,36 +534,52 @@ fn build_after_copy(
 		progress.set_phase(crate::progress::Phase::Writing);
 	}
 	// Declarations and compiled outputs are disjoint files, so they write together; a compiled
-	// output failure still reports first.
-	let (write_result, declaration_result) = rotor_tsrs::threads::scope(|scope| {
-		let declarations_written = scope.spawn(|| {
-			let stop = start_stage(timings, Stage::DeclarationEmitWrites);
-			let files = emit_declarations(
-				original_program,
-				Some(&selected_paths),
-				declarations,
-				opts.write_only_changed,
+	// output failure still reports first. Skip spawning a thread when declarations are disabled.
+	let (write_result, declaration_result) = if original_program.options().get_emit_declarations() {
+		rotor_tsrs::threads::scope(|scope| {
+			let declarations_written = scope.spawn(|| {
+				let stop = start_stage(timings, Stage::DeclarationEmitWrites);
+				let files = emit_declarations(
+					original_program,
+					Some(&selected_paths),
+					declarations,
+					opts.write_only_changed,
+					writer,
+					timings,
+				);
+				stop.stop();
+				files
+			});
+			let write_result = write_compiled_outputs(
+				dir,
+				path_translator,
+				&selected_files,
+				&outputs,
+				&source_maps,
+				&prepared.source_traces,
 				writer,
 				timings,
 			);
-			stop.stop();
-			files
-		});
-		let write_result = write_compiled_outputs(
-			dir,
-			path_translator,
-			&selected_files,
-			&outputs,
-			&source_maps,
-			&prepared.source_traces,
-			writer,
-			timings,
-		);
-		let declaration_result = declarations_written
-			.join()
-			.unwrap_or_else(|_| Err(Error::message("compile: declaration writes panicked")));
-		(write_result, declaration_result)
-	});
+			let declaration_result = declarations_written
+				.join()
+				.unwrap_or_else(|_| Err(Error::message("compile: declaration writes panicked")));
+			(write_result, declaration_result)
+		})
+	} else {
+		(
+			write_compiled_outputs(
+				dir,
+				path_translator,
+				&selected_files,
+				&outputs,
+				&source_maps,
+				&prepared.source_traces,
+				writer,
+				timings,
+			),
+			Ok(Vec::new()),
+		)
+	};
 	let mut emitted_files = write_result?;
 	if let Some(timings) = timings {
 		timings.set_emitted_entries(emitted_files.len());
@@ -717,20 +760,21 @@ fn write_compiled_outputs(
 			source_traces,
 			timings,
 		)?;
-		writer.prepare(&write_paths)?;
+		let fresh_dirs = writer.prepare_returning_fresh(&write_paths)?;
 		// Group writes by parent directory so workers do not contend on the same directory
 		// inode lock (APFS); for single-directory projects, fall back to per-file fan-out.
-		let mut by_dir: HashMap<String, Vec<usize>> = HashMap::new();
+		let mut by_dir: FxHashMap<String, Vec<usize>> = FxHashMap::default();
 		for (index, (_, abs_out, _)) in planned.iter().enumerate() {
 			by_dir.entry(gopath::dir(abs_out)).or_default().push(index);
 		}
 		let write_one = |index: usize| -> Result<(usize, bool, Vec<WriteOutcome>, Vec<String>), Error> {
 			let (rel_out, abs_out, source_map) = &planned[index];
 			assert_local_output_path(rel_out)?;
+			let parent_fresh = fresh_dirs.contains(&writer.dir_key(&gopath::dir(abs_out)));
 			let text = outputs.get(rel_out).map_or(&[][..], Vec::as_slice);
 			let mut outcomes = Vec::with_capacity(1 + usize::from(source_map.is_some()));
 			let mut recorded_paths = Vec::with_capacity(1 + usize::from(source_map.is_some()));
-			let main_outcome = writer.write_prepared_keyed(abs_out, rel_out, text)?;
+			let main_outcome = writer.write_prepared_keyed_with_fresh(abs_out, rel_out, text, parent_fresh)?;
 			let main_wrote = main_outcome.wrote;
 			if main_wrote && timings.is_some() {
 				recorded_paths.push(abs_out.clone());
@@ -739,7 +783,8 @@ fn write_compiled_outputs(
 			if let Some(source_map) = source_map {
 				let map_path = format!("{abs_out}.map");
 				let map_key = format!("{rel_out}.map");
-				let map_outcome = writer.write_prepared_keyed(&map_path, &map_key, source_map.as_bytes())?;
+				let map_outcome =
+					writer.write_prepared_keyed_with_fresh(&map_path, &map_key, source_map.as_bytes(), parent_fresh)?;
 				if map_outcome.wrote && timings.is_some() {
 					recorded_paths.push(map_path);
 				}
@@ -868,7 +913,7 @@ fn build_declarations_only(
 
 /// `loadRojoCachesPreBuild`
 fn load_rojo_caches_pre_build(dir: &str, opts: &ProjectOptions) -> Option<RojoResolverCache> {
-	let (Some(rojo_config_path), _) = resolve_rojo_config_path(dir, &opts.rojo_config_path).ok()? else {
+	let (Some(rojo_config_path), _) = resolve_rojo_config_path_cached(dir, opts).ok()? else {
 		return None;
 	};
 	let cache = RojoResolverCache::with_deferred_persist(
@@ -1141,28 +1186,70 @@ fn write_declaration_files(
 	if let Some(timings) = timings {
 		timings.add_scheduled_declaration_writes(emitted.len());
 	}
-	writer.prepare(&paths)?;
-	let wrote: Vec<AtomicBool> = emitted.iter().map(|_| AtomicBool::new(false)).collect();
-	let jobs: Vec<Job<'_>> = emitted
-		.iter()
-		.zip(&paths)
-		.zip(&wrote)
-		.map(|((file, path), wrote)| -> Job<'_> {
-			Box::new(move || {
-				let written = writer.write(path, file.text.as_bytes())?;
-				wrote.store(written, Ordering::Relaxed);
-				if let Some(timings) = timings {
-					timings.record_output_write(path, written);
+	let keys: Vec<String> = paths.iter().map(|path| writer.output_key(path)).collect();
+	let fresh_dirs = writer.prepare_returning_fresh(&paths)?;
+	let mut by_dir: FxHashMap<String, Vec<usize>> = FxHashMap::default();
+	for (index, path) in paths.iter().enumerate() {
+		by_dir.entry(gopath::dir(path)).or_default().push(index);
+	}
+	let write_one = |index: usize| -> Result<(usize, bool, WriteOutcome), Error> {
+		let path = &paths[index];
+		let key = &keys[index];
+		let parent_fresh = fresh_dirs.contains(&writer.dir_key(&gopath::dir(path)));
+		let outcome =
+			writer.write_prepared_keyed_with_fresh(path, key, emitted[index].text.as_bytes(), parent_fresh)?;
+		let wrote = outcome.wrote;
+		Ok((index, wrote, outcome))
+	};
+	let mut wrote = vec![false; emitted.len()];
+	let mut all_outcomes = Vec::with_capacity(emitted.len());
+	if by_dir.len() >= 2 {
+		let groups: Vec<Vec<usize>> = by_dir.into_values().collect();
+		let chunks = parallel_fold_with_cutoff(
+			write_workers(),
+			1,
+			&groups,
+			|acc: &mut Vec<(usize, bool, WriteOutcome)>, group| {
+				for &index in group {
+					acc.push(write_one(index)?);
 				}
 				Ok(())
-			})
-		})
-		.collect();
-	parallelize(write_workers(), jobs)?;
+			},
+		)?;
+		for chunk in chunks {
+			for (index, file_wrote, outcome) in chunk {
+				wrote[index] = file_wrote;
+				all_outcomes.push(outcome);
+			}
+		}
+	} else {
+		let indices: Vec<usize> = (0..emitted.len()).collect();
+		let chunks = parallel_fold_with_cutoff(
+			write_workers().min(4),
+			WRITE_SYNC_CUTOFF,
+			&indices,
+			|acc: &mut Vec<(usize, bool, WriteOutcome)>, &index| {
+				acc.push(write_one(index)?);
+				Ok(())
+			},
+		)?;
+		for chunk in chunks {
+			for (index, file_wrote, outcome) in chunk {
+				wrote[index] = file_wrote;
+				all_outcomes.push(outcome);
+			}
+		}
+	}
+	writer.apply_write_outcomes(all_outcomes);
+	if let Some(timings) = timings {
+		for (path, &file_wrote) in paths.iter().zip(&wrote) {
+			timings.record_output_write(path, file_wrote);
+		}
+	}
 	Ok(paths
 		.into_iter()
-		.zip(&wrote)
-		.filter(|(_, wrote)| wrote.load(Ordering::Relaxed))
+		.zip(wrote)
+		.filter(|(_, file_wrote)| *file_wrote)
 		.map(|(path, _)| path)
 		.collect())
 }
@@ -1201,15 +1288,27 @@ pub(crate) fn output_path_relative_to_dir(dir: &str, path: &str) -> String {
 /// `rejectDuplicateOutputPaths`: two inputs that would write the same output.
 pub(crate) fn reject_duplicate_output_paths(paths: &[String]) -> Result<(), Error> {
 	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
-	let mut seen: HashMap<String, &String> = HashMap::with_capacity(paths.len());
+	let mut seen: FxHashMap<String, &String> =
+		FxHashMap::with_capacity_and_hasher(paths.len(), rustc_hash::FxBuildHasher);
+	let mut cwd: Option<String> = None;
 	for path in paths {
-		let absolute = gopath::abs(&gopath::from_slash(path)).map_err(|error| {
-			Error::message(format!(
-				"compile: resolving output path {}: {error}",
-				gostr::quote(path)
-			))
-		})?;
-		let mut key = gopath::clean(&absolute);
+		let native = gopath::from_slash(path);
+		let mut key = if gopath::is_abs(&native) {
+			gopath::clean(&native)
+		} else {
+			let base = if let Some(base) = &cwd {
+				base.as_str()
+			} else {
+				let resolved = gopath::abs(".").map_err(|error| {
+					Error::message(format!(
+						"compile: resolving output path {}: {error}",
+						gostr::quote(path)
+					))
+				})?;
+				cwd.insert(resolved).as_str()
+			};
+			gopath::join(&[base, &native])
+		};
 		if !case_sensitive {
 			key = key.to_lowercase();
 		}
@@ -1230,7 +1329,7 @@ pub(crate) fn maybe_copy_include(dir: &str, opts: &ProjectOptions) -> Result<Vec
 	if !opts.emit_include_files || opts.project_type == Some(ProjectType::Package) {
 		return Ok(Vec::new());
 	}
-	let (_, is_package) = project_is_package(dir)?;
+	let (_, is_package) = project_is_package_cached(dir, opts)?;
 	if opts.project_type.is_none() && is_package {
 		return Ok(Vec::new());
 	}
@@ -1363,34 +1462,49 @@ pub(crate) fn copy_non_compiled_files(path_translator: &PathTranslator, root_dir
 pub(crate) fn copy_item(path_translator: &PathTranslator, item_path: &str) -> Result<(), Error> {
 	let info = fs::metadata(item_path).map_err(|error| Error::message(gostr::path_error("stat", item_path, &error)))?;
 	if info.is_dir() {
-		let entries = crate::packageexports::read_dir_sorted(item_path)
-			.map_err(|error| Error::message(gostr::path_error("open", item_path, &error)))?;
-		if path_contains(item_path, &path_translator.out_dir) {
-			for name in entries {
-				if name == "node_modules" {
-					continue;
-				}
-				let child_path = gopath::join(&[item_path, &name]);
-				if gopath::clean(&child_path) == gopath::clean(&path_translator.out_dir) {
-					continue;
-				}
-				copy_item(path_translator, &child_path)?;
-			}
-			return Ok(());
-		}
+		return copy_dir(path_translator, item_path);
+	}
+	copy_file(path_translator, item_path)
+}
+
+fn copy_dir(path_translator: &PathTranslator, item_path: &str) -> Result<(), Error> {
+	let mut entries: Vec<(String, std::io::Result<fs::FileType>)> = fs::read_dir(item_path)
+		.map_err(|error| Error::message(gostr::path_error("open", item_path, &error)))?
+		.filter_map(Result::ok)
+		.map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry.file_type()))
+		.collect();
+	entries.sort_by(|left, right| left.0.cmp(&right.0));
+	let out_dir_inside = path_contains(item_path, &path_translator.out_dir);
+	if !out_dir_inside {
 		let out_dir = path_translator.get_output_path(item_path);
 		fsutil::mkdir_all(&out_dir, 0o755).map_err(|error| io_message(&error))?;
-		for name in entries {
-			copy_item(path_translator, &gopath::join(&[item_path, &name]))?;
-		}
-		return Ok(());
 	}
+	let clean_out = out_dir_inside.then(|| gopath::clean(&path_translator.out_dir));
+	for (name, file_type) in entries {
+		if out_dir_inside && name == "node_modules" {
+			continue;
+		}
+		let child_path = gopath::join(&[item_path, &name]);
+		if let Some(clean_out) = &clean_out
+			&& gopath::clean(&child_path) == *clean_out
+		{
+			continue;
+		}
+		match file_type {
+			Ok(ft) if ft.is_dir() => copy_dir(path_translator, &child_path)?,
+			Ok(ft) if ft.is_file() => copy_file(path_translator, &child_path)?,
+			_ => copy_item(path_translator, &child_path)?,
+		}
+	}
+	Ok(())
+}
 
+fn copy_file(path_translator: &PathTranslator, item_path: &str) -> Result<(), Error> {
 	if item_path.ends_with(".d.ts") {
 		if !path_translator.declaration {
 			return Ok(());
 		}
-	} else if is_compilable_file(item_path) {
+	} else if is_compilable_file_extension(item_path) {
 		return Ok(());
 	}
 
@@ -1409,19 +1523,18 @@ fn path_contains(parent: &str, child: &str) -> bool {
 	rel == "." || (rel != ".." && !rel.starts_with(&format!("..{}", gopath::NATIVE.separator())))
 }
 
-/// `isCompilableFile`: an existing `.ts`/`.tsx` file that is not a declaration.
+/// Whether `path` has a compilable `.ts`/`.tsx` extension (and is not `.d.ts`).
 #[expect(
 	clippy::case_sensitive_file_extension_comparisons,
 	reason = "Go's isCompilableFile matches the extensions case-sensitively"
 )]
+pub(crate) fn is_compilable_file_extension(path: &str) -> bool {
+	!path.ends_with(".d.ts") && (path.ends_with(".ts") || path.ends_with(".tsx"))
+}
+
+/// `isCompilableFile`: an existing `.ts`/`.tsx` file that is not a declaration.
 pub(crate) fn is_compilable_file(path: &str) -> bool {
-	if !fs::metadata(path).is_ok_and(|info| !info.is_dir()) {
-		return false;
-	}
-	if path.ends_with(".d.ts") {
-		return false;
-	}
-	path.ends_with(".ts") || path.ends_with(".tsx")
+	is_compilable_file_extension(path) && fs::metadata(path).is_ok_and(|info| !info.is_dir())
 }
 
 /// Go's diagnostics-as-strings view of a failed build.

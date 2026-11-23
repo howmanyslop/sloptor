@@ -34,6 +34,15 @@ impl RenderState {
 		Self::default()
 	}
 
+	/// Creates an empty state with `writer` pre-allocated for `capacity` bytes.
+	#[must_use]
+	pub(crate) fn with_writer_capacity(capacity: usize) -> Self {
+		Self {
+			writer: Vec::with_capacity(capacity),
+			..Self::default()
+		}
+	}
+
 	pub(crate) fn temp_name(&self, temp: TempId) -> Option<&str> {
 		self.seen_temp_nodes.get(temp.index()).and_then(Option::as_deref)
 	}

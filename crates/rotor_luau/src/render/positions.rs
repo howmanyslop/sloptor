@@ -59,7 +59,9 @@ pub fn render_ast_with_positions_bytes(
 	ast: &Ast,
 	statements: List<element::Statement>,
 ) -> RenderResult<(Vec<u8>, Vec<Range>)> {
-	let mut state = RenderState::new();
+	let capacity = ast.node_count().saturating_mul(16).clamp(256, 1 << 20);
+	let mut state = RenderState::with_writer_capacity(capacity);
+	state.ranges.reserve(ast.node_count());
 	state.positions = true;
 	state.prepare_temp_names(ast, statements.into())?;
 	Renderer { ast, s: &mut state }.statements(statements)?;

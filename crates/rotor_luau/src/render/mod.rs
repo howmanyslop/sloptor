@@ -98,7 +98,8 @@ pub fn render_ast(ast: &Ast, statements: List<element::Statement>) -> RenderResu
 ///
 /// When the AST cannot be rendered.
 pub fn render_ast_bytes(ast: &Ast, statements: List<element::Statement>) -> RenderResult<Vec<u8>> {
-	let mut state = RenderState::new();
+	let capacity = ast.node_count().saturating_mul(16).clamp(256, 1 << 20);
+	let mut state = RenderState::with_writer_capacity(capacity);
 	state.prepare_temp_names(ast, statements.into())?;
 	Renderer { ast, s: &mut state }.statements(statements)?;
 	Ok(state.writer)

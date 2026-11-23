@@ -324,11 +324,12 @@ pub(crate) fn build_incremental_manifest(
 	let mut input_files = source_files.to_vec();
 	input_files.extend(resolved_non_compiled_inputs(program));
 	let mut manifest = IncrementalManifest::empty(salt.to_owned());
-	let current_hashes: FxHashMap<String, String> = if input_files.len() >= 16 && rayon::current_num_threads() > 1 {
+	let items: Vec<(P<SourceFile>, String, String)> = if input_files.len() >= 16 && rayon::current_num_threads() > 1 {
 		input_files
 			.par_iter()
-			.map(|file| {
+			.map(|&file| {
 				(
+					file,
 					normalize_source_file_path(file.file_name()),
 					hex_sha256(file.text().as_bytes()),
 				)
@@ -337,40 +338,89 @@ pub(crate) fn build_incremental_manifest(
 	} else {
 		input_files
 			.iter()
-			.map(|file| {
+			.map(|&file| {
 				(
+					file,
 					normalize_source_file_path(file.file_name()),
 					hex_sha256(file.text().as_bytes()),
 				)
 			})
 			.collect()
 	};
+	let current_hashes: FxHashMap<&str, &str> = items
+		.iter()
+		.map(|(_, path, hash)| (path.as_str(), hash.as_str()))
+		.collect();
 	if let Some(previous) = previous
 		&& previous.salt == salt
 		&& previous.files.len() == current_hashes.len()
 		&& current_hashes
 			.iter()
-			.all(|(path, hash)| previous.files.get(path).is_some_and(|state| state.hash == *hash))
+			.all(|(path, hash)| previous.files.get(*path).is_some_and(|state| state.hash == *hash))
 	{
 		// No source changed: reuse the previous graph verbatim.
 		manifest.files.clone_from(&previous.files);
 		return manifest;
 	}
-	let source_set: FxHashSet<String> = current_hashes.keys().cloned().collect();
-	let global_declarations = global_declaration_paths(&input_files);
+	let source_set: FxHashSet<String> = items.iter().map(|(_, path, _)| path.clone()).collect();
+	let global_declarations = global_declaration_paths(&items);
 	let ambient_module_paths = collect_ambient_module_paths(program, &input_files, &source_set);
-	for &file in &input_files {
-		let path = normalize_source_file_path(file.file_name());
-		let mut refs = Vec::new();
-		if !tspath::has_json_file_extension(file.file_name()) {
-			refs = referenced_project_files(program, file, &source_set, &ambient_module_paths);
-			if !file.is_declaration_file() {
-				refs.extend(global_declarations.iter().cloned());
-				refs.sort();
-				refs.dedup();
+
+	let mut all_refs: Vec<Vec<String>> = vec![Vec::new(); items.len()];
+	let mut checker_indices = Vec::new();
+	for (index, (file, path, _)) in items.iter().enumerate() {
+		if tspath::has_json_file_extension(file.file_name()) {
+			continue;
+		}
+		if file.imports().is_empty()
+			&& !file
+				.module_augmentations()
+				.iter()
+				.any(|&module_name| ast::is_string_literal(module_name))
+		{
+			all_refs[index] =
+				referenced_project_files_without_checker(program, *file, path, &source_set, &ambient_module_paths);
+		} else {
+			checker_indices.push(index);
+		}
+	}
+
+	if !checker_indices.is_empty() {
+		let context = Context::default();
+		let mut groups_by_checker: FxHashMap<u32, usize> = FxHashMap::default();
+		let mut groups: Vec<Vec<usize>> = Vec::new();
+		for index in checker_indices {
+			let key = program.get_type_checker_for_file_exclusive(&context, items[index].0).id;
+			let group_index = *groups_by_checker.entry(key).or_insert_with(|| {
+				groups.push(Vec::new());
+				groups.len() - 1
+			});
+			groups[group_index].push(index);
+		}
+		let single_threaded = program.single_threaded() || groups.len() <= 1;
+		let group_results = crate::project::run_work_group(single_threaded, groups.len(), |group_index| {
+			groups[group_index]
+				.iter()
+				.map(|&index| {
+					let (file, path, _) = &items[index];
+					let refs = referenced_project_files(program, *file, path, &source_set, &ambient_module_paths);
+					(index, refs)
+				})
+				.collect::<Vec<_>>()
+		});
+		for group_result in group_results {
+			for (index, refs) in group_result {
+				all_refs[index] = refs;
 			}
 		}
-		let hash = current_hashes.get(&path).cloned().unwrap_or_default();
+	}
+
+	for ((file, path, hash), mut refs) in items.into_iter().zip(all_refs) {
+		if !tspath::has_json_file_extension(file.file_name()) && !file.is_declaration_file() {
+			refs.extend(global_declarations.iter().cloned());
+			refs.sort();
+			refs.dedup();
+		}
 		manifest.files.insert(path, IncrementalFileState { hash, refs });
 	}
 	manifest
@@ -378,18 +428,18 @@ pub(crate) fn build_incremental_manifest(
 
 /// `globalDeclarationPaths`: declaration files that declare globals (scripts, or a global
 /// augmentation).
-fn global_declaration_paths(files: &[P<SourceFile>]) -> Vec<String> {
-	files
+fn global_declaration_paths(items: &[(P<SourceFile>, String, String)]) -> Vec<String> {
+	items
 		.iter()
-		.filter(|file| file.is_declaration_file())
-		.filter(|&&file| {
-			!ast::is_external_module(file)
+		.filter(|(file, _, _)| file.is_declaration_file())
+		.filter(|(file, _, _)| {
+			!ast::is_external_module(*file)
 				|| file
 					.module_augmentations()
 					.iter()
 					.any(|&augmentation| !ast::is_string_literal(augmentation))
 		})
-		.map(|file| normalize_source_file_path(file.file_name()))
+		.map(|(_, path, _)| path.clone())
 		.collect()
 }
 
@@ -496,63 +546,41 @@ fn collect_ambient_module_paths(
 		})
 }
 
-/// `referencedProjectFiles`: the project files `file` references through imports, triple-slash
-/// references, type reference directives, module augmentations and ambient modules.
-#[expect(
-	clippy::significant_drop_tightening,
-	reason = "every query runs on the file's checker"
-)]
-fn referenced_project_files(
-	program: &'static Program,
+fn add_non_checker_refs(
+	program: &Program,
 	file: P<SourceFile>,
+	own: &str,
 	source_set: &FxHashSet<String>,
 	ambient_module_paths: &[String],
-) -> Vec<String> {
-	let own = normalize_source_file_path(file.file_name());
-	let mut referenced: BTreeSet<String> = BTreeSet::new();
+	referenced: &mut BTreeSet<String>,
+) {
 	let mut add = |path: &str| {
 		let path = normalize_source_file_path(path);
 		if path != own && source_set.contains(&path) {
 			referenced.insert(path);
 		}
 	};
-	let context = Context::default();
-	let mut handle = program.get_type_checker_for_file_exclusive(&context, file);
-	let mut checker = TypeChecker::new(&mut handle);
-	let add_symbol_decls = |checker: &mut TypeChecker<'_>, node: P<ast::Node>, add: &mut dyn FnMut(&str)| {
-		if let Some(symbol) = checker.get_symbol_at_location(node) {
-			for &declaration in symbol.declarations() {
-				if let Some(source_file) = ast::get_source_file_of_node(declaration) {
-					add(source_file.file_name());
-				}
+	let referenced_files = file.referenced_files();
+	let type_refs = program.get_resolved_type_reference_directives().get(file.path());
+	if !referenced_files.is_empty() || type_refs.is_some() {
+		let source_file_directory = gopath::dir(&gopath::from_slash(file.file_name()));
+		for reference in referenced_files {
+			add(&resolve_referenced_file(
+				program,
+				&reference.file_name,
+				&source_file_directory,
+			));
+		}
+		if let Some(type_refs) = type_refs {
+			let mut resolved: Vec<&str> = type_refs
+				.values()
+				.map(|type_ref| type_ref.resolved_file_name)
+				.filter(|name| !name.is_empty())
+				.collect();
+			resolved.sort_unstable();
+			for name in resolved {
+				add(&resolve_referenced_file(program, name, &source_file_directory));
 			}
-		}
-	};
-	for &import in file.imports() {
-		add_symbol_decls(&mut checker, import, &mut add);
-	}
-	let source_file_directory = gopath::dir(&gopath::from_slash(file.file_name()));
-	for reference in file.referenced_files() {
-		add(&resolve_referenced_file(
-			program,
-			&reference.file_name,
-			&source_file_directory,
-		));
-	}
-	if let Some(type_refs) = program.get_resolved_type_reference_directives().get(file.path()) {
-		let mut resolved: Vec<&str> = type_refs
-			.values()
-			.map(|type_ref| type_ref.resolved_file_name)
-			.filter(|name| !name.is_empty())
-			.collect();
-		resolved.sort_unstable();
-		for name in resolved {
-			add(&resolve_referenced_file(program, name, &source_file_directory));
-		}
-	}
-	for &module_name in file.module_augmentations() {
-		if ast::is_string_literal(module_name) {
-			add_symbol_decls(&mut checker, module_name, &mut add);
 		}
 	}
 	for path in ambient_module_paths {
@@ -560,6 +588,58 @@ fn referenced_project_files(
 			referenced.insert(path.clone());
 		}
 	}
+}
+
+fn referenced_project_files_without_checker(
+	program: &Program,
+	file: P<SourceFile>,
+	own: &str,
+	source_set: &FxHashSet<String>,
+	ambient_module_paths: &[String],
+) -> Vec<String> {
+	let mut referenced: BTreeSet<String> = BTreeSet::new();
+	add_non_checker_refs(program, file, own, source_set, ambient_module_paths, &mut referenced);
+	referenced.into_iter().collect()
+}
+
+/// `referencedProjectFiles`: the project files `file` references through imports, triple-slash
+/// references, type reference directives, module augmentations and ambient modules.
+fn referenced_project_files(
+	program: &'static Program,
+	file: P<SourceFile>,
+	own: &str,
+	source_set: &FxHashSet<String>,
+	ambient_module_paths: &[String],
+) -> Vec<String> {
+	let mut referenced: BTreeSet<String> = BTreeSet::new();
+	let context = Context::default();
+	let mut handle = program.get_type_checker_for_file_exclusive(&context, file);
+	{
+		let mut checker = TypeChecker::new(&mut handle);
+		let add_symbol_decls =
+			|checker: &mut TypeChecker<'_>, node: P<ast::Node>, referenced: &mut BTreeSet<String>| {
+				if let Some(symbol) = checker.get_symbol_at_location(node) {
+					for &declaration in symbol.declarations() {
+						if let Some(source_file) = ast::get_source_file_of_node(declaration) {
+							let path = normalize_source_file_path(source_file.file_name());
+							if path != own && source_set.contains(&path) {
+								referenced.insert(path);
+							}
+						}
+					}
+				}
+			};
+		for &import in file.imports() {
+			add_symbol_decls(&mut checker, import, &mut referenced);
+		}
+		for &module_name in file.module_augmentations() {
+			if ast::is_string_literal(module_name) {
+				add_symbol_decls(&mut checker, module_name, &mut referenced);
+			}
+		}
+	}
+	drop(handle);
+	add_non_checker_refs(program, file, own, source_set, ambient_module_paths, &mut referenced);
 	referenced.into_iter().collect()
 }
 

@@ -46,7 +46,18 @@ impl<'a> PathInfo<'a> {
 				Cow::Owned(gopath::dir(file_path))
 			}
 			#[cfg(windows)]
-			{
+			if crate::resolver::is_clean_windows_absolute(file_path) && file_path.len() > 3 {
+				file_path.rfind('\\').map_or_else(
+					|| Cow::Owned(gopath::dir(file_path)),
+					|slash| {
+						if slash == 2 {
+							Cow::Borrowed(&file_path[..3])
+						} else {
+							Cow::Borrowed(&file_path[..slash])
+						}
+					},
+				)
+			} else {
 				Cow::Owned(gopath::dir(file_path))
 			}
 		};
@@ -120,6 +131,21 @@ impl<'a> PathInfo<'a> {
 			out.push_str(&self.dir_name);
 			if self.dir_name != "/" {
 				out.push('/');
+			}
+			out.push_str(&base);
+			return out;
+		}
+		#[cfg(windows)]
+		if crate::resolver::is_clean_windows_absolute(&self.dir_name)
+			&& !base.is_empty()
+			&& !base.contains(['\\', '/'])
+			&& base != "."
+			&& base != ".."
+		{
+			let mut out = String::with_capacity(self.dir_name.len() + 1 + base.len());
+			out.push_str(&self.dir_name);
+			if self.dir_name.len() > 3 {
+				out.push('\\');
 			}
 			out.push_str(&base);
 			return out;
@@ -355,6 +381,23 @@ fn make_relative(from: &str, to: &str, p: &PathInfo<'_>) -> String {
 			out.push_str(rel);
 			return out;
 		}
+	}
+	#[cfg(windows)]
+	if crate::resolver::is_clean_windows_absolute(from)
+		&& crate::resolver::is_clean_windows_absolute(to)
+		&& crate::resolver::is_clean_windows_absolute(&joined)
+		&& let Some(rel) = crate::resolver::windows_descendant_rel(&joined, from)
+	{
+		if rel.is_empty() {
+			return to.to_owned();
+		}
+		let mut out = String::with_capacity(to.len() + 1 + rel.len());
+		out.push_str(to);
+		if to.len() > 3 {
+			out.push('\\');
+		}
+		out.push_str(rel);
+		return out;
 	}
 	// Node's path.relative returns the target itself when no relative path
 	// exists (e.g. different drives); join then concatenates.

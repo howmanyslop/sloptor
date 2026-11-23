@@ -426,3 +426,31 @@ fn abs_drops_the_verbatim_prefix() {
 		r"C:\project\tsconfig.json"
 	);
 }
+
+#[test]
+fn clean_windows_full_path_detection() {
+	for (path, want) in [
+		(r"C:\", true),
+		(r"c:\proj\src\main.ts", true),
+		(r"D:\a\b\..foo\c", true),
+		(r"C:\proj\", false),
+		(r"C:/proj/src", false),
+		(r"C:\proj\.\src", false),
+		(r"C:\proj\..\src", false),
+		(r"C:\proj\\src", false),
+		(r"C:\proj\file.", false),
+		(r"C:\proj\file ", false),
+		(r"C:\proj\CON", false),
+		(r"C:\proj\nul", false),
+		(r"\\host\share\foo", false),
+		(r"C:\proj\café", false),
+		("relative/path", false),
+		("", false),
+	] {
+		assert_eq!(
+			super::is_clean_windows_full_path(path),
+			want,
+			"is_clean_windows_full_path({path:?})"
+		);
+	}
+}

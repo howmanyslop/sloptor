@@ -111,6 +111,7 @@ impl OutputWriter {
 	}
 
 	/// `write`: writes `contents` to `path` unless it already holds them. True when it wrote.
+	#[cfg(test)]
 	pub(crate) fn write(&self, path: &str, contents: &[u8]) -> Result<bool, Error> {
 		let key = self.output_key(path);
 		self.check_confined_parent(path)?;
@@ -123,9 +124,24 @@ impl OutputWriter {
 	/// Writes `contents` to `path` (whose parent directory was already confined and prepared, and
 	/// whose [`OutputWriter::output_key`] is `key`) using a single `symlink_metadata` + `fstat`
 	/// without locking `current`, `stamps`, or `confirmed_this_build`.
+	#[cfg(test)]
 	pub(crate) fn write_prepared_keyed(&self, path: &str, key: &str, contents: &[u8]) -> Result<WriteOutcome, Error> {
+		self.write_prepared_keyed_with_fresh(path, key, contents, false)
+	}
+
+	/// Like [`OutputWriter::write_prepared_keyed`], skipping `symlink_metadata` when `parent_fresh`
+	/// guarantees the parent directory was just created by this build and `key` has no previous hash.
+	pub(crate) fn write_prepared_keyed_with_fresh(
+		&self,
+		path: &str,
+		key: &str,
+		contents: &[u8],
+		parent_fresh: bool,
+	) -> Result<WriteOutcome, Error> {
 		let hash = hex_sha256(contents);
-		if let Ok(metadata) = fs::symlink_metadata(path) {
+		if (!parent_fresh || self.previous.contains_key(key))
+			&& let Ok(metadata) = fs::symlink_metadata(path)
+		{
 			let file_type = metadata.file_type();
 			if file_type.is_file() {
 				if self.previous.get(key) == Some(&hash) {
@@ -219,14 +235,16 @@ impl OutputWriter {
 	/// The `os.Root` confinement of `path`'s parent directory (`rootForKey`/`dirRoot`): resolved
 	/// once per directory and cached, so a write costs one lookup rather than a realpath walk. A
 	/// parent that does not exist yet resolves through its nearest existing ancestor, uncached.
-	fn check_confined_parent(&self, path: &str) -> Result<(), Error> {
+	/// Returns `true` if the parent already existed (or confinement is inactive), `false` if it
+	/// did not exist yet on disk.
+	fn check_confined_parent(&self, path: &str) -> Result<bool, Error> {
 		let Some(root) = &self.canonical_root else {
-			return Ok(());
+			return Ok(true);
 		};
 		let key = self.output_key(path);
 		let relative = gopath::dir(&gopath::from_slash(&key));
 		if relative == "." {
-			return Ok(());
+			return Ok(true);
 		}
 		let cache_key = if self.case_sensitive {
 			relative
@@ -234,7 +252,7 @@ impl OutputWriter {
 			relative.to_lowercase()
 		};
 		if lock(&self.dir_roots).contains_key(&cache_key) {
-			return Ok(());
+			return Ok(true);
 		}
 		let parent = Path::new(path).parent().unwrap_or_else(|| Path::new(path));
 		let (resolved, exists) = fs::canonicalize(parent).map_or_else(
@@ -242,7 +260,7 @@ impl OutputWriter {
 			|canonical| (Some(canonical), true),
 		);
 		let Some(resolved) = resolved else {
-			return Ok(());
+			return Ok(true);
 		};
 		if !within_root(&resolved, root) {
 			// `rootForKey` falls back to the project root with the whole key.
@@ -251,7 +269,7 @@ impl OutputWriter {
 		if exists {
 			lock(&self.dir_roots).insert(cache_key, resolved);
 		}
-		Ok(())
+		Ok(exists)
 	}
 
 	/// The final component of `path`, which a write follows: a symlink must resolve inside the
@@ -279,11 +297,52 @@ impl OutputWriter {
 	}
 
 	/// `prepare`: creates the parent directories of `paths`.
+	#[cfg(test)]
 	pub(crate) fn prepare(&self, paths: &[String]) -> Result<(), Error> {
-		for path in paths {
-			self.prepare_parent(path)?;
-		}
+		let _ = self.prepare_returning_fresh(paths)?;
 		Ok(())
+	}
+
+	/// Creates the parent directories of `paths` and returns the [`Self::dir_key`] set of parent
+	/// directories that did not exist on disk before this call (only populated when confined).
+	pub(crate) fn prepare_returning_fresh(&self, paths: &[String]) -> Result<FxHashSet<String>, Error> {
+		let mut fresh_dirs = FxHashSet::default();
+		let mut seen_parents: FxHashSet<&str> = FxHashSet::default();
+		let sep = gopath::NATIVE.separator();
+		for path in paths {
+			if !self.project_dir.is_empty() && !fast_is_local_under(&self.project_dir, path) {
+				let local = gopath::rel(&self.project_dir, &gopath::clean(path))
+					.is_ok_and(|relative| gopath::is_local(&relative));
+				if !local {
+					return Err(Error::message(format!(
+						"compile: refusing to prepare output outside the project directory: {}",
+						gostr::quote(path)
+					)));
+				}
+			}
+			if let Some(last_sep) = path.rfind(sep)
+				&& last_sep > 0
+			{
+				let raw_parent = &path[..last_sep];
+				if !seen_parents.insert(raw_parent) {
+					continue;
+				}
+			}
+			if let Some(fresh_key) = self.prepare_parent_checked(path)? {
+				fresh_dirs.insert(fresh_key);
+			}
+		}
+		Ok(fresh_dirs)
+	}
+
+	/// Normalizes a parent directory path to the key used in `prepared` and `fresh_dirs`.
+	pub(crate) fn dir_key(&self, dir: &str) -> String {
+		let cleaned = gopath::clean(dir);
+		if self.case_sensitive {
+			cleaned
+		} else {
+			cleaned.to_lowercase()
+		}
 	}
 
 	/// `outputKey`: the project-relative slash path, empty before [`OutputWriter::use_hashes`].
@@ -312,40 +371,43 @@ impl OutputWriter {
 
 	/// `check_confined_parent` exposed for pre-confining parent directories before parallel work.
 	pub(crate) fn confine_parent(&self, path: &str) -> Result<(), Error> {
-		self.check_confined_parent(path)
+		let _ = self.check_confined_parent(path)?;
+		Ok(())
 	}
 
-	/// `prepareParent`: creates the parent of `path` once per directory.
-	fn prepare_parent(&self, path: &str) -> Result<(), Error> {
-		if !self.project_dir.is_empty() {
-			let local =
-				gopath::rel(&self.project_dir, &gopath::clean(path)).is_ok_and(|relative| gopath::is_local(&relative));
-			if !local {
-				return Err(Error::message(format!(
-					"compile: refusing to prepare output outside the project directory: {}",
-					gostr::quote(path)
-				)));
-			}
-		}
+	/// `prepareParent`: creates the parent of `path` once per directory, returning its [`Self::dir_key`]
+	/// if it was freshly created on disk (when confined).
+	fn prepare_parent_checked(&self, path: &str) -> Result<Option<String>, Error> {
 		let parent = gopath::abs(&gopath::dir(path)).map_err(|error| io_error(&error))?;
+		let key = self.dir_key(&parent);
 		let parent = gopath::clean(&parent);
-		let key = if self.case_sensitive {
-			parent.clone()
-		} else {
-			parent.to_lowercase()
-		};
 		if lock(&self.prepared).contains(&key) {
-			return Ok(());
+			return Ok(None);
 		}
 		// Checked before creating, so a symlinked ancestor never gets directories made outside.
 		let probe = gopath::join(&[&parent, "_"]);
-		self.check_confined_parent(&probe)?;
+		let existed = self.check_confined_parent(&probe)?;
 		fsutil::mkdir_all(&parent, 0o755).map_err(|error| io_error(&error))?;
 		// `cacheDirRoot`: the created directory is confined once more and cached.
-		self.check_confined_parent(&probe)?;
-		lock(&self.prepared).insert(key);
-		Ok(())
+		let _ = self.check_confined_parent(&probe)?;
+		lock(&self.prepared).insert(key.clone());
+		Ok((self.canonical_root.is_some() && !existed).then_some(key))
 	}
+}
+
+/// Fast locality check for clean paths directly under `project_dir` (Unix only, since Windows
+/// `is_local` also checks reserved device names).
+fn fast_is_local_under(project_dir: &str, path: &str) -> bool {
+	if cfg!(windows) {
+		return false;
+	}
+	let Some(rest) = path.strip_prefix(project_dir) else {
+		return false;
+	};
+	let Some(rest) = rest.strip_prefix('/') else {
+		return false;
+	};
+	!rest.is_empty() && !rest.split('/').any(|seg| seg == "..")
 }
 
 /// Whether the canonical `resolved` is `root` or inside it.

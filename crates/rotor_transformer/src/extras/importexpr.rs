@@ -441,7 +441,8 @@ fn resolve_project_import_out_path(rojo: &RojoContext, module_file: P<SourceFile
 		}
 		#[cfg(windows)]
 		{
-			false
+			let root = &rojo.path_translator.root_dir;
+			windows_path_within_root(virtual_path, root)
 		}
 	};
 	let outside_root = !inside_root
@@ -459,6 +460,29 @@ fn resolve_project_import_out_path(rojo: &RojoContext, module_file: P<SourceFile
 		// a census still transforms them, so keep the translated path.
 	}
 	module_out_path
+}
+
+#[cfg(windows)]
+fn windows_path_within_root(virtual_path: &str, root: &str) -> bool {
+	if !virtual_path.is_ascii() || !root.is_ascii() || !rotor_rojo::is_clean_windows_absolute(root) {
+		return false;
+	}
+	let vp = virtual_path.as_bytes();
+	let rb = root.as_bytes();
+	if vp.len() < rb.len() {
+		return false;
+	}
+	let matches = vp[..rb.len()].iter().zip(rb).all(|(&a, &b)| {
+		let a_norm = if a == b'/' { b'\\' } else { a };
+		a_norm.eq_ignore_ascii_case(&b)
+	});
+	if !matches {
+		return false;
+	}
+	if vp.len() == rb.len() {
+		return true;
+	}
+	rb.len() == 3 || matches!(vp[rb.len()], b'/' | b'\\')
 }
 
 fn get_import_parts_impl(

@@ -20,6 +20,7 @@ pub use project_files::ProjectFiles;
 pub use resolver::{
 	FileRelation, InvalidResolverState, NetworkType, ParseProjectFileError, PartitionInfo, RbxPath, RbxPathLookup,
 	RbxType, RelativeRbxPath, RelativeRbxPathSegment, ResolverFilePathState, ResolverState, RojoResolver,
-	canonical_file_name, find_rojo_config_file_path, parse_project_file, relative,
+	canonical_file_name, find_rojo_config_file_path, is_clean_windows_absolute, parse_project_file, relative,
+	windows_descendant_rel,
 };
 pub use resolver_cache::RojoResolverCache;

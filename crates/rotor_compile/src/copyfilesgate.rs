@@ -14,7 +14,7 @@ use rotor_tsrs::compiler::Program;
 use crate::compile::Error;
 use crate::gojson::{self, Value};
 use crate::incremental_manifest::normalize_source_file_path;
-use crate::output::is_compilable_file;
+use crate::output::is_compilable_file_extension;
 
 /// `copyFilesManifestVersion`
 const COPY_FILES_MANIFEST_VERSION: i64 = 2;
@@ -177,12 +177,13 @@ pub(crate) fn mtime_ms(metadata: &fs::Metadata) -> i64 {
 /// The directory walk of `buildCopyFilesManifest`.
 fn walk(
 	dir: &str,
+	known_info: Option<fs::Metadata>,
 	manifest: &mut CopyFilesManifest,
 	normalized_out_dir: &str,
 	declaration: bool,
 	path_translator: &PathTranslator,
 ) {
-	let Ok(info) = fs::metadata(dir) else {
+	let Some(info) = known_info.or_else(|| fs::metadata(dir).ok()) else {
 		return;
 	};
 	if !info.is_dir() {
@@ -192,10 +193,15 @@ fn walk(
 		path: dir.to_owned(),
 		mtime_ms: mtime_ms(&info),
 	});
-	let Ok(entries) = crate::packageexports::read_dir_sorted(dir) else {
+	let Ok(dir_iter) = fs::read_dir(dir) else {
 		return;
 	};
-	for name in entries {
+	let mut entries: Vec<(String, std::io::Result<fs::FileType>)> = dir_iter
+		.filter_map(Result::ok)
+		.map(|entry| (entry.file_name().to_string_lossy().into_owned(), entry.file_type()))
+		.collect();
+	entries.sort_by(|left, right| left.0.cmp(&right.0));
+	for (name, file_type) in entries {
 		if name == "node_modules" {
 			continue;
 		}
@@ -203,11 +209,29 @@ fn walk(
 		if gopath::clean(&item_path) == normalized_out_dir {
 			continue;
 		}
+		if let Ok(ft) = &file_type
+			&& ft.is_file()
+		{
+			if item_path.ends_with(".d.ts") {
+				if !declaration {
+					continue;
+				}
+			} else if is_compilable_file_extension(&item_path) {
+				continue;
+			}
+		}
 		let Ok(info) = fs::metadata(&item_path) else {
 			continue;
 		};
 		if info.is_dir() {
-			walk(&item_path, manifest, normalized_out_dir, declaration, path_translator);
+			walk(
+				&item_path,
+				Some(info),
+				manifest,
+				normalized_out_dir,
+				declaration,
+				path_translator,
+			);
 			continue;
 		}
 		if !info.is_file() {
@@ -217,7 +241,7 @@ fn walk(
 			if !declaration {
 				continue;
 			}
-		} else if is_compilable_file(&item_path) {
+		} else if is_compilable_file_extension(&item_path) {
 			continue;
 		}
 		let dest = path_translator.get_output_path(&item_path);
@@ -250,6 +274,7 @@ pub(crate) fn build_copy_files_manifest(
 	for root_dir in root_dirs {
 		walk(
 			&gopath::clean(root_dir),
+			None,
 			&mut manifest,
 			&normalized_out_dir,
 			declaration,
