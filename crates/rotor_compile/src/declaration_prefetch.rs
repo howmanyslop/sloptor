@@ -72,9 +72,9 @@ impl DeclarationPrefetch {
 		lock(&self.result).is_some()
 	}
 
-	/// `result`: the prefetched text, `None` when no round trip produced it.
-	pub(crate) fn result(&self) -> Option<Result<Vec<DeclarationEmitFile>, Error>> {
-		lock(&self.result).clone()
+	/// `take_result`: takes the prefetched text, `None` when no round trip produced it.
+	pub(crate) fn take_result(&self) -> Option<Result<Vec<DeclarationEmitFile>, Error>> {
+		lock(&self.result).take()
 	}
 }
 

@@ -983,6 +983,13 @@ impl SidecarSession {
 		overlays: &BTreeMap<String, String>,
 		skip_disk_scan: bool,
 	) -> (Result<Vec<TransformerChangedFile>, Error>, SidecarCallStats) {
+		type EntryResult = (
+			usize,
+			String,
+			Option<SidecarFileStamp>,
+			Option<Result<TransformerChangedFile, Error>>,
+			i64,
+		);
 		let mut io_stats = SidecarCallStats::default();
 		// An empty stamp map still means no round trip yet. Reverting a dropped overlay stamps the
 		// file it hands back, so a second round trip always has stamps.
@@ -1012,7 +1019,8 @@ impl SidecarSession {
 		}
 		// A build without overlays skips keying every file for a lookup that cannot hit.
 		let overlay_aware = !overlaid.is_empty();
-		for file_name in file_names {
+		let mut candidates: Vec<(usize, String)> = Vec::with_capacity(file_names.len());
+		for (index, file_name) in file_names.iter().enumerate() {
 			let path = gopath::from_slash(file_name).into_owned();
 			if overlay_aware {
 				let key = normalize_overlay_path(&path, case_sensitive);
@@ -1023,28 +1031,54 @@ impl SidecarSession {
 					continue;
 				}
 			}
-			io_stats.stats += 1;
-			let Ok(metadata) = std::fs::metadata(&path) else {
-				continue;
-			};
-			let stamp = SidecarFileStamp::of(&metadata);
-			if !fresh && self.stamps.get(&path) != Some(&stamp) {
-				io_stats.reads += 1;
-				match std::fs::read(&path) {
-					Ok(text) => changed.push(TransformerChangedFile {
-						file_name: path.clone(),
-						text: String::from_utf8_lossy(&text).into_owned(),
-						rebase: None,
-					}),
-					Err(error) => {
-						return (
-							Err(Error::message(rotor_support::gostr::path_error("open", &path, &error))),
-							io_stats,
-						);
+			candidates.push((index, path));
+		}
+		if !candidates.is_empty() {
+			io_stats.stats += count(candidates.len());
+			let stamps = &self.stamps;
+			let chunks = crate::parallelwrite::parallel_fold_with_cutoff(
+				crate::parallelwrite::write_workers(),
+				crate::parallelwrite::WRITE_SYNC_CUTOFF,
+				&candidates,
+				|acc: &mut Vec<EntryResult>, (index, path)| {
+					let Ok(metadata) = std::fs::metadata(path) else {
+						return Ok(());
+					};
+					let stamp = SidecarFileStamp::of(&metadata);
+					let (file_result, did_read) = if !fresh && stamps.get(path) != Some(&stamp) {
+						let res = match std::fs::read(path) {
+							Ok(text) => Ok(TransformerChangedFile {
+								file_name: path.clone(),
+								text: String::from_utf8_lossy(&text).into_owned(),
+								rebase: None,
+							}),
+							Err(error) => Err(Error::message(rotor_support::gostr::path_error("open", path, &error))),
+						};
+						(Some(res), 1)
+					} else {
+						(None, 0)
+					};
+					acc.push((*index, path.clone(), Some(stamp), file_result, did_read));
+					Ok(())
+				},
+			)
+			.unwrap_or_default();
+			let mut flat: Vec<EntryResult> = chunks.into_iter().flatten().collect();
+			if !fresh {
+				flat.sort_by_key(|(index, _, _, _, _)| *index);
+			}
+			for (_, path, stamp, file_result, did_read) in flat {
+				io_stats.reads += did_read;
+				if let Some(res) = file_result {
+					match res {
+						Ok(file) => changed.push(file),
+						Err(error) => return (Err(error), io_stats),
 					}
 				}
+				if let Some(stamp) = stamp {
+					self.stamps.insert(path, stamp);
+				}
 			}
-			self.stamps.insert(path, stamp);
 		}
 		io_stats.changed_files = count(changed.len());
 		(Ok(changed), io_stats)
@@ -1679,20 +1713,33 @@ pub(crate) fn merge_sidecar_overlays(
 			return (merged, 0);
 		}
 	}
+	let candidates: Vec<P<SourceFile>> = compile_files
+		.iter()
+		.copied()
+		.filter(|file| !has_overlay(&merged, &normalized, file.file_name()))
+		.collect();
+	let chunks = crate::parallelwrite::parallel_fold_with_cutoff(
+		crate::parallelwrite::write_workers(),
+		crate::parallelwrite::WRITE_SYNC_CUTOFF,
+		&candidates,
+		|acc: &mut (i64, Vec<(String, String)>), &file| {
+			acc.0 += 1;
+			let Ok(on_disk) = std::fs::read(file.file_name()) else {
+				return Ok(());
+			};
+			if file.text().as_bytes() != on_disk.as_slice() {
+				acc.1.push((file.file_name().to_owned(), file.text().to_owned()));
+			}
+			Ok(())
+		},
+	)
+	.unwrap_or_default();
 	let mut reads = 0;
-	for file in compile_files {
-		if has_overlay(&merged, &normalized, file.file_name()) {
-			continue;
+	for (chunk_reads, diffs) in chunks {
+		reads += chunk_reads;
+		for (name, text) in diffs {
+			merged.insert(name, text);
 		}
-		let on_disk = std::fs::read(file.file_name());
-		reads += 1;
-		let Ok(on_disk) = on_disk else {
-			continue;
-		};
-		if file.text().as_bytes() == on_disk.as_slice() {
-			continue;
-		}
-		merged.insert(file.file_name().to_owned(), file.text().to_owned());
 	}
 	(merged, reads)
 }

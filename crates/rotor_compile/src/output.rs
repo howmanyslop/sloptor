@@ -9,6 +9,7 @@ use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use rayon::prelude::*;
 use rotor_rojo::{PathTranslator, RojoResolverCache};
 use rotor_support::{fsutil, gopath, gostr, logservice};
 use rotor_tsrs::ast::SourceFile;
@@ -41,11 +42,11 @@ use crate::parallelwrite::{WRITE_SYNC_CUTOFF, parallel_fold_with_cutoff, write_w
 use crate::project::{
 	ProjectOptions, create_path_translator, get_root_dirs, lock, new_project_context_with_import_context,
 	new_project_program_with_options, project_is_package, project_is_package_cached, project_source_files,
-	resolve_include_path, resolve_rojo_config_path, resolve_rojo_config_path_cached, run_work_group,
+	resolve_include_path, resolve_rojo_config_path, resolve_rojo_config_path_cached,
 };
 use crate::rotortypes::{ROTOR_TYPES_FILE_NAME, write_rotor_types};
 use crate::sidecar::project_uses_transformer_plugins;
-use crate::source_trace_sourcemap::{rewrite_source_map_paths, rewrite_source_map_with_trace};
+use crate::source_trace_sourcemap::rewrite_source_map;
 use crate::timings::{Stage, start_stage};
 
 /// `BuildResult`: what a build wrote and owns.
@@ -192,7 +193,7 @@ fn build_project_in_scope(project_dir: &str, mut opts: ProjectOptions) -> Result
 	};
 	if !opts.emit_declaration_only {
 		match prepare_package_layout(&dir, &program.options(), &opts) {
-			Ok(layout) => opts.package_layout = layout.map(Arc::new),
+			Ok(layout) => opts.package_layout = layout,
 			Err(error) => {
 				stop_manifest.stop();
 				return Err(error.into());
@@ -524,7 +525,7 @@ fn build_after_copy(
 	let prefetched = pipeline_opts
 		.declaration_prefetch
 		.as_ref()
-		.and_then(|prefetch| prefetch.result());
+		.and_then(|prefetch| prefetch.take_result());
 	let declarations = match prefetched {
 		Some(prefetched) => Some(prefetched.map_err(declaration_build_failure)?),
 		None => signature_declarations,
@@ -536,6 +537,7 @@ fn build_after_copy(
 	// Declarations and compiled outputs are disjoint files, so they write together; a compiled
 	// output failure still reports first. Skip spawning a thread when declarations are disabled.
 	let (write_result, declaration_result) = if original_program.options().get_emit_declarations() {
+		let half_workers = (write_workers() / 2).max(1);
 		rotor_tsrs::threads::scope(|scope| {
 			let declarations_written = scope.spawn(|| {
 				let stop = start_stage(timings, Stage::DeclarationEmitWrites);
@@ -545,6 +547,7 @@ fn build_after_copy(
 					declarations,
 					opts.write_only_changed,
 					writer,
+					half_workers,
 					timings,
 				);
 				stop.stop();
@@ -558,6 +561,7 @@ fn build_after_copy(
 				&source_maps,
 				&prepared.source_traces,
 				writer,
+				half_workers,
 				timings,
 			);
 			let declaration_result = declarations_written
@@ -575,6 +579,7 @@ fn build_after_copy(
 				&source_maps,
 				&prepared.source_traces,
 				writer,
+				write_workers(),
 				timings,
 			),
 			Ok(Vec::new()),
@@ -623,6 +628,9 @@ fn build_after_copy(
 	// them from disk (`RojoResolverCache::refresh`).
 	let refresh_rojo_cache =
 		!(selected_files.is_empty() && copy_files_gate.skip_cleanup && copy_files_gate.skip_copy_files);
+	if refresh_rojo_cache && let Some(cache) = &opts.compile_cache {
+		cache.note_project_wrote();
+	}
 	current_manifest.outputs = current_outputs;
 	// rotor extension: keep the rotor.d.ts editor companion fresh for macro users.
 	let mut wrote_rotor_types = false;
@@ -694,7 +702,13 @@ fn build_after_copy(
 }
 
 /// The compiled output and source map writes, fanned out across the write workers.
-type PlannedOutputJobs = (Vec<String>, Vec<(String, String, Option<String>)>);
+type PlannedOutputEntry = (
+	String,
+	String,
+	Option<String>,
+	Option<Arc<crate::source_trace::SourceTraceMap>>,
+);
+type PlannedOutputJobs = (Vec<String>, Vec<PlannedOutputEntry>);
 
 fn prepare_compiled_output_jobs(
 	dir: &str,
@@ -704,7 +718,7 @@ fn prepare_compiled_output_jobs(
 	source_maps: &BTreeMap<String, String>,
 	source_traces: &crate::source_trace::DiagnosticTraces,
 	timings: Option<&crate::timings::BuildTimings>,
-) -> Result<PlannedOutputJobs, Error> {
+) -> PlannedOutputJobs {
 	let mut rel_outs: Vec<(String, P<SourceFile>)> = Vec::with_capacity(outputs.len());
 	for &file in selected_files {
 		let rel_out = output_path_relative_to_dir(dir, &path_translator.get_output_path(file.file_name()));
@@ -713,30 +727,30 @@ fn prepare_compiled_output_jobs(
 		}
 	}
 	let mut write_paths = Vec::with_capacity(rel_outs.len() * 2);
-	let mut planned: Vec<(String, String, Option<String>)> = Vec::with_capacity(rel_outs.len());
+	let mut planned: Vec<PlannedOutputEntry> = Vec::with_capacity(rel_outs.len());
 	for (rel_out, file) in &rel_outs {
 		let abs_out = gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]);
-		let mut source_map = source_maps.get(&format!("{rel_out}.map")).cloned();
-		if let Some(map) = &mut source_map {
+		let raw_source_map = source_maps.get(&format!("{rel_out}.map")).cloned();
+		let trace = if raw_source_map.is_some() {
 			if let Some(timings) = timings {
 				timings.add_scheduled_source_map_write();
 			}
-			if let Some(trace) = source_traces.get(file.file_name()) {
-				*map = rewrite_source_map_with_trace(map, trace).map_err(Error::Message)?;
-			}
-			*map = rewrite_source_map_paths(map, &abs_out).map_err(Error::Message)?;
-		}
+			source_traces.get(file.file_name()).cloned()
+		} else {
+			None
+		};
 		write_paths.push(abs_out.clone());
-		if source_map.is_some() {
+		if raw_source_map.is_some() {
 			write_paths.push(format!("{abs_out}.map"));
 		}
-		planned.push((rel_out.clone(), abs_out, source_map));
+		planned.push((rel_out.clone(), abs_out, raw_source_map, trace));
 	}
-	Ok((write_paths, planned))
+	(write_paths, planned)
 }
 
 #[expect(
 	clippy::too_many_arguments,
+	clippy::too_many_lines,
 	reason = "the write half of Go's BuildProjectWithOptions"
 )]
 fn write_compiled_outputs(
@@ -747,6 +761,7 @@ fn write_compiled_outputs(
 	source_maps: &BTreeMap<String, String>,
 	source_traces: &crate::source_trace::DiagnosticTraces,
 	writer: &OutputWriter,
+	write_concurrency: usize,
 	timings: Option<&crate::timings::BuildTimings>,
 ) -> Result<Vec<String>, Error> {
 	let stop = start_stage(timings, Stage::CompiledOutputWrites);
@@ -759,32 +774,39 @@ fn write_compiled_outputs(
 			source_maps,
 			source_traces,
 			timings,
-		)?;
+		);
 		let fresh_dirs = writer.prepare_returning_fresh(&write_paths)?;
 		// Group writes by parent directory so workers do not contend on the same directory
 		// inode lock (APFS); for single-directory projects, fall back to per-file fan-out.
-		let mut by_dir: FxHashMap<String, Vec<usize>> = FxHashMap::default();
-		for (index, (_, abs_out, _)) in planned.iter().enumerate() {
-			by_dir.entry(gopath::dir(abs_out)).or_default().push(index);
+		let mut by_dir: FxHashMap<String, (bool, Vec<usize>)> = FxHashMap::default();
+		for (index, (_, abs_out, _, _)) in planned.iter().enumerate() {
+			let parent = gopath::dir(abs_out);
+			by_dir
+				.entry(parent)
+				.or_insert_with_key(|parent_dir| (fresh_dirs.contains(&writer.dir_key(parent_dir)), Vec::new()))
+				.1
+				.push(index);
 		}
-		let write_one = |index: usize| -> Result<(usize, bool, Vec<WriteOutcome>, Vec<String>), Error> {
-			let (rel_out, abs_out, source_map) = &planned[index];
+		let write_one = |index: usize,
+		                 parent_fresh: bool|
+		 -> Result<(usize, bool, Vec<WriteOutcome>, Vec<String>), Error> {
+			let (rel_out, abs_out, raw_source_map, trace) = &planned[index];
 			assert_local_output_path(rel_out)?;
-			let parent_fresh = fresh_dirs.contains(&writer.dir_key(&gopath::dir(abs_out)));
 			let text = outputs.get(rel_out).map_or(&[][..], Vec::as_slice);
-			let mut outcomes = Vec::with_capacity(1 + usize::from(source_map.is_some()));
-			let mut recorded_paths = Vec::with_capacity(1 + usize::from(source_map.is_some()));
+			let mut outcomes = Vec::with_capacity(1 + usize::from(raw_source_map.is_some()));
+			let mut recorded_paths = Vec::with_capacity(1 + usize::from(raw_source_map.is_some()));
 			let main_outcome = writer.write_prepared_keyed_with_fresh(abs_out, rel_out, text, parent_fresh)?;
 			let main_wrote = main_outcome.wrote;
 			if main_wrote && timings.is_some() {
 				recorded_paths.push(abs_out.clone());
 			}
 			outcomes.push(main_outcome);
-			if let Some(source_map) = source_map {
+			if let Some(raw_map) = raw_source_map {
+				let rewritten = rewrite_source_map(raw_map, trace.as_deref(), abs_out).map_err(Error::Message)?;
 				let map_path = format!("{abs_out}.map");
 				let map_key = format!("{rel_out}.map");
 				let map_outcome =
-					writer.write_prepared_keyed_with_fresh(&map_path, &map_key, source_map.as_bytes(), parent_fresh)?;
+					writer.write_prepared_keyed_with_fresh(&map_path, &map_key, rewritten.as_bytes(), parent_fresh)?;
 				if map_outcome.wrote && timings.is_some() {
 					recorded_paths.push(map_path);
 				}
@@ -796,14 +818,14 @@ fn write_compiled_outputs(
 		let mut all_outcomes = Vec::with_capacity(write_paths.len());
 		let mut recorded_paths = Vec::new();
 		if by_dir.len() >= 2 {
-			let groups: Vec<Vec<usize>> = by_dir.into_values().collect();
+			let groups: Vec<(bool, Vec<usize>)> = by_dir.into_values().collect();
 			let chunks = parallel_fold_with_cutoff(
-				write_workers(),
+				write_concurrency,
 				1,
 				&groups,
-				|acc: &mut Vec<(usize, bool, Vec<WriteOutcome>, Vec<String>)>, group| {
+				|acc: &mut Vec<(usize, bool, Vec<WriteOutcome>, Vec<String>)>, (parent_fresh, group)| {
 					for &index in group {
-						acc.push(write_one(index)?);
+						acc.push(write_one(index, *parent_fresh)?);
 					}
 					Ok(())
 				},
@@ -816,13 +838,14 @@ fn write_compiled_outputs(
 				}
 			}
 		} else {
+			let single_parent_fresh = by_dir.values().next().is_some_and(|(fresh, _)| *fresh);
 			let indices: Vec<usize> = (0..planned.len()).collect();
 			let chunks = parallel_fold_with_cutoff(
-				write_workers().min(4),
+				write_concurrency.min(4),
 				WRITE_SYNC_CUTOFF,
 				&indices,
 				|acc: &mut Vec<(usize, bool, Vec<WriteOutcome>, Vec<String>)>, &index| {
-					acc.push(write_one(index)?);
+					acc.push(write_one(index, single_parent_fresh)?);
 					Ok(())
 				},
 			)?;
@@ -844,7 +867,7 @@ fn write_compiled_outputs(
 			.iter()
 			.zip(wrote)
 			.filter(|(_, wrote)| *wrote)
-			.map(|((rel_out, _, _), _)| gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]))
+			.map(|((rel_out, _, _, _), _)| gopath::join(&[&gopath::from_slash(dir), &gopath::from_slash(rel_out)]))
 			.collect())
 	})();
 	stop.stop();
@@ -881,7 +904,15 @@ fn build_declarations_only(
 		)?;
 	}
 	let stop = start_stage(timings, Stage::DeclarationEmitWrites);
-	let emitted = emit_declarations(program, None, None, opts.write_only_changed, writer, timings);
+	let emitted = emit_declarations(
+		program,
+		None,
+		None,
+		opts.write_only_changed,
+		writer,
+		write_workers(),
+		timings,
+	);
 	stop.stop();
 	let emitted = emitted.map_err(declaration_build_failure)?;
 	if let Some(timings) = timings {
@@ -968,10 +999,10 @@ fn abandoned(abandon: Option<&AtomicBool>) -> bool {
 	abandon.is_some_and(|abandon| abandon.load(Ordering::Relaxed))
 }
 
-/// `emitDeclarationTextsUntil`: setting `abandon` stops it between files.
+/// `emitDeclarationTextsUntil`: setting `abandon` stops it between chunks.
 ///
-/// Checker state one file's emit leaves shapes the next file's text, so each checker emits its
-/// files serially in program order; checkers share no state, so the groups run concurrently.
+/// Batches `program.emit` so `tsrs`'s internal checker-group / print pipeline runs once across all
+/// target files instead of spawning a nested Rayon scope per file.
 pub(crate) fn emit_declaration_texts_until(
 	program: &'static Program,
 	files: &[P<SourceFile>],
@@ -983,91 +1014,71 @@ pub(crate) fn emit_declaration_texts_until(
 	let rewriter = DeclarationPathRewriter::new(program);
 	let order = declaration_emit_order(program, files);
 	let ordered: Vec<P<SourceFile>> = order.iter().map(|&index| files[index]).collect();
+	let mut index_by_source: FxHashMap<P<SourceFile>, usize> =
+		FxHashMap::with_capacity_and_hasher(files.len(), rustc_hash::FxBuildHasher);
+	for (index, &file) in files.iter().enumerate() {
+		index_by_source.insert(file, index);
+	}
+	let per_file_outputs: Vec<Mutex<Vec<DeclarationEmitFile>>> =
+		(0..files.len()).map(|_| Mutex::new(Vec::new())).collect();
+	let chunk_size = if abandon.is_some() { 128 } else { ordered.len().max(1) };
 	let context = Context::default();
-	let groups = group_by_checker(&context, program, &ordered);
-	let single_threaded = program.single_threaded() || groups.len() <= 1;
-	let per_group = run_work_group(single_threaded, groups.len(), |group_index| {
-		let mut emitted: Vec<(usize, FileEmit)> = Vec::new();
-		for &ordered_index in &groups[group_index] {
-			if abandoned(abandon) {
-				break;
-			}
-			let index = order[ordered_index];
-			emitted.push((index, emit_file(program, rewriter.as_ref(), files[index])));
+	let mut diagnostics: Vec<DiagnosticInfo> = Vec::new();
+	for chunk in ordered.chunks(chunk_size) {
+		if abandoned(abandon) {
+			break;
 		}
-		emitted
-	});
+		let write_file = |file_name: &str, text: &str, data: &mut rotor_tsrs::compiler::WriteFileData| {
+			let Some(source_file) = data.source_file else {
+				return Err("compile: declaration write callback missing source file".to_owned());
+			};
+			let Some(&file_index) = index_by_source.get(&source_file) else {
+				return Err("compile: declaration write callback received unexpected source file".to_owned());
+			};
+			lock(&per_file_outputs[file_index]).push(DeclarationEmitFile {
+				file_name: file_name.to_owned(),
+				text: text.to_owned(),
+			});
+			Ok(())
+		};
+		let result = program.emit(
+			&context,
+			&rotor_tsrs::compiler::EmitOptions {
+				target_source_files: Some(chunk.to_vec()),
+				emit_only: EmitOnly::EmitOnlyDts,
+				force_emit: false,
+				write_file: Some(&write_file),
+			},
+		);
+		if !result.diagnostics.is_empty() {
+			diagnostics.extend(ts_diagnostic_infos(
+				&result.diagnostics,
+				&crate::source_trace::DiagnosticTraces::default(),
+			));
+		}
+	}
 	if abandoned(abandon) {
 		return Err(Error::message(DECLARATION_EMIT_ABANDONED));
 	}
-	let mut per_file: Vec<Option<FileEmit>> = vec![None; files.len()];
-	for (index, result) in per_group.into_iter().flatten() {
-		per_file[index] = Some(result);
-	}
-	let diagnostics: Vec<DiagnosticInfo> = per_file
-		.iter()
-		.flatten()
-		.filter_map(|result| result.as_ref().err())
-		.flatten()
-		.cloned()
-		.collect();
 	if !diagnostics.is_empty() {
 		return Err(Error::DeclarationEmitDiagnostics(diagnostics));
 	}
-	Ok(per_file.into_iter().flatten().flatten().flatten().collect())
-}
-
-/// One file's declaration emit with the rewrites applied, or its emit diagnostics.
-type FileEmit = Result<Vec<DeclarationEmitFile>, Vec<DiagnosticInfo>>;
-
-/// One file's [`FileEmit`].
-fn emit_file(
-	program: &'static Program,
-	rewriter: Option<&DeclarationPathRewriter>,
-	source_file: P<SourceFile>,
-) -> FileEmit {
-	let pending: Mutex<Vec<DeclarationEmitFile>> = Mutex::new(Vec::new());
-	let write_file = |file_name: &str, text: &str, _data: &mut rotor_tsrs::compiler::WriteFileData| {
-		lock(&pending).push(DeclarationEmitFile {
-			file_name: file_name.to_owned(),
-			text: text.to_owned(),
-		});
-		Ok(())
-	};
-	let result = program.emit(
-		&Context::default(),
-		&rotor_tsrs::compiler::EmitOptions {
-			target_source_files: Some(vec![source_file]),
-			emit_only: EmitOnly::EmitOnlyDts,
-			force_emit: false,
-			write_file: Some(&write_file),
-		},
-	);
-	if !result.diagnostics.is_empty() {
-		return Err(ts_diagnostic_infos(
-			&result.diagnostics,
-			&crate::source_trace::DiagnosticTraces::default(),
-		));
+	let mut per_file: Vec<Vec<DeclarationEmitFile>> = per_file_outputs
+		.into_iter()
+		.map(|slot| slot.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner))
+		.collect();
+	if files.len() >= 32 && !program.single_threaded() && rayon::current_num_threads() > 1 {
+		let rewriter = rewriter.as_ref();
+		per_file
+			.par_iter_mut()
+			.enumerate()
+			.for_each(|(index, emitted)| rewrite_declaration_emit(rewriter, files[index], emitted));
+	} else {
+		for (index, emitted) in per_file.iter_mut().enumerate() {
+			rewrite_declaration_emit(rewriter.as_ref(), files[index], emitted);
+		}
 	}
-	let mut pending = pending.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-	rewrite_declaration_emit(rewriter, source_file, &mut pending);
-	Ok(pending)
-}
-
-/// The groups of indices into `files` that one checker checks, groups in order of their first
-/// file (`groupSourceFilesByChecker`).
-fn group_by_checker(context: &Context, program: &'static Program, files: &[P<SourceFile>]) -> Vec<Vec<usize>> {
-	let mut groups_by_checker: HashMap<u32, usize> = HashMap::new();
-	let mut groups: Vec<Vec<usize>> = Vec::new();
-	for (index, &file) in files.iter().enumerate() {
-		let key = program.get_type_checker_for_file_exclusive(context, file).id;
-		let group = *groups_by_checker.entry(key).or_insert_with(|| {
-			groups.push(Vec::new());
-			groups.len() - 1
-		});
-		groups[group].push(index);
-	}
-	groups
+	Ok(per_file.into_iter().flatten().collect())
 }
 
 /// `declarationEmitOrder`: indices of `files` sorted stably by their position in the program.
@@ -1099,16 +1110,16 @@ fn rewrite_declaration_emit(
 		if !emitted[index].file_name.ends_with(tspath::EXTENSION_DTS) {
 			continue;
 		}
-		let original = emitted[index].text.clone();
-		let mut edits = type_reference_edits(&original);
+		let mut edits = type_reference_edits(&emitted[index].text);
 		if let Some(rewriter) = rewriter {
-			edits.extend(rewriter.specifier_edits(source_file, &emitted[index].file_name, &original));
+			edits.extend(rewriter.specifier_edits(source_file, &emitted[index].file_name, &emitted[index].text));
 		}
 		let edits = non_overlapping_text_edits(edits);
 		if edits.is_empty() {
 			continue;
 		}
-		emitted[index].text = apply_text_edits(&original, &edits);
+		let rewritten = apply_text_edits(&emitted[index].text, &edits);
+		let original = std::mem::replace(&mut emitted[index].text, rewritten);
 		let map_name = format!("{}.map", emitted[index].file_name);
 		for entry in emitted.iter_mut() {
 			if entry.file_name == map_name {
@@ -1120,7 +1131,7 @@ fn rewrite_declaration_emit(
 
 /// `emitsDeclarationOutput`
 pub(crate) fn emits_declaration_output(source_file: P<SourceFile>) -> bool {
-	!source_file.is_declaration_file() && is_compilable_file(source_file.file_name())
+	!source_file.is_declaration_file() && is_compilable_file_extension(source_file.file_name())
 }
 
 /// `declarationEmitSourceFiles`: the compilable sources, narrowed to `selected_paths`.
@@ -1145,6 +1156,7 @@ pub(crate) fn emit_declarations(
 	pre_emitted: Option<Vec<DeclarationEmitFile>>,
 	write_only_changed: bool,
 	writer: &OutputWriter,
+	write_concurrency: usize,
 	timings: Option<&crate::timings::BuildTimings>,
 ) -> Result<Vec<String>, Error> {
 	// Checked before the stage timer so a project without declarations reports no stage.
@@ -1163,7 +1175,7 @@ pub(crate) fn emit_declarations(
 		stop.stop();
 		emitted?
 	};
-	write_declaration_files(&emitted, write_only_changed, writer, timings)
+	write_declaration_files(&emitted, write_only_changed, writer, write_concurrency, timings)
 }
 
 /// `writeDeclarationFiles`: the write half of the declaration emit. tsrs's write callback data
@@ -1173,6 +1185,7 @@ fn write_declaration_files(
 	emitted: &[DeclarationEmitFile],
 	_write_only_changed: bool,
 	writer: &OutputWriter,
+	write_concurrency: usize,
 	timings: Option<&crate::timings::BuildTimings>,
 ) -> Result<Vec<String>, Error> {
 	if emitted.is_empty() {
@@ -1188,14 +1201,18 @@ fn write_declaration_files(
 	}
 	let keys: Vec<String> = paths.iter().map(|path| writer.output_key(path)).collect();
 	let fresh_dirs = writer.prepare_returning_fresh(&paths)?;
-	let mut by_dir: FxHashMap<String, Vec<usize>> = FxHashMap::default();
+	let mut by_dir: FxHashMap<String, (bool, Vec<usize>)> = FxHashMap::default();
 	for (index, path) in paths.iter().enumerate() {
-		by_dir.entry(gopath::dir(path)).or_default().push(index);
+		let parent = gopath::dir(path);
+		by_dir
+			.entry(parent)
+			.or_insert_with_key(|parent_dir| (fresh_dirs.contains(&writer.dir_key(parent_dir)), Vec::new()))
+			.1
+			.push(index);
 	}
-	let write_one = |index: usize| -> Result<(usize, bool, WriteOutcome), Error> {
+	let write_one = |index: usize, parent_fresh: bool| -> Result<(usize, bool, WriteOutcome), Error> {
 		let path = &paths[index];
 		let key = &keys[index];
-		let parent_fresh = fresh_dirs.contains(&writer.dir_key(&gopath::dir(path)));
 		let outcome =
 			writer.write_prepared_keyed_with_fresh(path, key, emitted[index].text.as_bytes(), parent_fresh)?;
 		let wrote = outcome.wrote;
@@ -1204,14 +1221,14 @@ fn write_declaration_files(
 	let mut wrote = vec![false; emitted.len()];
 	let mut all_outcomes = Vec::with_capacity(emitted.len());
 	if by_dir.len() >= 2 {
-		let groups: Vec<Vec<usize>> = by_dir.into_values().collect();
+		let groups: Vec<(bool, Vec<usize>)> = by_dir.into_values().collect();
 		let chunks = parallel_fold_with_cutoff(
-			write_workers(),
+			write_concurrency,
 			1,
 			&groups,
-			|acc: &mut Vec<(usize, bool, WriteOutcome)>, group| {
+			|acc: &mut Vec<(usize, bool, WriteOutcome)>, (parent_fresh, group)| {
 				for &index in group {
-					acc.push(write_one(index)?);
+					acc.push(write_one(index, *parent_fresh)?);
 				}
 				Ok(())
 			},
@@ -1223,13 +1240,14 @@ fn write_declaration_files(
 			}
 		}
 	} else {
+		let single_parent_fresh = by_dir.values().next().is_some_and(|(fresh, _)| *fresh);
 		let indices: Vec<usize> = (0..emitted.len()).collect();
 		let chunks = parallel_fold_with_cutoff(
-			write_workers().min(4),
+			write_concurrency.min(4),
 			WRITE_SYNC_CUTOFF,
 			&indices,
 			|acc: &mut Vec<(usize, bool, WriteOutcome)>, &index| {
-				acc.push(write_one(index)?);
+				acc.push(write_one(index, single_parent_fresh)?);
 				Ok(())
 			},
 		)?;
@@ -1530,11 +1548,6 @@ fn path_contains(parent: &str, child: &str) -> bool {
 )]
 pub(crate) fn is_compilable_file_extension(path: &str) -> bool {
 	!path.ends_with(".d.ts") && (path.ends_with(".ts") || path.ends_with(".tsx"))
-}
-
-/// `isCompilableFile`: an existing `.ts`/`.tsx` file that is not a declaration.
-pub(crate) fn is_compilable_file(path: &str) -> bool {
-	is_compilable_file_extension(path) && fs::metadata(path).is_ok_and(|info| !info.is_dir())
 }
 
 /// Go's diagnostics-as-strings view of a failed build.

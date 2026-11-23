@@ -165,7 +165,7 @@ fn run_body(args: &BuildArgs, streams: &mut Streams) -> Result<(), Failure> {
 	logservice::set_verbose(opts.verbose);
 	let dir = gopath::dir(&ts_config_path);
 	let mut options = project_compile_options(&ts_config_path, &opts);
-	if !args.build && cfg!(not(test)) {
+	if cfg!(not(test)) {
 		options.leak_program_on_exit = true;
 	}
 	let timings = (!args.timings.is_empty()).then(|| {

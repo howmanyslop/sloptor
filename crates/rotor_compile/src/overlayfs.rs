@@ -10,8 +10,10 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use rotor_support::{fsutil, gopath};
 use rotor_tsrs::compiler::Program;
+use rustc_hash::FxHashMap;
 
 use crate::compile::Error;
+use crate::parallelwrite::{parallel_fold_with_cutoff, write_workers};
 use crate::project::ProjectOptions;
 use crate::sidecar::normalize_overlay_path;
 
@@ -30,6 +32,77 @@ pub(crate) fn canonical_existing_overlay_path(path: &str, case_sensitive: bool) 
 	Some(normalize_overlay_path(&resolved, case_sensitive))
 }
 
+/// Resolves the physical, normalized path of each existing absolute path in `paths`, grouping by
+/// parent directory so `eval_symlinks` and `read_dir` run once per unique parent instead of
+/// `eval_symlinks` per file.
+pub(crate) fn resolve_overlay_physical_paths(paths: &[&str], case_sensitive: bool) -> Vec<Option<String>> {
+	let mut results = vec![None; paths.len()];
+	let mut by_parent: FxHashMap<String, Vec<(usize, String)>> = FxHashMap::default();
+	for (index, &path) in paths.iter().enumerate() {
+		let norm = normalize_overlay_path(path, case_sensitive);
+		if !gopath::is_abs(&norm) {
+			continue;
+		}
+		let parent = gopath::dir(&norm);
+		let base = gopath::base(&norm);
+		by_parent.entry(parent).or_default().push((index, base));
+	}
+	let groups: Vec<(String, Vec<(usize, String)>)> = by_parent.into_iter().collect();
+	let chunks = parallel_fold_with_cutoff(
+		write_workers(),
+		8,
+		&groups,
+		|acc: &mut Vec<(usize, Option<String>)>, (parent, entries)| {
+			let Ok(physical_parent) = fsutil::eval_symlinks(parent) else {
+				return Ok(());
+			};
+			let Ok(dir_entries) = std::fs::read_dir(&physical_parent) else {
+				for (index, _) in entries {
+					acc.push((*index, canonical_existing_overlay_path(paths[*index], case_sensitive)));
+				}
+				return Ok(());
+			};
+			let mut by_name: FxHashMap<String, (String, bool)> = FxHashMap::default();
+			for entry in dir_entries.flatten() {
+				let exact = entry.file_name().to_string_lossy().into_owned();
+				let regular_non_link = entry
+					.file_type()
+					.is_ok_and(|ft| !ft.is_symlink() && (ft.is_file() || ft.is_dir()));
+				let lookup = if case_sensitive {
+					exact.clone()
+				} else {
+					exact.to_lowercase()
+				};
+				by_name.insert(lookup, (exact, regular_non_link));
+			}
+			for (index, base) in entries {
+				let lookup = if case_sensitive {
+					base.clone()
+				} else {
+					base.to_lowercase()
+				};
+				let resolved = match by_name.get(&lookup) {
+					Some((exact, true)) => Some(normalize_overlay_path(
+						&gopath::join(&[&physical_parent, exact]),
+						case_sensitive,
+					)),
+					Some((_, false)) => canonical_existing_overlay_path(paths[*index], case_sensitive),
+					None => None,
+				};
+				acc.push((*index, resolved));
+			}
+			Ok(())
+		},
+	)
+	.unwrap_or_default();
+	for chunk in chunks {
+		for (index, resolved) in chunk {
+			results[index] = resolved;
+		}
+	}
+	results
+}
+
 /// `overlayAliases`: the overlay set expanded once by physical path, and by config-relative
 /// spellings under the config directory.
 #[must_use]
@@ -44,9 +117,17 @@ pub fn overlay_aliases(
 	}
 	let config_dir = gopath::dir(&gopath::from_slash(config_path));
 	let canonical_config_dir = fsutil::eval_symlinks(&config_dir);
-	for (path, text) in overlays {
+	let keys: Vec<&str> = overlays.keys().map(String::as_str).collect();
+	let physicals = if keys.len() >= 2 {
+		resolve_overlay_physical_paths(&keys, case_sensitive)
+	} else {
+		keys.iter()
+			.map(|path| canonical_existing_overlay_path(path, case_sensitive))
+			.collect()
+	};
+	for ((path, text), physical) in overlays.iter().zip(physicals) {
 		aliases.insert(normalize_overlay_path(path, case_sensitive), text.clone());
-		if let Some(physical) = canonical_existing_overlay_path(path, case_sensitive) {
+		if let Some(physical) = physical {
 			aliases.insert(physical.clone(), text.clone());
 			if let Ok(canonical_config_dir) = &canonical_config_dir
 				&& let Ok(relative) = gopath::rel(canonical_config_dir, &gopath::from_slash(&physical))

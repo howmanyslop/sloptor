@@ -69,29 +69,82 @@ impl RawSourceMap {
 			.string("mappings", &self.mappings)
 			.finish()
 	}
+	fn rewrite_paths(&mut self, generated_file_name: &str) {
+		let generated_file_name = tspath::normalize_path(generated_file_name);
+		let generated_directory = tspath::get_directory_path(&generated_file_name);
+		let options = tspath::ComparePathsOptions {
+			use_case_sensitive_file_names: rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names(),
+			current_directory: String::new(),
+		};
+		self.file = tspath::get_base_file_name(&generated_file_name);
+		if let Some(sources) = &mut self.sources {
+			for source in sources {
+				*source = tspath::get_relative_path_to_directory_or_url(
+					&generated_directory,
+					&tspath::normalize_path(source),
+					true,
+					&options,
+				);
+			}
+		}
+	}
+
+	fn apply_trace(&mut self, trace: &SourceTraceMap) -> Result<(), String> {
+		let mut mappings: Vec<EmittedMapping> = Vec::new();
+		let mut decoder = rotor_tsrs::sourcemap::decode_mappings(&self.mappings);
+		for mapping in decoder.values() {
+			let mut emitted = EmittedMapping {
+				generated_line: mapping.generated_line as usize,
+				generated_column: mapping.generated_character as usize,
+				source: None,
+			};
+			if mapping.is_source_mapping()
+				&& let (Some(line), Some(column)) = (mapping.source_line, mapping.source_character)
+			{
+				emitted.source = trace.original_position(SourcePosition {
+					line: line as usize,
+					column: column as usize,
+				});
+			}
+			if let Some(previous) = mappings.last()
+				&& previous.generated_line == emitted.generated_line
+				&& previous.source == emitted.source
+			{
+				continue;
+			}
+			mappings.push(emitted);
+		}
+		if let Some(error) = decoder.error() {
+			return Err(format!("parse Luau source map mappings: {error}"));
+		}
+		self.sources = Some(vec![trace.original_source_file_name().to_owned()]);
+		self.sources_content = Some(vec![trace.original_source_text().to_owned()]);
+		self.mappings = encode_emitted_mappings(&mappings);
+		Ok(())
+	}
+}
+
+/// Parses `raw` once, optionally composes `trace`, rewrites source paths relative to
+/// `generated_file_name`, and encodes the resulting V3 source map.
+pub(crate) fn rewrite_source_map(
+	raw: &str,
+	trace: Option<&SourceTraceMap>,
+	generated_file_name: &str,
+) -> Result<String, String> {
+	let mut source_map = RawSourceMap::parse(raw)?;
+	if let Some(trace) = trace {
+		source_map.apply_trace(trace)?;
+	}
+	source_map.rewrite_paths(generated_file_name);
+	Ok(source_map.encode())
 }
 
 /// `rewriteSourceMapPaths`: `file` becomes the output's base name and each source relative to
 /// the output's directory, as TypeScript's source-map generator does.
+#[cfg(test)]
 pub(crate) fn rewrite_source_map_paths(raw: &str, generated_file_name: &str) -> Result<String, String> {
 	let mut source_map = RawSourceMap::parse(raw)?;
-	let generated_file_name = tspath::normalize_path(generated_file_name);
-	let generated_directory = tspath::get_directory_path(&generated_file_name);
-	let options = tspath::ComparePathsOptions {
-		use_case_sensitive_file_names: rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names(),
-		current_directory: String::new(),
-	};
-	source_map.file = tspath::get_base_file_name(&generated_file_name);
-	if let Some(sources) = &mut source_map.sources {
-		for source in sources {
-			*source = tspath::get_relative_path_to_directory_or_url(
-				&generated_directory,
-				&tspath::normalize_path(source),
-				true,
-				&options,
-			);
-		}
-	}
+	source_map.rewrite_paths(generated_file_name);
 	Ok(source_map.encode())
 }
 
@@ -104,38 +157,10 @@ pub(crate) struct EmittedMapping {
 }
 
 /// `rewriteSourceMapWithTrace`: maps every source position through `trace` to the original file.
+#[cfg(test)]
 pub(crate) fn rewrite_source_map_with_trace(raw: &str, trace: &SourceTraceMap) -> Result<String, String> {
 	let mut source_map = RawSourceMap::parse(raw)?;
-	let mut mappings: Vec<EmittedMapping> = Vec::new();
-	let mut decoder = rotor_tsrs::sourcemap::decode_mappings(&source_map.mappings);
-	for mapping in decoder.values() {
-		let mut emitted = EmittedMapping {
-			generated_line: mapping.generated_line as usize,
-			generated_column: mapping.generated_character as usize,
-			source: None,
-		};
-		if mapping.is_source_mapping()
-			&& let (Some(line), Some(column)) = (mapping.source_line, mapping.source_character)
-		{
-			emitted.source = trace.original_position(SourcePosition {
-				line: line as usize,
-				column: column as usize,
-			});
-		}
-		if let Some(previous) = mappings.last()
-			&& previous.generated_line == emitted.generated_line
-			&& previous.source == emitted.source
-		{
-			continue;
-		}
-		mappings.push(emitted);
-	}
-	if let Some(error) = decoder.error() {
-		return Err(format!("parse Luau source map mappings: {error}"));
-	}
-	source_map.sources = Some(vec![trace.original_source_file_name().to_owned()]);
-	source_map.sources_content = Some(vec![trace.original_source_text().to_owned()]);
-	source_map.mappings = encode_emitted_mappings(&mappings);
+	source_map.apply_trace(trace)?;
 	Ok(source_map.encode())
 }
 
@@ -145,7 +170,7 @@ fn to_i64(value: usize) -> i64 {
 
 /// `encodeEmittedMappings`
 pub(crate) fn encode_emitted_mappings(mappings: &[EmittedMapping]) -> String {
-	let mut builder = String::new();
+	let mut builder = String::with_capacity(mappings.len().saturating_mul(6));
 	let mut last_generated_line = 0;
 	let mut last_generated_column = 0;
 	let mut last_source_line = 0;

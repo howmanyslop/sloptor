@@ -526,9 +526,7 @@ pub(crate) fn new_project_context_with_import_context(
 	if needs_transform_import_context {
 		let layout = match &opts.package_layout {
 			Some(layout) => Some(Arc::clone(layout)),
-			None => prepare_package_layout(dir, &options, opts)
-				.map_err(Failure::bare)?
-				.map(Arc::new),
+			None => prepare_package_layout(dir, &options, opts).map_err(Failure::bare)?,
 		};
 		match layout {
 			Some(layout) => {

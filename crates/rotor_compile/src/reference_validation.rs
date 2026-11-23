@@ -274,11 +274,30 @@ pub(crate) fn validate_projects_reference_rojo_paths(
 ) -> Result<(), Error> {
 	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
 	let mut needed = std::collections::HashSet::new();
+	let mut declared_by_ref: HashMap<&str, Option<RbxtsOptions>> = HashMap::new();
 	for project in consumers {
-		needed.insert(project.config_path.as_str());
 		for config_path in &project.direct_references {
+			if !outputs.contains_key(config_path) {
+				continue;
+			}
+			let declared = if let Some(declared) = declared_by_ref.get(config_path.as_str()) {
+				declared.as_ref()
+			} else {
+				let loaded = cached_rbxts_options(cache, config_path)?;
+				declared_by_ref.entry(config_path.as_str()).or_insert(loaded).as_ref()
+			};
+			if declared
+				.and_then(|declared| declared.rojo.as_ref())
+				.is_none_or(String::is_empty)
+			{
+				continue;
+			}
+			needed.insert(project.config_path.as_str());
 			needed.insert(config_path.as_str());
 		}
+	}
+	if needed.is_empty() {
+		return Ok(());
 	}
 	let mut resolvers: HashMap<&str, Arc<RojoResolver>> = HashMap::new();
 	let mut resolver_paths: HashMap<&str, String> = HashMap::new();
@@ -308,7 +327,7 @@ pub(crate) fn validate_projects_reference_rojo_paths(
 			let emitted = outputs.get(config_path);
 			let owner = resolvers.get(config_path.as_str());
 			let consumer = resolvers.get(project.config_path.as_str());
-			let declared = cached_rbxts_options(cache, config_path)?;
+			let declared = declared_by_ref.get(config_path.as_str()).and_then(Option::as_ref);
 			let (Some(paths), Some(owner)) = (emitted, owner) else {
 				continue;
 			};
@@ -316,7 +335,6 @@ pub(crate) fn validate_projects_reference_rojo_paths(
 				continue;
 			}
 			if declared
-				.as_ref()
 				.and_then(|declared| declared.rojo.as_ref())
 				.is_none_or(String::is_empty)
 			{

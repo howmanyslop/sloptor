@@ -2,6 +2,7 @@
 //! dependencies, and the solution build entry point.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Once};
 
 use rotor_support::gopath;
@@ -399,8 +400,10 @@ impl SolutionCoordinator {
 		if let Some(progress) = &progress {
 			progress.set_projects(tasks.len());
 		}
+		let remaining_tasks = AtomicUsize::new(tasks.len());
 		{
 			let coordinator: &Self = self;
+			let remaining_tasks = &remaining_tasks;
 			run_solution_tasks(&tasks, coordinator.builders, |index| -> Result<(), ()> {
 				let config_path = &coordinator.graph.projects[index].config_path;
 				let started = std::time::Instant::now();
@@ -415,7 +418,10 @@ impl SolutionCoordinator {
 					&outcomes,
 					&cache,
 					timings,
+					selection.is_none(),
+					remaining_tasks,
 				);
+				remaining_tasks.fetch_sub(1, Ordering::AcqRel);
 				let failed = outcome.err.is_some();
 				if let Some(progress) = &progress {
 					progress.project_finished(project_event(config_path, &outcome, started.elapsed()));
@@ -616,6 +622,8 @@ impl SolutionCoordinator {
 		outcomes: &[Mutex<DrainOutcome>],
 		cache: &Arc<SolutionCompileCache>,
 		timings: Option<&Arc<BuildTimings>>,
+		whole_solution: bool,
+		remaining_tasks: &AtomicUsize,
 	) -> DrainOutcome {
 		let mut project = self.graph.projects[index].clone();
 		let up_to_date = self
@@ -681,6 +689,8 @@ impl SolutionCoordinator {
 		project.options.pending_solution_dependency_persists = Some(Arc::clone(&dependency_persists));
 		project.options.defer_rojo_cache_persist = true;
 		project.options.compile_cache = Some(Arc::clone(cache));
+		project.options.leak_program_on_exit =
+			project.options.leak_program_on_exit && whole_solution && remaining_tasks.load(Ordering::Acquire) == 1;
 		let drained = match &self.drainer {
 			Drainer::Build(drainer) => drainer.drain(self, &project),
 			Drainer::Census(drainer) => drainer.drain(project.clone()),

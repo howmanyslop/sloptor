@@ -4,7 +4,7 @@
 //! a [`rotor_tsrs::project::SourceFileCache`]; ordinary sources stay project-local.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
 use rotor_support::gopath;
@@ -35,6 +35,9 @@ struct InFlight {
 	landed: Condvar,
 }
 
+type PackageLayoutKey = (Vec<String>, Vec<String>, bool);
+type PackageLayoutMap = HashMap<PackageLayoutKey, Arc<crate::package_layout::PackageLayout>>;
+
 /// `solutionCompileCache`: one per drain.
 #[derive(Default)]
 pub struct SolutionCompileCache {
@@ -42,6 +45,11 @@ pub struct SolutionCompileCache {
 	inflight: Mutex<HashMap<SourceFileParseOptions, Arc<InFlight>>>,
 	hits: AtomicI64,
 	misses: AtomicI64,
+	/// Incremented whenever any project in the solution writes/cleans/copies outputs so downstream
+	/// consumers rebuild [`PackageLayout`] against the updated disk state.
+	write_generation: AtomicU64,
+	package_layouts: Mutex<(u64, PackageLayoutMap)>,
+	inflight_layouts: Mutex<HashMap<(u64, PackageLayoutKey), Arc<InFlight>>>,
 	/// In a long-lived session, the drain's programs parse into these, so the shared parses are
 	/// freed with the drain rather than kept in the thread arenas for good.
 	regions: Option<rotor_tsrs::project::LoaderRegions>,
@@ -121,6 +129,86 @@ impl SolutionCompileCache {
 		}
 		self.misses.fetch_add(1, Ordering::Relaxed);
 		file
+	}
+
+	/// Records that a project in the solution modified outputs on disk, invalidating cached
+	/// [`crate::package_layout::PackageLayout`] entries for subsequent consumers.
+	pub(crate) fn note_project_wrote(&self) {
+		self.write_generation.fetch_add(1, Ordering::AcqRel);
+	}
+
+	/// Returns a cached [`crate::package_layout::PackageLayout`] for `(type_roots,
+	/// custom_conditions, case_sensitive)` at the current write generation, or builds it once.
+	pub(crate) fn get_or_build_package_layout(
+		&self,
+		type_roots: Vec<String>,
+		custom_conditions: Vec<String>,
+		case_sensitive: bool,
+		build: impl FnOnce() -> crate::package_layout::PackageLayout,
+	) -> Arc<crate::package_layout::PackageLayout> {
+		let key = (type_roots, custom_conditions, case_sensitive);
+		let generation = self.write_generation.load(Ordering::Acquire);
+		{
+			let layouts = lock(&self.package_layouts);
+			if layouts.0 == generation
+				&& let Some(layout) = layouts.1.get(&key)
+			{
+				return Arc::clone(layout);
+			}
+		}
+		let inflight_key = (generation, key.clone());
+		let waiting = {
+			let mut inflight = lock(&self.inflight_layouts);
+			let layouts = lock(&self.package_layouts);
+			if layouts.0 == generation
+				&& let Some(layout) = layouts.1.get(&key)
+			{
+				drop(inflight);
+				return Arc::clone(layout);
+			}
+			drop(layouts);
+			let waiting = inflight.get(&inflight_key).map(Arc::clone);
+			if waiting.is_none() {
+				inflight.insert(inflight_key.clone(), Arc::new(InFlight::default()));
+			}
+			waiting
+		};
+		if let Some(waiting) = waiting {
+			let mut done = lock(&waiting.done);
+			while !*done {
+				done = waiting
+					.landed
+					.wait(done)
+					.unwrap_or_else(std::sync::PoisonError::into_inner);
+			}
+			drop(done);
+			if self.write_generation.load(Ordering::Acquire) == generation {
+				let layouts = lock(&self.package_layouts);
+				if layouts.0 == generation
+					&& let Some(layout) = layouts.1.get(&key)
+				{
+					return Arc::clone(layout);
+				}
+			}
+			return Arc::new(build());
+		}
+		let layout = Arc::new(build());
+		if self.write_generation.load(Ordering::Acquire) == generation {
+			let mut layouts = lock(&self.package_layouts);
+			if layouts.0 != generation {
+				layouts.0 = generation;
+				layouts.1.clear();
+			}
+			if self.write_generation.load(Ordering::Acquire) == generation {
+				layouts.1.insert(key, Arc::clone(&layout));
+			}
+		}
+		let landed = lock(&self.inflight_layouts).remove(&inflight_key);
+		if let Some(landed) = landed {
+			*lock(&landed.done) = true;
+			landed.landed.notify_all();
+		}
+		layout
 	}
 }
 
