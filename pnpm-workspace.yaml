@@ -50,6 +50,7 @@ packages:
   - documentation
   - packages/*
   - scripts
+  - testdata/*/project
   - tools/*
 
 overrides:
