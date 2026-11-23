@@ -113,9 +113,12 @@ async function resolveSloptorAsync({
 	return getLocalSloptorBinary();
 }
 
+const WHITESPACE_PATTERN = /\s/u;
+const ESCAPED_DOUBLE_QUOTE = String.raw`\"`;
+
 function quoteForHyperfine(value: string): string {
-	if (!/\s/u.test(value)) return value;
-	return `"${value.replaceAll('"', String.raw`\"`)}"`;
+	if (!WHITESPACE_PATTERN.test(value)) return value;
+	return `"${value.replaceAll('"', () => ESCAPED_DOUBLE_QUOTE)}"`;
 }
 
 function getMachineInfo(): MachineInfo {
