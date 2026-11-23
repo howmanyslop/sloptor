@@ -382,7 +382,7 @@ catalogs:
 overrides:
   '@isentinel/eslint-config>@pobammer-ts/small-rules': 3.11.0
 
-packageExtensionsChecksum: sha256-F23XLkSWhNq0DpO+fgpR8DH9KTUFA7V/k/nUhUVPjok=
+packageExtensionsChecksum: sha256-QWXLKAtyXHBFkOQa9+OZ3ulf54Yy5TpitX+xEmuAvhY=
 
 patchedDependencies:
   '@astrojs/vite-plugin-astro@0.1.3': 1b36cd7dcdd3084135bf023849b7965fb1e1c689aff4966104e4e23d4eae66f8
@@ -570,7 +570,7 @@ importers:
     devDependencies:
       '@astrojs/check':
         specifier: catalog:frontend
-        version: 0.9.10(@emnapi/runtime@2.0.0-beta.2)(prettier@3.9.10)(typescript@6.0.2)
+        version: 0.9.10(prettier@3.9.10)(typescript@6.0.2)
       '@playwright/test':
         specifier: catalog:test
         version: 1.64.1
@@ -7965,22 +7965,20 @@ snapshots:
 
   '@asamuzakjp/nwsapi@2.3.9': {}
 
-  '@astrojs/astro2tsx@0.1.3(@emnapi/runtime@2.0.0-beta.2)':
+  '@astrojs/astro2tsx@0.1.3':
     dependencies:
       '@emnapi/core': 1.11.3
-      '@napi-rs/wasm-runtime': 1.2.4(@emnapi/core@1.11.3)(@emnapi/runtime@2.0.0-beta.2)
-    transitivePeerDependencies:
-      - '@emnapi/runtime'
+      '@emnapi/runtime': 1.11.3
+      '@napi-rs/wasm-runtime': 1.2.4(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)
 
-  '@astrojs/check@0.9.10(@emnapi/runtime@2.0.0-beta.2)(prettier@3.9.10)(typescript@6.0.2)':
+  '@astrojs/check@0.9.10(prettier@3.9.10)(typescript@6.0.2)':
     dependencies:
-      '@astrojs/language-server': 2.17.3(@emnapi/runtime@2.0.0-beta.2)(prettier@3.9.10)(typescript@6.0.2)
+      '@astrojs/language-server': 2.17.3(prettier@3.9.10)(typescript@6.0.2)
       chokidar: 4.0.3
       kleur: 4.1.5
       typescript: 6.0.2
       yargs: 18.2.0
     transitivePeerDependencies:
-      - '@emnapi/runtime'
       - prettier
       - prettier-plugin-astro
 
@@ -8110,9 +8108,9 @@ snapshots:
       unified: 11.0.5
       yaml: 2.9.1
 
-  '@astrojs/language-server@2.17.3(@emnapi/runtime@2.0.0-beta.2)(prettier@3.9.10)(typescript@6.0.2)':
+  '@astrojs/language-server@2.17.3(prettier@3.9.10)(typescript@6.0.2)':
     dependencies:
-      '@astrojs/astro2tsx': 0.1.3(@emnapi/runtime@2.0.0-beta.2)
+      '@astrojs/astro2tsx': 0.1.3
       '@astrojs/yaml2ts': 0.2.4
       '@volar/kit': 2.4.30(typescript@6.0.2)
       '@volar/language-core': 2.4.30
@@ -8132,7 +8130,6 @@ snapshots:
     optionalDependencies:
       prettier: 3.9.10
     transitivePeerDependencies:
-      - '@emnapi/runtime'
       - typescript
 
   '@astrojs/markdown-satteri@0.4.10':
@@ -9017,11 +9014,11 @@ snapshots:
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.9.1
-    optional: true
 
   '@emnapi/runtime@2.0.0-beta.2':
     dependencies:
       tslib: 2.9.1
+    optional: true
 
   '@emnapi/wasi-threads@1.2.2':
     dependencies:
@@ -9953,10 +9950,10 @@ snapshots:
       - supports-color
       - typescript
 
-  '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.11.3)(@emnapi/runtime@2.0.0-beta.2)':
+  '@napi-rs/wasm-runtime@1.2.4(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)':
     dependencies:
       '@emnapi/core': 1.11.3
-      '@emnapi/runtime': 2.0.0-beta.2
+      '@emnapi/runtime': 1.11.3
       '@tybys/wasm-util': 0.10.4
 
   '@napi-rs/wasm-runtime@1.2.6(@emnapi/core@2.0.0-beta.2)(@emnapi/runtime@2.0.0-beta.2)':
