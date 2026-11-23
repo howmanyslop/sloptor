@@ -167,3 +167,53 @@ fn is_path_descendant_of_matches_rel() {
 		check(&dir_path, &file_path);
 	}
 }
+
+#[test]
+fn windows_clean_and_descendant_helpers_match_gopath() {
+	use super::{is_clean_windows_absolute, windows_descendant_rel};
+
+	for (path, want_clean) in [
+		(r"C:\", true),
+		(r"c:\a\b\c.luau", true),
+		(r"C:\a\..foo\b", true),
+		(r"C:\a\", false),
+		(r"C:/a/b", false),
+		(r"C:\a\.\b", false),
+		(r"C:\a\..\b", false),
+		(r"C:\a\\b", false),
+		(r"\\host\share\a", false),
+		("a/b", false),
+	] {
+		assert_eq!(
+			is_clean_windows_absolute(path),
+			want_clean,
+			"is_clean_windows_absolute({path:?})"
+		);
+		if want_clean {
+			assert_eq!(gopath::Flavor::Windows.clean_cow(path), path);
+		}
+	}
+
+	let pairs = [
+		(r"C:\proj\out\main.luau", r"C:\proj\out", Some("main.luau")),
+		(r"c:\PROJ\OUT\sub\init.luau", r"C:\proj\out", Some(r"sub\init.luau")),
+		(r"C:\proj\out", r"C:\proj\out", Some("")),
+		(r"C:\proj\OUT", r"C:\proj\out", Some("")),
+		(r"C:\a\b", r"C:\", Some(r"a\b")),
+		(r"D:\a\b", r"C:\", None),
+		(r"C:\proj\out2\main.luau", r"C:\proj\out", None),
+		(r"C:\proj\out\..foo", r"C:\proj\out", Some("..foo")),
+	];
+	for (file_path, dir_path, want_rel) in pairs {
+		let got = windows_descendant_rel(file_path, dir_path);
+		assert_eq!(got, want_rel, "windows_descendant_rel({file_path:?}, {dir_path:?})");
+		let expected_descendant = gopath::Flavor::Windows
+			.rel(dir_path, file_path)
+			.is_ok_and(|rel| !rel.starts_with(".."));
+		assert_eq!(
+			got.is_some_and(|rel| !rel.starts_with("..")),
+			expected_descendant,
+			"descendant mismatch for ({file_path:?}, {dir_path:?})"
+		);
+	}
+}

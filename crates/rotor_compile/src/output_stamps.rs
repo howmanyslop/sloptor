@@ -2,10 +2,9 @@
 //!
 //! Validating the previous build's output hashes (`validatedOutputHashes`) reads only the files
 //! whose stat changed; Go reads and hashes every output on every build. A file whose size,
-//! modification and status-change times, inode and device all match the recorded ones holds the
-//! recorded content: any write updates the status-change time, which no tool can set. The cache
-//! lives in `.rotor/cache`, is a pure accelerator, and is only trusted on Unix; elsewhere every
-//! output is read.
+//! modification and status-change/creation times, and inode/attributes all match the recorded ones
+//! holds the recorded content. The cache lives in `.rotor/cache`, is a pure accelerator, and is
+//! trusted on Unix and Windows; elsewhere every output is read.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -28,9 +27,9 @@ pub(crate) struct FileStamp {
 }
 
 impl FileStamp {
-	/// The stamp of a regular file's metadata; `None` off Unix.
+	/// The stamp of a regular file's metadata; `None` off Unix and Windows.
 	#[cfg(unix)]
-	#[expect(clippy::unnecessary_wraps, reason = "the stamp is `None` off Unix")]
+	#[expect(clippy::unnecessary_wraps, reason = "the stamp is `None` off Unix and Windows")]
 	pub(crate) fn of(metadata: &fs::Metadata) -> Option<Self> {
 		use std::os::unix::fs::MetadataExt;
 		Some(Self {
@@ -42,11 +41,33 @@ impl FileStamp {
 		})
 	}
 
-	/// The stamp of a regular file's metadata; `None` off Unix.
-	#[cfg(not(unix))]
+	/// The stamp of a regular file's metadata; `None` off Unix and Windows.
+	#[cfg(windows)]
+	#[expect(clippy::unnecessary_wraps, reason = "the stamp is `None` off Unix and Windows")]
+	pub(crate) fn of(metadata: &fs::Metadata) -> Option<Self> {
+		use std::os::windows::fs::MetadataExt;
+		Some(Self {
+			len: metadata.file_size(),
+			mtime: i128::from(metadata.last_write_time()),
+			ctime: i128::from(metadata.creation_time()),
+			ino: u64::from(metadata.file_attributes()),
+			dev: 0,
+		})
+	}
+
+	/// The stamp of a regular file's metadata; `None` off Unix and Windows.
+	#[cfg(not(any(unix, windows)))]
 	pub(crate) const fn of(_metadata: &fs::Metadata) -> Option<Self> {
 		None
 	}
+}
+
+/// 20 ms in 100-ns NTFS FILETIME units, covering Windows's ~15.625 ms timer tick granularity.
+#[cfg(any(windows, test))]
+const WINDOWS_RACY_MARGIN_100NS: i128 = 200_000;
+
+const fn is_racy_with_margin(mtime: i128, ctime: i128, written: i128, margin: i128) -> bool {
+	mtime.saturating_add(margin) >= written || ctime.saturating_add(margin) >= written
 }
 
 impl FileStamp {
@@ -55,7 +76,14 @@ impl FileStamp {
 	/// later, can be rewritten with the same size and times; `written` is the stamps file's mtime,
 	/// from the same clock and at the same granularity as the file's times.
 	const fn racy(&self, written: i128) -> bool {
-		self.mtime >= written || self.ctime >= written
+		#[cfg(windows)]
+		{
+			is_racy_with_margin(self.mtime, self.ctime, written, WINDOWS_RACY_MARGIN_100NS)
+		}
+		#[cfg(not(windows))]
+		{
+			is_racy_with_margin(self.mtime, self.ctime, written, 0)
+		}
 	}
 }
 
@@ -184,7 +212,7 @@ impl OutputStamps {
 	}
 }
 
-// `FileStamp::of` is `None` off Unix, so nothing is loaded or trusted there.
+// Uses Unix nanosecond timestamps; Windows FILETIME margin behavior is covered in `racy_margin_tests`.
 #[cfg(all(test, unix))]
 mod tests {
 	use std::collections::BTreeMap;
@@ -239,5 +267,32 @@ mod tests {
 			.map(|(key, _)| *key)
 			.collect();
 		assert_eq!(trusted, ["old.luau"], "trusted stamps");
+	}
+}
+
+#[cfg(test)]
+mod racy_margin_tests {
+	use super::{WINDOWS_RACY_MARGIN_100NS, is_racy_with_margin};
+
+	#[test]
+	fn racy_with_margin_accounts_for_tick_granularity() {
+		let written = 1_000_000;
+		assert!(!is_racy_with_margin(written - 1, written - 1, written, 0));
+		assert!(is_racy_with_margin(written, written - 1, written, 0));
+		assert!(is_racy_with_margin(written - 1, written, written, 0));
+
+		// Within 20 ms of `written` is treated as racy on Windows; strictly older is trusted.
+		assert!(is_racy_with_margin(
+			written - WINDOWS_RACY_MARGIN_100NS,
+			written - WINDOWS_RACY_MARGIN_100NS - 1,
+			written,
+			WINDOWS_RACY_MARGIN_100NS,
+		));
+		assert!(!is_racy_with_margin(
+			written - WINDOWS_RACY_MARGIN_100NS - 1,
+			written - WINDOWS_RACY_MARGIN_100NS - 1,
+			written,
+			WINDOWS_RACY_MARGIN_100NS,
+		));
 	}
 }

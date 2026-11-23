@@ -7,15 +7,15 @@ use super::{Temp, copy_dir, repo_root};
 use crate::project::ProjectOptions;
 use crate::sidecar::set_test_env;
 
-/// `transformersFixtureDir`: the fixture must be installed (`bun install --no-save` in
-/// testdata/transformers/project); a silently skipped real-package test would claim coverage it
-/// did not have, so the port fails instead.
+/// `transformersFixtureDir`: the fixture must be installed (`mise run testdata:install`); a
+/// silently skipped real-package test would claim coverage it did not have, so the port fails
+/// instead.
 fn transformers_fixture_dir() -> std::path::PathBuf {
 	let dir = repo_root().join("testdata/transformers/project");
 	assert!(
 		dir.join("node_modules/rbxts-transformer-flamework/package.json")
 			.exists(),
-		"transformers fixture dependencies not installed (run `bun install --no-save` in testdata/transformers/project)"
+		"transformers fixture dependencies not installed (run `mise run testdata:install`)"
 	);
 	dir
 }
@@ -86,7 +86,7 @@ fn native_flamework_fixture() -> Temp {
 	let legacy_node_modules = fixture_root.join("project/node_modules");
 	assert!(
 		legacy_node_modules.join("@flamework/core/package.json").exists(),
-		"Flamework fixture dependencies not installed (run `bun install --no-save` in testdata/transformers/project)"
+		"Flamework fixture dependencies not installed (run `mise run testdata:install`)"
 	);
 	let fixture = fixture_root.join("native/project");
 	let temp = Temp::new();

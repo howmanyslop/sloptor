@@ -19,7 +19,7 @@ use rotor_tsrs::vfs::{FS, wrapvfs};
 
 use crate::compile::Error;
 use crate::incremental_manifest::normalize_source_file_path;
-use crate::overlayfs::{canonical_existing_overlay_path, overlay_aliases, overlay_text};
+use crate::overlayfs::{overlay_aliases, overlay_text, resolve_overlay_physical_paths};
 use crate::project::lock;
 use crate::sidecar::{normalize_overlay_path, remap_program_source_files};
 use crate::source_trace::{DiagnosticTraces, SourceTraceMap, compose_source_trace_maps};
@@ -464,34 +464,20 @@ pub(crate) fn parallel_overlay_aliases(
 	if ordered.len() <= 1 {
 		return overlay_aliases(&ordered, "", case_sensitive);
 	}
-	let mut entries: Vec<OverlayAliasEntry> = ordered
+	let keys: Vec<&str> = ordered.keys().map(String::as_str).collect();
+	let physicals = resolve_overlay_physical_paths(&keys, case_sensitive);
+	let entries: Vec<OverlayAliasEntry> = ordered
 		.into_iter()
-		.map(|(path, text)| OverlayAliasEntry {
+		.zip(physicals)
+		.map(|((path, text), physical)| OverlayAliasEntry {
 			path,
 			text,
-			physical: None,
+			physical,
 			panic: None,
 		})
 		.collect();
 	let config_dir = gopath::dir(&gopath::from_slash(""));
 	let canonical_config_dir = fsutil::eval_symlinks(&config_dir).ok();
-	// Workers stride over the entries, so no more realpath calls block at once than there are
-	// threads.
-	let workers = std::thread::available_parallelism()
-		.map_or(1, std::num::NonZero::get)
-		.min(entries.len());
-	let slots: Vec<Mutex<&mut OverlayAliasEntry>> = entries.iter_mut().map(Mutex::new).collect();
-	rotor_tsrs::threads::scope(|scope| {
-		for worker in 0..workers {
-			let slots = &slots;
-			scope.spawn(move || {
-				for slot in slots.iter().skip(worker).step_by(workers) {
-					lock(slot).resolve(case_sensitive);
-				}
-			});
-		}
-	});
-	drop(slots);
 	merge_overlay_aliases(entries, &config_dir, canonical_config_dir.as_deref(), case_sensitive)
 }
 
@@ -503,18 +489,6 @@ pub(crate) struct OverlayAliasEntry {
 	pub(crate) physical: Option<String>,
 	/// Go's `panicked` and `recovered`.
 	pub(crate) panic: Option<Panic>,
-}
-
-impl OverlayAliasEntry {
-	/// `resolve`
-	fn resolve(&mut self, case_sensitive: bool) {
-		match catch_unwind(AssertUnwindSafe(|| {
-			canonical_existing_overlay_path(&self.path, case_sensitive)
-		})) {
-			Ok(physical) => self.physical = physical,
-			Err(panic) => self.panic = Some(panic),
-		}
-	}
 }
 
 /// `mergeOverlayAliases`: the insertion loop of `overlay_aliases` over resolved entries, in entry

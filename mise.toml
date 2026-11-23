@@ -12,7 +12,7 @@ cargo.binstall_native = true
 [tools]
 "cargo:cargo-nextest" = "latest"
 "github:bnjbvr/cargo-machete" = "latest"
-"github:howmanyslop/sloptor" = "3.0.0-beta.4"
+"github:howmanyslop/sloptor" = "3.0.0-beta.5"
 "github:lune-org/lune" = "0.10.1"
 "github:plasma-node/rbxtsgo" = "0.1.1"
 "github:rojo-rbx/rojo" = "7.6.1"
@@ -360,6 +360,15 @@ run = "cargo build --locked --release -p rotor_cli"
 [tasks."rust:test"]
 description = "Runs the Rust workspace tests with nextest."
 run = "cargo nextest run --locked --workspace --no-tests=pass"
+
+[tasks."testdata:install"]
+description = "Installs the test fixture projects' dependencies the way CI does: a hoisted bun install outside the pnpm workspace. The oracle tests need a flat node_modules."
+run = '''
+set -euo pipefail
+for dir in testdata/diff/project testdata/conformance/project testdata/transformers/project; do
+	(cd "$dir" && bun install --no-save)
+done
+'''
 
 [tasks."tools:test"]
 description = "Runs the unit tests for tools/tsrs-mirror."

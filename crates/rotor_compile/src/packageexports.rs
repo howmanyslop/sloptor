@@ -1,9 +1,12 @@
 //! `packageexports.go`: the types-entry to shipped-runtime mapping the transformer uses for
 //! `node_modules` imports, from each package's `exports`, `types`/`typings` and `main`.
 
+use std::cell::RefCell;
+
 use rotor_rojo::canonical_file_name;
 use rotor_support::gopath;
 use rotor_transformer::{NodeModulesPathMapping, NodeModulesPathPattern};
+use rustc_hash::FxHashMap;
 
 use crate::gojson::{self, Value};
 use crate::packageexports_parse::{export_mappings, has_package_exports};
@@ -132,13 +135,20 @@ pub(crate) fn create_node_modules_path_mapping(
 	use_case_sensitive_file_names: bool,
 	custom_conditions: &[String],
 ) -> NodeModulesPathMapping {
-	build_node_modules_path_mappings(
-		type_roots,
-		use_case_sensitive_file_names,
-		custom_conditions,
-		&remap_to_rojo_tree,
-	)
-	.runtime
+	let tree_cache: RefCell<FxHashMap<String, Option<String>>> = RefCell::new(FxHashMap::default());
+	let remap = |pkg_dir: &str, runtime_path: &str| {
+		let cached = tree_cache.borrow().get(pkg_dir).cloned();
+		let tree_path = cached.unwrap_or_else(|| {
+			let resolved = resolve_rojo_tree_path(pkg_dir);
+			tree_cache.borrow_mut().insert(pkg_dir.to_owned(), resolved.clone());
+			resolved
+		});
+		tree_path.map_or_else(
+			|| runtime_path.to_owned(),
+			|rojo_tree_path| remap_runtime_path(pkg_dir, runtime_path, &rojo_tree_path),
+		)
+	};
+	build_node_modules_path_mappings(type_roots, use_case_sensitive_file_names, custom_conditions, &remap).runtime
 }
 
 /// `nodeModulesPathMappings`
@@ -309,27 +319,24 @@ fn add_package_pattern(
 	});
 }
 
-/// `remapToRojoTree`: a runtime path outside the package's Rojo tree `$path` is moved into it.
-pub(crate) fn remap_to_rojo_tree(pkg_dir: &str, runtime_path: &str) -> String {
+fn resolve_rojo_tree_path(pkg_dir: &str) -> Option<String> {
 	let (Some(project_path), _) = rotor_rojo::find_rojo_config_file_path(pkg_dir) else {
-		return runtime_path.to_owned();
+		return None;
 	};
 	let Ok((_, tree)) = rotor_rojo::parse_project_file(&project_path) else {
-		return runtime_path.to_owned();
+		return None;
 	};
-	if tree.path.is_none() {
-		return runtime_path.to_owned();
-	}
+	tree.path?;
 	let Ok(data) = std::fs::read(&project_path) else {
-		return runtime_path.to_owned();
+		return None;
 	};
 	let Ok(project) = gojson::parse(&data) else {
-		return runtime_path.to_owned();
+		return None;
 	};
 	let Some(Value::String(rojo_tree_path)) = project.field("tree").and_then(|tree| tree.field("$path")) else {
-		return runtime_path.to_owned();
+		return None;
 	};
-	remap_runtime_path(pkg_dir, runtime_path, rojo_tree_path)
+	Some(rojo_tree_path.clone())
 }
 
 /// `remapRuntimePath`: replaces the first segment of a runtime path outside the Rojo tree

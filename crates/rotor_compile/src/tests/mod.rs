@@ -236,12 +236,12 @@ pub fn copy_dir(src: &Path, dst: &Path) {
 	fs::create_dir_all(dst).expect("the destination directory");
 	for entry in fs::read_dir(src).expect("the source directory reads") {
 		let entry = entry.expect("a directory entry");
+		let path = entry.path();
 		let target = dst.join(entry.file_name());
-		let file_type = entry.file_type().expect("the entry's type");
-		if file_type.is_dir() {
-			copy_dir(&entry.path(), &target);
+		if path.is_dir() {
+			copy_dir(&path, &target);
 		} else {
-			fs::copy(entry.path(), target).expect("the file copies");
+			fs::copy(&path, target).expect("the file copies");
 		}
 	}
 }

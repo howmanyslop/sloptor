@@ -24,7 +24,7 @@ use crate::macro_inputs::macro_input_values;
 use crate::native_types::effective_native_types;
 use crate::package_layout::hex_sha256;
 use crate::project::{
-	ProjectOptions, create_project_reference_path_map, resolve_include_path, resolve_rojo_config_path,
+	ProjectOptions, create_project_reference_path_map, resolve_include_path, resolve_rojo_config_path_cached,
 };
 
 /// `outputManifestPath`: where a project without a build info path keeps its manifest.
@@ -67,7 +67,7 @@ pub(crate) fn incremental_salt_with_flamework(
 		.iter()
 		.map(|(source, output)| (encode_path(source), relative_path(output)))
 		.collect();
-	let (rojo_config_path, _) = resolve_rojo_config_path(dir, &opts.rojo_config_path)?;
+	let (rojo_config_path, _) = resolve_rojo_config_path_cached(dir, opts)?;
 	let include_path = resolve_include_path(dir, &opts.include_path)?;
 	let flamework_salt =
 		flamework_incremental_salt(portable_flamework_incremental_inputs(flamework_inputs, &encode_path).as_ref())?;

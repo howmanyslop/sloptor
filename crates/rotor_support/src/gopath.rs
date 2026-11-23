@@ -685,6 +685,9 @@ pub fn rel(base_path: &str, target_path: &str) -> Result<String, RelError> {
 pub fn abs(path: &str) -> io::Result<String> {
 	#[cfg(windows)]
 	{
+		if is_clean_windows_full_path(path) {
+			return Ok(path.to_owned());
+		}
 		// syscall.FullPath is GetFullPathNameW, which is also what the
 		// standard library's `absolute` calls. An empty path means ".".
 		let full = std::path::absolute(if path.is_empty() { "." } else { path })?;
@@ -698,6 +701,33 @@ pub fn abs(path: &str) -> io::Result<String> {
 		}
 		Ok(join(&[&getwd()?, path]))
 	}
+}
+
+/// Whether `path` is an already-clean ASCII Windows drive-letter path (`X:\` or `X:\a\b`)
+/// guaranteed to be returned unchanged by both `GetFullPathNameW` and [`Flavor::Windows::clean`].
+#[must_use]
+pub fn is_clean_windows_full_path(path: &str) -> bool {
+	if !path.is_ascii() {
+		return false;
+	}
+	let b = path.as_bytes();
+	if b.len() < 3 || !b[0].is_ascii_alphabetic() || b[1] != b':' || b[2] != b'\\' {
+		return false;
+	}
+	if b.len() == 3 {
+		return true;
+	}
+	if b[b.len() - 1] == b'\\' {
+		return false;
+	}
+	path[3..].split('\\').all(|seg| {
+		!seg.is_empty()
+			&& seg != "."
+			&& seg != ".."
+			&& !seg.contains(['/', ':'])
+			&& !seg.ends_with(['.', ' '])
+			&& !is_reserved_name(seg)
+	})
 }
 
 /// `os.Getwd` on Unix: `$PWD` when it names the current directory (so a

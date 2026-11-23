@@ -247,6 +247,10 @@ pub struct ProjectOptions {
 	/// Drops overlay keys that name no file of the program instead of failing.
 	pub ignore_unmatched_overlays: bool,
 	pub(crate) declaration_prefetch: Option<Arc<DeclarationPrefetch>>,
+	/// Skips `ProgramScope` teardown on exit in one-shot single-project CLI builds.
+	pub leak_program_on_exit: bool,
+	pub(crate) cached_package_info: Option<(String, bool)>,
+	pub(crate) cached_rojo_config: Option<(Option<String>, Vec<String>)>,
 }
 
 impl ProjectOptions {
@@ -359,6 +363,14 @@ pub(crate) fn project_is_package(dir: &str) -> Result<(String, bool), Error> {
 	Ok((pkg_json_path, is_package))
 }
 
+/// [`project_is_package`], reusing the per-build cached result on `opts` when present.
+pub(crate) fn project_is_package_cached(dir: &str, opts: &ProjectOptions) -> Result<(String, bool), Error> {
+	if let Some(cached) = &opts.cached_package_info {
+		return Ok(cached.clone());
+	}
+	project_is_package(dir)
+}
+
 /// `json.Unmarshal` into a struct whose `Name string` field is tagged `json:"name"`: the key matches
 /// case-insensitively and the last match wins; `None` where the unmarshal fails (not an object,
 /// or a matching value that is not a string or `null`).
@@ -419,10 +431,9 @@ pub(crate) fn new_project_context_with_import_context(
 	let options = program.options();
 	let out_dir = options.out_dir.clone();
 
-	let (pkg_json_path, is_package) = project_is_package(dir).map_err(Failure::bare)?;
+	let (pkg_json_path, is_package) = project_is_package_cached(dir, opts).map_err(Failure::bare)?;
 	let include_path = resolve_include_path(dir, &opts.include_path).map_err(Failure::bare)?;
-	let (rojo_config_path, rojo_warnings) =
-		resolve_rojo_config_path(dir, &opts.rojo_config_path).map_err(Failure::bare)?;
+	let (rojo_config_path, rojo_warnings) = resolve_rojo_config_path_cached(dir, opts).map_err(Failure::bare)?;
 	for warning in &rojo_warnings {
 		logservice::warn(warning);
 	}
@@ -515,9 +526,7 @@ pub(crate) fn new_project_context_with_import_context(
 	if needs_transform_import_context {
 		let layout = match &opts.package_layout {
 			Some(layout) => Some(Arc::clone(layout)),
-			None => prepare_package_layout(dir, &options, opts)
-				.map_err(Failure::bare)?
-				.map(Arc::new),
+			None => prepare_package_layout(dir, &options, opts).map_err(Failure::bare)?,
 		};
 		match layout {
 			Some(layout) => {
@@ -580,6 +589,17 @@ pub(crate) fn resolve_rojo_config_path(
 	}
 	let abs = gopath::abs(&gopath::from_slash(configured_path)).map_err(|error| Error::message(error.to_string()))?;
 	Ok((Some(canonical_explicit_path(&abs)), Vec::new()))
+}
+
+/// [`resolve_rojo_config_path`], reusing the per-build cached result on `opts` when present.
+pub(crate) fn resolve_rojo_config_path_cached(
+	dir: &str,
+	opts: &ProjectOptions,
+) -> Result<(Option<String>, Vec<String>), Error> {
+	if let Some(cached) = &opts.cached_rojo_config {
+		return Ok(cached.clone());
+	}
+	resolve_rojo_config_path(dir, &opts.rojo_config_path)
 }
 
 /// `createCrossProjectImportPathMap`
@@ -908,8 +928,9 @@ pub(crate) struct PrecheckedProjectSourceFile {
 /// Source maps by `<relOut>.map`.
 pub(crate) type SourceMaps = BTreeMap<String, String>;
 
-/// Runs `work(index)` for each of `count` groups: on scoped large-stack threads, or inline when
-/// `single_threaded` (Go's `core.NewWorkGroup(singleThreaded)`). Results come back in group order.
+/// Runs `work(index)` for each of `count` groups: on scoped large-stack threads for `1..count`
+/// while running group `0` on the calling thread, or inline when `single_threaded` (Go's
+/// `core.NewWorkGroup(singleThreaded)`). Results come back in group order.
 pub(crate) fn run_work_group<T: Send>(single_threaded: bool, count: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
 	if single_threaded || count <= 1 {
 		return (0..count).map(&work).collect();
@@ -917,24 +938,24 @@ pub(crate) fn run_work_group<T: Send>(single_threaded: bool, count: usize, work:
 	// Session threads: a long-lived session reuses them across rebuilds.
 	rotor_tsrs::threads::scope(|scope| {
 		let work = &work;
-		// Every thread is spawned before the first join, so the groups run concurrently.
-		#[expect(clippy::needless_collect, reason = "the threads must all start before any is joined")]
-		let handles: Vec<_> = (0..count).map(|index| scope.try_spawn(move || work(index))).collect();
-		handles
-			.into_iter()
-			.enumerate()
-			.map(|(index, handle)| {
-				// Spawning failed: run the group here instead.
-				handle.map_or_else(
-					|_| work(index),
-					|handle| {
-						handle
-							.join()
-							.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
-					},
-				)
-			})
-			.collect()
+		// Every thread is spawned before group 0 runs or any handle is joined, so all groups run
+		// concurrently while saving one thread spawn.
+		let handles: Vec<_> = (1..count).map(|index| scope.try_spawn(move || work(index))).collect();
+		let mut results = Vec::with_capacity(count);
+		results.push(work(0));
+		for (offset, handle) in handles.into_iter().enumerate() {
+			let index = offset + 1;
+			// Spawning failed: run the group here instead.
+			results.push(handle.map_or_else(
+				|_| work(index),
+				|handle| {
+					handle
+						.join()
+						.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+				},
+			));
+		}
+		results
 	})
 }
 

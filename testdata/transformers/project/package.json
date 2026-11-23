@@ -5,6 +5,7 @@
 		"roblox-ts": "3.0.0",
 		"typescript": "5.5.3",
 		"@rbxts/compiler-types": "3.0.0-types.0",
+		"@rbxts/t": "3.2.1",
 		"@rbxts/types": "^1.0.800",
 		"@flamework/core": "1.3.2",
 		"rbxts-transformer-flamework": "1.3.2",

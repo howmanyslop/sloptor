@@ -447,7 +447,9 @@ impl RojoResolver {
 			Cow::Owned(abs)
 		};
 		#[cfg(windows)]
-		let abs: Cow<'_, str> = {
+		let abs: Cow<'_, str> = if gopath::is_clean_windows_full_path(file_path) {
+			Cow::Borrowed(file_path)
+		} else {
 			let Ok(abs) = gopath::abs(file_path) else {
 				return RbxPathLookup::Missing;
 			};
@@ -462,6 +464,8 @@ impl RojoResolver {
 		let ext = extname(&file_path);
 		#[cfg(not(windows))]
 		let file_clean = is_clean_unix_absolute(&file_path);
+		#[cfg(windows)]
+		let file_clean = is_clean_windows_absolute(&file_path);
 		for partition in &self.partitions {
 			#[cfg(not(windows))]
 			if file_clean && is_clean_unix_absolute(&partition.fs_path) {
@@ -477,18 +481,35 @@ impl RojoResolver {
 					} else {
 						stripped.get(partition.fs_path.len() + 1..).unwrap_or("")
 					};
-					let mut relative_parts: Vec<&str> = if !relative_path.is_empty() && relative_path != "." {
-						relative_path.split('/').collect()
-					} else {
-						Vec::new()
-					};
-					if is_rojo_script_ext(ext) && relative_parts.last() == Some(&INIT_NAME) {
-						relative_parts.pop();
+					return RbxPathLookup::Found(build_partition_rbx_path(
+						&partition.rbx_path,
+						relative_path,
+						'/',
+						ext,
+					));
+				}
+				continue;
+			}
+			#[cfg(windows)]
+			if file_clean && is_clean_windows_absolute(&partition.fs_path) {
+				if let Some(rel_check) = windows_descendant_rel(&file_path, &partition.fs_path) {
+					if rel_check.starts_with("..") {
+						continue;
 					}
-					let mut result = Vec::with_capacity(partition.rbx_path.len() + relative_parts.len());
-					result.extend(partition.rbx_path.iter().cloned());
-					result.extend(relative_parts.into_iter().map(str::to_owned));
-					return RbxPathLookup::Found(result);
+					let stripped = strip_rojo_exts(&file_path);
+					let relative_path = if stripped.eq_ignore_ascii_case(&partition.fs_path) {
+						""
+					} else if partition.fs_path.len() == 3 {
+						&stripped[3..]
+					} else {
+						stripped.get(partition.fs_path.len() + 1..).unwrap_or("")
+					};
+					return RbxPathLookup::Found(build_partition_rbx_path(
+						&partition.rbx_path,
+						relative_path,
+						'\\',
+						ext,
+					));
 				}
 				continue;
 			}
@@ -498,18 +519,12 @@ impl RojoResolver {
 				let Ok(relative_path) = gopath::rel(&partition.fs_path, stripped) else {
 					continue;
 				};
-				let mut relative_parts: Vec<&str> = if !relative_path.is_empty() && relative_path != "." {
-					relative_path.split(gopath::NATIVE.separator()).collect()
-				} else {
-					Vec::new()
-				};
-				if is_rojo_script_ext(ext) && relative_parts.last() == Some(&INIT_NAME) {
-					relative_parts.pop();
-				}
-				let mut result = Vec::with_capacity(partition.rbx_path.len() + relative_parts.len());
-				result.extend(partition.rbx_path.iter().cloned());
-				result.extend(relative_parts.into_iter().map(str::to_owned));
-				return RbxPathLookup::Found(result);
+				return RbxPathLookup::Found(build_partition_rbx_path(
+					&partition.rbx_path,
+					&relative_path,
+					gopath::NATIVE.separator(),
+					ext,
+				));
 			}
 		}
 		RbxPathLookup::Missing
@@ -962,6 +977,21 @@ fn unix_descendant_rel<'a>(file_path: &'a str, dir_path: &str) -> Option<&'a str
 	}
 }
 
+fn build_partition_rbx_path(base: &[String], relative_path: &str, separator: char, ext: &str) -> RbxPath {
+	let mut relative_parts: Vec<&str> = if !relative_path.is_empty() && relative_path != "." {
+		relative_path.split(separator).collect()
+	} else {
+		Vec::new()
+	};
+	if is_rojo_script_ext(ext) && relative_parts.last() == Some(&INIT_NAME) {
+		relative_parts.pop();
+	}
+	let mut result = Vec::with_capacity(base.len() + relative_parts.len());
+	result.extend(base.iter().cloned());
+	result.extend(relative_parts.into_iter().map(str::to_owned));
+	result
+}
+
 /// Mirrors `RojoResolver.ts` L124-126, including the quirk that a direct child
 /// whose name starts with `..` is treated as outside.
 fn is_path_descendant_of(file_path: &str, dir_path: &str) -> bool {
@@ -969,13 +999,55 @@ fn is_path_descendant_of(file_path: &str, dir_path: &str) -> bool {
 		return true;
 	}
 	// filepath.Rel allocates a "../.." string for every non-descendant, and
-	// this runs once per partition. Windows stays on it because it compares
-	// paths case-insensitively there.
+	// this runs once per partition.
 	#[cfg(not(windows))]
 	if is_clean_absolute(file_path) && is_clean_absolute(dir_path) {
 		return unix_descendant_rel(file_path, dir_path).is_some_and(|rel| !rel.starts_with(".."));
 	}
+	#[cfg(windows)]
+	if is_clean_windows_absolute(file_path) && is_clean_windows_absolute(dir_path) {
+		return windows_descendant_rel(file_path, dir_path).is_some_and(|rel| !rel.starts_with(".."));
+	}
 	gopath::rel(dir_path, file_path).is_ok_and(|rel| !rel.starts_with(".."))
+}
+
+/// Whether `p` is an already-clean ASCII Windows drive-letter path (`X:\` or `X:\a\b`).
+#[must_use]
+pub fn is_clean_windows_absolute(p: &str) -> bool {
+	if !p.is_ascii() {
+		return false;
+	}
+	let bytes = p.as_bytes();
+	if bytes.len() < 3 || !bytes[0].is_ascii_alphabetic() || bytes[1] != b':' || bytes[2] != b'\\' {
+		return false;
+	}
+	if bytes.len() == 3 {
+		return true;
+	}
+	if bytes[bytes.len() - 1] == b'\\' {
+		return false;
+	}
+	p[3..]
+		.split('\\')
+		.all(|seg| !seg.is_empty() && seg != "." && seg != ".." && !seg.contains(['/', ':']))
+}
+
+/// Relative tail of `file_path` under `dir_path` when both are clean ASCII Windows absolute paths.
+#[must_use]
+#[inline]
+pub fn windows_descendant_rel<'a>(file_path: &'a str, dir_path: &str) -> Option<&'a str> {
+	if file_path.eq_ignore_ascii_case(dir_path) {
+		return Some("");
+	}
+	let prefix = file_path.get(..dir_path.len())?;
+	if !prefix.eq_ignore_ascii_case(dir_path) {
+		return None;
+	}
+	if dir_path.len() == 3 {
+		Some(&file_path[3..])
+	} else {
+		file_path.get(dir_path.len()..)?.strip_prefix('\\')
+	}
 }
 
 /// Whether `p` is rooted and `gopath::clean` would leave it unchanged, without allocating.

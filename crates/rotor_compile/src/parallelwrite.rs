@@ -13,9 +13,6 @@ pub(crate) const WRITE_CONCURRENCY_DEFAULT: usize = 8;
 /// `writeSyncCutoff`: fewer jobs than this run sequentially.
 pub(crate) const WRITE_SYNC_CUTOFF: usize = 16;
 
-/// One write job.
-pub(crate) type Job<'a> = Box<dyn FnOnce() -> Result<(), Error> + Send + 'a>;
-
 /// `writeWorkers`: `RBXTSC_WRITE_CONCURRENCY`, then `ROTOR_WRITE_WORKERS`, then 8.
 pub(crate) fn write_workers() -> usize {
 	write_workers_from(|name| std::env::var(name).ok())
@@ -62,49 +59,6 @@ fn parse_go_float(raw: &str) -> Option<f64> {
 	raw.parse::<f64>().ok()
 }
 
-/// `parallelize`: runs `jobs` on up to `workers` workers. After the first error the queued jobs
-/// are skipped; running ones finish. Returns the first error.
-pub(crate) fn parallelize(workers: usize, jobs: Vec<Job<'_>>) -> Result<(), Error> {
-	let workers = workers.min(WRITE_CONCURRENCY_CAP);
-	if workers <= 1 || jobs.len() < WRITE_SYNC_CUTOFF {
-		for job in jobs {
-			job()?;
-		}
-		return Ok(());
-	}
-	let queue: Vec<Mutex<Option<Job<'_>>>> = jobs.into_iter().map(|job| Mutex::new(Some(job))).collect();
-	let next = AtomicUsize::new(0);
-	let first: Mutex<Option<Error>> = Mutex::new(None);
-	rotor_tsrs::threads::scope(|scope| {
-		for _ in 0..workers {
-			scope.spawn(|| {
-				loop {
-					let index = next.fetch_add(1, Ordering::Relaxed);
-					let Some(slot) = queue.get(index) else {
-						return;
-					};
-					let Some(job) = slot.lock().unwrap_or_else(PoisonError::into_inner).take() else {
-						continue;
-					};
-					if first.lock().unwrap_or_else(PoisonError::into_inner).is_some() {
-						continue;
-					}
-					if let Err(error) = job() {
-						let mut first = first.lock().unwrap_or_else(PoisonError::into_inner);
-						if first.is_none() {
-							*first = Some(error);
-						}
-					}
-				}
-			});
-		}
-	});
-	first
-		.into_inner()
-		.unwrap_or_else(PoisonError::into_inner)
-		.map_or(Ok(()), Err)
-}
-
 /// Runs `work` over `items` using up to `workers` worker threads when `items.len() >= cutoff`,
 /// accumulating into per-worker `A` values and returning them without per-item heap or mutex
 /// overhead.
@@ -126,41 +80,40 @@ pub(crate) fn parallel_fold_with_cutoff<T: Sync, A: Default + Send>(
 	let next = AtomicUsize::new(0);
 	let failed = AtomicBool::new(false);
 	let first: Mutex<Option<Error>> = Mutex::new(None);
-	let results = rotor_tsrs::threads::scope(|scope| {
-		let handles: Vec<_> = (0..worker_count)
-			.map(|_| {
-				scope.spawn(|| {
-					let mut acc = A::default();
-					loop {
-						if failed.load(Ordering::Relaxed) {
-							break;
-						}
-						let index = next.fetch_add(1, Ordering::Relaxed);
-						let Some(item) = items.get(index) else {
-							break;
-						};
-						if let Err(error) = work(&mut acc, item) {
-							failed.store(true, Ordering::Relaxed);
-							let mut guard = first.lock().unwrap_or_else(PoisonError::into_inner);
-							if guard.is_none() {
-								*guard = Some(error);
-							}
-							drop(guard);
-							break;
-						}
-					}
-					acc
-				})
-			})
-			.collect();
-		handles
-			.into_iter()
-			.map(|handle| {
+	let run_worker = || {
+		let mut acc = A::default();
+		loop {
+			if failed.load(Ordering::Relaxed) {
+				break;
+			}
+			let index = next.fetch_add(1, Ordering::Relaxed);
+			let Some(item) = items.get(index) else {
+				break;
+			};
+			if let Err(error) = work(&mut acc, item) {
+				failed.store(true, Ordering::Relaxed);
+				let mut guard = first.lock().unwrap_or_else(PoisonError::into_inner);
+				if guard.is_none() {
+					*guard = Some(error);
+				}
+				drop(guard);
+				break;
+			}
+		}
+		acc
+	};
+	let results = rotor_tsrs::threads::scope_io(|scope| {
+		let handles: Vec<_> = (1..worker_count).map(|_| scope.spawn(run_worker)).collect();
+		let mut results = Vec::with_capacity(worker_count);
+		results.push(run_worker());
+		for handle in handles {
+			results.push(
 				handle
 					.join()
-					.unwrap_or_else(|payload| std::panic::resume_unwind(payload))
-			})
-			.collect::<Vec<_>>()
+					.unwrap_or_else(|payload| std::panic::resume_unwind(payload)),
+			);
+		}
+		results
 	});
 	if let Some(error) = first.into_inner().unwrap_or_else(PoisonError::into_inner) {
 		return Err(error);

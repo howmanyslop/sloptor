@@ -903,9 +903,15 @@ main:has(.note-row) .sl-container {
 	border-top-style: dotted;
 }
 
-.figure-link {
-	display: inline-block;
+.figure-links {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	align-items: flex-start;
 	margin-top: 1rem;
+}
+
+.figure-link {
 	font-size: 0.875rem;
 }
 

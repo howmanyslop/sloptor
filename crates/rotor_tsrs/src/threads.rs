@@ -1,60 +1,124 @@
-//! Scoped threads that a long-lived session reuses.
+//! Scoped threads that are reused across scopes and sessions.
 //!
 //! [`scope`] works like [`std::thread::scope`]: every job spawned in it has a thread of its own
-//! and finishes before `scope` returns. In a one-shot build each job gets a new thread that ends
-//! with it, as before. In a long-lived session ([`crate::project::set_long_lived`]) a finished
-//! thread waits for the next job instead of exiting: a watch rebuild started and ended about ten
-//! threads, and each ended thread left mimalloc pages and a tsrs arena behind.
+//! and finishes before `scope` returns. [`scope_io`] uses a 2 MiB stack pool for file I/O rather
+//! than the 512 MiB checker stack. Idle threads wait up to [`IDLE_TIMEOUT`] in one-shot builds
+//! (and indefinitely when [`crate::project::long_lived`] is set) so consecutive scopes reuse live
+//! threads instead of paying thread creation and 512 MiB stack teardown per scope.
 //!
-//! A reused thread does what its exit would have done between jobs (the tsrs thread state, its
-//! arena handed on), and [`for_each_idle`] lets the session collect each one's allocator heap.
+//! A reused checker thread does what its exit would have done between jobs (the tsrs thread state,
+//! its arena handed on), and [`for_each_idle`] lets the session collect each one's allocator heap.
 
 use std::any::Any;
 use std::marker::PhantomData;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
+use std::time::Duration;
 
 use crate::CHECKER_STACK_BYTES;
 
+/// Stack size for pure I/O workers (`parallelwrite`, non-compiled file copy).
+const IO_STACK_BYTES: usize = 2 << 20;
+
+/// How long an idle worker thread waits for its next job in a one-shot build before exiting.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(1);
+
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
-/// The threads waiting for a job.
-static IDLE: Mutex<Vec<Sender<Job>>> = Mutex::new(Vec::new());
+#[derive(Clone, Copy)]
+enum Pool {
+	Checker,
+	Io,
+}
+
+struct IdleThread {
+	thread: std::thread::ThreadId,
+	jobs: Sender<Job>,
+}
+
+/// Idle checker threads waiting for a job.
+static IDLE: Mutex<Vec<IdleThread>> = Mutex::new(Vec::new());
+/// Idle I/O threads waiting for a job.
+static IO_IDLE: Mutex<Vec<IdleThread>> = Mutex::new(Vec::new());
+
+impl Pool {
+	const fn idle(self) -> &'static Mutex<Vec<IdleThread>> {
+		match self {
+			Self::Checker => &IDLE,
+			Self::Io => &IO_IDLE,
+		}
+	}
+
+	const fn stack_size(self) -> usize {
+		match self {
+			Self::Checker => CHECKER_STACK_BYTES,
+			Self::Io => IO_STACK_BYTES,
+		}
+	}
+
+	const fn name(self) -> &'static str {
+		match self {
+			Self::Checker => "rotor-worker",
+			Self::Io => "rotor-io-worker",
+		}
+	}
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 	mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Runs `job` on an idle session thread, or on a new one.
-fn run(mut job: Job) -> std::io::Result<()> {
+/// Runs `job` on an idle thread from `pool`, or on a new one.
+fn run(pool: Pool, mut job: Job) -> std::io::Result<()> {
 	loop {
-		let Some(idle) = lock(&IDLE).pop() else {
+		let Some(idle) = lock(pool.idle()).pop() else {
 			break;
 		};
-		match idle.send(job) {
+		match idle.jobs.send(job) {
 			Ok(()) => return Ok(()),
 			Err(mpsc::SendError(returned)) => job = returned,
 		}
 	}
 	let (sender, jobs) = mpsc::channel::<Job>();
 	std::thread::Builder::new()
-		.name("rotor-worker".to_owned())
-		.stack_size(CHECKER_STACK_BYTES)
-		.spawn(move || worker(job, &sender, &jobs))?;
+		.name(pool.name().to_owned())
+		.stack_size(pool.stack_size())
+		.spawn(move || worker(pool, job, &sender, &jobs))?;
 	Ok(())
 }
 
-fn worker(mut job: Job, sender: &Sender<Job>, jobs: &Receiver<Job>) {
+fn worker(pool: Pool, mut job: Job, sender: &Sender<Job>, jobs: &Receiver<Job>) {
+	let thread = std::thread::current().id();
 	loop {
 		job();
-		if !crate::project::long_lived() {
+		if matches!(pool, Pool::Checker) {
+			// What the thread's exit would do, so the next job starts as on a new thread.
+			tsrs_ast::stop_id_blocks();
+			tsrs_core::sharedgraph::leave_overlay();
+			tsrs_core::ptr::release_own_arena();
+		}
+		lock(pool.idle()).push(IdleThread {
+			thread,
+			jobs: sender.clone(),
+		});
+		if crate::project::long_lived() {
+			let Ok(next) = jobs.recv() else {
+				return;
+			};
+			job = next;
+			continue;
+		}
+		if let Ok(next) = jobs.recv_timeout(IDLE_TIMEOUT) {
+			job = next;
+			continue;
+		}
+		let mut idle = lock(pool.idle());
+		if let Some(at) = idle.iter().position(|entry| entry.thread == thread) {
+			idle.swap_remove(at);
 			return;
 		}
-		// What the thread's exit would do, so the next job starts as on a new thread.
-		tsrs_ast::stop_id_blocks();
-		tsrs_core::sharedgraph::leave_overlay();
-		tsrs_core::ptr::release_own_arena();
-		lock(&IDLE).push(sender.clone());
+		drop(idle);
+		// `run()` already popped our entry and is sending a job.
 		let Ok(next) = jobs.recv() else {
 			return;
 		};
@@ -69,19 +133,21 @@ fn worker(mut job: Job, sender: &Sender<Job>, jobs: &Receiver<Job>) {
 ///
 /// No thread could be started for it.
 pub fn spawn(job: impl FnOnce() + Send + 'static) -> std::io::Result<()> {
-	run(Box::new(job))
+	run(Pool::Checker, Box::new(job))
 }
 
-/// Runs `f` on every idle session thread and waits for all of them (the session's trim between
-/// passes).
+/// Runs `f` on every idle session thread (both checker and I/O pools) and waits for all of them
+/// (the session's trim between passes).
 pub fn for_each_idle(f: impl Fn() + Send + Sync + 'static) {
-	let idle = std::mem::take(&mut *lock(&IDLE));
+	let mut idle = std::mem::take(&mut *lock(&IDLE));
+	idle.extend(std::mem::take(&mut *lock(&IO_IDLE)));
 	let f = Arc::new(f);
 	let (done, finished) = mpsc::channel::<()>();
 	let mut sent = 0;
 	for thread in idle {
 		let (f, done) = (Arc::clone(&f), done.clone());
 		if thread
+			.jobs
 			.send(Box::new(move || {
 				f();
 				let _ = done.send(());
@@ -108,6 +174,7 @@ struct Pending {
 
 /// A scope's handle for spawning jobs ([`std::thread::Scope`]).
 pub struct Scope<'scope, 'env: 'scope> {
+	pool: Pool,
 	pending: Arc<Pending>,
 	_lifetime: PhantomData<&'scope mut &'scope ()>,
 	_env: PhantomData<&'env mut &'env ()>,
@@ -209,7 +276,7 @@ impl<'scope> Scope<'scope, '_> {
 		// could not be started is uncounted below), so the job never runs after its borrows end.
 		#[expect(unsafe_code, reason = "a scoped job on a thread that outlives the scope")]
 		let job: Job = unsafe { std::mem::transmute::<Box<dyn FnOnce() + Send + 'scope>, Job>(job) };
-		if let Err(error) = run(job) {
+		if let Err(error) = run(self.pool, job) {
 			lock(&self.pending.state).0 -= 1;
 			return Err(error);
 		}
@@ -221,7 +288,7 @@ impl<'scope> Scope<'scope, '_> {
 	}
 }
 
-/// [`std::thread::scope`] on session threads.
+/// [`std::thread::scope`] on pooled checker-stack threads.
 ///
 /// # Panics
 ///
@@ -230,7 +297,27 @@ pub fn scope<'env, F, T>(f: F) -> T
 where
 	F: for<'scope> FnOnce(&'scope Scope<'scope, 'env>) -> T,
 {
+	scope_in(Pool::Checker, f)
+}
+
+/// [`std::thread::scope`] on pooled 2 MiB-stack I/O threads.
+///
+/// # Panics
+///
+/// Resumes the panic of a job that was not joined, after every job finished.
+pub fn scope_io<'env, F, T>(f: F) -> T
+where
+	F: for<'scope> FnOnce(&'scope Scope<'scope, 'env>) -> T,
+{
+	scope_in(Pool::Io, f)
+}
+
+fn scope_in<'env, F, T>(pool: Pool, f: F) -> T
+where
+	F: for<'scope> FnOnce(&'scope Scope<'scope, 'env>) -> T,
+{
 	let scope = Scope {
+		pool,
 		pending: Arc::new(Pending::default()),
 		_lifetime: PhantomData,
 		_env: PhantomData,
@@ -292,5 +379,18 @@ mod tests {
 			});
 		});
 		assert!(unjoined.is_err(), "the scope resumes an unjoined job's panic");
+	}
+
+	#[test]
+	fn io_pool_reuses_threads_across_scopes() {
+		let first = super::scope_io(|scope| scope.spawn(|| std::thread::current().id()).join().ok());
+		// The scope returns once the job finishes, a moment before its worker files itself as idle.
+		let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+		while super::lock(super::Pool::Io.idle()).is_empty() && std::time::Instant::now() < deadline {
+			std::thread::yield_now();
+		}
+		let second = super::scope_io(|scope| scope.spawn(|| std::thread::current().id()).join().ok());
+		assert!(first.is_some());
+		assert_eq!(first, second, "sequential io scopes should reuse the idle thread");
 	}
 }

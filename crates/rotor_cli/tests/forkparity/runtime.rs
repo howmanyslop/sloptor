@@ -165,7 +165,7 @@ fn conformance_project() -> PathBuf {
 	let project = repo_root().join("testdata/conformance/project");
 	assert!(
 		project.join("node_modules/@rbxts").is_dir(),
-		"install testdata/conformance/project's dependencies (bun install --no-save) first"
+		"install testdata/conformance/project's dependencies (mise run testdata:install) first"
 	);
 	project
 }

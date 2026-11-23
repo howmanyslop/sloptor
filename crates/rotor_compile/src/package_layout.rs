@@ -1,6 +1,8 @@
 //! `package_layout.go`: one build's package import inputs, shared by the incremental salt and
 //! emission. It must not survive into the next build.
 
+use std::sync::Arc;
+
 use rotor_rojo::{ProjectFiles, RojoResolver};
 use rotor_support::gopath;
 use rotor_transformer::{NodeModulesPathMapping, ProjectType};
@@ -10,7 +12,7 @@ use crate::compile::Error;
 use crate::gojson;
 use crate::incremental_salt::portable_incremental_rojo_state;
 use crate::packageexports::{build_node_modules_path_mappings, remap_runtime_path};
-use crate::project::{ProjectOptions, project_is_package};
+use crate::project::{ProjectOptions, project_is_package_cached};
 
 /// `packageLayout`
 pub struct PackageLayout {
@@ -31,7 +33,7 @@ pub(crate) fn is_package_build(dir: &str, opts: &ProjectOptions) -> Result<bool,
 	if let Some(project_type) = opts.project_type {
 		return Ok(project_type == ProjectType::Package);
 	}
-	project_is_package(dir).map(|(_, is_package)| is_package)
+	project_is_package_cached(dir, opts).map(|(_, is_package)| is_package)
 }
 
 /// `preparePackageLayout`: `None` unless this is a package build.
@@ -39,12 +41,26 @@ pub(crate) fn prepare_package_layout(
 	dir: &str,
 	options: &rotor_tsrs::CompilerOptions,
 	opts: &ProjectOptions,
-) -> Result<Option<PackageLayout>, Error> {
+) -> Result<Option<Arc<PackageLayout>>, Error> {
 	if opts.emit_declaration_only || !is_package_build(dir, opts)? {
 		return Ok(None);
 	}
-	let files = ProjectFiles::new();
 	let type_roots = options.type_roots.clone().unwrap_or_default();
+	let custom_conditions = options.custom_conditions.clone().unwrap_or_default();
+	let case_sensitive = rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names();
+	let layout = opts.compile_cache.as_ref().map_or_else(
+		|| Arc::new(build_package_layout(&type_roots, &custom_conditions, case_sensitive)),
+		|cache| {
+			cache.get_or_build_package_layout(type_roots.clone(), custom_conditions.clone(), case_sensitive, || {
+				build_package_layout(&type_roots, &custom_conditions, case_sensitive)
+			})
+		},
+	);
+	Ok(Some(layout))
+}
+
+fn build_package_layout(type_roots: &[String], custom_conditions: &[String], case_sensitive: bool) -> PackageLayout {
+	let files = ProjectFiles::new();
 	let resolvers = type_roots
 		.iter()
 		.map(|type_root| RojoResolver::package_imports(&gopath::from_slash(type_root), &files))
@@ -57,19 +73,14 @@ pub(crate) fn prepare_package_layout(
 				|root_path| remap_runtime_path(pkg_dir, runtime_path, &root_path),
 			)
 	};
-	let mappings = build_node_modules_path_mappings(
-		&type_roots,
-		rotor_tsrs::vfs::osvfs::fs().use_case_sensitive_file_names(),
-		options.custom_conditions.as_deref().unwrap_or_default(),
-		&remap,
-	);
-	Ok(Some(PackageLayout {
+	let mappings = build_node_modules_path_mappings(type_roots, case_sensitive, custom_conditions, &remap);
+	PackageLayout {
 		resolvers,
 		mapping: mappings.runtime,
 		portable_mapping: mappings.portable,
 		files,
 		manifests: mappings.manifests,
-	}))
+	}
 }
 
 impl PackageLayout {

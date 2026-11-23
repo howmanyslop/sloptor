@@ -13,7 +13,13 @@ use crate::statementlist::transform_statement_list;
 /// `HeaderComment`: the build comment's text, rendered as `--<text>`.
 #[must_use]
 pub fn header_comment() -> String {
-	format!(" Compiled with sloptor v{}", version::VERSION)
+	header_comment_str().to_owned()
+}
+
+fn header_comment_str() -> &'static str {
+	static HEADER: std::sync::LazyLock<String> =
+		std::sync::LazyLock::new(|| format!(" Compiled with sloptor v{}", version::VERSION));
+	&HEADER
 }
 
 /// `TransformSourceFile`: the file's final Luau statements, ready to render.
@@ -39,10 +45,9 @@ pub fn transform_source_file(state: &mut State<'_>) -> Statements {
 
 	// ModuleScripts `return nil` when they export nothing (transformSourceFile.ts:213-220).
 	// States without a Rojo context treat every file as a ModuleScript.
-	let is_module_script = state.rojo.is_none_or(|rojo| {
-		let output_path = rojo.path_translator.get_output_path(node.file_name());
-		rojo.resolver.get_rbx_type_from_file_path(&output_path) == RbxType::ModuleScript
-	});
+	let is_module_script = state
+		.rojo
+		.is_none_or(|rojo| rojo.resolver.get_rbx_type_from_file_path(&state.source_out_path) == RbxType::ModuleScript);
 	ensure_module_return(&mut state.ast, statements, is_module_script);
 
 	prepend_header(state, statements);
@@ -88,7 +93,7 @@ fn get_last_non_comment_statement(
 /// aliases follow the header.
 pub fn prepend_header(state: &mut State<'_>, statements: Statements) {
 	let header_statements = state.ast.new_list();
-	let header = state.ast.comment(header_comment());
+	let header = state.ast.comment(header_comment_str());
 	state.ast.list_push(header_statements, header);
 
 	if state.uses_runtime_lib {
